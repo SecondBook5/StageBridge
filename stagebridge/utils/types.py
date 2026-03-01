@@ -1,0 +1,144 @@
+"""Shared type aliases and dataclasses used across StageBridge."""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Union
+
+import numpy as np
+import scipy.sparse as sp
+
+if TYPE_CHECKING:
+    import torch
+
+
+# A matrix that may be dense or sparse
+ArrayLike = Union[np.ndarray, sp.spmatrix]
+PathLike = Union[str, Path]
+
+
+@dataclass(slots=True)
+class StageBridgeConfig:
+    """Configuration container for model, OT, and training defaults."""
+
+    # Representation / model
+    input_dim: int = 64
+    hidden_dim: int = 128
+    vector_field_hidden_dim: int = 256
+    num_heads: int = 8
+    num_inducing_points: int = 16
+    num_seed_vectors: int = 1
+    num_stages: int = 5
+    time_embedding_dim: int = 32
+    stage_embedding_dim: int = 32
+    dropout: float = 0.1
+
+    # OT + flow matching
+    ot_epsilon: float = 0.05
+    sinkhorn_iters: int = 80
+    num_ot_pairs: int = 512
+    context_consistency_weight: float = 0.1
+    use_ot: bool = True
+    use_stage_embedding: bool = True
+
+    # Optimization
+    learning_rate: float = 1e-3
+    weight_decay: float = 1e-4
+    grad_clip_norm: float = 1.0
+    max_epochs: int = 150
+    steps_per_epoch: int = 50
+    val_steps: int = 10
+    patience: int = 20
+    gradient_accumulation_steps: int = 1
+
+    # Runtime
+    mixed_precision: bool = True
+    device: str = "cuda"
+    seed: int = 42
+
+    def resolved_device(self) -> str:
+        """Return a valid runtime device string."""
+        if self.device.startswith("cuda"):
+            try:
+                import torch  # local import to avoid hard dependency at import time
+
+                if torch.cuda.is_available():
+                    return self.device
+            except Exception:
+                pass
+            return "cpu"
+        return self.device
+
+
+@dataclass(slots=True)
+class StageBatch:
+    """Typed container for one stage-to-stage training batch."""
+
+    x_src: "torch.Tensor"
+    x_tgt: "torch.Tensor"
+    stage_src: int
+    stage_tgt: int
+    donor_id: str
+    cell_type: "torch.Tensor | None" = None
+    sample_id: str | None = None
+
+    def to(self, device: str) -> "StageBatch":
+        """Move tensor payloads to *device* and return a new StageBatch."""
+        return StageBatch(
+            x_src=self.x_src.to(device),
+            x_tgt=self.x_tgt.to(device),
+            stage_src=self.stage_src,
+            stage_tgt=self.stage_tgt,
+            donor_id=self.donor_id,
+            cell_type=self.cell_type.to(device) if self.cell_type is not None else None,
+            sample_id=self.sample_id,
+        )
+
+
+@dataclass(slots=True)
+class DatasetAuditReport:
+    """Structured report for data readiness checks."""
+
+    snrna_path: str
+    spatial_path: str
+    hlca_path: str
+    snrna_exists: bool
+    spatial_exists: bool
+    hlca_exists: bool
+    snrna_shape: tuple[int, int] | None = None
+    spatial_shape: tuple[int, int] | None = None
+    hlca_shape: tuple[int, int] | None = None
+    required_obs_columns_ok: bool = False
+    canonical_stage_values_ok: bool = False
+    issues: list[str] | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert report to a JSON-serializable dictionary."""
+        payload = asdict(self)
+        payload["issues"] = payload.get("issues") or []
+        return payload
+
+
+@dataclass(slots=True)
+class RunManifest:
+    """Structured provenance record for one training/evaluation run."""
+
+    run_name: str
+    task: str
+    model_name: str
+    variant_label: str | None
+    ablation: str | None
+    seed: int
+    device_requested: str
+    device_resolved: str
+    config_path: str | None
+    config_hash: str | None
+    timestamp_utc: str | None
+    data_paths: dict[str, str]
+    output_paths: dict[str, str]
+    metrics_path: str | None = None
+    notes: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert run manifest to dictionary."""
+        return asdict(self)

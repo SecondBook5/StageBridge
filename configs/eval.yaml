@@ -1,0 +1,15 @@
+defaults:
+  - model: stagebridge
+  - training: default
+  - data: default
+  - splits: donor_holdout
+  - _self_
+
+checkpoint: ""
+split: donor_holdout
+run_name: stagebridge_eval
+output_dir: outputs
+
+hydra:
+  job:
+    chdir: false

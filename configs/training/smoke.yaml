@@ -1,0 +1,19 @@
+# Smoke / CI training config — runs in seconds on CPU, no GPU required.
+max_epochs: 2
+steps_per_epoch: 2
+val_steps: 1
+batch_cells: 32
+num_ot_pairs: 64
+learning_rate: 0.001
+weight_decay: 0.0001
+grad_clip_norm: 1.0
+gradient_accumulation_steps: 1
+patience: 2
+mixed_precision: false
+ot_epsilon: 0.05
+sinkhorn_iters: 5
+context_consistency_weight: 0.1
+use_ot: true
+use_stage_embedding: true
+seed: 42
+device: cpu

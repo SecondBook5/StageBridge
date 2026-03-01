@@ -1,0 +1,12 @@
+data_root: ${oc.env:STAGEBRIDGE_DATA_ROOT,/mnt/e/StageBridge_data}
+snrna_h5ad: ${data.data_root}/processed/anndata/snrna_merged.h5ad
+spatial_h5ad: ${data.data_root}/processed/anndata/spatial_merged.h5ad
+hlca_h5ad: ${data.data_root}/data/reference/hlca/hlca_full_v1.h5ad
+latent_key: X_hlca
+fallback_latent_key: X_pca
+stage_col: stage
+donor_col: patient_id
+sample_col: sample_id
+use_spatial: false
+use_hlca_reference: true
+max_cells: 200000

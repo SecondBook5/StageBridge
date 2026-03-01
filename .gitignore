@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Data — NEVER commit data files
+*.h5ad
+*.h5
+*.hdf5
+*.mtx
+*.mtx.gz
+*.tar.gz
+*.tgz
+*.csv.gz
+*.tsv.gz
+*.bed
+*.bam
+*.bai
+*.fastq*
+*.fq*
+
+# Outputs (keep directory stubs but not generated files)
+outputs/figures/*.png
+outputs/figures/*.pdf
+outputs/figures/*.svg
+outputs/checkpoints/
+outputs/history_*.json
+outputs/tables/*.csv
+outputs/tables/*.tsv
+outputs/tables/*.json
+outputs/tables/poster_abstract_structure.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage / test artefacts
+.coverage
+htmlcov/
+.pytest_cache/
+
+.claude/
+*.pdf
+.local_data/

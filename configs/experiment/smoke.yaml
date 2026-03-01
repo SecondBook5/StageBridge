@@ -1,0 +1,5 @@
+name: smoke
+cross_validate: false
+primary_model: stagebridge
+baseline_models: []
+ablations: []

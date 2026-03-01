@@ -1,0 +1,12 @@
+name: full_benchmark
+cross_validate: true
+primary_model: stagebridge
+baseline_models:
+  - deepsets
+  - no_context
+  - linear
+ablations:
+  - no_ot
+  - no_context
+  - no_stage_embedding
+  - no_context_consistency

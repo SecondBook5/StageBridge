@@ -1,0 +1,106 @@
+name: stagebridge
+# RTX 4000 Ada — driver 581.42 → CUDA ≤12.8 supported.
+# Targeting CUDA 12.6 (latest stable PyTorch wheel as of early 2026).
+#
+# To create:
+#   micromamba create -f environment.yml
+#   micromamba activate stagebridge
+#   pip install -e .
+channels:
+  - pytorch          # official PyTorch CUDA wheels
+  - nvidia           # CUDA runtime / cudnn
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pip
+
+  # ── Core scientific stack ───────────────────────────────────────────────
+  - numpy>=1.24
+  - scipy>=1.10
+  - pandas>=2.0
+  - scikit-learn>=1.3
+  - matplotlib>=3.7
+  - seaborn>=0.13
+  - h5py>=3.9
+  - hdf5>=1.12
+
+  # ── PyTorch — CUDA 12.6 build (RTX 4000 Ada, driver 581.42) ────────────
+  # Driver 581.42 supports CUDA ≤12.8.  CUDA 12.6 is the latest stable
+  # PyTorch release (cu126).  Remove these three lines and add `cpuonly`
+  # if running without a GPU.
+  - pytorch::pytorch>=2.5
+  - pytorch::torchvision
+  - pytorch::pytorch-cuda=12.6
+
+  # ── cuDNN (auto-selected by pytorch channel above, listed for clarity) ──
+  - nvidia::cudnn>=9.0
+
+  # ── Single-cell core (Scverse) ──────────────────────────────────────────
+  - anndata>=0.10
+  - scanpy>=1.10           # sc.pp.*, sc.tl.*, sc.pl.*
+
+  # ── Graph / clustering (scanpy dependencies) ────────────────────────────
+  - python-igraph>=0.11
+  - leidenalg>=0.10
+  - louvain>=0.8
+
+  # ── Spatial transcriptomics ─────────────────────────────────────────────
+  - squidpy>=1.4           # Visium loading, spatial neighbours, Moran's I,
+                           # co-occurrence, neighbourhood enrichment, sq.pl.*
+
+  # ── Batch correction ────────────────────────────────────────────────────
+  - harmonypy>=0.0.9       # Harmony integration across patients / batches
+
+  # ── Dimensionality reduction ─────────────────────────────────────────────
+  - umap-learn>=0.5
+  - pynndescent            # fast ANN for UMAP
+  - numba>=0.57            # UMAP + scVI JIT acceleration
+
+  # ── Utilities ────────────────────────────────────────────────────────────
+  - tqdm>=4.65
+  - joblib>=1.3
+  - psutil                 # memory monitoring (useful for large datasets)
+  - hydra-core>=1.3
+  - omegaconf>=2.3
+
+  # ── Notebook ─────────────────────────────────────────────────────────────
+  - jupyter
+  - jupyterlab>=4.0
+  - ipykernel
+  - ipywidgets
+  - nbconvert
+
+  # ── Dev tools ────────────────────────────────────────────────────────────
+  - black
+  - ruff
+  - pytest
+  - pytest-cov
+
+  # ── pip-only packages (not on conda-forge or too old there) ──────────────
+  - pip:
+    # ── scvi-tools: scVI, scANVI, TOTALVI, DestVI ───────────────────────
+    # GPU training: uses the PyTorch CUDA build installed above.
+    - scvi-tools>=1.1.0
+
+    # ── Spatial mapping: scRNA → spatial ────────────────────────────────
+    - tangram-sc>=1.0.4     # Tangram GPU-accelerated cell-type mapping
+    - cell2location>=0.1.3  # Bayesian deconvolution (heavy — optional)
+
+    # ── SpatialData (new Scverse spatial format) ─────────────────────────
+    - spatialdata>=0.1.0
+    - spatialdata-io>=0.1.0  # readers for Visium, Xenium, MERSCOPE, etc.
+
+    # ── Trajectory & RNA velocity ────────────────────────────────────────
+    - scvelo>=0.3.1          # RNA velocity
+    - cellrank>=2.0          # trajectory inference (uses PyTorch internally)
+
+    # ── Doublet detection ────────────────────────────────────────────────
+    - scrublet>=0.2.3
+    - doubletdetection>=4.2
+
+    # ── Package itself ───────────────────────────────────────────────────
+    # Run: pip install -e .   (after activating the env)
+    # Listed here only as documentation; do NOT install from PyPI.

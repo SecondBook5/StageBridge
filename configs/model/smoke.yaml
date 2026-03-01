@@ -1,0 +1,12 @@
+# Tiny model for smoke / CI testing.
+name: smoke
+input_dim: 16
+hidden_dim: 32
+vector_field_hidden_dim: 64
+num_heads: 2
+num_inducing_points: 4
+num_seed_vectors: 1
+num_stages: 5
+time_embedding_dim: 16
+stage_embedding_dim: 16
+dropout: 0.0

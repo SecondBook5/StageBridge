@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Bash(pip show anndata)",
+      "Bash(python -c \"import scipy, numpy, pandas; print\\(''scipy/numpy/pandas OK''\\)\")",
+      "Bash(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader)",
+      "Bash(python3 -c \"import sys; sys.path.insert\\(0, ''/home/ajbook/projects/StageBridge''\\); from stagebridge.models.stagebridge import StageBridgeModel; print\\(''OK''\\)\")",
+      "Bash(python3 -c \":*)"
+    ]
+  }
+}
