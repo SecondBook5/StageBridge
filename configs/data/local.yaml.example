@@ -1,0 +1,41 @@
+# configs/data/local.yaml.example
+#
+# Copy this file to configs/data/local.yaml (it is git-ignored) and fill in
+# the paths for your machine.  Activate with:
+#
+#   python scripts/train_stagebridge.py data=local
+#
+# The env-var fallback in default.yaml still works if STAGEBRIDGE_DATA_ROOT is
+# set; local.yaml lets you hard-code paths without exporting env vars.
+
+# Root of the external data directory.
+# All derived paths below are relative to this value.
+data_root: /mnt/e/StageBridge_data
+
+# ── raw GEO downloads ─────────────────────────────────────────────────────────
+snrna_raw_dir:    ${data.data_root}/data/raw/geo/GSE308103_snrna/extracted
+spatial_raw_dir:  ${data.data_root}/data/raw/geo/GSE307534_spatial
+
+# ── per-sample interim AnnData objects ────────────────────────────────────────
+snrna_interim_dir:   ${data.data_root}/interim/anndata/snrna
+spatial_interim_dir: ${data.data_root}/interim/anndata/spatial
+
+# ── merged processed AnnData ──────────────────────────────────────────────────
+snrna_h5ad:   ${data.data_root}/processed/anndata/snrna_merged.h5ad
+spatial_h5ad: ${data.data_root}/processed/anndata/spatial_merged.h5ad
+
+# ── reference atlas ───────────────────────────────────────────────────────────
+hlca_h5ad: ${data.data_root}/data/reference/hlca/hlca_full_v1.h5ad
+
+# ── model run outputs (checkpoints, histories) ────────────────────────────────
+runs_dir: ${data.data_root}/runs
+
+# ── same semantic keys as default.yaml ────────────────────────────────────────
+latent_key:          X_hlca
+fallback_latent_key: X_pca
+stage_col:           stage
+donor_col:           patient_id
+sample_col:          sample_id
+use_spatial:         false
+use_hlca_reference:  true
+max_cells:           200000

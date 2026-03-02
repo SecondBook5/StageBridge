@@ -1,0 +1,24 @@
+# configs/config.yaml
+# Master defaults list for all StageBridge runs.
+# Override any group by passing <group>=<variant> on the CLI, e.g.:
+#   python scripts/train_stagebridge.py model=smoke experiment=smoke
+#
+# To supply machine-specific paths copy configs/data/local.yaml.example
+# to configs/data/local.yaml (git-ignored) and set data=local on the CLI.
+
+defaults:
+  - data: default        # path resolution (override with data=local)
+  - model: stagebridge   # model architecture (override with model=smoke)
+  - training: default    # trainer hyperparameters (override with training=smoke)
+  - splits: donor_holdout
+  - experiment: full_benchmark
+  - _self_               # allow CLI overrides to win
+
+# ─── top-level knobs ──────────────────────────────────────────────────────────
+run_name: stagebridge_run
+output_dir: outputs
+seed: 42
+
+hydra:
+  job:
+    chdir: false
