@@ -17,6 +17,7 @@ from stagebridge.io.geo_spatial import (
     discover_spatial_tarballs,
     apply_spatial_smoke_limits,
     load_spatial_dataset,
+    load_spatial_sample_from_tarball,
 )
 from stagebridge.io.manifests import (
     resolve_git_commit_hash,
@@ -85,6 +86,52 @@ def _smoke_value(cfg: DictConfig, key: str, default_value: int) -> int | None:
     return int(value)
 
 
+def _build_full_spatial_on_disk(
+    selected_df,
+    output_path: Path,
+    max_spots_per_sample: int | None = None,
+):
+    """Build full spatial AnnData via per-sample writes + on-disk concat."""
+    import anndata
+    from anndata.experimental import concat_on_disk
+
+    per_sample_dir = output_path.parent / "_tmp_spatial_full_samples"
+    per_sample_dir.mkdir(parents=True, exist_ok=True)
+
+    sample_paths: list[str] = []
+    for row in selected_df.itertuples(index=False):
+        sample_out = per_sample_dir / f"{row.sample_id}.h5ad"
+        if not sample_out.exists():
+            ad = load_spatial_sample_from_tarball(
+                Path(row.input_path),
+                max_spots_per_sample=max_spots_per_sample,
+            )
+            ad.write_h5ad(sample_out)
+        sample_paths.append(str(sample_out))
+
+    if output_path.exists():
+        output_path.unlink()
+
+    concat_on_disk(
+        in_files=sample_paths,
+        out_file=str(output_path),
+        axis=0,
+        join="outer",
+        merge="same",
+        index_unique=None,
+    )
+
+    # Clean up temporary per-sample files once final output is materialized.
+    for p in per_sample_dir.glob("*.h5ad"):
+        p.unlink(missing_ok=True)
+    try:
+        per_sample_dir.rmdir()
+    except OSError:
+        pass
+
+    return anndata.read_h5ad(output_path, backed="r")
+
+
 @hydra.main(config_path="../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -118,13 +165,21 @@ def main(cfg: DictConfig) -> None:
         max_samples_per_stage=max_samples_per_stage,
     )
 
-    adata, loaded_df = load_spatial_dataset(
-        extracted_dir=extracted_dir,
-        max_donors=max_donors,
-        max_samples_per_stage=max_samples_per_stage,
-        max_spots_per_sample=max_spots_per_sample,
-    )
-    adata.write_h5ad(output_path)
+    if is_smoke:
+        adata, loaded_df = load_spatial_dataset(
+            extracted_dir=extracted_dir,
+            max_donors=max_donors,
+            max_samples_per_stage=max_samples_per_stage,
+            max_spots_per_sample=max_spots_per_sample,
+        )
+        adata.write_h5ad(output_path)
+    else:
+        loaded_df = selected_df
+        adata = _build_full_spatial_on_disk(
+            selected_df=selected_df,
+            output_path=output_path,
+            max_spots_per_sample=max_spots_per_sample,
+        )
 
     if not output_path.exists():
         raise FileNotFoundError(f"Expected output was not created: {output_path}")
@@ -206,6 +261,10 @@ def main(cfg: DictConfig) -> None:
     print(f"spatial_coord_max={coord_max}")
     print(f"run_manifest={run_paths.run_manifest_json}")
     print(f"data_audit={run_paths.data_audit_json}")
+
+    # Close backing file handle when using backed mode.
+    if hasattr(adata, "isbacked") and adata.isbacked:
+        adata.file.close()
 
 
 if __name__ == "__main__":
