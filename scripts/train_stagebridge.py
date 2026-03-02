@@ -70,7 +70,7 @@ def _ensure_latent(adata: anndata.AnnData, cfg: DictConfig) -> None:
         X = adata.layers["log1p"] if "log1p" in adata.layers else adata.X
         from sklearn.decomposition import TruncatedSVD
 
-        n_comp = min(int(cfg.model.input_dim), min(X.shape) - 1)
+        n_comp = min(int(cfg.model.config.input_dim), min(X.shape) - 1)
         svd = TruncatedSVD(n_components=n_comp, random_state=int(cfg.seed))
         adata.obsm[fallback_key] = svd.fit_transform(X).astype(np.float32)
         log.info("Computed fallback latent '%s' with %d components.", fallback_key, n_comp)
@@ -90,7 +90,7 @@ def _ensure_latent(adata: anndata.AnnData, cfg: DictConfig) -> None:
         reference=reference,
         source_key=fallback_key,
         output_key=target_key,
-        n_components=int(cfg.model.input_dim),
+        n_components=int(cfg.model.config.input_dim),
     )
 
 
@@ -288,6 +288,11 @@ def main(cfg: DictConfig) -> None:
 
     adata = _load_training_adata(cfg)
 
+    # Determine actual latent dim from loaded data (may be < model.config.input_dim
+    # when data has fewer features than the configured target dimension).
+    _latent_key = str(cfg.data.latent_key)
+    _actual_input_dim = int(adata.obsm[_latent_key].shape[1])
+
     if adata.n_obs > int(cfg.data.max_cells):
         rng = np.random.default_rng(int(cfg.seed))
         idx = rng.choice(adata.n_obs, size=int(cfg.data.max_cells), replace=False)
@@ -316,16 +321,16 @@ def main(cfg: DictConfig) -> None:
     (run_dir / "figures").mkdir(parents=True, exist_ok=True)
 
     base_cfg = StageBridgeConfig(
-        input_dim=int(cfg.model.input_dim),
-        hidden_dim=int(cfg.model.hidden_dim),
-        vector_field_hidden_dim=int(cfg.model.vector_field_hidden_dim),
-        num_heads=int(cfg.model.num_heads),
-        num_inducing_points=int(cfg.model.num_inducing_points),
-        num_seed_vectors=int(cfg.model.num_seed_vectors),
-        num_stages=int(cfg.model.num_stages),
-        time_embedding_dim=int(cfg.model.time_embedding_dim),
-        stage_embedding_dim=int(cfg.model.stage_embedding_dim),
-        dropout=float(cfg.model.dropout),
+        input_dim=_actual_input_dim,
+        hidden_dim=int(cfg.model.config.hidden_dim),
+        vector_field_hidden_dim=int(cfg.model.config.vector_field_hidden_dim),
+        num_heads=int(cfg.model.config.num_heads),
+        num_inducing_points=int(cfg.model.config.num_inducing_points),
+        num_seed_vectors=int(cfg.model.config.num_seed_vectors),
+        num_stages=int(cfg.model.config.num_stages),
+        time_embedding_dim=int(cfg.model.config.time_embedding_dim),
+        stage_embedding_dim=int(cfg.model.config.stage_embedding_dim),
+        dropout=float(cfg.model.config.dropout),
         ot_epsilon=float(cfg.training.ot_epsilon),
         sinkhorn_iters=int(cfg.training.sinkhorn_iters),
         num_ot_pairs=int(cfg.training.num_ot_pairs),

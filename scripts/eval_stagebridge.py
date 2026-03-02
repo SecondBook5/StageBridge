@@ -54,7 +54,7 @@ def _ensure_latent(adata: anndata.AnnData, cfg: DictConfig) -> None:
         reference=None,
         source_key=str(cfg.data.fallback_latent_key),
         output_key=str(cfg.data.latent_key),
-        n_components=int(cfg.model.input_dim),
+        n_components=int(cfg.model.config.input_dim),
     )
 
 
@@ -94,18 +94,18 @@ def main(cfg: DictConfig) -> None:
     ckpt_cfg = payload.get("config", {})
 
     model_cfg = StageBridgeConfig(
-        input_dim=int(ckpt_cfg.get("input_dim", cfg.model.input_dim)),
-        hidden_dim=int(ckpt_cfg.get("hidden_dim", cfg.model.hidden_dim)),
+        input_dim=int(ckpt_cfg.get("input_dim", cfg.model.config.input_dim)),
+        hidden_dim=int(ckpt_cfg.get("hidden_dim", cfg.model.config.hidden_dim)),
         vector_field_hidden_dim=int(
-            ckpt_cfg.get("vector_field_hidden_dim", cfg.model.vector_field_hidden_dim)
+            ckpt_cfg.get("vector_field_hidden_dim", cfg.model.config.vector_field_hidden_dim)
         ),
-        num_heads=int(ckpt_cfg.get("num_heads", cfg.model.num_heads)),
-        num_inducing_points=int(ckpt_cfg.get("num_inducing_points", cfg.model.num_inducing_points)),
-        num_seed_vectors=int(ckpt_cfg.get("num_seed_vectors", cfg.model.num_seed_vectors)),
-        num_stages=int(ckpt_cfg.get("num_stages", cfg.model.num_stages)),
-        time_embedding_dim=int(ckpt_cfg.get("time_embedding_dim", cfg.model.time_embedding_dim)),
-        stage_embedding_dim=int(ckpt_cfg.get("stage_embedding_dim", cfg.model.stage_embedding_dim)),
-        dropout=float(ckpt_cfg.get("dropout", cfg.model.dropout)),
+        num_heads=int(ckpt_cfg.get("num_heads", cfg.model.config.num_heads)),
+        num_inducing_points=int(ckpt_cfg.get("num_inducing_points", cfg.model.config.num_inducing_points)),
+        num_seed_vectors=int(ckpt_cfg.get("num_seed_vectors", cfg.model.config.num_seed_vectors)),
+        num_stages=int(ckpt_cfg.get("num_stages", cfg.model.config.num_stages)),
+        time_embedding_dim=int(ckpt_cfg.get("time_embedding_dim", cfg.model.config.time_embedding_dim)),
+        stage_embedding_dim=int(ckpt_cfg.get("stage_embedding_dim", cfg.model.config.stage_embedding_dim)),
+        dropout=float(ckpt_cfg.get("dropout", cfg.model.config.dropout)),
         ot_epsilon=float(ckpt_cfg.get("ot_epsilon", cfg.training.ot_epsilon)),
         sinkhorn_iters=int(ckpt_cfg.get("sinkhorn_iters", cfg.training.sinkhorn_iters)),
         use_ot=bool(ckpt_cfg.get("use_ot", cfg.training.use_ot)),
