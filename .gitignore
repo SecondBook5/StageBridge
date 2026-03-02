@@ -49,6 +49,8 @@ outputs/tables/*.json
 outputs/tables/poster_abstract_structure.txt
 
 # Training run artefacts (Hydra outputs/ and runs/ dirs)
+# Hydra creates outputs/YYYY-MM-DD/HH-MM-SS/ beside the run outputs.
+outputs/20*/
 runs/
 
 # Local data configs — machine-specific, never commit
