@@ -140,14 +140,11 @@ def compute_context_sensitivity(
 
                 # --- Real context ---
                 src_set = x_src.unsqueeze(0)  # (1, n_src, d)
-                c_s_real = model.forward_set_context(src_set, stage_pair_id=pair_id)
+                c_s_real = model.forward_set_context(src_set)  # (1, context_dim)
 
                 # Integrate source cells to target using real context
-                x_pred_real = model.integrate_euler(
-                    x_src, context=c_s_real.expand(n_src, -1),
-                    stage_pair_id=pair_id.expand(n_src),
-                    n_steps=10,
-                )
+                # model._broadcast_condition handles (1,D)→(n_src,D) internally
+                x_pred_real = model.integrate_euler(x_src, c_s_real, pair_id, num_steps=10)
                 d_real = sinkhorn_distance(
                     x_pred_real, x_tgt, epsilon=ot_epsilon, n_iter=sinkhorn_iters,
                 ).item()
@@ -157,13 +154,9 @@ def compute_context_sensitivity(
                 shuffle_idx = rng.choice(src_idx, size=n_src, replace=False)
                 x_shuffled = torch.tensor(X[shuffle_idx], dtype=torch.float32, device=device)
                 src_set_shuf = x_shuffled.unsqueeze(0)
-                c_s_shuf = model.forward_set_context(src_set_shuf, stage_pair_id=pair_id)
+                c_s_shuf = model.forward_set_context(src_set_shuf)  # (1, context_dim)
 
-                x_pred_shuf = model.integrate_euler(
-                    x_src, context=c_s_shuf.expand(n_src, -1),
-                    stage_pair_id=pair_id.expand(n_src),
-                    n_steps=10,
-                )
+                x_pred_shuf = model.integrate_euler(x_src, c_s_shuf, pair_id, num_steps=10)
                 d_shuffled = sinkhorn_distance(
                     x_pred_shuf, x_tgt, epsilon=ot_epsilon, n_iter=sinkhorn_iters,
                 ).item()

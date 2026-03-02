@@ -122,7 +122,7 @@ def extract_context_vectors(
             x_src = torch.tensor(X[src_idx], dtype=torch.float32, device=device)
             src_set = x_src.unsqueeze(0)  # (1, n_src, d)
 
-            c_s = model.forward_set_context(src_set, stage_pair_id=pair_id)
+            c_s = model.forward_set_context(src_set)
             # c_s shape: (1, num_seed_vectors, context_dim) or (1, context_dim)
             c_s_np = c_s.squeeze().cpu().numpy().astype(np.float32)
             if c_s_np.ndim == 0:

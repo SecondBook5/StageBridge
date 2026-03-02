@@ -99,7 +99,7 @@ def integrate_trajectories(
         with torch.no_grad():
             x_src_t = torch.tensor(x0[:batch_size], dtype=torch.float32, device=device)
             pair_id_t = torch.tensor([pair_id], dtype=torch.long, device=device)
-            c_pop = model.forward_set_context(x_src_t.unsqueeze(0), stage_pair_id=pair_id_t)
+            c_pop = model.forward_set_context(x_src_t.unsqueeze(0))
             # c_pop: (1, context_dim)
             ctx = c_pop.squeeze(0).cpu().numpy().astype(np.float32)
         # Broadcast to all source cells
@@ -118,10 +118,7 @@ def integrate_trajectories(
             pair_batch = torch.full((end - start,), pair_id, dtype=torch.long, device=device)
 
             x_pred_batch = model.integrate_euler(
-                x_batch,
-                context=ctx_batch,
-                stage_pair_id=pair_batch,
-                n_steps=n_steps,
+                x_batch, ctx_batch, pair_batch, num_steps=n_steps,
             )
             x1_pred[start:end] = x_pred_batch.cpu().numpy()
 
