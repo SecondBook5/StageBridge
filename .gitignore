@@ -48,6 +48,15 @@ outputs/tables/*.tsv
 outputs/tables/*.json
 outputs/tables/poster_abstract_structure.txt
 
+# Training run artefacts (Hydra outputs/ and runs/ dirs)
+runs/
+
+# Local data configs — machine-specific, never commit
+configs/data/local.yaml
+
+# Local dependency snapshots / lock files generated at install time
+.deps/
+
 # IDE
 .vscode/
 .idea/
