@@ -8,6 +8,8 @@
 
 defaults:
   - data: default        # path resolution (override with data=local)
+  - hlca: default        # HLCA reference mapping defaults
+  - tangram: default     # Tangram mapping defaults
   - model: stagebridge   # model architecture (override with model=smoke)
   - training: default    # trainer hyperparameters (override with training=smoke)
   - splits: donor_holdout

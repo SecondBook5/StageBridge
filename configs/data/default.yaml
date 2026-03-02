@@ -1,7 +1,13 @@
+# configs/data/default.yaml
 data_root: ${oc.env:STAGEBRIDGE_DATA_ROOT,/mnt/e/StageBridge_data}
 snrna_h5ad: ${data.data_root}/processed/anndata/snrna_merged.h5ad
 spatial_h5ad: ${data.data_root}/processed/anndata/spatial_merged.h5ad
 hlca_h5ad: ${data.data_root}/data/reference/hlca/hlca_full_v1.h5ad
+input_snrna_full_h5ad: ${data.data_root}/interim/anndata/snrna/snrna_full.h5ad
+input_spatial_full_h5ad: ${data.data_root}/interim/anndata/spatial/spatial_full.h5ad
+output_processed_anndata_dir: ${data.data_root}/processed/anndata
+output_processed_hlca_dir: ${data.data_root}/processed/hlca
+output_processed_tangram_dir: ${data.data_root}/processed/tangram
 latent_key: X_hlca
 fallback_latent_key: X_pca
 stage_col: stage
