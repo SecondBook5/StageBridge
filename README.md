@@ -59,9 +59,29 @@ pip install -e ".[qc]"
 pip install -e ".[all]"
 ```
 
-### 2. Configure the external data root
+### 2. Validate the environment
 
-The data lives **outside** the repo. Point StageBridge at it:
+Run the environment gate before anything else:
+
+```bash
+python scripts/check_env.py        # human-readable output
+python scripts/check_env.py --json # machine-readable JSON → outputs/tables/env_check.json
+python scripts/check_env.py --no-gpu  # skip CUDA check (CPU CI)
+```
+
+Run the test suite:
+
+```bash
+pytest -q
+```
+
+Both must exit 0 before proceeding.
+
+### 3. Configure the external data root
+
+The data lives **outside** the repo at a configurable path. Two options:
+
+**Option A — environment variable (quick)**
 
 ```bash
 export STAGEBRIDGE_DATA_ROOT=/mnt/e/StageBridge_data
@@ -69,8 +89,18 @@ export STAGEBRIDGE_DATA_ROOT=/mnt/e/StageBridge_data
 
 Add this to your `~/.bashrc` or `~/.zshrc` to make it permanent.
 
-> **Default fallback**: If the variable is unset, `/mnt/e/StageBridge_data` is used.
-> If that path doesn't exist either, a clear `ValueError` is raised.
+**Option B — Hydra local config (recommended)**
+
+```bash
+cp configs/data/local.yaml.example configs/data/local.yaml
+# Edit configs/data/local.yaml and set data_root to your path.
+# Then pass data=local to any Hydra script:
+python scripts/train_stagebridge.py data=local
+```
+
+`configs/data/local.yaml` is git-ignored — it never enters the repo.
+
+> **Default**: If neither is set, a `ValueError` is raised with a clear message.
 
 ---
 
@@ -192,14 +222,21 @@ The notebook:
 Validate environment and data contracts first:
 
 ```bash
-python scripts/check_env.py
-python scripts/audit_data.py
+python scripts/check_env.py          # exits 0 = all required deps present
+python scripts/audit_data.py         # exits 0 = all h5ads valid + have required columns
 ```
 
 Train cross-validated donor-held-out benchmark (StageBridge + baselines):
 
 ```bash
+# Using environment variable
 python scripts/train_stagebridge.py experiment=full_benchmark
+
+# Using local config file
+python scripts/train_stagebridge.py data=local experiment=full_benchmark
+
+# Smoke run (tiny model, 1 epoch, CPU)
+python scripts/train_stagebridge.py model=smoke training=smoke experiment=smoke
 ```
 
 Evaluate a checkpoint:
@@ -259,36 +296,72 @@ line-by-line and builds a sparse CSR matrix — the full dense matrix is never l
 ## Project Structure
 
 ```
-StageBridge/
+StageBridge/                   ← repo root (code only, no data)
 ├── StageBridge.ipynb          ← main notebook entry point
 ├── README.md
 ├── pyproject.toml
+├── environment.yml
 ├── .gitignore
-├── scripts/
-│   ├── run_snrna_pipeline.py
-│   ├── run_spatial_pipeline.py
-│   ├── check_env.py
-│   ├── audit_data.py
-│   ├── train_stagebridge.py
-│   ├── eval_stagebridge.py
-│   └── make_poster_assets.py
-├── outputs/
-│   ├── figures/               ← generated plots (git-ignored)
-│   └── tables/                ← generated tables (git-ignored)
-└── stagebridge/               ← Python package
-    ├── __init__.py
-    ├── config.py
-    ├── logging_utils.py
+├── configs/                   ← Hydra config tree
+│   ├── config.yaml            ← master defaults list (entry point)
+│   ├── train.yaml             ← training run defaults
+│   ├── eval.yaml              ← eval run defaults
+│   ├── data/
+│   │   ├── default.yaml       ← portable paths (env-var based)
+│   │   └── local.yaml.example ← copy → local.yaml (git-ignored)
+│   ├── model/stagebridge.yaml ← full model / model/smoke.yaml
+│   ├── training/default.yaml  ← trainer hparams / training/smoke.yaml
+│   ├── splits/donor_holdout.yaml
+│   └── experiment/            ← full_benchmark.yaml / smoke.yaml
+├── scripts/                   ← thin CLI wrappers (Hydra entry points)
+│   ├── check_env.py           ← environment gate
+│   ├── audit_data.py          ← data contract gate
+│   ├── train_stagebridge.py   ← full benchmark training
+│   ├── eval_stagebridge.py    ← evaluation
+│   ├── make_poster_assets.py  ← poster panel generation
+│   ├── run_snrna_pipeline.py  ← GEO snRNA conversion
+│   └── run_spatial_pipeline.py← GEO spatial conversion
+├── outputs/                   ← generated artefacts (git-ignored except .gitkeep)
+│   ├── figures/               ← poster panels, UMAPs, metrics plots
+│   ├── tables/                ← metrics JSON, manifests, env/audit reports
+│   └── checkpoints/           ← model checkpoints (*.pt)
+└── stagebridge/               ← Python package (`pip install -e .`)
     ├── io/
-    │   ├── geo_snrna.py       ← snRNA parser + manifest + merge
-    │   ├── geo_spatial.py     ← Visium loader + manifest + merge
-    │   └── manifests.py       ← shared manifest utilities
+    │   ├── paths.py           ← single path resolver (StageBridgePaths)
+    │   ├── geo_snrna.py       ← custom dense snRNA parser
+    │   ├── geo_spatial.py     ← Visium loader
+    │   ├── hlca.py            ← HLCA reference atlas I/O
+    │   └── manifests.py
+    ├── pipeline/              ← high-level orchestration
+    │   ├── steps.py           ← stub step functions (audit → poster)
+    │   └── run.py             ← run_smoke() integration runner
     ├── preprocessing/
+    │   ├── stage_ontology.py  ← canonical stage order + normalization
+    │   ├── latent.py          ← HLCA / PCA latent builders
     │   ├── harmonize.py       ← gene intersection, normalisation, HVG, PCA
-    │   ├── normalize.py       ← additional normalisation
-    │   └── qc.py              ← QC metrics and filtering
-    ├── models/                ← Set Transformer + baselines
-    ├── training/              ← OT losses, trainer, evaluation
-    ├── viz/                   ← plotting utilities for benchmarks/poster panels
-    └── utils/                 ← checks, seeds, type aliases
+    │   └── normalize.py / qc.py
+    ├── models/
+    │   ├── layers.py          ← SAB, ISAB, PMA, FiLM, SinusoidalTimeEmbedding
+    │   ├── stagebridge.py     ← StageBridgeModel (Set Transformer + flow matching)
+    │   └── baselines.py       ← DeepSets, NoContext, Linear baselines
+    ├── training/
+    │   ├── losses.py          ← Sinkhorn coupling, flow matching loss
+    │   ├── trainer.py         ← StageBridgeTrainer + donor-holdout CV
+    │   └── eval.py            ← Sinkhorn dist, MMD, AUC, JSD metrics
+    ├── analysis/              ← biological analysis modules
+    │   ├── context_sensitivity.py
+    │   ├── gene_attribution.py
+    │   └── trajectory.py
+    ├── viz/                   ← visualization
+    │   ├── embeddings.py      ← UMAP plots
+    │   ├── poster.py          ← 4-panel poster assembly
+    │   ├── spatial_plots.py   ← Visium spot plots
+    │   └── curves.py
+    └── utils/                 ← types, seeds, checks
+
+$STAGEBRIDGE_DATA_ROOT/        ← external data (NEVER in repo)
+    data/raw/geo/              ← GEO downloads
+    interim/anndata/           ← per-sample h5ads
+    processed/anndata/         ← merged h5ads
+    data/reference/hlca/       ← HLCA atlas (~20 GB)
 ```
