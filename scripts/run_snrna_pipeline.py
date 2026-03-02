@@ -2,34 +2,19 @@
 """Build interim snRNA AnnData from GEO raw files (smoke/full)."""
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
-import os
 from pathlib import Path
-import shutil
 import sys
 
 # Allow running from repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import anndata
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from stagebridge.io.geo_snrna import (
-    discover_snrna_files,
-    apply_snrna_smoke_limits,
-    load_snrna_dataset,
-)
-from stagebridge.io.h5ad_atomic import copy_file_atomic, validate_h5ad, write_h5ad_atomic
-from stagebridge.io.manifests import (
-    resolve_git_commit_hash,
-    summarize_anndata,
-    write_json,
-    write_resolved_config_yaml,
-)
+from stagebridge.io.interim_build import build_snrna_interim_anndata
+from stagebridge.io.manifests import write_resolved_config_yaml
 from stagebridge.io.paths import resolve_run_paths
-from stagebridge.io.pipeline_workers import build_snrna_shard
 from stagebridge.logging_utils import configure_root_logger, get_logger
 
 configure_root_logger()
@@ -99,12 +84,8 @@ def _bool_or_default(value: object | None, default: bool) -> bool:
     return s in {"1", "true", "yes", "y", "on"}
 
 
-def _resolve_max_workers(cfg: DictConfig, n_tasks: int) -> int:
-    configured = _int_or_none(_cfg_pick(cfg, ["pipeline.max_workers", "io.max_workers"]))
-    if configured is None:
-        cpu = os.cpu_count() or 2
-        configured = max(1, min(4, cpu // 2))
-    return max(1, min(configured, max(1, n_tasks)))
+def _resolve_max_workers(cfg: DictConfig) -> int | None:
+    return _int_or_none(_cfg_pick(cfg, ["pipeline.max_workers", "io.max_workers"]))
 
 
 def _resolve_scratch_root(cfg: DictConfig) -> Path:
@@ -119,64 +100,9 @@ def _resolve_write_compression(cfg: DictConfig) -> str:
     return str(raw) if raw is not None else "lzf"
 
 
-def _build_full_snrna_on_disk(
-    selected_df,
-    scratch_run_dir: Path,
-    max_cells_per_sample: int | None,
-    max_workers: int,
-    compression: str,
-) -> Path:
-    from anndata.experimental import concat_on_disk
-
-    shard_dir = scratch_run_dir / "snrna_shards"
-    shard_dir.mkdir(parents=True, exist_ok=True)
-
-    futures = {}
-    with ProcessPoolExecutor(max_workers=max_workers) as pool:
-        for row in selected_df.itertuples(index=False):
-            shard_path = shard_dir / f"{row.sample_id}.h5ad"
-            fut = pool.submit(
-                build_snrna_shard,
-                str(row.input_path),
-                str(shard_path),
-                max_cells_per_sample,
-                compression,
-            )
-            futures[fut] = row.sample_id
-
-        for fut in as_completed(futures):
-            sample_id = futures[fut]
-            try:
-                fut.result()
-            except Exception as exc:
-                raise RuntimeError(f"Failed snRNA shard build for {sample_id}: {exc}") from exc
-
-    shard_paths = [shard_dir / f"{row.sample_id}.h5ad" for row in selected_df.itertuples(index=False)]
-    for shard_path in shard_paths:
-        ok, err = validate_h5ad(shard_path, require_spatial=False)
-        if not ok:
-            raise RuntimeError(f"Invalid snRNA shard before concat: {shard_path} ({err})")
-
-    concat_out = scratch_run_dir / "snrna_concat_full.h5ad"
-    concat_out.unlink(missing_ok=True)
-    concat_on_disk(
-        in_files=[str(p) for p in shard_paths],
-        out_file=str(concat_out),
-        axis=0,
-        join="outer",
-        merge="same",
-        index_unique=None,
-    )
-    ok, err = validate_h5ad(concat_out, require_spatial=False)
-    if not ok:
-        raise RuntimeError(f"On-disk snRNA concat produced invalid output: {concat_out} ({err})")
-    return concat_out
-
-
 @hydra.main(config_path="../configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     timestamp = datetime.now(timezone.utc).isoformat()
-
     experiment_name = str(OmegaConf.select(cfg, "experiment.name") or "").lower()
     is_smoke = experiment_name == "smoke"
 
@@ -203,131 +129,43 @@ def main(cfg: DictConfig) -> None:
     output_path = interim_dir / output_name
 
     requested_run_id = OmegaConf.select(cfg, "run_id")
-    run_id = str(requested_run_id) if requested_run_id else f"snrna_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    run_id = (
+        str(requested_run_id)
+        if requested_run_id
+        else f"snrna_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    )
     run_paths = resolve_run_paths(cfg, run_id=run_id)
 
-    discovered_df = discover_snrna_files(raw_dir)
-    selected_df = apply_snrna_smoke_limits(
-        discovered_df,
-        max_donors=max_donors,
-        max_samples_per_stage=max_samples_per_stage,
-    )
-    if selected_df.empty:
-        raise RuntimeError("No snRNA samples selected after applying limits.")
-
-    compression = _resolve_write_compression(cfg)
-    max_workers = _resolve_max_workers(cfg, n_tasks=len(selected_df))
+    max_workers = _resolve_max_workers(cfg)
     scratch_root = _resolve_scratch_root(cfg)
     keep_scratch = _bool_or_default(_cfg_pick(cfg, ["pipeline.keep_scratch", "io.keep_scratch"]), False)
-    scratch_run_root = scratch_root / run_paths.run_id
-    scratch_run_dir = scratch_run_root / "snrna"
+    compression = _resolve_write_compression(cfg)
 
-    adata = None
-    loaded_df = selected_df
-    try:
-        if is_smoke:
-            adata, loaded_df = load_snrna_dataset(
-                raw_dir=raw_dir,
-                max_donors=max_donors,
-                max_samples_per_stage=max_samples_per_stage,
-                max_cells_per_sample=max_cells_per_sample,
-            )
-            write_h5ad_atomic(adata, output_path, compression=compression)
-        else:
-            scratch_run_dir.mkdir(parents=True, exist_ok=True)
-            concat_path = _build_full_snrna_on_disk(
-                selected_df=selected_df,
-                scratch_run_dir=scratch_run_dir,
-                max_cells_per_sample=max_cells_per_sample,
-                max_workers=max_workers,
-                compression=compression,
-            )
-            copy_file_atomic(concat_path, output_path)
-            adata = anndata.read_h5ad(output_path, backed="r")
-    finally:
-        if (
-            scratch_run_dir.exists()
-            and not is_smoke
-            and not keep_scratch
-        ):
-            shutil.rmtree(scratch_run_dir, ignore_errors=True)
-            try:
-                scratch_run_root.rmdir()
-            except OSError:
-                pass
-
-    if not output_path.exists():
-        raise FileNotFoundError(f"Expected output was not created: {output_path}")
-
-    summary = summarize_anndata(adata, donor_col="donor_id", stage_col="stage")
-    git_hash = resolve_git_commit_hash(Path(__file__).resolve().parent.parent)
-    modality_values = (
-        sorted({str(v) for v in adata.obs["modality"].astype(str).tolist()})
-        if "modality" in adata.obs.columns
-        else []
+    result = build_snrna_interim_anndata(
+        run_paths=run_paths,
+        raw_dir=raw_dir,
+        output_path=output_path,
+        is_smoke=is_smoke,
+        max_donors=max_donors,
+        max_samples_per_stage=max_samples_per_stage,
+        max_cells_per_sample=max_cells_per_sample,
+        max_workers=max_workers,
+        scratch_root=scratch_root,
+        keep_scratch=keep_scratch,
+        compression=compression,
+        timestamp=timestamp,
+        repo_root=Path(__file__).resolve().parent.parent,
     )
 
-    run_manifest = {
-        "run_id": run_paths.run_id,
-        "timestamp": timestamp,
-        "pipeline": "snrna",
-        "inputs": {
-            "raw_dir": str(raw_dir),
-            "total_file_count": int(len(discovered_df)),
-            "selected_file_count": int(len(selected_df)),
-            "selected_sample_ids": [str(x) for x in loaded_df["sample_id"].tolist()],
-        },
-        "outputs": {
-            "anndata": str(output_path),
-            "run_manifest": str(run_paths.run_manifest_json),
-            "data_audit": str(run_paths.data_audit_json),
-            "config_resolved": str(run_paths.config_resolved_yaml),
-        },
-        "anndata": summary,
-        "git_commit": git_hash,
-        "smoke": {
-            "enabled": bool(is_smoke),
-            "max_donors": max_donors,
-            "max_samples_per_stage": max_samples_per_stage,
-            "max_cells_per_sample": max_cells_per_sample,
-        },
-        "performance": {
-            "max_workers": max_workers,
-            "h5ad_compression": compression,
-            "scratch_root": str(scratch_root),
-            "keep_scratch": keep_scratch,
-        },
-    }
-
-    data_audit = {
-        "run_id": run_paths.run_id,
-        "timestamp": timestamp,
-        "pipeline": "snrna",
-        "ok": True,
-        "checks": {
-            "output_exists": output_path.exists(),
-            "has_counts_layer": "counts" in adata.layers,
-            "modality_values": modality_values,
-        },
-        "anndata": summary,
-    }
-
-    write_json(run_paths.run_manifest_json, run_manifest)
-    write_json(run_paths.data_audit_json, data_audit)
     write_resolved_config_yaml(run_paths.config_resolved_yaml, cfg)
 
-    log.info("snRNA output written: %s", output_path)
-    log.info("Run manifest written: %s", run_paths.run_manifest_json)
-
-    print(f"snRNA output: {output_path}")
+    summary = result.summary
+    print(f"snRNA output: {result.output_path}")
     print(f"n_obs={summary['n_obs']} n_vars={summary['n_vars']}")
     print(f"donors={summary['donors']}")
     print(f"stages={summary['stages']}")
-    print(f"run_manifest={run_paths.run_manifest_json}")
-    print(f"data_audit={run_paths.data_audit_json}")
-
-    if hasattr(adata, "isbacked") and adata.isbacked:
-        adata.file.close()
+    print(f"run_manifest={result.run_manifest_path}")
+    print(f"data_audit={result.data_audit_path}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6 @@
+# configs/experiment/full.yaml
+name: full
+cross_validate: false
+primary_model: stagebridge
+baseline_models: []
+ablations: []

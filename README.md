@@ -3,6 +3,11 @@
 Transformer-first benchmark for stage-to-stage lung progression modeling
 with HLCA-aligned latent representations.
 
+**Operational rule:** `StageBridge.ipynb` is the one-stop orchestration entrypoint.
+All end-to-end runs (data build -> HLCA mapping -> evaluation/training) should be
+triggered from notebook controls. Scripts under `scripts/` remain the underlying,
+versioned implementations that the notebook calls.
+
 Integrates:
 - **snRNA-seq** (GSE308103 — custom dense-counts format)
 - **10x Visium spatial** (GSE307534)
@@ -120,16 +125,26 @@ $STAGEBRIDGE_DATA_ROOT/
           spatial/
   interim/anndata/
     snrna/
-      <SAMPLE_ID>.h5ad                 ← created by run_snrna_pipeline.py
-      manifest.csv
+      snrna_smoke.h5ad                 ← experiment=smoke
+      snrna_full.h5ad                  ← experiment=full
     spatial/
-      <SAMPLE_ID>.h5ad                 ← created by run_spatial_pipeline.py
-      manifest.csv
+      spatial_smoke.h5ad               ← experiment=smoke
+      spatial_full.h5ad                ← experiment=full
   processed/anndata/
-    snrna_merged.h5ad                  ← merged snRNA
-    spatial_merged.h5ad                ← merged spatial
+    snrna_hlca_latent_full.h5ad        ← full-cell HLCA latent embedding
+  processed/hlca/
+    snrna_full_hlca_labels.parquet     ← HLCA labels keyed by cell_id
+    query_model_full/                  ← trained scArches query model
   data/reference/hlca/
     hlca_full_v1.h5ad                  ← HLCA full atlas
+  runs/
+    <run_id>/tables/
+      run_manifest.json
+      data_audit.json
+      config_resolved.yaml
+      hlca_mapping_report.json
+      hlca_gene_id_report.json
+      hlca_validation_report.json
 ```
 
 HLCA full atlas download (persistent version URL):
@@ -144,54 +159,69 @@ https://datasets.cellxgene.cziscience.com/dbb5ad81-1713-4aee-8257-396fbabe7c6e.h
 
 ### snRNA-seq (GSE308103)
 
-Convert all samples and build the merged h5ad:
+Build interim snRNA AnnData:
 
 ```bash
 export STAGEBRIDGE_DATA_ROOT=/mnt/e/StageBridge_data
 
-# Full pipeline (manifest + per-sample conversion + merge)
-python scripts/run_snrna_pipeline.py
+# Fast smoke artifact (small subset)
+python scripts/run_snrna_pipeline.py data=local experiment=smoke
+# -> /mnt/e/StageBridge_data/interim/anndata/snrna/snrna_smoke.h5ad
 
-# Dry run (shows what would be done)
-python scripts/run_snrna_pipeline.py --dry-run
+# Full artifact (all selected samples)
+python scripts/run_snrna_pipeline.py data=local experiment=full
+# -> /mnt/e/StageBridge_data/interim/anndata/snrna/snrna_full.h5ad
 ```
 
-To convert a **single file** for testing:
+Notes:
+- Pipelines are Hydra-driven (`data=local`, `experiment=smoke|full`).
+- Run-scoped manifests/audits are written under `runs/<run_id>/tables/`.
+
+To parse a **single file** for debugging:
 
 ```bash
 python -m stagebridge.io.geo_snrna convert \
   /mnt/e/StageBridge_data/data/raw/geo/GSE308103_snrna/extracted/GSM9237901_P3_Normal.raw_counts.mtx.txt.gz \
-  /mnt/e/StageBridge_data/interim/anndata/snrna/GSM9237901_P3_Normal.h5ad
+  /mnt/e/StageBridge_data/interim/anndata/snrna/GSM9237901_P3_Normal.debug.h5ad
 ```
 
 This prints: `n_cells`, `n_genes`, `nnz`.
 
 ### Spatial (GSE307534)
 
-Expand tarballs, convert samples, build manifest, merge:
+Build interim spatial AnnData:
 
 ```bash
 export STAGEBRIDGE_DATA_ROOT=/mnt/e/StageBridge_data
 
-python scripts/run_spatial_pipeline.py
+python scripts/run_spatial_pipeline.py data=local experiment=smoke
+# -> /mnt/e/StageBridge_data/interim/anndata/spatial/spatial_smoke.h5ad
 
-# Dry run
-python scripts/run_spatial_pipeline.py --dry-run
+python scripts/run_spatial_pipeline.py data=local experiment=full
+# -> /mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad
 ```
 
-To load a **single sample** for testing:
+To load a **single sample directory** for debugging:
 
 ```bash
 python -m stagebridge.io.geo_spatial load \
   /mnt/e/StageBridge_data/data/raw/geo/GSE307534_spatial/samples/GSM9234567_P1_Normal \
-  /mnt/e/StageBridge_data/interim/anndata/spatial/GSM9234567_P1_Normal.h5ad
+  /mnt/e/StageBridge_data/interim/anndata/spatial/GSM9234567_P1_Normal.debug.h5ad
 ```
 
 ---
 
 ## Running the Notebook
 
-Once both processed h5ad files exist:
+`StageBridge.ipynb` is the primary operator interface.
+It includes a control section (**0A — Pipeline Controls**) that can trigger:
+- interim snRNA build (`scripts/run_snrna_pipeline.py`)
+- interim spatial build (`scripts/run_spatial_pipeline.py`)
+- HLCA mapping (`scripts/run_hlca_mapping.py`)
+- HLCA validation (`scripts/eval_hlca_mapping.py`)
+- Tangram mapping (`scripts/run_tangram_mapping.py`)
+
+Launch the notebook:
 
 ```bash
 export STAGEBRIDGE_DATA_ROOT=/mnt/e/StageBridge_data
@@ -206,14 +236,64 @@ jupyter notebook StageBridge.ipynb
 jupyter nbconvert --to notebook --execute StageBridge.ipynb --output StageBridge_executed.ipynb
 ```
 
-The notebook:
-1. Loads `snrna_merged.h5ad` and `spatial_merged.h5ad`
-2. Prints dataset summary (patients, stages, shapes)
-3. Computes gene intersection + log1p normalisation + HVG selection + PCA
-4. Saves figures to `./outputs/figures/`:
+Recommended flow:
+1. Set 0A toggles (`RUN_BUILD_SNRNA`, `RUN_BUILD_SPATIAL`, `RUN_HLCA_MAPPING`, `RUN_HLCA_EVAL`, `RUN_TANGRAM_MAPPING`).
+2. Run the 0A runner cell (this calls the scripts, records run IDs).
+3. Continue through downstream notebook analysis/training cells.
+
+The notebook then:
+1. Loads interim artifacts (`snrna_smoke|full.h5ad`, `spatial_smoke|full.h5ad`).
+2. Optionally attaches HLCA latent/labels if available.
+3. Optionally runs Tangram projection onto spatial spots.
+4. Runs harmonization and latent/training analyses.
+5. Saves figures to `./outputs/figures/`:
    - `pca_scatter.png`
    - `stage_distribution.png`
    - `spatial_tissue_<SAMPLE_ID>.png`
+
+---
+
+## HLCA Mapping and Validation (CLI, underlying implementation)
+
+Full-scale HLCA mapping:
+
+```bash
+python scripts/run_hlca_mapping.py data=local experiment=full
+```
+
+Expected primary outputs:
+- `/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad`
+- `/mnt/e/StageBridge_data/processed/hlca/snrna_full_hlca_labels.parquet`
+- `/mnt/e/StageBridge_data/runs/<run_id>/tables/hlca_mapping_report.json`
+- `/mnt/e/StageBridge_data/runs/<run_id>/tables/hlca_gene_id_report.json`
+
+Quantitative validation:
+
+```bash
+python scripts/eval_hlca_mapping.py data=local
+```
+
+Validation report:
+- `/mnt/e/StageBridge_data/runs/<run_id>/tables/hlca_validation_report.json`
+
+The notebook can invoke both commands from section 0A; use CLI directly for
+batch/server execution.
+
+---
+
+## Tangram Mapping (CLI, underlying implementation)
+
+Project HLCA-labeled snRNA profiles onto spatial spots:
+
+```bash
+python scripts/run_tangram_mapping.py data=local experiment=full
+```
+
+Expected primary outputs:
+- `/mnt/e/StageBridge_data/processed/tangram/tangram_map_full.h5ad`
+- `/mnt/e/StageBridge_data/processed/tangram/spatial_tangram_full.h5ad`
+- `/mnt/e/StageBridge_data/processed/tangram/spatial_tangram_celltype_scores.parquet`
+- `/mnt/e/StageBridge_data/runs/<run_id>/tables/tangram_report.json`
 
 ---
 
@@ -255,17 +335,24 @@ python scripts/make_poster_assets.py outputs/tables/metrics_stagebridge_full_ben
 
 ## Expected Outputs
 
-After running both pipelines + the notebook:
+After running notebook-driven build/mapping/evaluation:
 
 | File | Description |
 |------|-------------|
-| `$DATA_ROOT/interim/anndata/snrna/manifest.csv` | snRNA sample manifest |
-| `$DATA_ROOT/interim/anndata/snrna/<SAMPLE_ID>.h5ad` | Per-sample snRNA AnnData |
-| `$DATA_ROOT/processed/anndata/snrna_merged.h5ad` | Merged snRNA (all samples) |
-| `$DATA_ROOT/data/raw/geo/GSE307534_spatial/samples/<SAMPLE_ID>/` | Extracted Visium dirs |
-| `$DATA_ROOT/interim/anndata/spatial/manifest.csv` | Spatial sample manifest |
-| `$DATA_ROOT/interim/anndata/spatial/<SAMPLE_ID>.h5ad` | Per-sample spatial AnnData |
-| `$DATA_ROOT/processed/anndata/spatial_merged.h5ad` | Merged spatial (all samples) |
+| `$DATA_ROOT/interim/anndata/snrna/snrna_smoke.h5ad` | snRNA smoke artifact |
+| `$DATA_ROOT/interim/anndata/snrna/snrna_full.h5ad` | snRNA full artifact |
+| `$DATA_ROOT/interim/anndata/spatial/spatial_smoke.h5ad` | Spatial smoke artifact |
+| `$DATA_ROOT/interim/anndata/spatial/spatial_full.h5ad` | Spatial full artifact |
+| `$DATA_ROOT/processed/anndata/snrna_hlca_latent_full.h5ad` | HLCA latent embedding (all query cells, 30D) |
+| `$DATA_ROOT/processed/hlca/snrna_full_hlca_labels.parquet` | HLCA label table keyed by cell_id |
+| `$DATA_ROOT/processed/tangram/tangram_map_full.h5ad` | Tangram learned mapping object |
+| `$DATA_ROOT/processed/tangram/spatial_tangram_full.h5ad` | Spatial AnnData with projected cell-type scores |
+| `$DATA_ROOT/processed/tangram/spatial_tangram_celltype_scores.parquet` | Spot x HLCA-label score table |
+| `$DATA_ROOT/runs/<run_id>/tables/hlca_mapping_report.json` | HLCA runtime + optimization telemetry |
+| `$DATA_ROOT/runs/<run_id>/tables/hlca_gene_id_report.json` | Gene-ID overlap/mapping diagnostics |
+| `$DATA_ROOT/runs/<run_id>/tables/hlca_validation_report.json` | Post-mapping quality checks |
+| `$DATA_ROOT/runs/<run_id>/tables/tangram_report.json` | Tangram run telemetry and shape summary |
+| `$DATA_ROOT/runs/<run_id>/tables/config_resolved.yaml` | Resolved Hydra config for reproducibility |
 | `$DATA_ROOT/data/reference/hlca/hlca_full_v1.h5ad` | HLCA full reference atlas |
 | `./outputs/figures/pca_scatter.png` | PCA scatter plot |
 | `./outputs/figures/stage_distribution.png` | Stage distribution bar chart |
@@ -311,16 +398,21 @@ StageBridge/                   ← repo root (code only, no data)
 │   │   └── local.yaml.example ← copy → local.yaml (git-ignored)
 │   ├── model/stagebridge.yaml ← full model / model/smoke.yaml
 │   ├── training/default.yaml  ← trainer hparams / training/smoke.yaml
+│   ├── hlca/default.yaml      ← HLCA mapping defaults
 │   ├── splits/donor_holdout.yaml
 │   └── experiment/            ← full_benchmark.yaml / smoke.yaml
 ├── scripts/                   ← thin CLI wrappers (Hydra entry points)
 │   ├── check_env.py           ← environment gate
 │   ├── audit_data.py          ← data contract gate
+│   ├── run_snrna_pipeline.py  ← GEO snRNA → snrna_smoke/full.h5ad
+│   ├── run_spatial_pipeline.py← GEO spatial → spatial_smoke/full.h5ad
+│   ├── run_hlca_mapping.py    ← full-scale HLCA mapping (scArches query)
+│   ├── eval_hlca_mapping.py   ← HLCA quantitative validation report
+│   ├── run_tangram_mapping.py ← HLCA-labeled snRNA → spatial projection
 │   ├── train_stagebridge.py   ← full benchmark training
 │   ├── eval_stagebridge.py    ← evaluation
 │   ├── make_poster_assets.py  ← poster panel generation
-│   ├── run_snrna_pipeline.py  ← GEO snRNA conversion
-│   └── run_spatial_pipeline.py← GEO spatial conversion
+│   └── ...
 ├── outputs/                   ← generated artefacts (git-ignored except .gitkeep)
 │   ├── figures/               ← poster panels, UMAPs, metrics plots
 │   ├── tables/                ← metrics JSON, manifests, env/audit reports
@@ -330,7 +422,9 @@ StageBridge/                   ← repo root (code only, no data)
     │   ├── paths.py           ← single path resolver (StageBridgePaths)
     │   ├── geo_snrna.py       ← custom dense snRNA parser
     │   ├── geo_spatial.py     ← Visium loader
-    │   ├── hlca.py            ← HLCA reference atlas I/O
+    │   ├── interim_build.py   ← module-level snRNA/spatial build orchestration
+    │   ├── hlca.py            ← HLCA mapping + validation core logic
+    │   ├── tangram.py         ← Tangram mapping core logic
     │   └── manifests.py
     ├── pipeline/              ← high-level orchestration
     │   ├── steps.py           ← stub step functions (audit → poster)
@@ -361,7 +455,9 @@ StageBridge/                   ← repo root (code only, no data)
 
 $STAGEBRIDGE_DATA_ROOT/        ← external data (NEVER in repo)
     data/raw/geo/              ← GEO downloads
-    interim/anndata/           ← per-sample h5ads
-    processed/anndata/         ← merged h5ads
+    interim/anndata/           ← snrna_smoke/full + spatial_smoke/full
+    processed/anndata/         ← snrna_hlca_latent_full.h5ad
+    processed/hlca/            ← labels parquet + query model/cache
+    runs/                      ← run-scoped manifests/reports
     data/reference/hlca/       ← HLCA atlas (~20 GB)
 ```

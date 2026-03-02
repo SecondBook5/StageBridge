@@ -125,5 +125,8 @@ def write_resolved_config_yaml(path: Path, cfg: Any) -> Path:
             text = yaml.safe_dump(cfg, sort_keys=False)
         except Exception:
             text = str(cfg)
+    header = f"# {path}\n"
+    if not text.startswith("# "):
+        text = header + text
     path.write_text(text, encoding="utf-8")
     return path
