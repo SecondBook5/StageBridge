@@ -4,7 +4,10 @@ sample manifests used by both snRNA and spatial pipelines.
 """
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -56,3 +59,71 @@ def validate_snrna_manifest(csv_path: Path) -> pd.DataFrame:
 def validate_spatial_manifest(csv_path: Path) -> pd.DataFrame:
     """Load and validate a spatial manifest CSV."""
     return load_manifest(csv_path, required_cols=REQUIRED_SPATIAL_COLS)
+
+
+def resolve_git_commit_hash(repo_root: Path | None = None) -> str | None:
+    """Return current git commit hash when available, else ``None``."""
+    repo_root = Path(repo_root or Path.cwd())
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return out or None
+    except Exception:
+        return None
+
+
+def summarize_anndata(
+    adata: Any,
+    donor_col: str = "donor_id",
+    stage_col: str = "stage",
+) -> dict[str, Any]:
+    """Build a compact summary block for an AnnData object."""
+    donors: list[str] = []
+    stages: list[str] = []
+
+    if donor_col in adata.obs.columns:
+        donors = sorted({str(x) for x in adata.obs[donor_col].astype(str).tolist()})
+    elif "patient_id" in adata.obs.columns:
+        donors = sorted({str(x) for x in adata.obs["patient_id"].astype(str).tolist()})
+
+    if stage_col in adata.obs.columns:
+        stages = sorted({str(x) for x in adata.obs[stage_col].astype(str).tolist()})
+
+    return {
+        "n_obs": int(adata.n_obs),
+        "n_vars": int(adata.n_vars),
+        "donors": donors,
+        "stages": stages,
+    }
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> Path:
+    """Write *payload* to *path* as pretty JSON."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+    return path
+
+
+def write_resolved_config_yaml(path: Path, cfg: Any) -> Path:
+    """Write fully resolved Hydra config to YAML."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from omegaconf import OmegaConf
+
+        text = OmegaConf.to_yaml(cfg, resolve=True)
+    except Exception:
+        try:
+            import yaml
+
+            text = yaml.safe_dump(cfg, sort_keys=False)
+        except Exception:
+            text = str(cfg)
+    path.write_text(text, encoding="utf-8")
+    return path

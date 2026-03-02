@@ -288,8 +288,8 @@ def main(cfg: DictConfig) -> None:
 
     adata = _load_training_adata(cfg)
 
-    # Determine actual latent dim from loaded data (may be < model.config.input_dim
-    # when data has fewer features than the configured target dimension).
+    # Determine actual latent dim from loaded data; may be < model.config.input_dim
+    # when data has fewer features than the configured target dimension.
     _latent_key = str(cfg.data.latent_key)
     _actual_input_dim = int(adata.obsm[_latent_key].shape[1])
 

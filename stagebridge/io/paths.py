@@ -16,7 +16,9 @@ only when ``mkdir=True`` is passed explicitly.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -43,6 +45,83 @@ def _resolve_data_root(cfg_data_root: Optional[str] = None) -> Path:
     )
 
 
+def _cfg_select(cfg: object, dotted_key: str) -> object | None:
+    """Best-effort dotted-key selector for DictConfig-like objects."""
+    try:
+        from omegaconf import OmegaConf
+
+        value = OmegaConf.select(cfg, dotted_key)
+        if value is not None:
+            return value
+    except Exception:
+        pass
+
+    current = cfg
+    for part in dotted_key.split("."):
+        if current is None:
+            return None
+        if isinstance(current, dict):
+            current = current.get(part)
+            continue
+        current = getattr(current, part, None)
+    return current
+
+
+@dataclass(frozen=True)
+class RunPaths:
+    """Resolved run-scoped directories and table artifact paths."""
+
+    run_id: str
+    run_dir: Path
+    tables_dir: Path
+    run_manifest_json: Path
+    data_audit_json: Path
+    config_resolved_yaml: Path
+
+
+def resolve_run_paths(cfg: object, run_id: str | None = None) -> RunPaths:
+    """Resolve and create run-scoped artifact paths.
+
+    Directory layout:
+      ${data.runs_dir}/${run_id}/tables/
+        - run_manifest.json
+        - data_audit.json
+        - config_resolved.yaml
+    """
+    runs_dir_raw = _cfg_select(cfg, "data.runs_dir")
+    if runs_dir_raw is None:
+        data_root_raw = _cfg_select(cfg, "data.data_root")
+        if data_root_raw is None:
+            data_root_raw = os.environ.get("STAGEBRIDGE_DATA_ROOT")
+        if not data_root_raw:
+            raise ValueError(
+                "Unable to resolve runs directory. Set `data.runs_dir` in config "
+                "or provide `data.data_root` / STAGEBRIDGE_DATA_ROOT."
+            )
+        runs_dir = Path(str(data_root_raw)) / "runs"
+    else:
+        runs_dir = Path(str(runs_dir_raw))
+
+    if run_id is None:
+        run_name = str(_cfg_select(cfg, "run_name") or "stagebridge")
+        run_name = re.sub(r"[^a-zA-Z0-9_.-]+", "_", run_name).strip("_") or "stagebridge"
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_id = f"{run_name}_{ts}"
+
+    run_dir = runs_dir / run_id
+    tables_dir = run_dir / "tables"
+    tables_dir.mkdir(parents=True, exist_ok=True)
+
+    return RunPaths(
+        run_id=run_id,
+        run_dir=run_dir,
+        tables_dir=tables_dir,
+        run_manifest_json=tables_dir / "run_manifest.json",
+        data_audit_json=tables_dir / "data_audit.json",
+        config_resolved_yaml=tables_dir / "config_resolved.yaml",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main resolver
 # ---------------------------------------------------------------------------
@@ -50,7 +129,7 @@ def _resolve_data_root(cfg_data_root: Optional[str] = None) -> Path:
 @dataclass
 class StageBridgePaths:
     """
-    Centralised path resolver for StageBridge artefacts.
+    Centralised path resolver for StageBridge artifacts.
 
     Instantiate via :meth:`from_cfg` (recommended) or directly by providing
     ``data_root`` and ``output_dir``.

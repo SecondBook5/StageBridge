@@ -1,96 +1,212 @@
 #!/usr/bin/env python
-"""
-Run the full spatial Visium conversion pipeline end-to-end.
-
-Steps:
-  1. Expand all GSM*.tar.gz from the extracted dir into per-sample dirs.
-  2. Load each sample and write a per-sample h5ad.
-  3. Build a manifest CSV.
-  4. Merge all per-sample h5ad → spatial_merged.h5ad
-
-Usage:
-    python scripts/run_spatial_pipeline.py [--dry-run]
-
-Set STAGEBRIDGE_DATA_ROOT before running if not using the default
-/mnt/e/StageBridge_data.
-"""
+"""Build interim spatial AnnData from GEO tarballs (smoke/full)."""
 from __future__ import annotations
 
-import argparse
-import sys
+from datetime import datetime, timezone
 from pathlib import Path
+import sys
 
+# Allow running from repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import hydra
+import numpy as np
+from omegaconf import DictConfig, OmegaConf
+
+from stagebridge.io.geo_spatial import (
+    discover_spatial_tarballs,
+    apply_spatial_smoke_limits,
+    load_spatial_dataset,
+)
+from stagebridge.io.manifests import (
+    resolve_git_commit_hash,
+    summarize_anndata,
+    write_json,
+    write_resolved_config_yaml,
+)
+from stagebridge.io.paths import resolve_run_paths
 from stagebridge.logging_utils import configure_root_logger, get_logger
+
 configure_root_logger()
 log = get_logger(__name__)
 
-from stagebridge import config
-from stagebridge.io.geo_spatial import (
-    expand_spatial_tarballs,
-    write_spatial_h5ad,
-    build_spatial_manifest,
-    merge_spatial_h5ad,
-)
+
+def _cfg_pick(cfg: DictConfig, keys: list[str]) -> object | None:
+    for key in keys:
+        value = OmegaConf.select(cfg, key)
+        if value is not None:
+            return value
+    return None
 
 
-def main(dry_run: bool = False) -> None:
-    extracted_dir = config.spatial_extracted_dir()
-    samples_dir   = config.spatial_samples_dir()
-    interim_dir   = config.interim_spatial_dir()
-    manifest      = config.spatial_manifest_csv()
-    merged        = config.spatial_merged_h5ad()
+def _resolve_data_root(cfg: DictConfig) -> Path:
+    data_root = _cfg_pick(cfg, ["data.data_root"]) or "/mnt/e/StageBridge_data"
+    return Path(str(data_root))
 
-    config.ensure_dir(samples_dir)
-    config.ensure_dir(interim_dir)
-    config.ensure_dir(merged.parent)
 
-    log.info("Data root    : %s", config.get_data_root())
-    log.info("Extracted dir: %s", extracted_dir)
-    log.info("Samples dir  : %s", samples_dir)
-    log.info("Interim dir  : %s", interim_dir)
+def _resolve_spatial_extracted_dir(cfg: DictConfig) -> Path:
+    value = _cfg_pick(cfg, ["data.raw.geo_spatial_dir", "data.spatial_raw_dir"])
+    if value is not None:
+        base = Path(str(value))
+        if base.name == "extracted":
+            return base
+        extracted = base / "extracted"
+        return extracted if extracted.exists() else base
 
-    if dry_run:
-        log.info("[DRY RUN] No files will be written.")
+    data_root = _resolve_data_root(cfg)
+    candidates = [
+        data_root / "raw" / "geo" / "GSE307534_spatial" / "extracted",
+        data_root / "raw" / "geo" / "GSE307534_spatial",
+        data_root / "data" / "raw" / "geo" / "GSE307534_spatial" / "extracted",
+        data_root / "data" / "raw" / "geo" / "GSE307534_spatial",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            if candidate.name == "extracted":
+                return candidate
+            extracted = candidate / "extracted"
+            if extracted.exists():
+                return extracted
+            return candidate
+    return candidates[0]
 
-    # ── Step 1: Expand tarballs ───────────────────────────────────────────────
-    log.info("Step 1/4 — Expanding spatial tarballs ...")
-    if not dry_run:
-        expand_spatial_tarballs(extracted_dir, samples_dir)
 
-    # ── Step 2: Per-sample h5ad ───────────────────────────────────────────────
-    sample_dirs = sorted(
-        p for p in samples_dir.iterdir()
-        if p.is_dir() and p.name.startswith("GSM")
-    ) if samples_dir.exists() else []
+def _resolve_spatial_interim_dir(cfg: DictConfig) -> Path:
+    value = _cfg_pick(cfg, ["data.interim.anndata_spatial_dir", "data.spatial_interim_dir"])
+    if value is not None:
+        return Path(str(value))
+    return _resolve_data_root(cfg) / "interim" / "anndata" / "spatial"
 
-    log.info("Step 2/4 — Converting %d samples to h5ad ...", len(sample_dirs))
-    for sd in sample_dirs:
-        out_h5ad = interim_dir / f"{sd.name}.h5ad"
-        if out_h5ad.exists():
-            log.info("  Skip (exists): %s", out_h5ad)
-            continue
-        log.info("  Converting: %s", sd.name)
-        if not dry_run:
-            write_spatial_h5ad(sd, out_h5ad)
 
-    # ── Step 3: Manifest ─────────────────────────────────────────────────────
-    log.info("Step 3/4 — Building spatial manifest ...")
-    if not dry_run:
-        build_spatial_manifest(samples_dir, manifest)
+def _smoke_value(cfg: DictConfig, key: str, default_value: int) -> int | None:
+    value = OmegaConf.select(cfg, key)
+    if value is None:
+        return default_value
+    return int(value)
 
-    # ── Step 4: Merge ────────────────────────────────────────────────────────
-    log.info("Step 4/4 — Merging into %s ...", merged)
-    if not dry_run:
-        merge_spatial_h5ad(manifest, merged)
 
-    log.info("Spatial pipeline complete.")
+@hydra.main(config_path="../configs", config_name="config", version_base=None)
+def main(cfg: DictConfig) -> None:
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    experiment_name = str(OmegaConf.select(cfg, "experiment.name") or "").lower()
+    is_smoke = experiment_name == "smoke"
+
+    max_donors: int | None = None
+    max_samples_per_stage: int | None = None
+    max_spots_per_sample: int | None = None
+    if is_smoke:
+        max_donors = _smoke_value(cfg, "experiment.max_donors", 2)
+        max_samples_per_stage = _smoke_value(cfg, "experiment.max_samples_per_stage", 1)
+        max_spots_per_sample = _smoke_value(cfg, "experiment.max_spots_per_sample", 20000)
+
+    extracted_dir = _resolve_spatial_extracted_dir(cfg)
+    interim_dir = _resolve_spatial_interim_dir(cfg)
+    interim_dir.mkdir(parents=True, exist_ok=True)
+
+    output_name = "spatial_smoke.h5ad" if is_smoke else "spatial_full.h5ad"
+    output_path = interim_dir / output_name
+
+    requested_run_id = OmegaConf.select(cfg, "run_id")
+    run_id = str(requested_run_id) if requested_run_id else f"spatial_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    run_paths = resolve_run_paths(cfg, run_id=run_id)
+
+    discovered_df = discover_spatial_tarballs(extracted_dir)
+    selected_df = apply_spatial_smoke_limits(
+        discovered_df,
+        max_donors=max_donors,
+        max_samples_per_stage=max_samples_per_stage,
+    )
+
+    adata, loaded_df = load_spatial_dataset(
+        extracted_dir=extracted_dir,
+        max_donors=max_donors,
+        max_samples_per_stage=max_samples_per_stage,
+        max_spots_per_sample=max_spots_per_sample,
+    )
+    adata.write_h5ad(output_path)
+
+    if not output_path.exists():
+        raise FileNotFoundError(f"Expected output was not created: {output_path}")
+    if "spatial" not in adata.obsm:
+        raise ValueError("Spatial AnnData missing required obsm['spatial'] coordinates.")
+
+    coords = np.asarray(adata.obsm["spatial"], dtype=float)
+    coord_min = coords.min(axis=0).tolist()
+    coord_max = coords.max(axis=0).tolist()
+
+    summary = summarize_anndata(adata, donor_col="donor_id", stage_col="stage")
+    git_hash = resolve_git_commit_hash(Path(__file__).resolve().parent.parent)
+    modality_values = (
+        sorted({str(v) for v in adata.obs["modality"].astype(str).tolist()})
+        if "modality" in adata.obs.columns
+        else []
+    )
+
+    run_manifest = {
+        "run_id": run_paths.run_id,
+        "timestamp": timestamp,
+        "pipeline": "spatial",
+        "inputs": {
+            "extracted_dir": str(extracted_dir),
+            "total_file_count": int(len(discovered_df)),
+            "selected_file_count": int(len(selected_df)),
+            "selected_sample_ids": [str(x) for x in loaded_df["sample_id"].tolist()],
+        },
+        "outputs": {
+            "anndata": str(output_path),
+            "run_manifest": str(run_paths.run_manifest_json),
+            "data_audit": str(run_paths.data_audit_json),
+            "config_resolved": str(run_paths.config_resolved_yaml),
+        },
+        "anndata": {
+            **summary,
+            "spatial_coord_min": coord_min,
+            "spatial_coord_max": coord_max,
+        },
+        "git_commit": git_hash,
+        "smoke": {
+            "enabled": bool(is_smoke),
+            "max_donors": max_donors,
+            "max_samples_per_stage": max_samples_per_stage,
+            "max_spots_per_sample": max_spots_per_sample,
+        },
+    }
+
+    data_audit = {
+        "run_id": run_paths.run_id,
+        "timestamp": timestamp,
+        "pipeline": "spatial",
+        "ok": True,
+        "checks": {
+            "output_exists": output_path.exists(),
+            "has_counts_layer": "counts" in adata.layers,
+            "has_spatial_coords": "spatial" in adata.obsm,
+            "modality_values": modality_values,
+        },
+        "anndata": {
+            **summary,
+            "spatial_coord_min": coord_min,
+            "spatial_coord_max": coord_max,
+        },
+    }
+
+    write_json(run_paths.run_manifest_json, run_manifest)
+    write_json(run_paths.data_audit_json, data_audit)
+    write_resolved_config_yaml(run_paths.config_resolved_yaml, cfg)
+
+    log.info("Spatial output written: %s", output_path)
+    log.info("Run manifest written: %s", run_paths.run_manifest_json)
+
+    print(f"spatial output: {output_path}")
+    print(f"n_obs={summary['n_obs']} n_vars={summary['n_vars']}")
+    print(f"donors={summary['donors']}")
+    print(f"stages={summary['stages']}")
+    print(f"spatial_coord_min={coord_min}")
+    print(f"spatial_coord_max={coord_max}")
+    print(f"run_manifest={run_paths.run_manifest_json}")
+    print(f"data_audit={run_paths.data_audit_json}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="StageBridge spatial pipeline")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print what would be done without writing files")
-    args = parser.parse_args()
-    main(dry_run=args.dry_run)
+    main()

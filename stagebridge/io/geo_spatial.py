@@ -30,15 +30,18 @@ Usage (CLI):
 from __future__ import annotations
 
 import gzip
+import io
 import re
 import sys
 import tarfile
 from pathlib import Path
+from typing import Any
 
 import anndata
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from scipy import io as sio
 
 from stagebridge.logging_utils import get_logger
 from stagebridge.preprocessing.stage_ontology import (
@@ -557,6 +560,409 @@ def merge_spatial_h5ad(manifest_csv: Path, output_h5ad: Path) -> None:
         f"Merged spatial: {merged.shape[0]} spots × {merged.shape[1]} genes "
         f"→ {output_h5ad}"
     )
+
+
+def _sample_stem_from_tar_path(input_path: Path) -> str:
+    """Return canonical stem from a GSM spatial tarball path."""
+    stem = input_path.name
+    for ext in (".tar.gz", ".tgz"):
+        if stem.endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+    return stem
+
+
+def discover_spatial_tarballs(extracted_dir: Path) -> pd.DataFrame:
+    """Discover and parse spatial GEO tarballs in *extracted_dir*."""
+    extracted_dir = Path(extracted_dir)
+    if not extracted_dir.exists():
+        raise FileNotFoundError(f"Spatial extracted directory not found: {extracted_dir}")
+
+    tarballs = sorted(extracted_dir.glob("GSM*.tar.gz"))
+    if not tarballs:
+        raise FileNotFoundError(f"No GSM*.tar.gz files found in: {extracted_dir}")
+
+    rows: list[dict[str, Any]] = []
+    for tb in tarballs:
+        stem = _sample_stem_from_tar_path(tb)
+        info = _parse_stem(stem)
+        rows.append(
+            {
+                "sample_id": info["sample_id"],
+                "input_path": str(tb),
+                "gsm_id": info["gsm"],
+                "donor_id": info["patient_id"],
+                "stage": info["stage_normalized"],
+                "stage_raw": info["stage_raw"],
+                "file_size_bytes": int(tb.stat().st_size),
+            }
+        )
+    return pd.DataFrame(rows).sort_values("sample_id").reset_index(drop=True)
+
+
+def apply_spatial_smoke_limits(
+    manifest_df: pd.DataFrame,
+    max_donors: int | None = None,
+    max_samples_per_stage: int | None = None,
+) -> pd.DataFrame:
+    """Select a deterministic smoke subset from discovered spatial tarballs."""
+    df = manifest_df.copy()
+    if df.empty:
+        return df
+
+    if max_donors is not None and max_donors > 0:
+        donor_order = (
+            df.groupby("donor_id", as_index=True)["file_size_bytes"]
+            .sum()
+            .sort_values(kind="stable")
+            .index.tolist()
+        )
+        keep_donors = set(donor_order[: max_donors])
+        df = df[df["donor_id"].isin(keep_donors)].copy()
+
+    if max_samples_per_stage is not None and max_samples_per_stage > 0:
+        df = (
+            df.sort_values(["stage", "file_size_bytes", "sample_id"], kind="stable")
+            .groupby("stage", as_index=False, group_keys=False)
+            .head(max_samples_per_stage)
+            .copy()
+        )
+
+    return df.sort_values("sample_id", kind="stable").reset_index(drop=True)
+
+
+def inspect_spatial_tarball_format(tar_path: Path) -> dict[str, Any]:
+    """Inspect a spatial tarball and report detected format details."""
+    tar_path = Path(tar_path)
+    if not tar_path.exists():
+        raise FileNotFoundError(f"Spatial tarball not found: {tar_path}")
+
+    with tarfile.open(tar_path, "r:gz") as tf:
+        members = [m.name for m in tf.getmembers() if m.isfile()]
+
+    has_matrix = any(
+        m.endswith("filtered_feature_bc_matrix/matrix.mtx.gz")
+        or m.endswith("filtered_feature_bc_matrix/matrix.mtx")
+        or m.endswith("raw_feature_bc_matrix/matrix.mtx.gz")
+        or m.endswith("raw_feature_bc_matrix/matrix.mtx")
+        for m in members
+    )
+    has_barcodes = any(
+        m.endswith("filtered_feature_bc_matrix/barcodes.tsv.gz")
+        or m.endswith("filtered_feature_bc_matrix/barcodes.tsv")
+        or m.endswith("raw_feature_bc_matrix/barcodes.tsv.gz")
+        or m.endswith("raw_feature_bc_matrix/barcodes.tsv")
+        for m in members
+    )
+    has_features = any(
+        m.endswith("filtered_feature_bc_matrix/features.tsv.gz")
+        or m.endswith("filtered_feature_bc_matrix/features.tsv")
+        or m.endswith("filtered_feature_bc_matrix/genes.tsv.gz")
+        or m.endswith("filtered_feature_bc_matrix/genes.tsv")
+        or m.endswith("raw_feature_bc_matrix/features.tsv.gz")
+        or m.endswith("raw_feature_bc_matrix/features.tsv")
+        or m.endswith("raw_feature_bc_matrix/genes.tsv.gz")
+        or m.endswith("raw_feature_bc_matrix/genes.tsv")
+        for m in members
+    )
+    has_spatial_dir = any("/spatial/" in m for m in members)
+
+    format_name = "visium_10x" if (has_matrix and has_barcodes and has_features and has_spatial_dir) else "unknown"
+    return {
+        "format": format_name,
+        "file_count": len(members),
+        "members_preview": sorted(members)[:40],
+    }
+
+
+def _open_tar_text_member(tf: tarfile.TarFile, member_name: str):
+    """Open a tar member as text stream (auto-handles .gz members)."""
+    raw = tf.extractfile(member_name)
+    if raw is None:
+        raise FileNotFoundError(f"Could not open member from tar: {member_name}")
+    if member_name.endswith(".gz"):
+        return gzip.open(raw, "rt", encoding="utf-8")
+    return io.TextIOWrapper(raw, encoding="utf-8")
+
+
+def _read_tar_tsv_column(tf: tarfile.TarFile, member_name: str, col: int = 0) -> list[str]:
+    with _open_tar_text_member(tf, member_name) as fh:
+        out: list[str] = []
+        for line in fh:
+            s = line.strip()
+            if not s:
+                continue
+            parts = s.split("\t")
+            if col >= len(parts):
+                raise ValueError(
+                    f"TSV member {member_name} has only {len(parts)} columns on line: {line[:120]!r}"
+                )
+            out.append(parts[col])
+    return out
+
+
+def _read_tar_mtx_sparse(tf: tarfile.TarFile, member_name: str) -> sp.csr_matrix:
+    raw = tf.extractfile(member_name)
+    if raw is None:
+        raise FileNotFoundError(f"Could not open matrix member from tar: {member_name}")
+    if member_name.endswith(".gz"):
+        with gzip.GzipFile(fileobj=raw, mode="rb") as fh:
+            mat = sio.mmread(fh)
+    else:
+        mat = sio.mmread(raw)
+    if sp.issparse(mat):
+        return mat.tocsr().astype(np.float32)
+    return sp.csr_matrix(np.asarray(mat, dtype=np.float32))
+
+
+def _find_required_member(members: list[str], suffixes: tuple[str, ...], label: str) -> str:
+    for suffix in suffixes:
+        for member_name in members:
+            if member_name.endswith(suffix):
+                return member_name
+    raise FileNotFoundError(
+        f"Could not find {label} in tarball. Tried suffixes: {suffixes}. "
+        f"Found files (first 50): {sorted(members)[:50]}"
+    )
+
+
+def _load_spatial_coords_from_tar(
+    tf: tarfile.TarFile,
+    member_names: list[str],
+    barcodes: list[str],
+    sample_id: str,
+) -> np.ndarray:
+    expected_coord_files = (
+        "tissue_positions.csv",
+        "tissue_positions_list.csv",
+        "tissue_positions.csv.gz",
+        "tissue_positions_list.csv.gz",
+    )
+
+    coord_member: str | None = None
+    for member_name in member_names:
+        base = Path(member_name).name
+        if base.startswith("._"):
+            continue
+        if base in expected_coord_files and "/spatial/" in member_name:
+            coord_member = member_name
+            break
+
+    if coord_member is None:
+        found_spatial_files = sorted(
+            Path(m).name
+            for m in member_names
+            if "/spatial/" in m and not Path(m).name.startswith("._")
+        )
+        raise ValueError(
+            f"{sample_id}: spatial coordinates not found in tarball.\n"
+            f"Expected one of {list(expected_coord_files)} under a spatial/ directory.\n"
+            f"Found spatial files: {found_spatial_files}"
+        )
+
+    with _open_tar_text_member(tf, coord_member) as fh:
+        coord_text = fh.read()
+    if not coord_text.strip():
+        raise ValueError(f"{sample_id}: coordinate file is empty: {coord_member}")
+
+    first_line = coord_text.splitlines()[0].strip().lower()
+    has_header = (
+        "barcode" in first_line
+        or "pxl_row_in_fullres" in first_line
+        or "array_row" in first_line
+    )
+
+    if has_header:
+        df = pd.read_csv(io.StringIO(coord_text))
+        if "barcode" not in df.columns:
+            df = df.rename(columns={df.columns[0]: "barcode"})
+    else:
+        df = pd.read_csv(
+            io.StringIO(coord_text),
+            header=None,
+            names=[
+                "barcode",
+                "in_tissue",
+                "array_row",
+                "array_col",
+                "pxl_row_in_fullres",
+                "pxl_col_in_fullres",
+            ],
+        )
+
+    if "barcode" not in df.columns:
+        raise ValueError(
+            f"{sample_id}: unable to identify barcode column in coordinate file {coord_member}. "
+            f"Columns found: {list(df.columns)}"
+        )
+    df = df.set_index("barcode")
+
+    if {"pxl_col_in_fullres", "pxl_row_in_fullres"}.issubset(df.columns):
+        coord_cols = ["pxl_col_in_fullres", "pxl_row_in_fullres"]
+    elif {"array_col", "array_row"}.issubset(df.columns):
+        coord_cols = ["array_col", "array_row"]
+    else:
+        raise ValueError(
+            f"{sample_id}: coordinate file {coord_member} lacks usable coordinate columns.\n"
+            f"Expected either ['pxl_col_in_fullres','pxl_row_in_fullres'] "
+            f"or ['array_col','array_row'].\n"
+            f"Found columns: {list(df.columns)}"
+        )
+
+    aligned = df.reindex(barcodes)[coord_cols]
+    missing_mask = aligned.isna().any(axis=1)
+    if bool(missing_mask.any()):
+        missing_count = int(missing_mask.sum())
+        raise ValueError(
+            f"{sample_id}: {missing_count} / {len(barcodes)} barcodes are missing coordinates in {coord_member}."
+        )
+    return aligned.to_numpy(dtype=np.float32, copy=False)
+
+
+def load_spatial_sample_from_tarball(
+    tar_path: Path,
+    max_spots_per_sample: int | None = None,
+) -> anndata.AnnData:
+    """Load one GEO spatial tarball into AnnData (spots x genes)."""
+    tar_path = Path(tar_path)
+    inspect = inspect_spatial_tarball_format(tar_path)
+    if inspect["format"] != "visium_10x":
+        raise ValueError(
+            f"Unsupported spatial tar format for {tar_path}.\n"
+            f"Detected format: {inspect['format']}\n"
+            f"Members preview: {inspect['members_preview']}"
+        )
+
+    sample_stem = _sample_stem_from_tar_path(tar_path)
+    info = _parse_stem(sample_stem)
+
+    with tarfile.open(tar_path, "r:gz") as tf:
+        member_names = [m.name for m in tf.getmembers() if m.isfile() and not m.name.endswith("/")]
+
+        matrix_member = _find_required_member(
+            member_names,
+            (
+                "filtered_feature_bc_matrix/matrix.mtx.gz",
+                "filtered_feature_bc_matrix/matrix.mtx",
+                "raw_feature_bc_matrix/matrix.mtx.gz",
+                "raw_feature_bc_matrix/matrix.mtx",
+            ),
+            "matrix file",
+        )
+        barcode_member = _find_required_member(
+            member_names,
+            (
+                "filtered_feature_bc_matrix/barcodes.tsv.gz",
+                "filtered_feature_bc_matrix/barcodes.tsv",
+                "raw_feature_bc_matrix/barcodes.tsv.gz",
+                "raw_feature_bc_matrix/barcodes.tsv",
+            ),
+            "barcodes file",
+        )
+        feature_member = _find_required_member(
+            member_names,
+            (
+                "filtered_feature_bc_matrix/features.tsv.gz",
+                "filtered_feature_bc_matrix/features.tsv",
+                "filtered_feature_bc_matrix/genes.tsv.gz",
+                "filtered_feature_bc_matrix/genes.tsv",
+                "raw_feature_bc_matrix/features.tsv.gz",
+                "raw_feature_bc_matrix/features.tsv",
+                "raw_feature_bc_matrix/genes.tsv.gz",
+                "raw_feature_bc_matrix/genes.tsv",
+            ),
+            "features file",
+        )
+
+        barcodes = _read_tar_tsv_column(tf, barcode_member, col=0)
+        feature_col = 1 if Path(feature_member).name.startswith("features") else 0
+        features = _read_tar_tsv_column(tf, feature_member, col=feature_col)
+        X_genes_spots = _read_tar_mtx_sparse(tf, matrix_member)
+
+        n_genes, n_spots = X_genes_spots.shape
+        if len(features) != n_genes or len(barcodes) != n_spots:
+            raise ValueError(
+                f"{sample_stem}: matrix shape is ({n_genes} genes, {n_spots} spots), "
+                f"but parsed {len(features)} features and {len(barcodes)} barcodes."
+            )
+
+        coords = _load_spatial_coords_from_tar(
+            tf=tf,
+            member_names=member_names,
+            barcodes=barcodes,
+            sample_id=sample_stem,
+        )
+
+    if max_spots_per_sample is not None and max_spots_per_sample > 0:
+        n_keep = min(int(max_spots_per_sample), len(barcodes))
+    else:
+        n_keep = len(barcodes)
+
+    keep_idx = np.arange(n_keep, dtype=np.int64)
+    X = X_genes_spots[:, keep_idx].T.tocsr()
+    kept_barcodes = [barcodes[i] for i in keep_idx.tolist()]
+    kept_coords = coords[keep_idx, :]
+
+    obs_index = pd.Index(
+        [f"{info['sample_id']}:{bc}" for bc in kept_barcodes],
+        name="spot_obs_id",
+    )
+    obs = pd.DataFrame(index=obs_index)
+    obs["spot_id"] = kept_barcodes
+    obs["barcode"] = kept_barcodes
+    obs["donor_id"] = info["patient_id"]
+    obs["patient_id"] = info["patient_id"]
+    obs["stage"] = info["stage_normalized"]
+    obs["stage_raw"] = info["stage_raw"]
+    obs["gsm_id"] = info["gsm"]
+    obs["gsm"] = info["gsm"]
+    obs["sample_id"] = info["sample_id"]
+    obs["modality"] = "spatial"
+
+    var = pd.DataFrame(index=pd.Index(features, name="gene"))
+    if var.index.to_series().str.fullmatch(r"\d+").all():
+        var["gene_id_raw"] = var.index.astype(str)
+
+    adata = anndata.AnnData(X=X, obs=obs, var=var)
+    adata.var_names_make_unique()
+    adata.layers["counts"] = adata.X.copy()
+    adata.obsm["spatial"] = kept_coords.astype(np.float32, copy=False)
+    return adata
+
+
+def load_spatial_dataset(
+    extracted_dir: Path,
+    max_donors: int | None = None,
+    max_samples_per_stage: int | None = None,
+    max_spots_per_sample: int | None = None,
+) -> tuple[anndata.AnnData, pd.DataFrame]:
+    """Load and concatenate spatial tarballs from *extracted_dir*."""
+    manifest = discover_spatial_tarballs(extracted_dir)
+    selected = apply_spatial_smoke_limits(
+        manifest,
+        max_donors=max_donors,
+        max_samples_per_stage=max_samples_per_stage,
+    )
+    if selected.empty:
+        raise RuntimeError("No spatial samples selected after applying limits.")
+
+    adatas: list[anndata.AnnData] = []
+    for row in selected.itertuples(index=False):
+        ad = load_spatial_sample_from_tarball(
+            Path(row.input_path),
+            max_spots_per_sample=max_spots_per_sample,
+        )
+        adatas.append(ad)
+
+    merged = anndata.concat(adatas, join="outer", merge="same")
+    merged.obs_names_make_unique()
+    merged.var_names_make_unique()
+    merged.layers["counts"] = merged.X.copy()
+
+    if "spatial" not in merged.obsm:
+        raise ValueError("Merged spatial AnnData is missing obsm['spatial'].")
+
+    return merged, selected
 
 
 # ---------------------------------------------------------------------------

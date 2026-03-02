@@ -1,5 +1,12 @@
+# configs/experiment/smoke.yaml
 name: smoke
 cross_validate: false
 primary_model: stagebridge
 baseline_models: []
 ablations: []
+
+# Fast data-pipeline iteration limits.
+max_donors: 2
+max_samples_per_stage: 1
+max_cells_per_sample: 20000
+max_spots_per_sample: 20000

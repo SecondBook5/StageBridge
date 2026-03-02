@@ -23,7 +23,7 @@ import gzip
 import re
 import sys
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import anndata
 import numpy as np
@@ -97,6 +97,232 @@ def _iter_lines(input_path: Path) -> Iterator[bytes]:
     """Yield raw byte lines from a gzip file."""
     with gzip.open(input_path, "rb") as fh:
         yield from fh
+
+
+def _sample_stem_from_path(input_path: Path) -> str:
+    """Return canonical sample stem from GEO snRNA filename."""
+    stem = input_path.name
+    for ext in (".gz", ".txt", ".mtx", ".raw_counts"):
+        if stem.endswith(ext):
+            stem = stem[: -len(ext)]
+    return stem
+
+
+def discover_snrna_files(raw_dir: Path) -> pd.DataFrame:
+    """Discover and parse snRNA raw files in *raw_dir*.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns:
+        - sample_id
+        - input_path
+        - gsm_id
+        - donor_id
+        - stage
+        - stage_raw
+        - file_size_bytes
+    """
+    raw_dir = Path(raw_dir)
+    if not raw_dir.exists():
+        raise FileNotFoundError(
+            f"snRNA extracted directory not found: {raw_dir}\n"
+            f"Expected GEO files named *.raw_counts.mtx.txt.gz in this directory."
+        )
+
+    files = sorted(raw_dir.glob("*.raw_counts.mtx.txt.gz"))
+    if not files:
+        raise FileNotFoundError(f"No *.raw_counts.mtx.txt.gz files found in: {raw_dir}")
+
+    rows: list[dict[str, Any]] = []
+    for fpath in files:
+        stem = _sample_stem_from_path(fpath)
+        info = parse_sample_info_from_filename(stem)
+        rows.append(
+            {
+                "sample_id": info["sample_id"],
+                "input_path": str(fpath),
+                "gsm_id": info["gsm"],
+                "donor_id": info["patient_id"],
+                "stage": info["stage_normalized"],
+                "stage_raw": info["stage_raw"],
+                "file_size_bytes": int(fpath.stat().st_size),
+            }
+        )
+
+    return pd.DataFrame(rows).sort_values("sample_id").reset_index(drop=True)
+
+
+def apply_snrna_smoke_limits(
+    manifest_df: pd.DataFrame,
+    max_donors: int | None = None,
+    max_samples_per_stage: int | None = None,
+) -> pd.DataFrame:
+    """Select a deterministic smoke subset from a discovered snRNA manifest."""
+    df = manifest_df.copy()
+    if df.empty:
+        return df
+
+    if max_donors is not None and max_donors > 0:
+        donor_order = (
+            df.groupby("donor_id", as_index=True)["file_size_bytes"]
+            .sum()
+            .sort_values(kind="stable")
+            .index.tolist()
+        )
+        keep_donors = set(donor_order[: max_donors])
+        df = df[df["donor_id"].isin(keep_donors)].copy()
+
+    if max_samples_per_stage is not None and max_samples_per_stage > 0:
+        df = (
+            df.sort_values(["stage", "file_size_bytes", "sample_id"], kind="stable")
+            .groupby("stage", as_index=False, group_keys=False)
+            .head(max_samples_per_stage)
+            .copy()
+        )
+
+    return df.sort_values("sample_id", kind="stable").reset_index(drop=True)
+
+
+def load_snrna_sample(
+    input_path: Path,
+    max_cells_per_sample: int | None = None,
+) -> anndata.AnnData:
+    """Load one GEO snRNA dense-counts sample into AnnData.
+
+    Input format by inspection:
+    - line 1: barcode header (whitespace-delimited columns)
+    - line 2+: GENE_SYMBOL + dense integer counts across all barcodes
+    """
+    input_path = Path(input_path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"snRNA input file not found: {input_path}")
+
+    sample_stem = _sample_stem_from_path(input_path)
+    info = parse_sample_info_from_filename(sample_stem)
+
+    with gzip.open(input_path, "rt", encoding="utf-8") as fh:
+        header = fh.readline().strip().split()
+        if not header:
+            raise ValueError(f"Missing barcode header line in {input_path}")
+
+        n_total_cells = len(header)
+        if max_cells_per_sample is not None and max_cells_per_sample > 0:
+            n_keep = min(int(max_cells_per_sample), n_total_cells)
+        else:
+            n_keep = n_total_cells
+
+        selected_idx = np.arange(n_keep, dtype=np.int64)
+        selected_barcodes = [header[i] for i in selected_idx.tolist()]
+
+        row_chunks: list[np.ndarray] = []
+        col_chunks: list[np.ndarray] = []
+        data_chunks: list[np.ndarray] = []
+        var_names: list[str] = []
+
+        gene_idx = 0
+        for line in fh:
+            s = line.rstrip("\n")
+            if not s:
+                continue
+
+            parts = s.split(maxsplit=1)
+            if len(parts) != 2:
+                raise ValueError(
+                    f"Malformed gene row in {input_path} at gene index {gene_idx}: {s[:120]!r}"
+                )
+            gene_symbol, count_blob = parts
+            counts_full = np.fromstring(count_blob, sep=" ", dtype=np.int32)
+            if counts_full.size != n_total_cells:
+                raise ValueError(
+                    f"Gene '{gene_symbol}' in {input_path} has {counts_full.size} counts, "
+                    f"expected {n_total_cells} from header."
+                )
+
+            counts = counts_full[selected_idx]
+            var_names.append(gene_symbol)
+
+            nz = np.flatnonzero(counts)
+            if nz.size:
+                row_chunks.append(np.full(nz.size, gene_idx, dtype=np.int32))
+                col_chunks.append(nz.astype(np.int32, copy=False))
+                data_chunks.append(counts[nz].astype(np.float32, copy=False))
+            gene_idx += 1
+
+    n_genes = len(var_names)
+    if n_genes == 0:
+        raise ValueError(f"No gene rows parsed from {input_path}")
+
+    if row_chunks:
+        rows = np.concatenate(row_chunks)
+        cols = np.concatenate(col_chunks)
+        vals = np.concatenate(data_chunks)
+    else:
+        rows = np.array([], dtype=np.int32)
+        cols = np.array([], dtype=np.int32)
+        vals = np.array([], dtype=np.float32)
+
+    X_genes_cells = sp.csr_matrix(
+        (vals, (rows, cols)),
+        shape=(n_genes, n_keep),
+        dtype=np.float32,
+    )
+    X = X_genes_cells.T.tocsr()
+
+    obs_index = pd.Index(
+        [f"{info['sample_id']}:{bc}" for bc in selected_barcodes],
+        name="cell_id",
+    )
+    obs = pd.DataFrame(index=obs_index)
+    obs["barcode"] = selected_barcodes
+    obs["donor_id"] = info["patient_id"]
+    obs["patient_id"] = info["patient_id"]
+    obs["stage"] = info["stage_normalized"]
+    obs["stage_raw"] = info["stage_raw"]
+    obs["gsm_id"] = info["gsm"]
+    obs["gsm"] = info["gsm"]
+    obs["sample_id"] = info["sample_id"]
+    obs["modality"] = "snrna"
+
+    var = pd.DataFrame(index=pd.Index(var_names, name="gene"))
+    if var.index.to_series().str.fullmatch(r"\d+").all():
+        var["gene_id_raw"] = var.index.astype(str)
+
+    adata = anndata.AnnData(X=X, obs=obs, var=var)
+    adata.var_names_make_unique()
+    adata.layers["counts"] = adata.X.copy()
+    return adata
+
+
+def load_snrna_dataset(
+    raw_dir: Path,
+    max_donors: int | None = None,
+    max_samples_per_stage: int | None = None,
+    max_cells_per_sample: int | None = None,
+) -> tuple[anndata.AnnData, pd.DataFrame]:
+    """Load and concatenate GEO snRNA samples from *raw_dir*."""
+    manifest = discover_snrna_files(raw_dir)
+    selected = apply_snrna_smoke_limits(
+        manifest,
+        max_donors=max_donors,
+        max_samples_per_stage=max_samples_per_stage,
+    )
+    if selected.empty:
+        raise RuntimeError("No snRNA samples selected after applying limits.")
+
+    adatas: list[anndata.AnnData] = []
+    for row in selected.itertuples(index=False):
+        ad = load_snrna_sample(
+            Path(row.input_path),
+            max_cells_per_sample=max_cells_per_sample,
+        )
+        adatas.append(ad)
+
+    merged = anndata.concat(adatas, join="outer", merge="same")
+    merged.obs_names_make_unique()
+    merged.var_names_make_unique()
+    merged.layers["counts"] = merged.X.copy()
+    return merged, selected
 
 
 def convert_snrna_dense_counts_to_h5ad(
