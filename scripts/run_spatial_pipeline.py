@@ -2,13 +2,17 @@
 """Build interim spatial AnnData from GEO tarballs (smoke/full)."""
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
+import os
 from pathlib import Path
+import shutil
 import sys
 
 # Allow running from repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import anndata
 import hydra
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
@@ -17,8 +21,8 @@ from stagebridge.io.geo_spatial import (
     discover_spatial_tarballs,
     apply_spatial_smoke_limits,
     load_spatial_dataset,
-    load_spatial_sample_from_tarball,
 )
+from stagebridge.io.h5ad_atomic import copy_file_atomic, validate_h5ad, write_h5ad_atomic
 from stagebridge.io.manifests import (
     resolve_git_commit_hash,
     summarize_anndata,
@@ -26,6 +30,7 @@ from stagebridge.io.manifests import (
     write_resolved_config_yaml,
 )
 from stagebridge.io.paths import resolve_run_paths
+from stagebridge.io.pipeline_workers import build_spatial_shard
 from stagebridge.logging_utils import configure_root_logger, get_logger
 
 configure_root_logger()
@@ -86,50 +91,96 @@ def _smoke_value(cfg: DictConfig, key: str, default_value: int) -> int | None:
     return int(value)
 
 
+def _int_or_none(value: object | None) -> int | None:
+    if value is None:
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
+def _bool_or_default(value: object | None, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    s = str(value).strip().lower()
+    return s in {"1", "true", "yes", "y", "on"}
+
+
+def _resolve_max_workers(cfg: DictConfig, n_tasks: int) -> int:
+    configured = _int_or_none(_cfg_pick(cfg, ["pipeline.max_workers", "io.max_workers"]))
+    if configured is None:
+        cpu = os.cpu_count() or 2
+        configured = max(1, min(4, cpu // 2))
+    return max(1, min(configured, max(1, n_tasks)))
+
+
+def _resolve_scratch_root(cfg: DictConfig) -> Path:
+    raw = _cfg_pick(cfg, ["pipeline.scratch_root", "io.scratch_root"])
+    if raw is not None:
+        return Path(str(raw))
+    return Path.home() / ".cache" / "stagebridge_scratch"
+
+
+def _resolve_write_compression(cfg: DictConfig) -> str:
+    raw = _cfg_pick(cfg, ["pipeline.h5ad_compression", "io.h5ad_compression"])
+    return str(raw) if raw is not None else "lzf"
+
+
 def _build_full_spatial_on_disk(
     selected_df,
-    output_path: Path,
-    max_spots_per_sample: int | None = None,
-):
-    """Build full spatial AnnData via per-sample writes + on-disk concat."""
-    import anndata
+    scratch_run_dir: Path,
+    max_spots_per_sample: int | None,
+    max_workers: int,
+    compression: str,
+) -> Path:
+    """Build full spatial AnnData via parallel shard writes + on-disk concat."""
     from anndata.experimental import concat_on_disk
 
-    per_sample_dir = output_path.parent / "_tmp_spatial_full_samples"
-    per_sample_dir.mkdir(parents=True, exist_ok=True)
+    shard_dir = scratch_run_dir / "spatial_shards"
+    shard_dir.mkdir(parents=True, exist_ok=True)
 
-    sample_paths: list[str] = []
-    for row in selected_df.itertuples(index=False):
-        sample_out = per_sample_dir / f"{row.sample_id}.h5ad"
-        if not sample_out.exists():
-            ad = load_spatial_sample_from_tarball(
-                Path(row.input_path),
-                max_spots_per_sample=max_spots_per_sample,
+    futures = {}
+    with ProcessPoolExecutor(max_workers=max_workers) as pool:
+        for row in selected_df.itertuples(index=False):
+            shard_path = shard_dir / f"{row.sample_id}.h5ad"
+            fut = pool.submit(
+                build_spatial_shard,
+                str(row.input_path),
+                str(shard_path),
+                max_spots_per_sample,
+                compression,
             )
-            ad.write_h5ad(sample_out)
-        sample_paths.append(str(sample_out))
+            futures[fut] = row.sample_id
 
-    if output_path.exists():
-        output_path.unlink()
+        for fut in as_completed(futures):
+            sample_id = futures[fut]
+            try:
+                fut.result()
+            except Exception as exc:
+                raise RuntimeError(f"Failed spatial shard build for {sample_id}: {exc}") from exc
+
+    shard_paths = [shard_dir / f"{row.sample_id}.h5ad" for row in selected_df.itertuples(index=False)]
+    for shard_path in shard_paths:
+        ok, err = validate_h5ad(shard_path, require_spatial=True)
+        if not ok:
+            raise RuntimeError(f"Invalid spatial shard before concat: {shard_path} ({err})")
+
+    concat_path = scratch_run_dir / "spatial_concat_full.h5ad"
+    concat_path.unlink(missing_ok=True)
 
     concat_on_disk(
-        in_files=sample_paths,
-        out_file=str(output_path),
+        in_files=[str(p) for p in shard_paths],
+        out_file=str(concat_path),
         axis=0,
         join="outer",
         merge="same",
         index_unique=None,
     )
-
-    # Clean up temporary per-sample files once final output is materialized.
-    for p in per_sample_dir.glob("*.h5ad"):
-        p.unlink(missing_ok=True)
-    try:
-        per_sample_dir.rmdir()
-    except OSError:
-        pass
-
-    return anndata.read_h5ad(output_path, backed="r")
+    ok, err = validate_h5ad(concat_path, require_spatial=True)
+    if not ok:
+        raise RuntimeError(f"On-disk spatial concat produced invalid output: {concat_path} ({err})")
+    return concat_path
 
 
 @hydra.main(config_path="../configs", config_name="config", version_base=None)
@@ -139,13 +190,20 @@ def main(cfg: DictConfig) -> None:
     experiment_name = str(OmegaConf.select(cfg, "experiment.name") or "").lower()
     is_smoke = experiment_name == "smoke"
 
-    max_donors: int | None = None
-    max_samples_per_stage: int | None = None
-    max_spots_per_sample: int | None = None
+    max_donors: int | None = _int_or_none(_cfg_pick(cfg, ["pipeline.max_donors", "io.max_donors"]))
+    max_samples_per_stage: int | None = _int_or_none(
+        _cfg_pick(cfg, ["pipeline.max_samples_per_stage", "io.max_samples_per_stage"])
+    )
+    max_spots_per_sample: int | None = _int_or_none(
+        _cfg_pick(cfg, ["pipeline.max_spots_per_sample", "io.max_spots_per_sample"])
+    )
     if is_smoke:
-        max_donors = _smoke_value(cfg, "experiment.max_donors", 2)
-        max_samples_per_stage = _smoke_value(cfg, "experiment.max_samples_per_stage", 1)
-        max_spots_per_sample = _smoke_value(cfg, "experiment.max_spots_per_sample", 20000)
+        if max_donors is None:
+            max_donors = _smoke_value(cfg, "experiment.max_donors", 2)
+        if max_samples_per_stage is None:
+            max_samples_per_stage = _smoke_value(cfg, "experiment.max_samples_per_stage", 1)
+        if max_spots_per_sample is None:
+            max_spots_per_sample = _smoke_value(cfg, "experiment.max_spots_per_sample", 20000)
 
     extracted_dir = _resolve_spatial_extracted_dir(cfg)
     interim_dir = _resolve_spatial_interim_dir(cfg)
@@ -164,22 +222,49 @@ def main(cfg: DictConfig) -> None:
         max_donors=max_donors,
         max_samples_per_stage=max_samples_per_stage,
     )
+    if selected_df.empty:
+        raise RuntimeError("No spatial samples selected after applying limits.")
 
-    if is_smoke:
-        adata, loaded_df = load_spatial_dataset(
-            extracted_dir=extracted_dir,
-            max_donors=max_donors,
-            max_samples_per_stage=max_samples_per_stage,
-            max_spots_per_sample=max_spots_per_sample,
-        )
-        adata.write_h5ad(output_path)
-    else:
-        loaded_df = selected_df
-        adata = _build_full_spatial_on_disk(
-            selected_df=selected_df,
-            output_path=output_path,
-            max_spots_per_sample=max_spots_per_sample,
-        )
+    compression = _resolve_write_compression(cfg)
+    max_workers = _resolve_max_workers(cfg, n_tasks=len(selected_df))
+    scratch_root = _resolve_scratch_root(cfg)
+    keep_scratch = _bool_or_default(_cfg_pick(cfg, ["pipeline.keep_scratch", "io.keep_scratch"]), False)
+    scratch_run_root = scratch_root / run_paths.run_id
+    scratch_run_dir = scratch_run_root / "spatial"
+
+    adata = None
+    loaded_df = selected_df
+    try:
+        if is_smoke:
+            adata, loaded_df = load_spatial_dataset(
+                extracted_dir=extracted_dir,
+                max_donors=max_donors,
+                max_samples_per_stage=max_samples_per_stage,
+                max_spots_per_sample=max_spots_per_sample,
+            )
+            write_h5ad_atomic(adata, output_path, require_spatial=True, compression=compression)
+        else:
+            scratch_run_dir.mkdir(parents=True, exist_ok=True)
+            concat_path = _build_full_spatial_on_disk(
+                selected_df=selected_df,
+                scratch_run_dir=scratch_run_dir,
+                max_spots_per_sample=max_spots_per_sample,
+                max_workers=max_workers,
+                compression=compression,
+            )
+            copy_file_atomic(concat_path, output_path)
+            adata = anndata.read_h5ad(output_path, backed="r")
+    finally:
+        if (
+            scratch_run_dir.exists()
+            and not is_smoke
+            and not keep_scratch
+        ):
+            shutil.rmtree(scratch_run_dir, ignore_errors=True)
+            try:
+                scratch_run_root.rmdir()
+            except OSError:
+                pass
 
     if not output_path.exists():
         raise FileNotFoundError(f"Expected output was not created: {output_path}")
@@ -225,6 +310,12 @@ def main(cfg: DictConfig) -> None:
             "max_donors": max_donors,
             "max_samples_per_stage": max_samples_per_stage,
             "max_spots_per_sample": max_spots_per_sample,
+        },
+        "performance": {
+            "max_workers": max_workers,
+            "h5ad_compression": compression,
+            "scratch_root": str(scratch_root),
+            "keep_scratch": keep_scratch,
         },
     }
 
