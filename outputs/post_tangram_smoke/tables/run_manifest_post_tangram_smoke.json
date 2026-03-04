@@ -1,0 +1,161 @@
+{
+  "run_name": "post_tangram_smoke",
+  "entries": [
+    {
+      "run_name": "post_tangram_smoke_stagebridge_fold0",
+      "task": "train",
+      "model_name": "stagebridge",
+      "variant_label": "stagebridge",
+      "ablation": null,
+      "seed": 42,
+      "device_requested": "cpu",
+      "device_resolved": "cpu",
+      "config_path": "configs/train.yaml",
+      "config_hash": "38c6564e5884a9b1bd11d9f926f69a40a4443d48afe5406c4126d2e9b9ea3524",
+      "timestamp_utc": "2026-03-04T00:04:15.477050+00:00",
+      "data_paths": {
+        "snrna_h5ad": "/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad",
+        "spatial_h5ad": "/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad",
+        "hlca_h5ad": "/mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad",
+        "niche_token_bank": "/mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr"
+      },
+      "output_paths": {
+        "output_dir": "outputs/post_tangram_smoke",
+        "tables_dir": "outputs/post_tangram_smoke/tables",
+        "figures_dir": "outputs/post_tangram_smoke/figures"
+      },
+      "metrics_path": null,
+      "notes": "fold=0; transition=AIS->MIA"
+    },
+    {
+      "run_name": "post_tangram_smoke_stagebridge_fold1",
+      "task": "train",
+      "model_name": "stagebridge",
+      "variant_label": "stagebridge",
+      "ablation": null,
+      "seed": 42,
+      "device_requested": "cpu",
+      "device_resolved": "cpu",
+      "config_path": "configs/train.yaml",
+      "config_hash": "0500fd76130da659d056e43c2b54b5b7617104adc3a70d0d8e18b1b6dbf101bc",
+      "timestamp_utc": "2026-03-04T00:04:16.356264+00:00",
+      "data_paths": {
+        "snrna_h5ad": "/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad",
+        "spatial_h5ad": "/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad",
+        "hlca_h5ad": "/mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad",
+        "niche_token_bank": "/mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr"
+      },
+      "output_paths": {
+        "output_dir": "outputs/post_tangram_smoke",
+        "tables_dir": "outputs/post_tangram_smoke/tables",
+        "figures_dir": "outputs/post_tangram_smoke/figures"
+      },
+      "metrics_path": null,
+      "notes": "fold=1; transition=AIS->MIA"
+    },
+    {
+      "run_name": "post_tangram_smoke_deepsets_fold0",
+      "task": "train",
+      "model_name": "deepsets",
+      "variant_label": "deepsets",
+      "ablation": null,
+      "seed": 42,
+      "device_requested": "cpu",
+      "device_resolved": "cpu",
+      "config_path": "configs/train.yaml",
+      "config_hash": "1b73bcd28e7064b9ad328d77d2e4e90c272175abcb0b68cc3186ca4dae97a32a",
+      "timestamp_utc": "2026-03-04T00:04:18.062941+00:00",
+      "data_paths": {
+        "snrna_h5ad": "/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad",
+        "spatial_h5ad": "/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad",
+        "hlca_h5ad": "/mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad",
+        "niche_token_bank": "/mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr"
+      },
+      "output_paths": {
+        "output_dir": "outputs/post_tangram_smoke",
+        "tables_dir": "outputs/post_tangram_smoke/tables",
+        "figures_dir": "outputs/post_tangram_smoke/figures"
+      },
+      "metrics_path": null,
+      "notes": "fold=0; transition=AIS->MIA"
+    },
+    {
+      "run_name": "post_tangram_smoke_deepsets_fold1",
+      "task": "train",
+      "model_name": "deepsets",
+      "variant_label": "deepsets",
+      "ablation": null,
+      "seed": 42,
+      "device_requested": "cpu",
+      "device_resolved": "cpu",
+      "config_path": "configs/train.yaml",
+      "config_hash": "db39e5119e2706795ae104ee0c557964112b0e42c80e4038abe18bc0846b00b1",
+      "timestamp_utc": "2026-03-04T00:04:18.497440+00:00",
+      "data_paths": {
+        "snrna_h5ad": "/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad",
+        "spatial_h5ad": "/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad",
+        "hlca_h5ad": "/mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad",
+        "niche_token_bank": "/mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr"
+      },
+      "output_paths": {
+        "output_dir": "outputs/post_tangram_smoke",
+        "tables_dir": "outputs/post_tangram_smoke/tables",
+        "figures_dir": "outputs/post_tangram_smoke/figures"
+      },
+      "metrics_path": null,
+      "notes": "fold=1; transition=AIS->MIA"
+    },
+    {
+      "run_name": "post_tangram_smoke_stagebridge__ablation_no_context_fold0",
+      "task": "train",
+      "model_name": "no_context",
+      "variant_label": "stagebridge__ablation_no_context",
+      "ablation": "no_context",
+      "seed": 42,
+      "device_requested": "cpu",
+      "device_resolved": "cpu",
+      "config_path": "configs/train.yaml",
+      "config_hash": "ce2bc1032c312c8fa5caaba63e91c94e73ccb129b4144487360dc8faa9e56a47",
+      "timestamp_utc": "2026-03-04T00:04:20.099290+00:00",
+      "data_paths": {
+        "snrna_h5ad": "/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad",
+        "spatial_h5ad": "/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad",
+        "hlca_h5ad": "/mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad",
+        "niche_token_bank": "/mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr"
+      },
+      "output_paths": {
+        "output_dir": "outputs/post_tangram_smoke",
+        "tables_dir": "outputs/post_tangram_smoke/tables",
+        "figures_dir": "outputs/post_tangram_smoke/figures"
+      },
+      "metrics_path": null,
+      "notes": "fold=0; transition=AIS->MIA"
+    },
+    {
+      "run_name": "post_tangram_smoke_stagebridge__ablation_no_context_fold1",
+      "task": "train",
+      "model_name": "no_context",
+      "variant_label": "stagebridge__ablation_no_context",
+      "ablation": "no_context",
+      "seed": 42,
+      "device_requested": "cpu",
+      "device_resolved": "cpu",
+      "config_path": "configs/train.yaml",
+      "config_hash": "ff7b392fc97854784918e74f318cc38077a6616d569cd0c2edb322f00561da48",
+      "timestamp_utc": "2026-03-04T00:04:20.504754+00:00",
+      "data_paths": {
+        "snrna_h5ad": "/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad",
+        "spatial_h5ad": "/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad",
+        "hlca_h5ad": "/mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad",
+        "niche_token_bank": "/mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr"
+      },
+      "output_paths": {
+        "output_dir": "outputs/post_tangram_smoke",
+        "tables_dir": "outputs/post_tangram_smoke/tables",
+        "figures_dir": "outputs/post_tangram_smoke/figures"
+      },
+      "metrics_path": null,
+      "notes": "fold=1; transition=AIS->MIA"
+    }
+  ]
+}

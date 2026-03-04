@@ -114,6 +114,8 @@ def flow_matching_loss(
     """Compute OT-informed flow matching loss and diagnostics."""
     x_src = batch.x_src
     x_tgt = batch.x_tgt
+    x_set = batch.x_set if batch.x_set is not None else x_src
+    context_mask = batch.context_mask
     device = x_src.device
 
     if use_ot:
@@ -147,7 +149,7 @@ def flow_matching_loss(
     x_t = (1.0 - t.unsqueeze(1)) * x_i + t.unsqueeze(1) * y_j
     u_t = y_j - x_i
 
-    c_s = model.forward_set_context(x_src)
+    c_s = model.forward_set_context(x_set, mask=context_mask)
     if c_s.ndim == 2 and c_s.shape[0] == 1:
         c_rep = c_s.expand(num_ot_pairs, -1)
     else:
@@ -164,11 +166,17 @@ def flow_matching_loss(
     loss_fm = F.mse_loss(pred, u_t)
 
     loss_ctx = torch.tensor(0.0, device=device, dtype=x_src.dtype)
-    if context_consistency_weight > 0.0 and x_src.shape[0] >= 4:
-        subset_n = max(2, x_src.shape[0] // 2)
-        subset_idx = torch.randperm(x_src.shape[0], device=device)[:subset_n]
-        c_sub = model.forward_set_context(x_src[subset_idx])
-        c_full = model.forward_set_context(x_src)
+    if context_consistency_weight > 0.0 and x_set.shape[0] >= 4:
+        subset_n = max(2, x_set.shape[0] // 2)
+        subset_idx = torch.randperm(x_set.shape[0], device=device)[:subset_n]
+        mask_sub = None
+        if context_mask is not None:
+            if context_mask.ndim == 2 and context_mask.shape[0] == 1:
+                mask_sub = context_mask[:, subset_idx]
+            elif context_mask.ndim == 1:
+                mask_sub = context_mask[subset_idx].unsqueeze(0)
+        c_sub = model.forward_set_context(x_set[subset_idx], mask=mask_sub)
+        c_full = model.forward_set_context(x_set, mask=context_mask)
         loss_ctx = F.mse_loss(c_full, c_sub)
 
     total = loss_fm + context_consistency_weight * loss_ctx

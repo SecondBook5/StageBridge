@@ -1,3 +1,4 @@
+# configs/training/smoke.yaml
 # Smoke / CI training config — runs in seconds on CPU, no GPU required.
 max_epochs: 2
 steps_per_epoch: 2
@@ -17,3 +18,13 @@ use_ot: true
 use_stage_embedding: true
 seed: 42
 device: cpu
+
+transition_src: null
+transition_tgt: null
+
+use_niche_tokens: false
+niche_token_bank_path: ${data.data_root}/processed/features/niche_token_bank.zarr
+m_niche: 16
+niche_sampling_strategy: random_m
+niche_fallback: donor
+niche_random_seed: 42
