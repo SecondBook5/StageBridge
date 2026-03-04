@@ -6,6 +6,7 @@ from .embeddings import (
     plot_umap_by_stage,
     plot_umap_with_trajectories,
 )
+from .flows import compute_macroflow_matrix, plot_macroflow_sankey
 from .poster import (
     make_full_poster,
     make_panel_a_model_diagram,
@@ -18,6 +19,8 @@ from .spatial_plots import (
     plot_metric_heatmap,
     plot_spatial_context_score,
     plot_spatial_stage_map,
+    plot_tangram_celltype_maps,
+    plot_tangram_winner_map,
     plot_transition_trajectory,
 )
 
@@ -30,9 +33,14 @@ __all__ = [
     "plot_umap_by_stage",
     "plot_umap_with_trajectories",
     "plot_context_vector_umap",
+    # macro flow
+    "compute_macroflow_matrix",
+    "plot_macroflow_sankey",
     # spatial plots (Visium)
     "plot_spatial_stage_map",
     "plot_spatial_context_score",
+    "plot_tangram_celltype_maps",
+    "plot_tangram_winner_map",
     # poster panels (backward-compat re-exports)
     "plot_method_schematic",
     "plot_transition_trajectory",

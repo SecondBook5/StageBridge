@@ -79,6 +79,8 @@ class StageBatch:
     stage_src: int
     stage_tgt: int
     donor_id: str
+    x_set: "torch.Tensor | None" = None
+    context_mask: "torch.Tensor | None" = None
     cell_type: "torch.Tensor | None" = None
     sample_id: str | None = None
 
@@ -90,6 +92,8 @@ class StageBatch:
             stage_src=self.stage_src,
             stage_tgt=self.stage_tgt,
             donor_id=self.donor_id,
+            x_set=self.x_set.to(device) if self.x_set is not None else None,
+            context_mask=self.context_mask.to(device) if self.context_mask is not None else None,
             cell_type=self.cell_type.to(device) if self.cell_type is not None else None,
             sample_id=self.sample_id,
         )

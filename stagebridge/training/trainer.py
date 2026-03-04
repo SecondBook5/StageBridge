@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 
+from stagebridge.io.niche_tokens import NicheTokenBank
 from stagebridge.logging_utils import get_logger
 from stagebridge.preprocessing.stage_ontology import CANONICAL_STAGE_ORDER, ordered_transitions, stage_to_index
 from stagebridge.training.eval import evaluate_transition
@@ -40,15 +41,33 @@ class TransitionSampler:
         batch_cells: int = 256,
         device: str = "cpu",
         stage_order: tuple[str, ...] = CANONICAL_STAGE_ORDER,
+        transition_src: str | None = None,
+        transition_tgt: str | None = None,
+        niche_token_bank: NicheTokenBank | None = None,
+        use_niche_tokens: bool = False,
+        m_niche: int = 64,
+        niche_sampling_strategy: str = "random_m",
+        niche_fallback: str = "donor",
+        niche_random_seed: int = 42,
     ) -> None:
         self.device = torch.device(device)
         self.batch_cells = int(batch_cells)
         self.stage_order = stage_order
+        self.input_dim = int(latent.shape[1])
+        self._rng = np.random.default_rng(int(niche_random_seed))
+        self._token_projection: dict[int, Tensor] = {}
+
+        self._niche_token_bank = niche_token_bank
+        self._use_niche_tokens = bool(use_niche_tokens and niche_token_bank is not None)
+        self._m_niche = max(1, int(m_niche))
+        self._niche_sampling_strategy = str(niche_sampling_strategy)
+        self._niche_fallback = str(niche_fallback)
 
         keep = np.isin(obs_donor, np.asarray(donor_ids, dtype=object))
         latent = latent[keep]
         obs_stage = obs_stage[keep]
         obs_donor = obs_donor[keep]
+        self.donor_ids = sorted({str(x) for x in obs_donor.tolist()})
 
         self.stage_to_cells: dict[str, Tensor] = {}
         for stage in stage_order:
@@ -58,10 +77,39 @@ class TransitionSampler:
             arr = torch.tensor(latent[idx], dtype=torch.float32, device=self.device)
             self.stage_to_cells[stage] = arr
 
+        self.donor_stage_to_cells: dict[tuple[str, str], Tensor] = {}
+        for donor in self.donor_ids:
+            donor_mask = obs_donor == donor
+            for stage in stage_order:
+                idx = np.where(donor_mask & (obs_stage == stage))[0]
+                if idx.shape[0] == 0:
+                    continue
+                self.donor_stage_to_cells[(donor, stage)] = torch.tensor(
+                    latent[idx],
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+
+        candidate_transitions: list[tuple[str, str]]
+        if transition_src is not None or transition_tgt is not None:
+            if transition_src is None or transition_tgt is None:
+                raise ValueError("Both transition_src and transition_tgt must be set together.")
+            candidate_transitions = [(str(transition_src), str(transition_tgt))]
+        else:
+            candidate_transitions = list(ordered_transitions(stage_order))
+
         self.transitions: list[tuple[str, str]] = []
-        for src, tgt in ordered_transitions(stage_order):
-            if src in self.stage_to_cells and tgt in self.stage_to_cells:
-                self.transitions.append((src, tgt))
+        self.transition_to_src_donors: dict[tuple[str, str], list[str]] = {}
+        for src, tgt in candidate_transitions:
+            if src not in self.stage_to_cells or tgt not in self.stage_to_cells:
+                continue
+            src_donors = [
+                donor for donor in self.donor_ids if (donor, src) in self.donor_stage_to_cells
+            ]
+            if not src_donors:
+                continue
+            self.transitions.append((src, tgt))
+            self.transition_to_src_donors[(src, tgt)] = src_donors
 
         if not self.transitions:
             raise ValueError("No valid stage transitions available for donor subset.")
@@ -77,16 +125,67 @@ class TransitionSampler:
         idx = torch.randint(0, x.shape[0], (n,), device=x.device)
         return x[idx]
 
+    def _project_tokens(self, tokens: Tensor) -> Tensor:
+        if tokens.shape[1] == self.input_dim:
+            return tokens
+        token_dim = int(tokens.shape[1])
+        if token_dim not in self._token_projection:
+            proj_np = (
+                self._rng.standard_normal((token_dim, self.input_dim)).astype(np.float32)
+                / np.sqrt(float(token_dim))
+            )
+            self._token_projection[token_dim] = torch.tensor(
+                proj_np,
+                dtype=torch.float32,
+                device=self.device,
+            )
+        proj = self._token_projection[token_dim]
+        return tokens @ proj
+
+    def _sample_niche_tokens(self, donor_id: str, stage_src: str) -> tuple[Tensor | None, dict[str, Any]]:
+        if not self._use_niche_tokens or self._niche_token_bank is None:
+            return None, {}
+        tok_np, meta = self._niche_token_bank.sample_tokens(
+            donor_id=donor_id,
+            stage=stage_src,
+            m_niche=self._m_niche,
+            strategy=self._niche_sampling_strategy,
+            fallback=self._niche_fallback,
+        )
+        tok = torch.tensor(tok_np, dtype=torch.float32, device=self.device)
+        tok = self._project_tokens(tok)
+        return tok, meta
+
     def sample_batch(self) -> StageBatch:
         src_name, tgt_name = self.transitions[np.random.randint(len(self.transitions))]
-        x_src = self._sample_cells(self.stage_to_cells[src_name], self.batch_cells)
-        x_tgt = self._sample_cells(self.stage_to_cells[tgt_name], self.batch_cells)
+        src_donors = self.transition_to_src_donors[(src_name, tgt_name)]
+        donor_id = src_donors[np.random.randint(len(src_donors))]
+
+        src_pool = self.donor_stage_to_cells[(donor_id, src_name)]
+        tgt_pool = self.donor_stage_to_cells.get((donor_id, tgt_name), self.stage_to_cells[tgt_name])
+
+        x_src = self._sample_cells(src_pool, self.batch_cells)
+        x_tgt = self._sample_cells(tgt_pool, self.batch_cells)
+
+        x_set = x_src
+        sample_id = None
+        niche_tokens, token_meta = self._sample_niche_tokens(donor_id=donor_id, stage_src=src_name)
+        if niche_tokens is not None and niche_tokens.shape[0] > 0:
+            x_set = torch.cat([x_src, niche_tokens], dim=0)
+            samples_used = token_meta.get("samples_used", [])
+            if samples_used:
+                sample_id = str(samples_used[0])
+
+        context_mask = torch.ones((1, x_set.shape[0]), dtype=torch.bool, device=self.device)
         return StageBatch(
             x_src=x_src,
             x_tgt=x_tgt,
+            x_set=x_set,
+            context_mask=context_mask,
             stage_src=stage_to_index(src_name),
             stage_tgt=stage_to_index(tgt_name),
-            donor_id="pooled",
+            donor_id=str(donor_id),
+            sample_id=sample_id,
         )
 
     def sample_transition_pair(
@@ -94,9 +193,18 @@ class TransitionSampler:
         stage_src: str,
         stage_tgt: str,
         n_cells: int = 512,
+        donor_id: str | None = None,
     ) -> tuple[Tensor, Tensor]:
-        x_src = self._sample_cells(self.stage_to_cells[stage_src], n_cells)
-        x_tgt = self._sample_cells(self.stage_to_cells[stage_tgt], n_cells)
+        if donor_id is not None and (donor_id, stage_src) in self.donor_stage_to_cells:
+            x_src_pool = self.donor_stage_to_cells[(donor_id, stage_src)]
+        else:
+            x_src_pool = self.stage_to_cells[stage_src]
+        if donor_id is not None and (donor_id, stage_tgt) in self.donor_stage_to_cells:
+            x_tgt_pool = self.donor_stage_to_cells[(donor_id, stage_tgt)]
+        else:
+            x_tgt_pool = self.stage_to_cells[stage_tgt]
+        x_src = self._sample_cells(x_src_pool, n_cells)
+        x_tgt = self._sample_cells(x_tgt_pool, n_cells)
         return x_src, x_tgt
 
 
@@ -325,6 +433,14 @@ def build_samplers_from_anndata(
     donor_col: str = "patient_id",
     batch_cells: int = 256,
     device: str = "cpu",
+    transition_src: str | None = None,
+    transition_tgt: str | None = None,
+    niche_token_bank: NicheTokenBank | None = None,
+    use_niche_tokens: bool = False,
+    m_niche: int = 64,
+    niche_sampling_strategy: str = "random_m",
+    niche_fallback: str = "donor",
+    niche_random_seed: int = 42,
 ) -> tuple[TransitionSampler, TransitionSampler, TransitionSampler]:
     """Create train/val/test transition samplers from AnnData and donor split."""
     if latent_key not in adata.obsm:
@@ -338,28 +454,56 @@ def build_samplers_from_anndata(
     obs_stage = np.asarray(adata.obs[stage_col].astype(str).values)
     obs_donor = np.asarray(adata.obs[donor_col].astype(str).values)
 
-    train = TransitionSampler(
-        latent=latent,
-        obs_stage=obs_stage,
-        obs_donor=obs_donor,
-        donor_ids=split.train_donors,
-        batch_cells=batch_cells,
-        device=device,
-    )
-    val = TransitionSampler(
-        latent=latent,
-        obs_stage=obs_stage,
-        obs_donor=obs_donor,
-        donor_ids=split.val_donors,
-        batch_cells=batch_cells,
-        device=device,
-    )
-    test = TransitionSampler(
-        latent=latent,
-        obs_stage=obs_stage,
-        obs_donor=obs_donor,
-        donor_ids=split.test_donors,
-        batch_cells=batch_cells,
-        device=device,
-    )
+    def _build_sampler(
+        donor_subset: list[str],
+        *,
+        strict_transition: bool,
+    ) -> TransitionSampler:
+        try:
+            return TransitionSampler(
+                latent=latent,
+                obs_stage=obs_stage,
+                obs_donor=obs_donor,
+                donor_ids=donor_subset,
+                batch_cells=batch_cells,
+                device=device,
+                transition_src=transition_src,
+                transition_tgt=transition_tgt,
+                niche_token_bank=niche_token_bank,
+                use_niche_tokens=use_niche_tokens,
+                m_niche=m_niche,
+                niche_sampling_strategy=niche_sampling_strategy,
+                niche_fallback=niche_fallback,
+                niche_random_seed=niche_random_seed,
+            )
+        except ValueError:
+            if strict_transition or transition_src is None or transition_tgt is None:
+                raise
+            log.warning(
+                "Requested transition %s->%s unavailable for donor subset (n=%d). "
+                "Falling back to all available transitions.",
+                transition_src,
+                transition_tgt,
+                len(donor_subset),
+            )
+            return TransitionSampler(
+                latent=latent,
+                obs_stage=obs_stage,
+                obs_donor=obs_donor,
+                donor_ids=donor_subset,
+                batch_cells=batch_cells,
+                device=device,
+                transition_src=None,
+                transition_tgt=None,
+                niche_token_bank=niche_token_bank,
+                use_niche_tokens=use_niche_tokens,
+                m_niche=m_niche,
+                niche_sampling_strategy=niche_sampling_strategy,
+                niche_fallback=niche_fallback,
+                niche_random_seed=niche_random_seed,
+            )
+
+    train = _build_sampler(split.train_donors, strict_transition=True)
+    val = _build_sampler(split.val_donors, strict_transition=False)
+    test = _build_sampler(split.test_donors, strict_transition=False)
     return train, val, test

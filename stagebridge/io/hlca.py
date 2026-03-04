@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import psutil
 import scipy.sparse as sp
+from tqdm.auto import tqdm
 
 from stagebridge import config
 from stagebridge.logging_utils import get_logger
@@ -522,6 +523,7 @@ def _run_optional_knn_label_transfer(
     query_latent: np.ndarray,
     label_levels: list[str],
     batch_size: int,
+    show_progress: bool,
 ) -> dict[str, np.ndarray]:
     from pynndescent import NNDescent
 
@@ -542,7 +544,15 @@ def _run_optional_knn_label_transfer(
         pred_codes = np.full(n_obs, -1, dtype=np.int32)
         uncertainty = np.full(n_obs, np.nan, dtype=np.float32)
 
-        for start in range(0, n_obs, batch_size):
+        starts = range(0, n_obs, batch_size)
+        if show_progress:
+            starts = tqdm(
+                starts,
+                total=(n_obs + batch_size - 1) // batch_size,
+                desc=f"HLCA KNN transfer [{level}]",
+                unit="chunk",
+            )
+        for start in starts:
             end = min(start + batch_size, n_obs)
             idxs, dists = nn_index.query(query_latent[start:end], k=64)
             weights = 1.0 / (dists + 1e-6)
@@ -1028,6 +1038,7 @@ def map_full_snrna_with_hlca(
     label_levels = [str(x) for x in hlca_cfg.get("label_levels", [])]
     keep_intermediates = bool(hlca_cfg.get("keep_intermediates", False))
     resume_enabled = bool(hlca_cfg.get("resume", True))
+    show_progress = bool(hlca_cfg.get("show_progress", True))
 
     # Pull model and inspect registry
     t0 = stage_start()
@@ -1156,6 +1167,7 @@ def map_full_snrna_with_hlca(
         early_stopping_patience=int(hlca_cfg.get("early_stopping_patience", 10)),
         early_stopping_min_delta=float(hlca_cfg.get("early_stopping_min_delta", 0.001)),
         plan_kwargs={"weight_decay": float(hlca_cfg.get("weight_decay", 0.0))},
+        enable_progress_bar=show_progress,
     )
     query_model_dir.parent.mkdir(parents=True, exist_ok=True)
     query_model.save(query_model_dir, overwrite=True)
@@ -1209,7 +1221,15 @@ def map_full_snrna_with_hlca(
     # Full latent inference
     t0 = stage_start()
     latent_done = int(progress.get("latent_completed_rows", 0))
-    for start in range(latent_done, n_obs, inference_chunk_size):
+    latent_starts = range(latent_done, n_obs, inference_chunk_size)
+    if show_progress:
+        latent_starts = tqdm(
+            latent_starts,
+            total=max(0, (n_obs - latent_done + inference_chunk_size - 1) // inference_chunk_size),
+            desc="HLCA latent inference",
+            unit="chunk",
+        )
+    for start in latent_starts:
         end = min(start + inference_chunk_size, n_obs)
         query_chunk = _build_query_chunk_adata(
             source_matrix=source_matrix,
@@ -1235,7 +1255,15 @@ def map_full_snrna_with_hlca(
     t0 = stage_start()
     label_categories = _extract_label_categories(query_model)
     labels_done = int(progress.get("labels_completed_rows", 0))
-    for start in range(labels_done, n_obs, inference_chunk_size):
+    label_starts = range(labels_done, n_obs, inference_chunk_size)
+    if show_progress:
+        label_starts = tqdm(
+            label_starts,
+            total=max(0, (n_obs - labels_done + inference_chunk_size - 1) // inference_chunk_size),
+            desc="HLCA label inference",
+            unit="chunk",
+        )
+    for start in label_starts:
         end = min(start + inference_chunk_size, n_obs)
         query_chunk = _build_query_chunk_adata(
             source_matrix=source_matrix,
@@ -1285,6 +1313,7 @@ def map_full_snrna_with_hlca(
             query_latent=np.asarray(latent_mm, dtype=np.float32),
             label_levels=label_levels,
             batch_size=inference_chunk_size,
+            show_progress=show_progress,
         )
     stage_done("knn_label_transfer_levels", t0)
 

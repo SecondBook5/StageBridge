@@ -8,15 +8,18 @@ from datetime import datetime, timezone
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+import shutil
 
 import sys
 
 import numpy as np
+import pandas as pd
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stagebridge.logging_utils import configure_root_logger, get_logger
+from stagebridge.io.niche_tokens import NicheTokenBank
 from stagebridge.models.baselines import DeepSetsFlowModel, LinearTransitionBaseline, NoContextFlowModel
 from stagebridge.models.stagebridge import StageBridgeModel
 from stagebridge.preprocessing.harmonize import add_hlca_latent, ensure_required_obs_fields
@@ -30,6 +33,9 @@ from stagebridge.training.trainer import (
 )
 from stagebridge.utils.seeds import set_global_seed
 from stagebridge.utils.types import RunManifest, StageBridgeConfig
+from stagebridge.viz.curves import plot_training_curves
+from stagebridge.viz.embeddings import plot_umap_with_trajectories
+from stagebridge.viz.flows import compute_macroflow_matrix, plot_macroflow_sankey
 
 configure_root_logger()
 log = get_logger(__name__)
@@ -64,6 +70,14 @@ def _ensure_latent(adata: anndata.AnnData, cfg: DictConfig) -> None:
     fallback_key = str(cfg.data.fallback_latent_key)
 
     if target_key in adata.obsm:
+        return
+
+    # Support latent-only AnnData where X already stores latent vectors
+    # (e.g., snrna_hlca_latent_full.h5ad with var_names latent_*).
+    var_names = adata.var_names.astype(str) if adata.var_names is not None else np.array([], dtype=object)
+    if adata.X is not None and adata.n_vars > 0 and all(str(v).startswith("latent_") for v in var_names):
+        adata.obsm[target_key] = np.asarray(adata.X, dtype=np.float32)
+        log.info("Attached latent from adata.X -> adata.obsm['%s'] (latent-only h5ad).", target_key)
         return
 
     if fallback_key not in adata.obsm:
@@ -101,6 +115,15 @@ def _load_training_adata(cfg: DictConfig) -> anndata.AnnData:
 
     adata_snrna = anndata.read_h5ad(snrna_path)
     ensure_required_obs_fields(adata_snrna)
+    if "donor_id" in adata_snrna.obs.columns:
+        donor_vals = adata_snrna.obs["donor_id"].astype(str)
+        if "patient_id" not in adata_snrna.obs.columns:
+            adata_snrna.obs["patient_id"] = donor_vals
+        else:
+            patient_vals = adata_snrna.obs["patient_id"].astype(str)
+            unknown_mask = patient_vals.str.startswith("unknown_")
+            if bool(unknown_mask.any()):
+                adata_snrna.obs.loc[unknown_mask, "patient_id"] = donor_vals.loc[unknown_mask]
     adata_snrna.obs[str(cfg.data.stage_col)] = normalize_stage_series(adata_snrna.obs[str(cfg.data.stage_col)])
     _ensure_latent(adata=adata_snrna, cfg=cfg)
     adata_snrna.obs["modality"] = "snrna"
@@ -116,6 +139,15 @@ def _load_training_adata(cfg: DictConfig) -> anndata.AnnData:
 
     adata_spatial = anndata.read_h5ad(spatial_path)
     ensure_required_obs_fields(adata_spatial)
+    if "donor_id" in adata_spatial.obs.columns:
+        donor_vals = adata_spatial.obs["donor_id"].astype(str)
+        if "patient_id" not in adata_spatial.obs.columns:
+            adata_spatial.obs["patient_id"] = donor_vals
+        else:
+            patient_vals = adata_spatial.obs["patient_id"].astype(str)
+            unknown_mask = patient_vals.str.startswith("unknown_")
+            if bool(unknown_mask.any()):
+                adata_spatial.obs.loc[unknown_mask, "patient_id"] = donor_vals.loc[unknown_mask]
     adata_spatial.obs[str(cfg.data.stage_col)] = normalize_stage_series(adata_spatial.obs[str(cfg.data.stage_col)])
     _ensure_latent(adata=adata_spatial, cfg=cfg)
     adata_spatial.obs["modality"] = "spatial"
@@ -151,6 +183,8 @@ def _run_linear_baseline_fold(
     split,
     cfg: DictConfig,
     device: str,
+    transition_src: str | None = None,
+    transition_tgt: str | None = None,
 ) -> dict[str, float]:
     train_sampler, _, test_sampler = build_samplers_from_anndata(
         adata=adata,
@@ -160,6 +194,8 @@ def _run_linear_baseline_fold(
         donor_col=str(cfg.data.donor_col),
         batch_cells=int(cfg.training.batch_cells),
         device=device,
+        transition_src=transition_src,
+        transition_tgt=transition_tgt,
     )
 
     src_stage, tgt_stage = train_sampler.available_transitions[0]
@@ -282,6 +318,108 @@ def _build_variant_specs(cfg: DictConfig) -> list[dict[str, Any]]:
     return deduped
 
 
+def _resolve_transition_filter(cfg: DictConfig) -> tuple[str | None, str | None]:
+    src = OmegaConf.select(cfg, "training.transition_src")
+    tgt = OmegaConf.select(cfg, "training.transition_tgt")
+    src_val = str(src) if src is not None and str(src).strip() else None
+    tgt_val = str(tgt) if tgt is not None and str(tgt).strip() else None
+    if (src_val is None) != (tgt_val is None):
+        raise ValueError("training.transition_src and training.transition_tgt must both be set or both be null.")
+    return src_val, tgt_val
+
+
+def _maybe_load_niche_token_bank(cfg: DictConfig) -> NicheTokenBank | None:
+    use_tokens = bool(OmegaConf.select(cfg, "training.use_niche_tokens") or False)
+    if not use_tokens:
+        return None
+    bank_path = Path(str(OmegaConf.select(cfg, "training.niche_token_bank_path")))
+    if not bank_path.exists():
+        raise FileNotFoundError(
+            f"training.use_niche_tokens=true but token bank not found: {bank_path}\n"
+            "Run scripts/build_niche_token_bank.py first."
+        )
+    seed = int(OmegaConf.select(cfg, "training.niche_random_seed") or cfg.seed)
+    return NicheTokenBank(bank_path, random_seed=seed)
+
+
+def _plot_variant_preview(
+    *,
+    model: torch.nn.Module,
+    adata: anndata.AnnData,
+    test_sampler,
+    run_dir: Path,
+    run_name: str,
+    label: str,
+    latent_key: str,
+    transition_src: str | None,
+    transition_tgt: str | None,
+    seed: int,
+) -> dict[str, str]:
+    transitions = test_sampler.available_transitions
+    if not transitions:
+        return {}
+
+    if transition_src is not None and transition_tgt is not None:
+        if (transition_src, transition_tgt) in transitions:
+            src, tgt = transition_src, transition_tgt
+        else:
+            src, tgt = transitions[0]
+    else:
+        src, tgt = transitions[0]
+
+    x_src, x_tgt = test_sampler.sample_transition_pair(src, tgt, n_cells=512)
+    with torch.no_grad():
+        c_s = model.forward_set_context(x_src)
+        stage_pair_id = model.encode_stage_pair_tensor(
+            stage_src=stage_to_index(src),
+            stage_tgt=stage_to_index(tgt),
+            n=x_src.shape[0],
+            device=x_src.device,
+        )
+        x_pred = model.integrate_euler(x0=x_src, c_s=c_s, stage_pair_id=stage_pair_id, num_steps=8)
+
+    x_src_np = np.asarray(x_src.detach().cpu(), dtype=np.float32)
+    x_pred_np = np.asarray(x_pred.detach().cpu(), dtype=np.float32)
+
+    if "X_pca" not in adata.obsm:
+        lat = np.asarray(adata.obsm[latent_key], dtype=np.float32)
+        if lat.shape[1] == 1:
+            lat = np.hstack([lat, np.zeros((lat.shape[0], 1), dtype=np.float32)])
+        adata.obsm["X_pca"] = lat[:, :2].astype(np.float32, copy=False)
+
+    fig_dir = run_dir / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    umap_path = fig_dir / f"{run_name}_{label}_umap_pushforward.png"
+    plot_umap_with_trajectories(
+        adata=adata,
+        uv0=x_src_np[:, :2],
+        uv1_pred=x_pred_np[:, :2],
+        output_path=umap_path,
+        title=f"{label}: {src}->{tgt} pushforward",
+    )
+
+    flow_matrix, src_labels, tgt_labels = compute_macroflow_matrix(
+        x_src=x_src_np,
+        x_tgt_pred=x_pred_np,
+        n_clusters=9,
+        random_state=int(seed),
+    )
+    sankey_path = fig_dir / f"{run_name}_{label}_sankey_macroflow.png"
+    plot_macroflow_sankey(
+        flow_matrix=flow_matrix,
+        source_labels=src_labels,
+        target_labels=tgt_labels,
+        output_path=sankey_path,
+        title=f"{label}: {src}->{tgt} macro coupling",
+    )
+    return {
+        "transition_src": src,
+        "transition_tgt": tgt,
+        "umap_pushforward_png": str(umap_path),
+        "sankey_macroflow_png": str(sankey_path),
+    }
+
+
 @hydra.main(config_path="../configs", config_name="train", version_base=None)
 def main(cfg: DictConfig) -> None:
     _set_torch_seed(int(cfg.seed))
@@ -354,6 +492,15 @@ def main(cfg: DictConfig) -> None:
     summary: dict[str, dict[str, object]] = {}
     run_manifests: list[dict[str, object]] = []
     resolved_cfg = OmegaConf.to_container(cfg, resolve=True)
+    transition_src, transition_tgt = _resolve_transition_filter(cfg)
+    niche_bank = _maybe_load_niche_token_bank(cfg)
+    use_niche_cfg = bool(OmegaConf.select(cfg, "training.use_niche_tokens") or False)
+    m_niche = int(OmegaConf.select(cfg, "training.m_niche") or 64)
+    niche_sampling_strategy = str(OmegaConf.select(cfg, "training.niche_sampling_strategy") or "random_m")
+    niche_fallback = str(OmegaConf.select(cfg, "training.niche_fallback") or "donor")
+    niche_random_seed = int(OmegaConf.select(cfg, "training.niche_random_seed") or cfg.seed)
+
+    stagebridge_alias_paths: dict[str, str] = {}
 
     for spec in variant_specs:
         label = str(spec["label"])
@@ -363,10 +510,18 @@ def main(cfg: DictConfig) -> None:
 
         fold_outputs: list[dict[str, float]] = []
         checkpoints: list[str] = []
+        history_payloads: list[dict[str, object]] = []
+        preview_paths: dict[str, str] = {}
 
         variant_cfg = replace(base_cfg)
         for key, value in overrides.items():
             setattr(variant_cfg, key, value)
+
+        variant_use_niche = bool(
+            use_niche_cfg
+            and (niche_bank is not None)
+            and (model_name in {"stagebridge", "deepsets"})
+        )
 
         for fold_idx, split in enumerate(splits):
             fold_name = f"{cfg.run_name}_{label}_fold{fold_idx}"
@@ -377,6 +532,8 @@ def main(cfg: DictConfig) -> None:
                     split=split,
                     cfg=cfg,
                     device=variant_cfg.resolved_device(),
+                    transition_src=transition_src,
+                    transition_tgt=transition_tgt,
                 )
                 fold_outputs.append(fold_metrics)
                 checkpoints.append("linear_baseline")
@@ -392,6 +549,14 @@ def main(cfg: DictConfig) -> None:
                     donor_col=str(cfg.data.donor_col),
                     batch_cells=int(cfg.training.batch_cells),
                     device=variant_cfg.resolved_device(),
+                    transition_src=transition_src,
+                    transition_tgt=transition_tgt,
+                    niche_token_bank=niche_bank,
+                    use_niche_tokens=variant_use_niche,
+                    m_niche=m_niche,
+                    niche_sampling_strategy=niche_sampling_strategy,
+                    niche_fallback=niche_fallback,
+                    niche_random_seed=niche_random_seed,
                 )
 
                 out = trainer.fit(
@@ -402,10 +567,25 @@ def main(cfg: DictConfig) -> None:
                     run_name=fold_name,
                 )
 
+                history_payloads.append({"name": f"fold{fold_idx}", "history": out.history})
                 fold_metrics = {"best_val_loss": out.best_val_loss}
                 fold_metrics.update(out.benchmark_metrics)
                 fold_outputs.append(fold_metrics)
                 checkpoints.append(str(out.best_checkpoint))
+
+                if fold_idx == 0:
+                    preview_paths = _plot_variant_preview(
+                        model=model,
+                        adata=adata,
+                        test_sampler=test_sampler,
+                        run_dir=run_dir,
+                        run_name=str(cfg.run_name),
+                        label=label,
+                        latent_key=str(cfg.data.latent_key),
+                        transition_src=transition_src,
+                        transition_tgt=transition_tgt,
+                        seed=int(cfg.seed),
+                    )
 
             run_manifest = RunManifest(
                 run_name=fold_name,
@@ -429,13 +609,14 @@ def main(cfg: DictConfig) -> None:
                     "snrna_h5ad": str(cfg.data.snrna_h5ad),
                     "spatial_h5ad": str(cfg.data.spatial_h5ad),
                     "hlca_h5ad": str(cfg.data.hlca_h5ad),
+                    "niche_token_bank": str(OmegaConf.select(cfg, "training.niche_token_bank_path") or ""),
                 },
                 output_paths={
                     "output_dir": str(run_dir),
                     "tables_dir": str(run_dir / "tables"),
                     "figures_dir": str(run_dir / "figures"),
                 },
-                notes=f"fold={fold_idx}",
+                notes=f"fold={fold_idx}; transition={transition_src}->{transition_tgt}",
             )
             run_manifests.append(run_manifest.to_dict())
 
@@ -447,6 +628,11 @@ def main(cfg: DictConfig) -> None:
                 aggregate[f"{key}_mean"] = float(np.nanmean(vals))
                 aggregate[f"{key}_std"] = float(np.nanstd(vals))
 
+        if history_payloads:
+            loss_curve_path = run_dir / "figures" / f"{cfg.run_name}_{label}_loss_curve.png"
+            plot_training_curves(history_payloads=history_payloads, output_path=loss_curve_path)
+            preview_paths["loss_curve_png"] = str(loss_curve_path)
+
         summary[label] = {
             "model_name": model_name,
             "ablation": ablation,
@@ -454,7 +640,22 @@ def main(cfg: DictConfig) -> None:
             "folds": fold_outputs,
             "aggregate": aggregate,
             "checkpoints": checkpoints,
+            "use_niche_tokens": variant_use_niche,
+            "preview_paths": preview_paths,
         }
+
+        if label == "stagebridge":
+            fig_dir = run_dir / "figures"
+            alias_map = {
+                "loss_curve_png": fig_dir / f"{cfg.run_name}_loss_curve.png",
+                "umap_pushforward_png": fig_dir / f"{cfg.run_name}_umap_pushforward.png",
+                "sankey_macroflow_png": fig_dir / f"{cfg.run_name}_sankey_macroflow.png",
+            }
+            for key, alias in alias_map.items():
+                src = preview_paths.get(key)
+                if src and Path(src).exists():
+                    shutil.copyfile(src, alias)
+                    stagebridge_alias_paths[key] = str(alias)
 
     payload = {
         "run_name": str(cfg.run_name),
@@ -473,8 +674,41 @@ def main(cfg: DictConfig) -> None:
     with run_manifest_path.open("w", encoding="utf-8") as fh:
         json.dump({"run_name": str(cfg.run_name), "entries": run_manifests}, fh, indent=2)
 
+    ablation_rows: list[dict[str, object]] = []
+    for label, block in summary.items():
+        row: dict[str, object] = {
+            "label": label,
+            "model_name": block.get("model_name"),
+            "ablation": block.get("ablation"),
+            "use_niche_tokens": bool(block.get("use_niche_tokens", False)),
+        }
+        for key, value in block.get("aggregate", {}).items():
+            row[str(key)] = value
+        for metric in ("sinkhorn", "mmd_rbf", "classifier_auc", "jsd_composition", "rank_consistency"):
+            mean_key = f"{metric}_mean_mean"
+            std_key = f"{metric}_mean_std"
+            if mean_key in row:
+                row[f"{metric}_mean"] = row[mean_key]
+            if std_key in row:
+                row[f"{metric}_std"] = row[std_key]
+        ablation_rows.append(row)
+    ablation_df = pd.DataFrame(ablation_rows).sort_values("label").reset_index(drop=True)
+    ablation_csv = run_dir / "tables" / "ablation_matrix.csv"
+    ablation_df.to_csv(ablation_csv, index=False)
+
+    summary_json = {
+        "ok": True,
+        "run_name": str(cfg.run_name),
+        "metrics_json": str(metrics_path),
+        "run_manifest_json": str(run_manifest_path),
+        "ablation_matrix_csv": str(ablation_csv),
+        "stagebridge_figures": stagebridge_alias_paths,
+    }
+
     log.info("Training complete. Metrics saved to %s", metrics_path)
     log.info("Run manifest saved to %s", run_manifest_path)
+    log.info("Ablation matrix saved to %s", ablation_csv)
+    print(json.dumps(summary_json))
 
 
 if __name__ == "__main__":

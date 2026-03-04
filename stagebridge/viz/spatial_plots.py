@@ -286,3 +286,156 @@ def plot_spatial_context_score(
         fig.savefig(output_path.with_suffix(".pdf"))
     plt.close(fig)
     log.info("Spatial context score plot written: %s", output_path)
+
+
+# ---------------------------------------------------------------------------
+# Tangram spatial composition plots
+# ---------------------------------------------------------------------------
+
+
+def _extract_tangram_components(
+    adata_tangram: Any,
+) -> tuple[np.ndarray, list[str], np.ndarray, pd.Series]:
+    """Return normalized Tangram scores, labels, coordinates, and sample ids."""
+    if "X_tangram_ct" not in adata_tangram.obsm:
+        raise KeyError("Expected adata.obsm['X_tangram_ct'] in Tangram spatial output.")
+    if "spatial" not in adata_tangram.obsm:
+        raise KeyError("Expected adata.obsm['spatial'] coordinates in Tangram spatial output.")
+
+    ct_raw = np.asarray(adata_tangram.obsm["X_tangram_ct"], dtype=np.float32)
+    ct_cols = list(adata_tangram.uns.get("tangram_ct_columns", []))
+    if len(ct_cols) != ct_raw.shape[1]:
+        ct_cols = [f"celltype_{i}" for i in range(ct_raw.shape[1])]
+
+    # Normalize per-spot so each row is a composition over cell types.
+    row_sum = ct_raw.sum(axis=1, keepdims=True)
+    ct_prop = np.divide(
+        ct_raw,
+        row_sum,
+        out=np.zeros_like(ct_raw),
+        where=row_sum > 0,
+    )
+    coords = np.asarray(adata_tangram.obsm["spatial"], dtype=np.float32)
+
+    if "sample_id" in adata_tangram.obs.columns:
+        sample_series = adata_tangram.obs["sample_id"].astype(str)
+    else:
+        sample_series = pd.Series("all", index=adata_tangram.obs_names)
+
+    return ct_prop, ct_cols, coords, sample_series
+
+
+def _resolve_sample_mask(
+    sample_series: pd.Series,
+    sample_id: str | None = None,
+) -> tuple[np.ndarray, str]:
+    """Return boolean mask and effective sample id."""
+    if sample_id is not None:
+        sample_id = str(sample_id)
+        mask = sample_series.to_numpy() == sample_id
+        if not mask.any():
+            raise ValueError(f"sample_id={sample_id!r} not found in Tangram spatial output.")
+        return mask, sample_id
+
+    chosen = str(sample_series.iloc[0])
+    mask = sample_series.to_numpy() == chosen
+    return mask, chosen
+
+
+def plot_tangram_celltype_maps(
+    adata_tangram: Any,
+    output_path: Path,
+    sample_id: str | None = None,
+    point_size: float = 2.0,
+    cmap: str = "viridis",
+) -> str:
+    """Plot per-celltype spatial composition maps from Tangram output."""
+    output_path = Path(output_path)
+    ct_prop, ct_cols, coords, sample_series = _extract_tangram_components(adata_tangram)
+    mask, sample_used = _resolve_sample_mask(sample_series, sample_id=sample_id)
+
+    coords_sub = coords[mask]
+    ct_sub = ct_prop[mask]
+    n_ct = len(ct_cols)
+    n_cols = 3
+    n_rows = int(np.ceil(n_ct / n_cols))
+
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(5.2 * n_cols, 4.8 * n_rows),
+        constrained_layout=True,
+    )
+    axes = np.array(axes).reshape(-1)
+    for i, col in enumerate(ct_cols):
+        ax = axes[i]
+        vals = ct_sub[:, i]
+        sc = ax.scatter(
+            coords_sub[:, 0],
+            coords_sub[:, 1],
+            c=vals,
+            s=point_size,
+            cmap=cmap,
+            rasterized=True,
+        )
+        ax.set_title(col)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.invert_yaxis()
+        fig.colorbar(sc, ax=ax, fraction=0.035, pad=0.01)
+
+    for j in range(n_ct, len(axes)):
+        axes[j].axis("off")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=180)
+    if output_path.suffix.lower() != ".pdf":
+        fig.savefig(output_path.with_suffix(".pdf"))
+    plt.close(fig)
+    log.info("Tangram per-celltype maps written: %s", output_path)
+    return sample_used
+
+
+def plot_tangram_winner_map(
+    adata_tangram: Any,
+    output_path: Path,
+    sample_id: str | None = None,
+    point_size: float = 2.0,
+    cmap: str = "tab10",
+) -> tuple[str, pd.Series]:
+    """Plot argmax winner label per spot from normalized Tangram scores."""
+    output_path = Path(output_path)
+    ct_prop, ct_cols, coords, sample_series = _extract_tangram_components(adata_tangram)
+    mask, sample_used = _resolve_sample_mask(sample_series, sample_id=sample_id)
+
+    coords_sub = coords[mask]
+    ct_sub = ct_prop[mask]
+    winner_idx = ct_sub.argmax(axis=1)
+    winner_labels = np.asarray(ct_cols, dtype=object)[winner_idx]
+    winner_counts = pd.Series(winner_labels).value_counts().sort_values(ascending=False)
+
+    fig, ax = plt.subplots(figsize=(8, 7), constrained_layout=True)
+    sc = ax.scatter(
+        coords_sub[:, 0],
+        coords_sub[:, 1],
+        c=winner_idx,
+        s=point_size,
+        cmap=cmap,
+        rasterized=True,
+    )
+    ax.set_title(f"Tangram winner label per spot — {sample_used}")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.invert_yaxis()
+
+    cbar = fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.01)
+    cbar.set_ticks(np.arange(len(ct_cols)))
+    cbar.set_ticklabels(ct_cols)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=180)
+    if output_path.suffix.lower() != ".pdf":
+        fig.savefig(output_path.with_suffix(".pdf"))
+    plt.close(fig)
+    log.info("Tangram winner map written: %s", output_path)
+    return sample_used, winner_counts

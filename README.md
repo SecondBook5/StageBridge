@@ -220,6 +220,12 @@ It includes a control section (**0A — Pipeline Controls**) that can trigger:
 - HLCA mapping (`scripts/run_hlca_mapping.py`)
 - HLCA validation (`scripts/eval_hlca_mapping.py`)
 - Tangram mapping (`scripts/run_tangram_mapping.py`)
+- Tangram map plotting (`scripts/plot_tangram_maps.py`)
+- niche token feature build (`scripts/build_niche_tokens.py`)
+- niche token bank build (`scripts/build_niche_token_bank.py`)
+- niche token QC maps (`scripts/qc_niche_tokens.py`)
+- post-Tangram AIS→MIA training + ablation smoke (`scripts/train_stagebridge.py`)
+- one-command post-Tangram acceptance (`scripts/run_full_step_after_tangram.py`)
 
 Launch the notebook:
 
@@ -237,9 +243,14 @@ jupyter nbconvert --to notebook --execute StageBridge.ipynb --output StageBridge
 ```
 
 Recommended flow:
-1. Set 0A toggles (`RUN_BUILD_SNRNA`, `RUN_BUILD_SPATIAL`, `RUN_HLCA_MAPPING`, `RUN_HLCA_EVAL`, `RUN_TANGRAM_MAPPING`).
-2. Run the 0A runner cell (this calls the scripts, records run IDs).
-3. Continue through downstream notebook analysis/training cells.
+1. For a single-shot full refresh, set `RUN_PIPELINE_ALL = True`.
+2. Otherwise set individual 0A toggles (`RUN_BUILD_SNRNA`, `RUN_BUILD_SPATIAL`, `RUN_HLCA_MAPPING`, `RUN_HLCA_EVAL`, `RUN_TANGRAM_MAPPING`, `RUN_TANGRAM_PLOTS`, `RUN_BUILD_NICHE_TOKENS`, `RUN_BUILD_NICHE_TOKEN_BANK`, `RUN_QC_NICHE_TOKENS`, `RUN_TRAIN_POST_TANGRAM`).
+3. Run the 0A runner cell (this calls the scripts, records run IDs).
+4. Watch progress in-cell:
+   - HLCA training/inference prints progress (including tqdm chunk bars in mapping stages).
+   - Tangram profile aggregation prints tqdm chunk bars.
+   - Post-Tangram niche-token and training scripts stream live stdout in the same runner cell.
+5. Continue through downstream notebook analysis/training cells.
 
 The notebook then:
 1. Loads interim artifacts (`snrna_smoke|full.h5ad`, `spatial_smoke|full.h5ad`).
@@ -294,6 +305,56 @@ Expected primary outputs:
 - `/mnt/e/StageBridge_data/processed/tangram/spatial_tangram_full.h5ad`
 - `/mnt/e/StageBridge_data/processed/tangram/spatial_tangram_celltype_scores.parquet`
 - `/mnt/e/StageBridge_data/runs/<run_id>/tables/tangram_report.json`
+
+Plot Tangram per-celltype spatial maps and winner-label map:
+
+```bash
+python scripts/plot_tangram_maps.py data=local
+```
+
+Outputs:
+- `./outputs/figures/tangram_celltype_maps_<sample_id>.png`
+- `./outputs/figures/tangram_winner_map_<sample_id>.png`
+- `/mnt/e/StageBridge_data/runs/<run_id>/tables/tangram_plot_report.json`
+
+---
+
+## Niche Tokens and Token Bank (post-Tangram)
+
+Build niche-token features from Tangram scores:
+
+```bash
+python scripts/build_niche_tokens.py \
+  --spatial_h5ad /mnt/e/StageBridge_data/processed/tangram/spatial_tangram_full.h5ad \
+  --scores_parquet /mnt/e/StageBridge_data/processed/tangram/spatial_tangram_celltype_scores.parquet \
+  --out_parquet /mnt/e/StageBridge_data/processed/features/niche_tokens_full.parquet \
+  --json
+```
+
+Build a per-sample Zarr token bank for fast training-time sampling:
+
+```bash
+python scripts/build_niche_token_bank.py \
+  --niche_tokens_parquet /mnt/e/StageBridge_data/processed/features/niche_tokens_full.parquet \
+  --out_zarr /mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr \
+  --json
+```
+
+Generate quick QC maps:
+
+```bash
+python scripts/qc_niche_tokens.py \
+  --niche_tokens_parquet /mnt/e/StageBridge_data/processed/features/niche_tokens_full.parquet \
+  --spatial_h5ad /mnt/e/StageBridge_data/processed/tangram/spatial_tangram_full.h5ad \
+  --out_dir outputs/figures/niche_tokens \
+  --json
+```
+
+One-command acceptance chain (tokens -> bank -> qc -> AIS→MIA smoke training):
+
+```bash
+python scripts/run_full_step_after_tangram.py --data_config=local --json
+```
 
 ---
 
@@ -409,6 +470,11 @@ StageBridge/                   ← repo root (code only, no data)
 │   ├── run_hlca_mapping.py    ← full-scale HLCA mapping (scArches query)
 │   ├── eval_hlca_mapping.py   ← HLCA quantitative validation report
 │   ├── run_tangram_mapping.py ← HLCA-labeled snRNA → spatial projection
+│   ├── plot_tangram_maps.py   ← Tangram per-celltype and winner-map figures
+│   ├── build_niche_tokens.py  ← Tangram scores → niche token features parquet
+│   ├── build_niche_token_bank.py ← niche tokens parquet → Zarr sample bank
+│   ├── qc_niche_tokens.py     ← entropy / token spatial QC maps
+│   ├── run_full_step_after_tangram.py ← one-command post-Tangram smoke chain
 │   ├── train_stagebridge.py   ← full benchmark training
 │   ├── eval_stagebridge.py    ← evaluation
 │   ├── make_poster_assets.py  ← poster panel generation
@@ -425,6 +491,7 @@ StageBridge/                   ← repo root (code only, no data)
     │   ├── interim_build.py   ← module-level snRNA/spatial build orchestration
     │   ├── hlca.py            ← HLCA mapping + validation core logic
     │   ├── tangram.py         ← Tangram mapping core logic
+    │   ├── niche_tokens.py    ← niche-token features + Zarr token-bank core
     │   └── manifests.py
     ├── pipeline/              ← high-level orchestration
     │   ├── steps.py           ← stub step functions (audit → poster)

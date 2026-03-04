@@ -64,20 +64,33 @@ def plot_training_curves(
         raise ValueError("history_payloads is empty")
 
     fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    total_points = 0
     for payload in history_payloads:
         name = str(payload.get("name", "run"))
         history = payload.get("history", [])
         if not history:
             continue
-        epochs = [row.get("epoch") for row in history]
-        train_loss = [row.get("train_loss") for row in history]
-        val_loss = [row.get("val_loss") for row in history]
-        ax.plot(epochs, train_loss, label=f"{name} train", alpha=0.85)
-        ax.plot(epochs, val_loss, linestyle="--", label=f"{name} val", alpha=0.85)
+        epochs = np.asarray([row.get("epoch") for row in history], dtype=float)
+        train_loss = np.asarray([row.get("train_loss") for row in history], dtype=float)
+        val_loss = np.asarray([row.get("val_loss") for row in history], dtype=float)
+        mask = np.isfinite(epochs) & np.isfinite(train_loss) & np.isfinite(val_loss)
+        if not np.any(mask):
+            continue
+
+        epochs = epochs[mask]
+        train_loss = train_loss[mask]
+        val_loss = val_loss[mask]
+        total_points += int(epochs.size)
+        marker = "o" if epochs.size <= 1 else None
+        ax.plot(epochs, train_loss, label=f"{name} train", alpha=0.85, marker=marker)
+        ax.plot(epochs, val_loss, linestyle="--", label=f"{name} val", alpha=0.85, marker=marker)
 
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
-    ax.set_title("Training Curves")
+    title = "Training Curves"
+    if total_points <= len(history_payloads):
+        title += " (single-epoch/smoke run)"
+    ax.set_title(title)
     ax.grid(alpha=0.2)
     ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()

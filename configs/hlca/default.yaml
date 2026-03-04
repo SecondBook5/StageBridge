@@ -28,3 +28,4 @@ dense_max_elements: 200000000
 keep_intermediates: false
 model_cache_dir: ${data.output_processed_hlca_dir}/hub_cache
 query_model_dir: ${data.output_processed_hlca_dir}/query_model_full
+show_progress: true
