@@ -17,7 +17,7 @@ def test_vector_field_amp_shape_and_dtype_stable():
     with torch.no_grad():
         c = model.forward_set_context(x_set)
         sid = model.encode_stage_pair_tensor(0, 1, n=x_t.shape[0], device=x_t.device)
-        with torch.cuda.amp.autocast(True):
+        with torch.amp.autocast("cuda", enabled=True):
             v = model.forward_vector_field(x_t=x_t, t=t, c_s=c, stage_pair_id=sid)
 
     assert v.shape == x_t.shape

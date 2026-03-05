@@ -16,6 +16,11 @@ sinkhorn_iters: 5
 context_consistency_weight: 0.1
 use_ot: true
 use_stage_embedding: true
+sigma: 0.1
+use_stochastic_bridge: false
+use_cross_attn_drift: false
+use_wes_features: false
+lineage_filter: null
 seed: 42
 device: cpu
 

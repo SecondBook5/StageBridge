@@ -108,6 +108,58 @@ def _ensure_latent(adata: anndata.AnnData, cfg: DictConfig) -> None:
     )
 
 
+# HLCA cell-type labels that constitute the epithelial lineage.
+# Derived from the HLCA level-3 annotation scheme.
+_EPITHELIAL_HLCA_LABELS: frozenset[str] = frozenset({
+    "AT1", "AT2", "Basal", "Secretory", "Ciliated",
+    "KRT5- KRT17+ epithelial", "Goblet", "Neuroendocrine",
+    "Squamous", "Alveolar epithelial cells",
+    "Club", "Club-like", "Proliferating epithelial",
+})
+
+
+def _apply_lineage_filter(adata: anndata.AnnData, cfg: DictConfig) -> anndata.AnnData:
+    """Filter cells to a specific lineage when ``training.lineage_filter`` is set.
+
+    Supported values:
+    * ``null`` / not set — keep all cells (default)
+    * ``"epithelial"``   — keep only HLCA epithelial cell types
+
+    Filtering requires ``adata.obs["hlca_label"]`` to be present.
+    If the column is absent the filter is skipped with a warning.
+    """
+    lineage = OmegaConf.select(cfg, "training.lineage_filter") or None
+    if lineage is None:
+        return adata
+
+    lineage = str(lineage).lower()
+    if "hlca_label" not in adata.obs.columns:
+        log.warning(
+            "lineage_filter=%r requested but 'hlca_label' column not found in adata.obs; "
+            "skipping lineage filter.",
+            lineage,
+        )
+        return adata
+
+    if lineage == "epithelial":
+        mask = adata.obs["hlca_label"].isin(_EPITHELIAL_HLCA_LABELS)
+    else:
+        raise ValueError(
+            f"Unknown lineage_filter={lineage!r}. Supported values: null, 'epithelial'."
+        )
+
+    n_before = adata.n_obs
+    adata = adata[mask].copy()
+    log.info(
+        "Lineage filter '%s': %d → %d cells (%.1f%% retained).",
+        lineage,
+        n_before,
+        adata.n_obs,
+        100.0 * adata.n_obs / max(n_before, 1),
+    )
+    return adata
+
+
 def _load_training_adata(cfg: DictConfig) -> anndata.AnnData:
     snrna_path = Path(str(cfg.data.snrna_h5ad))
     if not snrna_path.exists():
@@ -129,7 +181,7 @@ def _load_training_adata(cfg: DictConfig) -> anndata.AnnData:
     adata_snrna.obs["modality"] = "snrna"
 
     if not bool(cfg.data.use_spatial):
-        return adata_snrna
+        return _apply_lineage_filter(adata_snrna, cfg)
 
     spatial_path = Path(str(cfg.data.spatial_h5ad))
     if not spatial_path.exists():
@@ -165,7 +217,7 @@ def _load_training_adata(cfg: DictConfig) -> anndata.AnnData:
         ]
     )
     adata.obsm[latent_key] = X_latent
-    return adata
+    return _apply_lineage_filter(adata, cfg)
 
 
 def _build_model(model_name: str, sb_cfg: StageBridgeConfig) -> torch.nn.Module:
@@ -258,6 +310,7 @@ def _build_variant_specs(cfg: DictConfig) -> list[dict[str, Any]]:
     primary = str(cfg.experiment.primary_model)
     baselines = [str(m) for m in cfg.experiment.baseline_models]
     ablations = [str(a) for a in cfg.experiment.ablations]
+    variants = [str(v) for v in (OmegaConf.select(cfg, "experiment.variants") or [])]
 
     specs: list[dict[str, Any]] = []
 
@@ -274,6 +327,55 @@ def _build_variant_specs(cfg: DictConfig) -> list[dict[str, Any]]:
     _append(label=primary, model_name=primary, ablation=None, overrides={})
     for model_name in baselines:
         _append(label=model_name, model_name=model_name, ablation=None, overrides={})
+
+    for variant in variants:
+        if variant == "stagebridge_sb":
+            _append(
+                label="stagebridge_sb",
+                model_name="stagebridge",
+                ablation=None,
+                overrides={"use_stochastic_bridge": True},
+            )
+        elif variant == "stagebridge_xattn_sb":
+            # Cross-attention drift + SB-CFM: the headline "impressive" variant.
+            # num_seed_vectors=4 gives the drift 4 niche context tokens to attend over.
+            _append(
+                label="stagebridge_xattn_sb",
+                model_name="stagebridge",
+                ablation=None,
+                overrides={
+                    "use_cross_attn_drift": True,
+                    "use_stochastic_bridge": True,
+                    "num_seed_vectors": 4,
+                },
+            )
+        elif variant == "stagebridge_wes":
+            # WES-conditioned StageBridge: somatic driver mutation features
+            # (TMB, KRAS, EGFR, TP53, STK11, KEAP1, SMAD4, BRAF) are projected
+            # and concatenated to the stage embedding, conditioning the drift on
+            # the patient's mutational landscape.
+            _append(
+                label="stagebridge_wes",
+                model_name="stagebridge",
+                ablation=None,
+                overrides={
+                    "use_wes_features": True,
+                    "use_stochastic_bridge": True,
+                },
+            )
+        elif variant == "stagebridge_xattn_wes":
+            # Full model: cross-attention drift + WES features + SB-CFM.
+            _append(
+                label="stagebridge_xattn_wes",
+                model_name="stagebridge",
+                ablation=None,
+                overrides={
+                    "use_cross_attn_drift": True,
+                    "use_stochastic_bridge": True,
+                    "use_wes_features": True,
+                    "num_seed_vectors": 4,
+                },
+            )
 
     for ablation in ablations:
         if ablation == "no_ot":
@@ -311,7 +413,8 @@ def _build_variant_specs(cfg: DictConfig) -> list[dict[str, Any]]:
     for spec in specs:
         if spec["label"] in seen:
             continue
-        if spec["model_name"] not in {"stagebridge", "deepsets", "no_context", "linear"}:
+        _known_variants = {"stagebridge_sb", "stagebridge_xattn_sb", "stagebridge_wes", "stagebridge_xattn_wes"}
+        if spec["model_name"] not in {"stagebridge", "deepsets", "no_context", "linear"} and spec["label"] not in _known_variants:
             continue
         deduped.append(spec)
         seen.add(spec["label"])
@@ -326,6 +429,32 @@ def _resolve_transition_filter(cfg: DictConfig) -> tuple[str | None, str | None]
     if (src_val is None) != (tgt_val is None):
         raise ValueError("training.transition_src and training.transition_tgt must both be set or both be null.")
     return src_val, tgt_val
+
+
+def _maybe_load_wes_lookup(cfg: DictConfig) -> "dict[tuple[str, str], np.ndarray] | None":
+    """Load WES features parquet and return a (patient_id, stage) → np.ndarray lookup."""
+    use_wes = bool(OmegaConf.select(cfg, "training.use_wes_features") or False)
+    if not use_wes:
+        return None
+    from stagebridge.io.paths import StageBridgePaths
+    paths = StageBridgePaths.from_cfg(cfg)
+    wes_path = Path(paths.data_root) / "processed" / "features" / "wes_features.parquet"
+    if not wes_path.exists():
+        log.warning(
+            "use_wes_features=true but wes_features.parquet not found at %s. "
+            "Run scripts/run_wes_pipeline.py first. Proceeding without WES features.",
+            wes_path,
+        )
+        return None
+    import pandas as pd
+    from stagebridge.io.geo_wes import WES_FEATURE_COLS, load_wes_features
+    df = load_wes_features(wes_path)
+    lookup: dict[tuple[str, str], np.ndarray] = {}
+    for _, row in df.iterrows():
+        key = (str(row["patient_id"]), str(row["stage"]))
+        lookup[key] = row[WES_FEATURE_COLS].values.astype(np.float32)
+    log.info("Loaded WES features for %d (patient, stage) pairs", len(lookup))
+    return lookup
 
 
 def _maybe_load_niche_token_bank(cfg: DictConfig) -> NicheTokenBank | None:
@@ -486,6 +615,10 @@ def main(cfg: DictConfig) -> None:
         seed=int(cfg.training.seed),
         use_ot=bool(cfg.training.use_ot),
         use_stage_embedding=bool(cfg.training.use_stage_embedding),
+        sigma=float(OmegaConf.select(cfg, "training.sigma") or 0.0),
+        use_stochastic_bridge=bool(OmegaConf.select(cfg, "training.use_stochastic_bridge") or False),
+        use_cross_attn_drift=bool(OmegaConf.select(cfg, "training.use_cross_attn_drift") or False),
+        use_wes_features=bool(OmegaConf.select(cfg, "training.use_wes_features") or False),
     )
 
     variant_specs = _build_variant_specs(cfg)
@@ -494,6 +627,7 @@ def main(cfg: DictConfig) -> None:
     resolved_cfg = OmegaConf.to_container(cfg, resolve=True)
     transition_src, transition_tgt = _resolve_transition_filter(cfg)
     niche_bank = _maybe_load_niche_token_bank(cfg)
+    wes_lookup = _maybe_load_wes_lookup(cfg)
     use_niche_cfg = bool(OmegaConf.select(cfg, "training.use_niche_tokens") or False)
     m_niche = int(OmegaConf.select(cfg, "training.m_niche") or 64)
     niche_sampling_strategy = str(OmegaConf.select(cfg, "training.niche_sampling_strategy") or "random_m")
@@ -557,6 +691,7 @@ def main(cfg: DictConfig) -> None:
                     niche_sampling_strategy=niche_sampling_strategy,
                     niche_fallback=niche_fallback,
                     niche_random_seed=niche_random_seed,
+                    wes_lookup=wes_lookup if variant_cfg.use_wes_features else None,
                 )
 
                 out = trainer.fit(

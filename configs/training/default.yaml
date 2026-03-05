@@ -15,6 +15,20 @@ sinkhorn_iters: 80
 context_consistency_weight: 0.1
 use_ot: true
 use_stage_embedding: true
+
+# Schrödinger Bridge / stochastic interpolant
+sigma: 0.1
+use_stochastic_bridge: false  # set true to enable SB-CFM training
+
+# Cross-attention drift transformer
+use_cross_attn_drift: false   # set true to use xattn drift (overridden per variant)
+
+# WES somatic feature conditioning (requires wes_features.parquet)
+use_wes_features: false       # set true to condition on per-patient somatic mutation features
+
+# Lineage filter: null = all cells, "epithelial" = epithelial cells only
+lineage_filter: null
+
 seed: 42
 device: cuda
 

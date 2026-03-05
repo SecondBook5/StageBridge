@@ -69,7 +69,7 @@ class DeepSetsFlowModel(nn.Module):
     def forward_set_context(self, x_set: Tensor, mask: Tensor | None = None) -> Tensor:
         return self.encoder(x_set, mask=mask)
 
-    def forward_vector_field(self, x_t: Tensor, t: Tensor, c_s: Tensor, stage_pair_id: Tensor) -> Tensor:
+    def forward_vector_field(self, x_t: Tensor, t: Tensor, c_s: Tensor, stage_pair_id: Tensor, wes_features: Tensor | None = None) -> Tensor:
         if c_s.ndim == 1:
             c_s = c_s.unsqueeze(0)
         if c_s.shape[0] == 1 and x_t.shape[0] > 1:
@@ -101,6 +101,26 @@ class DeepSetsFlowModel(nn.Module):
             x = x + dt * v
         return x
 
+    def integrate_euler_maruyama(
+        self,
+        x0: Tensor,
+        c_s: Tensor,
+        stage_pair_id: Tensor,
+        num_steps: int = 8,
+        sigma: float = 0.0,
+    ) -> Tensor:
+        """Euler-Maruyama integration; sigma=0 recovers pure Euler."""
+        x = x0
+        dt = 1.0 / float(num_steps)
+        sqrt_dt = dt ** 0.5
+        for k in range(num_steps):
+            t = torch.full((x.shape[0],), (k + 0.5) * dt, device=x.device, dtype=x.dtype)
+            v = self.forward_vector_field(x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id)
+            x = x + dt * v
+            if sigma > 0.0:
+                x = x + sigma * sqrt_dt * torch.randn_like(x)
+        return x
+
 
 class NoContextFlowModel(nn.Module):
     """Ablation model with no set context (v(x,t) only)."""
@@ -126,7 +146,7 @@ class NoContextFlowModel(nn.Module):
             return torch.zeros((1, self.config.hidden_dim), device=x_set.device, dtype=x_set.dtype)
         return torch.zeros((x_set.shape[0], self.config.hidden_dim), device=x_set.device, dtype=x_set.dtype)
 
-    def forward_vector_field(self, x_t: Tensor, t: Tensor, c_s: Tensor, stage_pair_id: Tensor) -> Tensor:
+    def forward_vector_field(self, x_t: Tensor, t: Tensor, c_s: Tensor, stage_pair_id: Tensor, wes_features: Tensor | None = None) -> Tensor:
         time_emb = self.time_embedding(t)
         inp = torch.cat([x_t, time_emb], dim=-1)
         return self.vector_field(inp)
@@ -145,6 +165,26 @@ class NoContextFlowModel(nn.Module):
             t = torch.full((x.shape[0],), (k + 0.5) * dt, device=x.device, dtype=x.dtype)
             v = self.forward_vector_field(x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id)
             x = x + dt * v
+        return x
+
+    def integrate_euler_maruyama(
+        self,
+        x0: Tensor,
+        c_s: Tensor,
+        stage_pair_id: Tensor,
+        num_steps: int = 8,
+        sigma: float = 0.0,
+    ) -> Tensor:
+        """Euler-Maruyama integration; sigma=0 recovers pure Euler."""
+        x = x0
+        dt = 1.0 / float(num_steps)
+        sqrt_dt = dt ** 0.5
+        for k in range(num_steps):
+            t = torch.full((x.shape[0],), (k + 0.5) * dt, device=x.device, dtype=x.dtype)
+            v = self.forward_vector_field(x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id)
+            x = x + dt * v
+            if sigma > 0.0:
+                x = x + sigma * sqrt_dt * torch.randn_like(x)
         return x
 
 

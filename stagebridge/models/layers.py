@@ -197,6 +197,80 @@ class SinusoidalTimeEmbedding(nn.Module):
         return emb
 
 
+class CrossAttentionDrift(nn.Module):
+    """Cross-attention drift transformer for niche-conditioned flow matching.
+
+    Instead of concatenating a single pooled context vector with x_t, the drift
+    network treats x_t as a query that attends over a *sequence* of context
+    tokens (the full PMA output).  This forces the transformer to be
+    functionally central: every drift prediction requires attending to niche
+    tokens.  Architecture:
+
+        query  = Linear(x_t ++ time_emb)      → (B, 1, d)
+        keys   = Linear(context_tokens)        → (B, k, d)
+        values = same projection
+        stage_token = Linear(stage_emb)        → (B, 1, d)
+        KV     = cat([keys, stage_token], dim=1)  (B, k+1, d)
+        attn   = MultiheadAttention(query, KV, KV)
+        out    = Linear(attn_out + FF)         → (B, input_dim)
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        context_dim: int,
+        time_dim: int,
+        stage_dim: int,
+        num_heads: int,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        d = context_dim
+        self.query_proj = nn.Linear(input_dim + time_dim, d)
+        self.kv_proj = nn.Linear(context_dim, d)
+        self.stage_proj = nn.Linear(stage_dim, d)
+        self.mha = nn.MultiheadAttention(
+            embed_dim=d,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.ln1 = nn.LayerNorm(d)
+        self.ff = FeedForwardBlock(dim=d, dropout=dropout)
+        self.ln2 = nn.LayerNorm(d)
+        self.out_proj = nn.Linear(d, input_dim)
+
+    def forward(
+        self,
+        x_t: Tensor,
+        time_emb: Tensor,
+        context_tokens: Tensor,
+        stage_emb: Tensor,
+    ) -> Tensor:
+        """Return drift vector v ∈ ℝ^input_dim.
+
+        Parameters
+        ----------
+        x_t:             (B, input_dim)
+        time_emb:        (B, time_dim)
+        context_tokens:  (B, k, context_dim) — k niche context tokens from PMA
+        stage_emb:       (B, stage_dim)
+        """
+        # Query: x_t conditioned on time
+        q = self.query_proj(torch.cat([x_t, time_emb], dim=-1)).unsqueeze(1)  # (B, 1, d)
+
+        # Keys/values: niche context tokens + stage token
+        kv_ctx = self.kv_proj(context_tokens)                    # (B, k, d)
+        stage_tok = self.stage_proj(stage_emb).unsqueeze(1)      # (B, 1, d)
+        kv = torch.cat([kv_ctx, stage_tok], dim=1)               # (B, k+1, d)
+
+        # Cross-attention: each cell query attends over niche + stage tokens
+        attn_out, _ = self.mha(query=q, key=kv, value=kv, need_weights=False)
+        h = self.ln1(q + attn_out)     # (B, 1, d)
+        h = self.ln2(h + self.ff(h))   # (B, 1, d)
+        return self.out_proj(h.squeeze(1))  # (B, input_dim)
+
+
 class FiLMConditioner(nn.Module):
     """Feature-wise linear modulation conditioned on context."""
 

@@ -5,6 +5,11 @@ baseline_models:
   - deepsets
   - no_context
   - linear
+variants:
+  - stagebridge_sb        # StageBridge + SB-CFM (stochastic bridge, sigma=0.1)
+  - stagebridge_xattn_sb  # StageBridge + cross-attention drift + SB-CFM (headline variant)
+  - stagebridge_wes       # StageBridge + WES somatic features + SB-CFM
+  - stagebridge_xattn_wes # Full model: cross-attn drift + WES features + SB-CFM
 ablations:
   - no_ot
   - no_context
