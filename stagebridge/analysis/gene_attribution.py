@@ -65,8 +65,6 @@ def extract_context_vectors(
         raise KeyError(f"latent_key '{latent_key}' not in adata.obsm.")
 
     from stagebridge.preprocessing.stage_ontology import (
-        CANONICAL_STAGE_ORDER,
-        infer_stage_pair_id,
         normalize_stage_label,
         ordered_transitions,
     )
@@ -95,15 +93,6 @@ def extract_context_vectors(
     with torch.no_grad():
         for cell_idx in range(adata.n_obs):
             cell_stage = normalize_stage_label(stages[cell_idx])
-
-            # Use the first transition involving this stage as source
-            pair = next(
-                ((s, t) for s, t in valid_pairs if normalize_stage_label(s) == cell_stage),
-                valid_pairs[0],
-            )
-            pair_id = torch.tensor(
-                [infer_stage_pair_id(*pair)], dtype=torch.long, device=device
-            )
 
             # Build source set: other cells from same stage
             same_stage_idx = np.where(

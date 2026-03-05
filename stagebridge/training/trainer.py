@@ -145,10 +145,12 @@ class TransitionSampler:
         proj = self._token_projection[token_dim]
         return tokens @ proj
 
-    def _sample_niche_tokens(self, donor_id: str, stage_src: str) -> tuple[Tensor | None, dict[str, Any]]:
+    def _sample_niche_tokens(
+        self, donor_id: str, stage_src: str
+    ) -> tuple[Tensor | None, Tensor | None, dict[str, Any]]:
         if not self._use_niche_tokens or self._niche_token_bank is None:
-            return None, {}
-        tok_np, meta = self._niche_token_bank.sample_tokens(
+            return None, None, {}
+        tok_np, coord_np, meta = self._niche_token_bank.sample_tokens(
             donor_id=donor_id,
             stage=stage_src,
             m_niche=self._m_niche,
@@ -157,7 +159,10 @@ class TransitionSampler:
         )
         tok = torch.tensor(tok_np, dtype=torch.float32, device=self.device)
         tok = self._project_tokens(tok)
-        return tok, meta
+        coords: Tensor | None = None
+        if coord_np is not None:
+            coords = torch.tensor(coord_np, dtype=torch.float32, device=self.device)
+        return tok, coords, meta
 
     def sample_batch(self) -> StageBatch:
         src_name, tgt_name = self.transitions[np.random.randint(len(self.transitions))]
@@ -172,9 +177,13 @@ class TransitionSampler:
 
         x_set = x_src
         sample_id = None
-        niche_tokens, token_meta = self._sample_niche_tokens(donor_id=donor_id, stage_src=src_name)
+        niche_coords: Tensor | None = None
+        niche_tokens, niche_coords_raw, token_meta = self._sample_niche_tokens(
+            donor_id=donor_id, stage_src=src_name
+        )
         if niche_tokens is not None and niche_tokens.shape[0] > 0:
             x_set = torch.cat([x_src, niche_tokens], dim=0)
+            niche_coords = niche_coords_raw  # (m_niche, 2) or None
             samples_used = token_meta.get("samples_used", [])
             if samples_used:
                 sample_id = str(samples_used[0])
@@ -201,6 +210,7 @@ class TransitionSampler:
             donor_id=str(donor_id),
             sample_id=sample_id,
             wes_features=wes_features,
+            niche_coords=niche_coords,
         )
 
     def sample_transition_pair(

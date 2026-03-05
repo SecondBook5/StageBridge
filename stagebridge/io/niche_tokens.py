@@ -12,7 +12,7 @@ import anndata
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
-from scipy.sparse import csr_matrix, diags
+from scipy.sparse import diags
 from sklearn.neighbors import NearestNeighbors
 from tqdm.auto import tqdm
 import zarr
@@ -628,6 +628,14 @@ class NicheTokenBank:
         self._sample_sizes[sample_id] = int(arr.shape[0])
         return arr
 
+    def _load_sample_coords(self, sample_id: str) -> np.ndarray | None:
+        """Load spatial (x, y) coordinates for a sample, or None if not stored."""
+        group_name = self._sample_group_name(sample_id)
+        grp = self.root[group_name]
+        if "coords" not in grp:
+            return None
+        return np.asarray(grp["coords"][:], dtype=np.float32)
+
     def _candidate_samples(
         self,
         donor_id: str,
@@ -656,8 +664,15 @@ class NicheTokenBank:
         m_niche: int,
         strategy: str = "random_m",
         fallback: str = "donor",
-    ) -> tuple[np.ndarray, dict[str, Any]]:
-        """Sample niche tokens for the requested donor/stage context."""
+    ) -> tuple[np.ndarray, np.ndarray | None, dict[str, Any]]:
+        """Sample niche tokens and spatial coordinates for the requested donor/stage.
+
+        Returns
+        -------
+        tokens : (m_niche, token_dim) float32
+        coords : (m_niche, 2) float32 or None if coordinates not stored in bank
+        meta : dict with provenance information
+        """
         m = max(1, int(m_niche))
         samples = self._candidate_samples(donor_id=donor_id, stage=stage, fallback=fallback)
         if not samples:
@@ -690,7 +705,8 @@ class NicheTokenBank:
                 sampled = centers[idx]
             else:
                 sampled = centers[:m]
-            return sampled.astype(np.float32, copy=False), {
+            # k-means centers don't have meaningful spatial coords
+            return sampled.astype(np.float32, copy=False), None, {
                 "samples_used": samples,
                 "strategy": strategy_norm,
                 "fallback": fallback,
@@ -705,14 +721,25 @@ class NicheTokenBank:
         probs = sizes / sizes.sum()
 
         sample_choice = self._rng.choice(len(samples), size=m, replace=True, p=probs)
-        out = np.empty((m, self.token_dim), dtype=np.float32)
+        out_tokens = np.empty((m, self.token_dim), dtype=np.float32)
+        # Check if coords are available in the first candidate sample
+        _has_coords = self._load_sample_coords(samples[0]) is not None
+        out_coords: np.ndarray | None = np.empty((m, 2), dtype=np.float32) if _has_coords else None
+
         for sid in np.unique(sample_choice):
             sample_id = samples[int(sid)]
             arr = self._load_sample_tokens(sample_id)
             pos = np.where(sample_choice == sid)[0]
             rows = self._rng.integers(0, arr.shape[0], size=pos.shape[0])
-            out[pos] = arr[rows]
-        return out, {
+            out_tokens[pos] = arr[rows]
+            if out_coords is not None:
+                c = self._load_sample_coords(sample_id)
+                if c is not None:
+                    out_coords[pos] = c[rows]
+                else:
+                    out_coords[pos] = 0.0
+
+        return out_tokens, out_coords, {
             "samples_used": samples,
             "strategy": strategy_norm,
             "fallback": fallback,

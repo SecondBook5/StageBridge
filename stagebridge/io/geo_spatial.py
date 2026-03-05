@@ -981,19 +981,30 @@ def _usage() -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        _usage(); sys.exit(1)
+        _usage()
+        sys.exit(1)
     cmd = sys.argv[1]
     if cmd == "expand":
-        if len(sys.argv) != 4: _usage(); sys.exit(1)
+        if len(sys.argv) != 4:
+            _usage()
+            sys.exit(1)
         expand_spatial_tarballs(Path(sys.argv[2]), Path(sys.argv[3]))
     elif cmd == "load":
-        if len(sys.argv) != 4: _usage(); sys.exit(1)
+        if len(sys.argv) != 4:
+            _usage()
+            sys.exit(1)
         write_spatial_h5ad(Path(sys.argv[2]), Path(sys.argv[3]))
     elif cmd == "manifest":
-        if len(sys.argv) != 4: _usage(); sys.exit(1)
+        if len(sys.argv) != 4:
+            _usage()
+            sys.exit(1)
         build_spatial_manifest(Path(sys.argv[2]), Path(sys.argv[3]))
     elif cmd == "merge":
-        if len(sys.argv) != 4: _usage(); sys.exit(1)
+        if len(sys.argv) != 4:
+            _usage()
+            sys.exit(1)
         merge_spatial_h5ad(Path(sys.argv[2]), Path(sys.argv[3]))
     else:
-        print(f"Unknown command: {cmd!r}"); _usage(); sys.exit(1)
+        print(f"Unknown command: {cmd!r}")
+        _usage()
+        sys.exit(1)

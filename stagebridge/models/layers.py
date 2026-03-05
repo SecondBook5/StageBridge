@@ -61,6 +61,56 @@ class SAB(nn.Module):
         return x
 
 
+class SpatialRPE(nn.Module):
+    """Additive spatial relative position encoding for niche token attention.
+
+    Computes a per-head scalar bias ``bias_j = MLP(||coord_j - centroid||₂)``
+    for each token position j.  Source-cell positions (no coordinates) receive
+    zero bias.  The bias is added to the ISAB mha_1 attention logits
+    (inducing-points → token set) before softmax, giving the Set Transformer
+    explicit spatial awareness of the niche microenvironment layout.
+    """
+
+    def __init__(self, num_heads: int, hidden: int = 16) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.mlp = nn.Sequential(
+            nn.Linear(1, hidden),
+            nn.GELU(),
+            nn.Linear(hidden, num_heads),
+        )
+
+    def forward(self, coords: Tensor, n_src: int) -> Tensor:
+        """Return additive attn bias for mha_1.
+
+        Parameters
+        ----------
+        coords : (B, N, 2)
+            Full coordinate tensor — zeros for the first ``n_src`` source-cell
+            positions, real (x, y) for the remaining niche token positions.
+        n_src : int
+            Number of source-cell positions (no spatial info).
+
+        Returns
+        -------
+        Tensor : (B * num_heads, 1, N)
+            Bias ready to be expanded to (B*H, num_inducing, N) and passed as
+            ``attn_mask`` to ``nn.MultiheadAttention``.
+        """
+        B, N, _ = coords.shape
+        # Centroid from niche positions only (exclude src cells)
+        niche_coords = coords[:, n_src:, :]           # (B, m_niche, 2)
+        centroid = niche_coords.mean(dim=1, keepdim=True)  # (B, 1, 2)
+        dists = (coords - centroid).norm(dim=-1, keepdim=True)  # (B, N, 1)
+        # Zero bias for source-cell positions (no spatial coordinate)
+        niche_mask = torch.zeros_like(dists)
+        niche_mask[:, n_src:, :] = 1.0
+        dists = dists * niche_mask
+        bias = self.mlp(dists)                         # (B, N, H)
+        bias = bias.permute(0, 2, 1).unsqueeze(2)      # (B, H, 1, N)
+        return bias.reshape(B * self.num_heads, 1, N)  # (B*H, 1, N)
+
+
 class ISAB(nn.Module):
     """Induced Set Attention Block for efficient set processing."""
 
@@ -70,6 +120,8 @@ class ISAB(nn.Module):
         num_heads: int = 8,
         num_inducing_points: int = 16,
         dropout: float = 0.1,
+        use_spatial_rpe: bool = False,
+        rpe_hidden: int = 16,
     ) -> None:
         super().__init__()
         self.inducing_points = nn.Parameter(torch.randn(1, num_inducing_points, dim) * 0.02)
@@ -93,6 +145,7 @@ class ISAB(nn.Module):
         self.ln_x2 = nn.LayerNorm(dim)
         self.ff_h = FeedForwardBlock(dim=dim, dropout=dropout)
         self.ff_x = FeedForwardBlock(dim=dim, dropout=dropout)
+        self.rpe: SpatialRPE | None = SpatialRPE(num_heads=num_heads, hidden=rpe_hidden) if use_spatial_rpe else None
 
     @staticmethod
     def _key_padding_mask(mask: Tensor | None) -> Tensor | None:
@@ -100,16 +153,44 @@ class ISAB(nn.Module):
             return None
         return ~mask.bool()
 
-    def forward(self, x: Tensor, mask: Tensor | None = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        mask: Tensor | None = None,
+        coords: Tensor | None = None,
+        n_src: int = 0,
+    ) -> Tensor:
+        """Forward pass with optional Spatial RPE.
+
+        Parameters
+        ----------
+        x : (B, N, dim)
+        mask : (1, N) or (B, N) boolean validity mask, optional.
+        coords : (B, N, 2) spatial coordinates, zeros for src-cell positions, optional.
+            Required when ``self.rpe is not None``.
+        n_src : int
+            Number of source-cell positions at the start of the N axis.
+            Used by SpatialRPE to zero-out src positions.
+        """
         batch_size = x.shape[0]
         inducing = self.inducing_points.expand(batch_size, -1, -1)
+        num_inducing = inducing.shape[1]
 
         key_padding_mask = self._key_padding_mask(mask)
+
+        # Compute Spatial RPE bias for mha_1 if enabled and coords provided.
+        attn_mask: Tensor | None = None
+        if self.rpe is not None and coords is not None:
+            # rpe_bias: (B*H, 1, N) → expand to (B*H, num_inducing, N)
+            rpe_bias = self.rpe(coords, n_src=n_src)
+            attn_mask = rpe_bias.expand(-1, num_inducing, -1).contiguous()
+
         h, _ = self.mha_1(
             query=inducing,
             key=x,
             value=x,
             key_padding_mask=key_padding_mask,
+            attn_mask=attn_mask,
             need_weights=False,
         )
         h = self.ln_h1(inducing + h)

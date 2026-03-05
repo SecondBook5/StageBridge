@@ -446,7 +446,6 @@ def _maybe_load_wes_lookup(cfg: DictConfig) -> "dict[tuple[str, str], np.ndarray
             wes_path,
         )
         return None
-    import pandas as pd
     from stagebridge.io.geo_wes import WES_FEATURE_COLS, load_wes_features
     df = load_wes_features(wes_path)
     lookup: dict[tuple[str, str], np.ndarray] = {}

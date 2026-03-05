@@ -15,14 +15,13 @@ Design principles:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+from matplotlib.patches import FancyBboxPatch
 
 from stagebridge.logging_utils import get_logger
 
@@ -218,8 +217,17 @@ def make_panel_b_benchmark(
         else:
             colors.append(PALETTE["baseline"])
 
-    bars = ax.bar(x, y, yerr=yerr, color=colors, alpha=0.92, capsize=4,
-                  edgecolor=PALETTE["text"], linewidth=0.8, width=0.65)
+    ax.bar(
+        x,
+        y,
+        yerr=yerr,
+        color=colors,
+        alpha=0.92,
+        capsize=4,
+        edgecolor=PALETTE["text"],
+        linewidth=0.8,
+        width=0.65,
+    )
 
     # Annotate StageBridge bar value
     sb_idx = [i for i, lbl in enumerate(df["label"].astype(str)) if "stagebridge" in lbl.lower()]
@@ -284,8 +292,15 @@ def make_panel_c_context_sensitivity(
     bar_colors = [PALETTE["accent"] if score == scores.max() else PALETTE["stagebridge"]
                   for score in scores]
 
-    bars = ax.bar(x, scores, color=bar_colors, alpha=0.92,
-                  edgecolor=PALETTE["text"], linewidth=0.8, width=0.6)
+    ax.bar(
+        x,
+        scores,
+        color=bar_colors,
+        alpha=0.92,
+        edgecolor=PALETTE["text"],
+        linewidth=0.8,
+        width=0.6,
+    )
 
     # Annotate values above bars
     for i, (xi, s) in enumerate(zip(x, scores)):

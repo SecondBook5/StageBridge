@@ -37,20 +37,16 @@ env/
 *.fastq*
 *.fq*
 
-# Outputs (keep directory stubs but not generated files)
-outputs/figures/*.png
-outputs/figures/*.pdf
-outputs/figures/*.svg
-outputs/checkpoints/
-outputs/history_*.json
-outputs/tables/*.csv
-outputs/tables/*.tsv
-outputs/tables/*.json
-outputs/tables/poster_abstract_structure.txt
+# Outputs (generated artifacts are local only)
+outputs/**
+!outputs/
+!outputs/README.md
+!outputs/figures/
+!outputs/figures/.gitkeep
+!outputs/tables/
+!outputs/tables/.gitkeep
 
 # Training run artefacts (Hydra outputs/ and runs/ dirs)
-# Hydra creates outputs/YYYY-MM-DD/HH-MM-SS/ beside the run outputs.
-outputs/20*/
 runs/
 
 # Local data configs — machine-specific, never commit

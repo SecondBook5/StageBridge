@@ -3,13 +3,13 @@ import pytest
 
 anndata = pytest.importorskip("anndata")
 
-from stagebridge.models.stagebridge import StageBridgeModel
-from stagebridge.training.trainer import (
+from stagebridge.models.stagebridge import StageBridgeModel  # noqa: E402
+from stagebridge.training.trainer import (  # noqa: E402
     StageBridgeTrainer,
     build_donor_holdout_splits,
     build_samplers_from_anndata,
 )
-from stagebridge.utils.types import StageBridgeConfig
+from stagebridge.utils.types import StageBridgeConfig  # noqa: E402
 
 
 
