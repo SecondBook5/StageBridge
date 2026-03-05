@@ -110,8 +110,15 @@ def flow_matching_loss(
     num_ot_pairs: int = 512,
     context_consistency_weight: float = 0.1,
     use_ot: bool = True,
+    sigma: float = 0.0,
 ) -> tuple[Tensor, dict[str, float], Tensor]:
-    """Compute OT-informed flow matching loss and diagnostics."""
+    """Compute OT-informed flow matching loss and diagnostics.
+
+    When ``sigma > 0`` the Brownian bridge interpolant is used:
+    ``x_t = (1-t)*x_i + t*y_j + sigma * sqrt(t*(1-t)) * z``, z ~ N(0, I).
+    The velocity target remains ``u_t = y_j - x_i`` (conditional mean).
+    Setting ``sigma = 0`` recovers the deterministic OT-CFM path.
+    """
     x_src = batch.x_src
     x_tgt = batch.x_tgt
     x_set = batch.x_set if batch.x_set is not None else x_src
@@ -147,6 +154,9 @@ def flow_matching_loss(
 
     t = torch.rand((num_ot_pairs,), device=device, dtype=x_src.dtype)
     x_t = (1.0 - t.unsqueeze(1)) * x_i + t.unsqueeze(1) * y_j
+    if sigma > 0.0:
+        noise_scale = sigma * (t * (1.0 - t)).clamp_min(0.0).sqrt().unsqueeze(1)
+        x_t = x_t + noise_scale * torch.randn_like(x_i)
     u_t = y_j - x_i
 
     c_s = model.forward_set_context(x_set, mask=context_mask)
@@ -156,11 +166,13 @@ def flow_matching_loss(
         c_rep = c_s
 
     stage_pair_id = _stage_pair_tensor(model=model, batch=batch, n=num_ot_pairs, device=device)
+    wes_features = batch.wes_features  # None unless use_wes_features=True
     pred = model.forward_vector_field(
         x_t=x_t,
         t=t,
         c_s=c_rep,
         stage_pair_id=stage_pair_id,
+        wes_features=wes_features,
     )
 
     loss_fm = F.mse_loss(pred, u_t)

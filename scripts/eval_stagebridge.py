@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from stagebridge.logging_utils import configure_root_logger, get_logger
 from stagebridge.models.stagebridge import StageBridgeModel
 from stagebridge.preprocessing.harmonize import add_hlca_latent, ensure_required_obs_fields
-from stagebridge.preprocessing.stage_ontology import normalize_stage_series
+from stagebridge.preprocessing.stage_ontology import stage_to_index
 from stagebridge.training.trainer import (
     build_donor_holdout_splits,
     build_samplers_from_anndata,
@@ -75,7 +75,6 @@ def main(cfg: DictConfig) -> None:
 
     adata = anndata.read_h5ad(snrna_path)
     ensure_required_obs_fields(adata)
-    adata.obs[cfg.data.stage_col] = normalize_stage_series(adata.obs[cfg.data.stage_col])
     _ensure_latent(adata, cfg)
 
     donor_ids = donors_with_min_stage_coverage(
@@ -136,8 +135,8 @@ def main(cfg: DictConfig) -> None:
                 model=model,
                 x_src=x_src,
                 x_tgt=x_tgt,
-                stage_src=int(adata.obs[adata.obs[cfg.data.stage_col] == src]["stage_index"].iloc[0]),
-                stage_tgt=int(adata.obs[adata.obs[cfg.data.stage_col] == tgt]["stage_index"].iloc[0]),
+                stage_src=stage_to_index(src),
+                stage_tgt=stage_to_index(tgt),
                 num_steps=8,
                 ot_epsilon=float(cfg.training.ot_epsilon),
                 sinkhorn_iters=int(cfg.training.sinkhorn_iters),

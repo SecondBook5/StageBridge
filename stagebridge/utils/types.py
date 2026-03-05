@@ -41,6 +41,24 @@ class StageBridgeConfig:
     use_ot: bool = True
     use_stage_embedding: bool = True
 
+    # Schrödinger Bridge / stochastic interpolant
+    sigma: float = 0.0              # Brownian bridge noise level; 0.0 = deterministic OT-CFM
+    use_stochastic_bridge: bool = False  # Enable SB interpolant during training
+
+    # Cross-attention drift transformer
+    # When True, the drift network attends over num_seed_vectors context tokens
+    # rather than concatenating a single pooled vector.  This makes the
+    # transformer functionally central: the model must attend to niche tokens
+    # to produce the drift vector.
+    use_cross_attn_drift: bool = False
+
+    # WES feature conditioning
+    # When True, per-(patient, stage) somatic genomic features (TMB, driver
+    # mutation flags) are projected and concatenated to the stage embedding.
+    use_wes_features: bool = False
+    wes_feature_dim: int = 8    # matches len(WES_FEATURE_COLS)
+    wes_hidden_dim: int = 16    # projection bottleneck
+
     # Optimization
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
@@ -83,6 +101,7 @@ class StageBatch:
     context_mask: "torch.Tensor | None" = None
     cell_type: "torch.Tensor | None" = None
     sample_id: str | None = None
+    wes_features: "torch.Tensor | None" = None  # (wes_feature_dim,) per-patient WES vector
 
     def to(self, device: str) -> "StageBatch":
         """Move tensor payloads to *device* and return a new StageBatch."""
@@ -96,6 +115,7 @@ class StageBatch:
             context_mask=self.context_mask.to(device) if self.context_mask is not None else None,
             cell_type=self.cell_type.to(device) if self.cell_type is not None else None,
             sample_id=self.sample_id,
+            wes_features=self.wes_features.to(device) if self.wes_features is not None else None,
         )
 
 

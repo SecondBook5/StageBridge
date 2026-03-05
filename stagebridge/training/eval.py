@@ -20,6 +20,9 @@ class TransitionEvalResult:
     classifier_auc: float
     jsd_composition: float
     rank_consistency: float
+    # How much better than doing nothing (positive = improvement).
+    # sinkhorn_delta = sinkhorn_identity - sinkhorn_model  (higher is better)
+    sinkhorn_delta: float = 0.0
 
 
 
@@ -148,8 +151,18 @@ def evaluate_transition(
     num_steps: int = 8,
     ot_epsilon: float = 0.05,
     sinkhorn_iters: int = 80,
+    hlca_labels_src: np.ndarray | None = None,
+    hlca_labels_tgt: np.ndarray | None = None,
 ) -> TransitionEvalResult:
-    """Compute main benchmark metrics for a transition."""
+    """Compute main benchmark metrics for a transition.
+
+    Parameters
+    ----------
+    hlca_labels_src, hlca_labels_tgt:
+        Optional string arrays of HLCA cell-type labels for source/target cells.
+        When provided, JSD is computed over real cell-type compositions rather
+        than unsupervised k-means clusters, which is biologically interpretable.
+    """
     x_pred = predict_next_stage(
         model=model,
         x_src=x_src,
@@ -162,9 +175,19 @@ def evaluate_transition(
     x_pred = x_pred[:n]
     x_tgt = x_tgt[:n]
 
-    sink = float(
+    # ── Distribution matching ─────────────────────────────────────────────
+    sink_model = float(
         sinkhorn_distance(
             x_src=x_pred,
+            x_tgt=x_tgt,
+            epsilon=ot_epsilon,
+            n_iters=sinkhorn_iters,
+        ).item()
+    )
+    # Identity baseline: how far is doing nothing (src vs tgt)?
+    sink_identity = float(
+        sinkhorn_distance(
+            x_src=x_src[:n],
             x_tgt=x_tgt,
             epsilon=ot_epsilon,
             n_iters=sinkhorn_iters,
@@ -173,28 +196,51 @@ def evaluate_transition(
     mmd = float(mmd_rbf(x_pred, x_tgt).item())
     auc = classifier_two_sample_auc(x_pred, x_tgt)
 
-    # Unsupervised fallback: compare k-means cluster composition.
-    from sklearn.cluster import MiniBatchKMeans
+    # ── Cell-type composition JSD ─────────────────────────────────────────
+    if hlca_labels_tgt is not None:
+        # Use real HLCA cell-type labels — biologically interpretable.
+        # Nearest-neighbour assignment: each predicted cell inherits the label
+        # of its closest source cell (since we integrate x_src → x_pred).
+        src_np = _to_numpy(x_src[:n])
+        pred_np = _to_numpy(x_pred)
+        from sklearn.neighbors import NearestNeighbors
+        nn = NearestNeighbors(n_neighbors=1, algorithm="auto").fit(src_np)
+        _, idxs = nn.kneighbors(pred_np)
+        labels_pred = hlca_labels_src[idxs.ravel()] if hlca_labels_src is not None else (
+            hlca_labels_tgt[idxs.ravel()]  # fallback: use tgt labels for src NN
+        )
+        labels_true = hlca_labels_tgt[:n]
+        jsd = composition_jsd(labels_pred=labels_pred, labels_true=labels_true)
+    else:
+        # Unsupervised fallback: k-means cluster composition.
+        from sklearn.cluster import MiniBatchKMeans
+        km = MiniBatchKMeans(n_clusters=min(10, n), random_state=42, batch_size=256)
+        labels_true = km.fit_predict(_to_numpy(x_tgt))
+        labels_pred = km.predict(_to_numpy(x_pred))
+        jsd = composition_jsd(labels_pred=labels_pred, labels_true=labels_true)
 
-    km = MiniBatchKMeans(n_clusters=min(10, n), random_state=42, batch_size=256)
-    labels_true = km.fit_predict(_to_numpy(x_tgt))
-    labels_pred = km.predict(_to_numpy(x_pred))
-    jsd = composition_jsd(labels_pred=labels_pred, labels_true=labels_true)
-
-    # Rank consistency on centroids between src, pred, tgt.
-    centroids = {
-        int(stage_src): _to_numpy(x_src).mean(axis=0),
-        int(stage_tgt): _to_numpy(x_tgt).mean(axis=0),
-        int(stage_tgt + 10): _to_numpy(x_pred).mean(axis=0),
-    }
-    rank = stage_progression_rank_consistency(stage_centroids=centroids)
+    # ── Rank consistency: src → pred centroid direction ───────────────────
+    # Measures whether the predicted distribution moves in the right direction
+    # relative to true target (cosine similarity of displacement vectors).
+    src_mean = _to_numpy(x_src[:n]).mean(axis=0)
+    tgt_mean = _to_numpy(x_tgt).mean(axis=0)
+    pred_mean = _to_numpy(x_pred).mean(axis=0)
+    true_dir = tgt_mean - src_mean
+    pred_dir = pred_mean - src_mean
+    norm_true = np.linalg.norm(true_dir)
+    norm_pred = np.linalg.norm(pred_dir)
+    if norm_true < 1e-12 or norm_pred < 1e-12:
+        rank = float("nan")
+    else:
+        rank = float(np.dot(true_dir, pred_dir) / (norm_true * norm_pred))
 
     return TransitionEvalResult(
-        sinkhorn=sink,
+        sinkhorn=sink_model,
         mmd_rbf=mmd,
         classifier_auc=auc,
         jsd_composition=jsd,
         rank_consistency=rank,
+        sinkhorn_delta=sink_identity - sink_model,
     )
 
 

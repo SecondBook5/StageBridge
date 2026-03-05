@@ -1,0 +1,952 @@
+{
+  "run_name": "hca_poster",
+  "config": {
+    "model": {
+      "_target_": "stagebridge.models.stagebridge.StageBridgeModel",
+      "config": {
+        "_target_": "stagebridge.models.stagebridge.StageBridgeConfig",
+        "input_dim": 64,
+        "hidden_dim": 128,
+        "vector_field_hidden_dim": 256,
+        "num_heads": 8,
+        "num_inducing_points": 16,
+        "num_seed_vectors": 1,
+        "num_stages": 5,
+        "time_embedding_dim": 32,
+        "stage_embedding_dim": 32,
+        "dropout": 0.1
+      }
+    },
+    "training": {
+      "max_epochs": 150,
+      "steps_per_epoch": 50,
+      "val_steps": 10,
+      "batch_cells": 256,
+      "num_ot_pairs": 512,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001,
+      "grad_clip_norm": 1.0,
+      "gradient_accumulation_steps": 1,
+      "patience": 20,
+      "mixed_precision": true,
+      "ot_epsilon": 0.05,
+      "sinkhorn_iters": 80,
+      "context_consistency_weight": 0.1,
+      "use_ot": true,
+      "use_stage_embedding": true,
+      "sigma": 0.1,
+      "use_stochastic_bridge": false,
+      "use_cross_attn_drift": false,
+      "lineage_filter": null,
+      "seed": 42,
+      "device": "cuda",
+      "transition_src": null,
+      "transition_tgt": null,
+      "use_niche_tokens": false,
+      "niche_token_bank_path": "/mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr",
+      "m_niche": 64,
+      "niche_sampling_strategy": "random_m",
+      "niche_fallback": "donor",
+      "niche_random_seed": 42
+    },
+    "data": {
+      "data_root": "/mnt/e/StageBridge_data",
+      "raw": {
+        "geo_snrna_dir": "/mnt/e/StageBridge_data/raw/geo/GSE308103_snrna",
+        "geo_spatial_dir": "/mnt/e/StageBridge_data/raw/geo/GSE307534_spatial",
+        "hlca_dir": "/mnt/e/StageBridge_data/raw/hlca"
+      },
+      "interim": {
+        "anndata_snrna_dir": "/mnt/e/StageBridge_data/interim/anndata/snrna",
+        "anndata_spatial_dir": "/mnt/e/StageBridge_data/interim/anndata/spatial"
+      },
+      "processed": {
+        "anndata_dir": "/mnt/e/StageBridge_data/processed/anndata",
+        "hlca_dir": "/mnt/e/StageBridge_data/processed/hlca",
+        "tangram_dir": "/mnt/e/StageBridge_data/processed/tangram",
+        "mapping_dir": "/mnt/e/StageBridge_data/processed/mapping",
+        "figures_dir": "/mnt/e/StageBridge_data/processed/figures",
+        "features_dir": "/mnt/e/StageBridge_data/processed/features"
+      },
+      "runs_dir": "/mnt/e/StageBridge_data/runs",
+      "input_snrna_full_h5ad": "/mnt/e/StageBridge_data/interim/anndata/snrna/snrna_full.h5ad",
+      "input_spatial_full_h5ad": "/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad",
+      "output_processed_anndata_dir": "/mnt/e/StageBridge_data/processed/anndata",
+      "output_processed_hlca_dir": "/mnt/e/StageBridge_data/processed/hlca",
+      "output_processed_tangram_dir": "/mnt/e/StageBridge_data/processed/tangram",
+      "snrna_h5ad": "/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad",
+      "spatial_h5ad": "/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad",
+      "hlca_h5ad": "/mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad",
+      "latent_key": "X_hlca",
+      "fallback_latent_key": "X_pca",
+      "stage_col": "stage",
+      "donor_col": "patient_id",
+      "sample_col": "sample_id",
+      "use_spatial": false,
+      "use_hlca_reference": true,
+      "max_cells": 200000
+    },
+    "splits": {
+      "name": "donor_holdout",
+      "n_folds": 3,
+      "min_stages_per_donor": 2,
+      "stage_coverage_required": true
+    },
+    "experiment": {
+      "name": "full_benchmark",
+      "cross_validate": true,
+      "primary_model": "stagebridge",
+      "baseline_models": [
+        "deepsets",
+        "no_context",
+        "linear"
+      ],
+      "variants": [
+        "stagebridge_sb",
+        "stagebridge_xattn_sb"
+      ],
+      "ablations": [
+        "no_ot",
+        "no_context",
+        "no_stage_embedding",
+        "no_context_consistency"
+      ]
+    },
+    "run_name": "hca_poster",
+    "output_dir": "outputs/hca_poster",
+    "seed": 42
+  },
+  "results": {
+    "stagebridge": {
+      "model_name": "stagebridge",
+      "ablation": null,
+      "overrides": {},
+      "folds": [
+        {
+          "best_val_loss": 0.28637995272874833,
+          "sinkhorn_mean": 8.190347671508789,
+          "sinkhorn_std": 0.3652181625366211,
+          "mmd_rbf_mean": 0.019291460514068604,
+          "mmd_rbf_std": 0.0008969902992248535,
+          "classifier_auc_mean": 0.7835216731320627,
+          "classifier_auc_std": 0.05793557092258389,
+          "jsd_composition_mean": 0.01859761316709586,
+          "jsd_composition_std": 0.007098787296157344,
+          "rank_consistency_mean": 0.014732310781255364,
+          "rank_consistency_std": 0.007773324614390731
+        },
+        {
+          "best_val_loss": 0.29585830867290497,
+          "sinkhorn_mean": 9.425154685974121,
+          "sinkhorn_std": 1.8042474983354877,
+          "mmd_rbf_mean": 0.038011401891708374,
+          "mmd_rbf_std": 0.020996928581961654,
+          "classifier_auc_mean": 0.8294822061055827,
+          "classifier_auc_std": 0.04541095079399406,
+          "jsd_composition_mean": 0.048543878972597015,
+          "jsd_composition_std": 0.0473643489576874,
+          "rank_consistency_mean": -0.019883766770362854,
+          "rank_consistency_std": 0.22726956624647557
+        },
+        {
+          "best_val_loss": 0.2814945071935654,
+          "sinkhorn_mean": 9.661282777786255,
+          "sinkhorn_std": 0.3723001254618383,
+          "mmd_rbf_mean": 0.035722240805625916,
+          "mmd_rbf_std": 0.010906459812171641,
+          "classifier_auc_mean": 0.8603474447630292,
+          "classifier_auc_std": 0.02445286443620891,
+          "jsd_composition_mean": 0.021820502383722754,
+          "jsd_composition_std": 0.011558563527087647,
+          "rank_consistency_mean": 0.07263858988881111,
+          "rank_consistency_std": 0.17551791081003829
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.28791092286507286,
+        "best_val_loss_std": 0.0059630864716860455,
+        "classifier_auc_mean_mean": 0.8244504413335582,
+        "classifier_auc_mean_std": 0.03156515789299011,
+        "classifier_auc_std_mean": 0.042599795384262285,
+        "classifier_auc_std_std": 0.013813033807879486,
+        "jsd_composition_mean_mean": 0.02965399817447188,
+        "jsd_composition_mean_std": 0.013421809394941133,
+        "jsd_composition_std_mean": 0.0220072332603108,
+        "jsd_composition_std_std": 0.018022391413185616,
+        "mmd_rbf_mean_mean": 0.031008367737134297,
+        "mmd_rbf_mean_std": 0.0083376455819356,
+        "mmd_rbf_std_mean": 0.010933459564452715,
+        "mmd_rbf_std_std": 0.008205787651912703,
+        "rank_consistency_mean_mean": 0.022495711299901206,
+        "rank_consistency_mean_std": 0.038168917643824025,
+        "rank_consistency_std_mean": 0.13685360055696819,
+        "rank_consistency_std_std": 0.09368687808568103,
+        "sinkhorn_mean_mean": 9.092261711756388,
+        "sinkhorn_mean_std": 0.6449939642779721,
+        "sinkhorn_std_mean": 0.8472552621113157,
+        "sinkhorn_std_std": 0.6767018761092779
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_stagebridge_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_stagebridge_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_stagebridge_loss_curve.png"
+      }
+    },
+    "deepsets": {
+      "model_name": "deepsets",
+      "ablation": null,
+      "overrides": {},
+      "folds": [
+        {
+          "best_val_loss": 0.292311829328537,
+          "sinkhorn_mean": 8.649137496948242,
+          "sinkhorn_std": 0.74713134765625,
+          "mmd_rbf_mean": 0.022663384675979614,
+          "mmd_rbf_std": 0.007842808961868286,
+          "classifier_auc_mean": 0.8293135435992578,
+          "classifier_auc_std": 0.02411873840445261,
+          "jsd_composition_mean": 0.025941789644253647,
+          "jsd_composition_std": 0.011480588520492437,
+          "rank_consistency_mean": 0.1287725269794464,
+          "rank_consistency_std": 0.1990656554698944
+        },
+        {
+          "best_val_loss": 0.291399809718132,
+          "sinkhorn_mean": 9.633529424667358,
+          "sinkhorn_std": 1.671505177413238,
+          "mmd_rbf_mean": 0.03229545056819916,
+          "mmd_rbf_std": 0.014079587726801344,
+          "classifier_auc_mean": 0.8170011806375442,
+          "classifier_auc_std": 0.06431086105575237,
+          "jsd_composition_mean": 0.028763056477080166,
+          "jsd_composition_std": 0.032035775542608856,
+          "rank_consistency_mean": 0.11382392607629299,
+          "rank_consistency_std": 0.30109779798107306
+        },
+        {
+          "best_val_loss": 0.2697690337896347,
+          "sinkhorn_mean": 9.390933513641357,
+          "sinkhorn_std": 0.3597220474165366,
+          "mmd_rbf_mean": 0.03178238868713379,
+          "mmd_rbf_std": 0.00544225251110771,
+          "classifier_auc_mean": 0.8858998144712431,
+          "classifier_auc_std": 0.04160027467956382,
+          "jsd_composition_mean": 0.03664222221724176,
+          "jsd_composition_std": 0.01868076898660606,
+          "rank_consistency_mean": 0.1255085519514978,
+          "rank_consistency_std": 0.14122498583009924
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.2844935576121012,
+        "best_val_loss_std": 0.010418465859272162,
+        "classifier_auc_mean_mean": 0.8440715129026817,
+        "classifier_auc_mean_std": 0.030001151972417445,
+        "classifier_auc_std_mean": 0.04334329137992293,
+        "classifier_auc_std_std": 0.01645458925280075,
+        "jsd_composition_mean_mean": 0.03044902277952519,
+        "jsd_composition_mean_std": 0.004528184043079622,
+        "jsd_composition_std_mean": 0.020732377683235784,
+        "jsd_composition_std_std": 0.008516092690180195,
+        "mmd_rbf_mean_mean": 0.02891374131043752,
+        "mmd_rbf_mean_std": 0.004424630053604071,
+        "mmd_rbf_std_mean": 0.009121549733259115,
+        "mmd_rbf_std_std": 0.0036402631202866144,
+        "rank_consistency_mean_mean": 0.12270166833574574,
+        "rank_consistency_mean_std": 0.006417378175170024,
+        "rank_consistency_std_mean": 0.21379614642702224,
+        "rank_consistency_std_std": 0.06609371901143435,
+        "sinkhorn_mean_mean": 9.224533478418985,
+        "sinkhorn_mean_std": 0.41874701641217243,
+        "sinkhorn_std_mean": 0.926119524162008,
+        "sinkhorn_std_std": 0.5502855746686611
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_deepsets_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_deepsets_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_deepsets_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_deepsets_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_deepsets_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_deepsets_loss_curve.png"
+      }
+    },
+    "no_context": {
+      "model_name": "no_context",
+      "ablation": null,
+      "overrides": {},
+      "folds": [
+        {
+          "best_val_loss": 0.2675870209932327,
+          "sinkhorn_mean": 8.1233229637146,
+          "sinkhorn_std": 0.019592761993408203,
+          "mmd_rbf_mean": 0.014638721942901611,
+          "mmd_rbf_std": 0.0011023879051208496,
+          "classifier_auc_mean": 0.7306459773992242,
+          "classifier_auc_std": 0.03794906392308989,
+          "jsd_composition_mean": 0.01478919978090118,
+          "jsd_composition_std": 0.001536640086413077,
+          "rank_consistency_mean": -0.07477639615535736,
+          "rank_consistency_std": 0.18598593771457672
+        },
+        {
+          "best_val_loss": 0.2856147736310959,
+          "sinkhorn_mean": 8.615363597869873,
+          "sinkhorn_std": 1.308631662355948,
+          "mmd_rbf_mean": 0.025063976645469666,
+          "mmd_rbf_std": 0.011658716463015804,
+          "classifier_auc_mean": 0.74198853094957,
+          "classifier_auc_std": 0.07270189216007099,
+          "jsd_composition_mean": 0.026501347907881584,
+          "jsd_composition_std": 0.02335533581899489,
+          "rank_consistency_mean": 0.1602816041558981,
+          "rank_consistency_std": 0.295789618348286
+        },
+        {
+          "best_val_loss": 0.2654828459024429,
+          "sinkhorn_mean": 9.065394163131714,
+          "sinkhorn_std": 0.38544870518890445,
+          "mmd_rbf_mean": 0.02101440727710724,
+          "mmd_rbf_std": 0.0053636290255392695,
+          "classifier_auc_mean": 0.7600775847529095,
+          "classifier_auc_std": 0.03060899228013475,
+          "jsd_composition_mean": 0.020641278425684244,
+          "jsd_composition_std": 0.006915065115997923,
+          "rank_consistency_mean": 0.0026122601702809334,
+          "rank_consistency_std": 0.15414732292479597
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.27289488017559055,
+        "best_val_loss_std": 0.009035251531002755,
+        "classifier_auc_mean_mean": 0.7442373643672345,
+        "classifier_auc_mean_std": 0.012120170974060278,
+        "classifier_auc_std_mean": 0.04708664945443188,
+        "classifier_auc_std_std": 0.018358915310778882,
+        "jsd_composition_mean_mean": 0.020643942038155668,
+        "jsd_composition_mean_std": 0.004781464821454209,
+        "jsd_composition_std_mean": 0.010602347007135297,
+        "jsd_composition_std_std": 0.009281196283392142,
+        "mmd_rbf_mean_mean": 0.02023903528849284,
+        "mmd_rbf_mean_std": 0.004291261290413361,
+        "mmd_rbf_std_mean": 0.006041577797891974,
+        "mmd_rbf_std_std": 0.004336183349368279,
+        "rank_consistency_mean_mean": 0.029372489390273888,
+        "rank_consistency_mean_std": 0.09780984367131788,
+        "rank_consistency_std_mean": 0.21197429299588622,
+        "rank_consistency_std_std": 0.060674986174312294,
+        "sinkhorn_mean_mean": 8.601360241572062,
+        "sinkhorn_mean_std": 0.3847264020777212,
+        "sinkhorn_std_mean": 0.5712243765127535,
+        "sinkhorn_std_std": 0.5423957790542724
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_no_context_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_no_context_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_no_context_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_no_context_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_no_context_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_no_context_loss_curve.png"
+      }
+    },
+    "linear": {
+      "model_name": "linear",
+      "ablation": null,
+      "overrides": {},
+      "folds": [
+        {
+          "sinkhorn_mean": 12.115668773651123,
+          "sinkhorn_std": 0.07008123397827148,
+          "mmd_rbf_mean": 0.15965521335601807,
+          "mmd_rbf_std": 0.004664063453674316,
+          "classifier_auc_mean": 0.8846348456738067,
+          "classifier_auc_std": 0.005734525215044695,
+          "jsd_composition_mean": 0.4694625033555262,
+          "jsd_composition_std": 0.06446212139168717,
+          "rank_consistency_mean": 0.40681055188179016,
+          "rank_consistency_std": 0.09923878312110901
+        },
+        {
+          "sinkhorn_mean": 11.850927352905273,
+          "sinkhorn_std": 0.3291308269502576,
+          "mmd_rbf_mean": 0.15739962458610535,
+          "mmd_rbf_std": 0.009852037977191584,
+          "classifier_auc_mean": 0.8414572440546466,
+          "classifier_auc_std": 0.07676747671068873,
+          "jsd_composition_mean": 0.3118231800140984,
+          "jsd_composition_std": 0.07961453510741284,
+          "rank_consistency_mean": 0.3840286172926426,
+          "rank_consistency_std": 0.41156890346581737
+        },
+        {
+          "sinkhorn_mean": 12.717610120773315,
+          "sinkhorn_std": 0.5167082475786777,
+          "mmd_rbf_mean": 0.1773938536643982,
+          "mmd_rbf_std": 0.007384253458776344,
+          "classifier_auc_mean": 0.974025974025974,
+          "classifier_auc_std": 0.00953129716043582,
+          "jsd_composition_mean": 0.31675268817755264,
+          "jsd_composition_std": 0.10087534727114808,
+          "rank_consistency_mean": 0.2463783472776413,
+          "rank_consistency_std": 0.26511073002247276
+        }
+      ],
+      "aggregate": {
+        "classifier_auc_mean_mean": 0.9000393545848091,
+        "classifier_auc_mean_std": 0.055206226778293434,
+        "classifier_auc_std_mean": 0.030677766362056418,
+        "classifier_auc_std_std": 0.03262718620329725,
+        "jsd_composition_mean_mean": 0.36601279051572577,
+        "jsd_composition_mean_std": 0.07317767112838573,
+        "jsd_composition_std_mean": 0.08165066792341603,
+        "jsd_composition_std_std": 0.01493519629087533,
+        "mmd_rbf_mean_mean": 0.1648162305355072,
+        "mmd_rbf_mean_std": 0.008941266608784585,
+        "mmd_rbf_std_mean": 0.0073001182965474155,
+        "mmd_rbf_std_std": 0.0021188171162716428,
+        "rank_consistency_mean_mean": 0.34573917215069133,
+        "rank_consistency_mean_std": 0.07087164113379314,
+        "rank_consistency_std_mean": 0.25863947220313305,
+        "rank_consistency_std_std": 0.12759031808084886,
+        "sinkhorn_mean_mean": 12.228068749109903,
+        "sinkhorn_mean_std": 0.3626385444600941,
+        "sinkhorn_std_mean": 0.30530676950240226,
+        "sinkhorn_std_std": 0.18311128056342021
+      },
+      "checkpoints": [
+        "linear_baseline",
+        "linear_baseline",
+        "linear_baseline"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {}
+    },
+    "stagebridge_sb": {
+      "model_name": "stagebridge",
+      "ablation": null,
+      "overrides": {
+        "use_stochastic_bridge": true
+      },
+      "folds": [
+        {
+          "best_val_loss": 0.2927707448601723,
+          "sinkhorn_mean": 9.932455062866211,
+          "sinkhorn_std": 0.5027694702148438,
+          "mmd_rbf_mean": 0.025779247283935547,
+          "mmd_rbf_std": 0.00546342134475708,
+          "classifier_auc_mean": 0.7631978411199191,
+          "classifier_auc_std": 0.018721538202057686,
+          "jsd_composition_mean": 0.029614766217880714,
+          "jsd_composition_std": 0.005808069377019193,
+          "rank_consistency_mean": -0.07411384955048561,
+          "rank_consistency_std": 0.009651880711317062
+        },
+        {
+          "best_val_loss": 0.2959218606352806,
+          "sinkhorn_mean": 8.760733842849731,
+          "sinkhorn_std": 1.1839381489103746,
+          "mmd_rbf_mean": 0.031998008489608765,
+          "mmd_rbf_std": 0.014552192836785688,
+          "classifier_auc_mean": 0.8324759655928486,
+          "classifier_auc_std": 0.03515680332393028,
+          "jsd_composition_mean": 0.03172900887625882,
+          "jsd_composition_std": 0.02748691218404995,
+          "rank_consistency_mean": 0.15330308955162764,
+          "rank_consistency_std": 0.3472277953686598
+        },
+        {
+          "best_val_loss": 0.2727716684341431,
+          "sinkhorn_mean": 9.781026124954224,
+          "sinkhorn_std": 1.0970806236836994,
+          "mmd_rbf_mean": 0.03531382977962494,
+          "mmd_rbf_std": 0.020231062356112568,
+          "classifier_auc_mean": 0.8371141845167819,
+          "classifier_auc_std": 0.052807578243170734,
+          "jsd_composition_mean": 0.03160623256151253,
+          "jsd_composition_std": 0.011321112496460676,
+          "rank_consistency_mean": 0.2178169433027506,
+          "rank_consistency_std": 0.14810530150721624
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.28715475797653195,
+        "best_val_loss_std": 0.010251417178300016,
+        "classifier_auc_mean_mean": 0.8109293304098499,
+        "classifier_auc_mean_std": 0.03380433474248203,
+        "classifier_auc_std_mean": 0.035561973256386235,
+        "classifier_auc_std_std": 0.013918516525997907,
+        "jsd_composition_mean_mean": 0.030983335885217355,
+        "jsd_composition_mean_std": 0.0009690220866526935,
+        "jsd_composition_std_mean": 0.01487203135250994,
+        "jsd_composition_std_std": 0.009199631329738962,
+        "mmd_rbf_mean_mean": 0.031030361851056416,
+        "mmd_rbf_mean_std": 0.003952157288924863,
+        "mmd_rbf_std_mean": 0.013415558845885111,
+        "mmd_rbf_std_std": 0.006082201239793592,
+        "rank_consistency_mean_mean": 0.09900206110129754,
+        "rank_consistency_mean_std": 0.12521274754606643,
+        "rank_consistency_std_mean": 0.16832832586239768,
+        "rank_consistency_std_std": 0.13855468854027297,
+        "sinkhorn_mean_mean": 9.491405010223389,
+        "sinkhorn_mean_std": 0.5203479265085849,
+        "sinkhorn_std_mean": 0.9279294142696393,
+        "sinkhorn_std_std": 0.30271746006646005
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_sb_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_sb_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_sb_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_stagebridge_sb_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_stagebridge_sb_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_stagebridge_sb_loss_curve.png"
+      }
+    },
+    "stagebridge_xattn_sb": {
+      "model_name": "stagebridge",
+      "ablation": null,
+      "overrides": {
+        "use_cross_attn_drift": true,
+        "use_stochastic_bridge": true,
+        "num_seed_vectors": 4
+      },
+      "folds": [
+        {
+          "best_val_loss": 0.29432798326015475,
+          "sinkhorn_mean": 8.735748529434204,
+          "sinkhorn_std": 0.8903243541717529,
+          "mmd_rbf_mean": 0.020987272262573242,
+          "mmd_rbf_std": 0.0070819854736328125,
+          "classifier_auc_mean": 0.7648844661831675,
+          "classifier_auc_std": 0.05548996458087363,
+          "jsd_composition_mean": 0.013159457879467875,
+          "jsd_composition_std": 0.0020482018685250934,
+          "rank_consistency_mean": -0.10671227425336838,
+          "rank_consistency_std": 0.04159436374902725
+        },
+        {
+          "best_val_loss": 0.2931410223245621,
+          "sinkhorn_mean": 9.188819885253906,
+          "sinkhorn_std": 1.5319316942628094,
+          "mmd_rbf_mean": 0.035876840353012085,
+          "mmd_rbf_std": 0.01461698711376917,
+          "classifier_auc_mean": 0.8718586608196998,
+          "classifier_auc_std": 0.028950902015234266,
+          "jsd_composition_mean": 0.03348157624673518,
+          "jsd_composition_std": 0.031174161040459336,
+          "rank_consistency_mean": 0.144607272464782,
+          "rank_consistency_std": 0.322014824374931
+        },
+        {
+          "best_val_loss": 0.28408522754907606,
+          "sinkhorn_mean": 9.575998067855835,
+          "sinkhorn_std": 0.20952129416578316,
+          "mmd_rbf_mean": 0.02769973874092102,
+          "mmd_rbf_std": 0.005288403253264392,
+          "classifier_auc_mean": 0.8226092089728453,
+          "classifier_auc_std": 0.029626896709292132,
+          "jsd_composition_mean": 0.024970119996719244,
+          "jsd_composition_std": 0.011578175784197866,
+          "rank_consistency_mean": 0.26318372786045074,
+          "rank_consistency_std": 0.2554810974337519
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.2905180777112643,
+        "best_val_loss_std": 0.004574450056019824,
+        "classifier_auc_mean_mean": 0.8197841119919042,
+        "classifier_auc_mean_std": 0.04371769633491273,
+        "classifier_auc_std_mean": 0.038022587768466676,
+        "classifier_auc_std_std": 0.012354383344561225,
+        "jsd_composition_mean_mean": 0.023870384707640763,
+        "jsd_composition_mean_std": 0.00833283413222813,
+        "jsd_composition_std_mean": 0.01493351289772743,
+        "jsd_composition_std_std": 0.012125017932093043,
+        "mmd_rbf_mean_mean": 0.02818795045216878,
+        "mmd_rbf_mean_std": 0.006088435622073662,
+        "mmd_rbf_std_mean": 0.008995791946888793,
+        "mmd_rbf_std_std": 0.004041667199182777,
+        "rank_consistency_mean_mean": 0.10035957535728812,
+        "rank_consistency_mean_std": 0.15421663792521223,
+        "rank_consistency_std_mean": 0.20636342851923672,
+        "rank_consistency_std_std": 0.11963365673061506,
+        "sinkhorn_mean_mean": 9.166855494181315,
+        "sinkhorn_mean_std": 0.34338185504462637,
+        "sinkhorn_std_mean": 0.8772591142001152,
+        "sinkhorn_std_std": 0.5399508261208186
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_xattn_sb_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_xattn_sb_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge_xattn_sb_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_stagebridge_xattn_sb_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_stagebridge_xattn_sb_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_stagebridge_xattn_sb_loss_curve.png"
+      }
+    },
+    "stagebridge__ablation_no_ot": {
+      "model_name": "stagebridge",
+      "ablation": "no_ot",
+      "overrides": {
+        "use_ot": false
+      },
+      "folds": [
+        {
+          "best_val_loss": 0.6546036839485169,
+          "sinkhorn_mean": 9.334752082824707,
+          "sinkhorn_std": 0.31920337677001953,
+          "mmd_rbf_mean": 0.02068158984184265,
+          "mmd_rbf_std": 0.0025854408740997314,
+          "classifier_auc_mean": 0.7759318603474448,
+          "classifier_auc_std": 0.020155169505818804,
+          "jsd_composition_mean": 0.016180805693282858,
+          "jsd_composition_std": 0.003731957255142287,
+          "rank_consistency_mean": -0.24828345701098442,
+          "rank_consistency_std": 0.20532487705349922
+        },
+        {
+          "best_val_loss": 0.7416658401489258,
+          "sinkhorn_mean": 9.52929139137268,
+          "sinkhorn_std": 0.9270585256747416,
+          "mmd_rbf_mean": 0.0348309725522995,
+          "mmd_rbf_std": 0.012592508010246691,
+          "classifier_auc_mean": 0.807345252150447,
+          "classifier_auc_std": 0.06298414166200345,
+          "jsd_composition_mean": 0.029182495970796234,
+          "jsd_composition_std": 0.019859463553389488,
+          "rank_consistency_mean": 0.01815562415868044,
+          "rank_consistency_std": 0.26575250987854193
+        },
+        {
+          "best_val_loss": 0.6302840948104859,
+          "sinkhorn_mean": 9.759474754333496,
+          "sinkhorn_std": 0.677107142554946,
+          "mmd_rbf_mean": 0.032321661710739136,
+          "mmd_rbf_std": 0.01472730056262232,
+          "classifier_auc_mean": 0.8302833530106257,
+          "classifier_auc_std": 0.052191354888176854,
+          "jsd_composition_mean": 0.035879747377891485,
+          "jsd_composition_std": 0.010889919943194928,
+          "rank_consistency_mean": 0.20465809106826782,
+          "rank_consistency_std": 0.3006380547447467
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.6755178729693094,
+        "best_val_loss_std": 0.047815797776169844,
+        "classifier_auc_mean_mean": 0.8045201551695058,
+        "classifier_auc_mean_std": 0.022278645506295117,
+        "classifier_auc_std_mean": 0.04511022201866637,
+        "classifier_auc_std_std": 0.01818767065946152,
+        "jsd_composition_mean_mean": 0.027081016347323527,
+        "jsd_composition_mean_std": 0.008178192071165285,
+        "jsd_composition_std_mean": 0.011493780250575568,
+        "jsd_composition_std_std": 0.006597858253661975,
+        "mmd_rbf_mean_mean": 0.029278074701627094,
+        "mmd_rbf_mean_std": 0.00616435042175413,
+        "mmd_rbf_std_mean": 0.009968416482322913,
+        "mmd_rbf_std_std": 0.0052927989718190675,
+        "rank_consistency_mean_mean": -0.008489913928012053,
+        "rank_consistency_mean_std": 0.18587002630701277,
+        "rank_consistency_std_mean": 0.2572384805589293,
+        "rank_consistency_std_std": 0.03937441624407272,
+        "sinkhorn_mean_mean": 9.541172742843628,
+        "sinkhorn_mean_std": 0.17359572154476777,
+        "sinkhorn_std_mean": 0.6411230149999024,
+        "sinkhorn_std_std": 0.2494568948595043
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_ot_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_ot_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_ot_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_ot_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_ot_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_ot_loss_curve.png"
+      }
+    },
+    "stagebridge__ablation_no_context": {
+      "model_name": "no_context",
+      "ablation": "no_context",
+      "overrides": {},
+      "folds": [
+        {
+          "best_val_loss": 0.2619157671928406,
+          "sinkhorn_mean": 8.309887886047363,
+          "sinkhorn_std": 0.19710445404052734,
+          "mmd_rbf_mean": 0.01754748821258545,
+          "mmd_rbf_std": 0.006242632865905762,
+          "classifier_auc_mean": 0.7090571765896441,
+          "classifier_auc_std": 0.021251475796930375,
+          "jsd_composition_mean": 0.010374457929057192,
+          "jsd_composition_std": 0.0023990264470724115,
+          "rank_consistency_mean": -0.13796141743659973,
+          "rank_consistency_std": 0.519056111574173
+        },
+        {
+          "best_val_loss": 0.27677200734615326,
+          "sinkhorn_mean": 8.753327369689941,
+          "sinkhorn_std": 1.4840872841706776,
+          "mmd_rbf_mean": 0.02534078061580658,
+          "mmd_rbf_std": 0.012006226392163718,
+          "classifier_auc_mean": 0.7621015348288075,
+          "classifier_auc_std": 0.02501257007641512,
+          "jsd_composition_mean": 0.0332403937904739,
+          "jsd_composition_std": 0.033753439065778545,
+          "rank_consistency_mean": 0.19837964745238423,
+          "rank_consistency_std": 0.2989740026260088
+        },
+        {
+          "best_val_loss": 0.27307604253292084,
+          "sinkhorn_mean": 9.25036334991455,
+          "sinkhorn_std": 0.43003033345041175,
+          "mmd_rbf_mean": 0.021612897515296936,
+          "mmd_rbf_std": 0.004962911093693116,
+          "classifier_auc_mean": 0.7734862540057346,
+          "classifier_auc_std": 0.04568123647663752,
+          "jsd_composition_mean": 0.03528254043591303,
+          "jsd_composition_std": 0.009529278454156472,
+          "rank_consistency_mean": 0.18266589980339631,
+          "rank_consistency_std": 0.23396940060039936
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.27058793902397155,
+        "best_val_loss_std": 0.006315059365076421,
+        "classifier_auc_mean_mean": 0.7482149884747287,
+        "classifier_auc_mean_std": 0.028076130210615207,
+        "classifier_auc_std_mean": 0.03064842744999434,
+        "classifier_auc_std_std": 0.010740126255261521,
+        "jsd_composition_mean_mean": 0.026299130718481376,
+        "jsd_composition_mean_std": 0.011291264863248338,
+        "jsd_composition_std_mean": 0.015227247989002476,
+        "jsd_composition_std_std": 0.013419511672214317,
+        "mmd_rbf_mean_mean": 0.021500388781229656,
+        "mmd_rbf_mean_std": 0.0031825927880641714,
+        "mmd_rbf_std_mean": 0.007737256783920866,
+        "mmd_rbf_std_std": 0.0030634945286545584,
+        "rank_consistency_mean_mean": 0.08102804327306028,
+        "rank_consistency_mean_std": 0.1549817589110082,
+        "rank_consistency_std_mean": 0.3506665049335271,
+        "rank_consistency_std_std": 0.12199096766993467,
+        "sinkhorn_mean_mean": 8.771192868550619,
+        "sinkhorn_mean_std": 0.3841552694516511,
+        "sinkhorn_std_mean": 0.7037406905538722,
+        "sinkhorn_std_std": 0.5599221499171295
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_context_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_context_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_context_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_context_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_context_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_context_loss_curve.png"
+      }
+    },
+    "stagebridge__ablation_no_stage_embedding": {
+      "model_name": "stagebridge",
+      "ablation": "no_stage_embedding",
+      "overrides": {
+        "use_stage_embedding": false
+      },
+      "folds": [
+        {
+          "best_val_loss": 0.23651766031980515,
+          "sinkhorn_mean": 7.843058109283447,
+          "sinkhorn_std": 0.15755224227905273,
+          "mmd_rbf_mean": 0.014803975820541382,
+          "mmd_rbf_std": 0.0022137463092803955,
+          "classifier_auc_mean": 0.7024793388429752,
+          "classifier_auc_std": 0.021420138303255176,
+          "jsd_composition_mean": 0.017669504350946705,
+          "jsd_composition_std": 0.006633169524209297,
+          "rank_consistency_mean": -0.224589291960001,
+          "rank_consistency_std": 0.3147559128701687
+        },
+        {
+          "best_val_loss": 0.27983680814504625,
+          "sinkhorn_mean": 8.980263710021973,
+          "sinkhorn_std": 1.4986446015023207,
+          "mmd_rbf_mean": 0.030791178345680237,
+          "mmd_rbf_std": 0.013084619459509941,
+          "classifier_auc_mean": 0.782172373081464,
+          "classifier_auc_std": 0.048230473268100836,
+          "jsd_composition_mean": 0.03980480708552532,
+          "jsd_composition_std": 0.031189974815664465,
+          "rank_consistency_mean": 0.08841278031468391,
+          "rank_consistency_std": 0.4267701263237045
+        },
+        {
+          "best_val_loss": 0.25299584269523623,
+          "sinkhorn_mean": 9.383463859558105,
+          "sinkhorn_std": 0.7354377463524935,
+          "mmd_rbf_mean": 0.024232223629951477,
+          "mmd_rbf_std": 0.005113083161263717,
+          "classifier_auc_mean": 0.7831421824928317,
+          "classifier_auc_std": 0.0390094491589097,
+          "jsd_composition_mean": 0.023251328813584854,
+          "jsd_composition_std": 0.00691090855702293,
+          "rank_consistency_mean": 0.12606831942684948,
+          "rank_consistency_std": 0.2755343122619632
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.2564501037200292,
+        "best_val_loss_std": 0.01785284443250478,
+        "classifier_auc_mean_mean": 0.7559312981390903,
+        "classifier_auc_mean_std": 0.037798316514705214,
+        "classifier_auc_std_mean": 0.036220020243421906,
+        "classifier_auc_std_std": 0.01112157664145769,
+        "jsd_composition_mean_mean": 0.02690854675001896,
+        "jsd_composition_mean_std": 0.009399444631246123,
+        "jsd_composition_std_mean": 0.01491135096563223,
+        "jsd_composition_std_std": 0.011511283756405156,
+        "mmd_rbf_mean_mean": 0.023275792598724365,
+        "mmd_rbf_mean_std": 0.006561693449258972,
+        "mmd_rbf_std_mean": 0.006803816310018018,
+        "mmd_rbf_std_std": 0.004596223427795033,
+        "rank_consistency_mean_mean": -0.0033693974061558643,
+        "rank_consistency_mean_std": 0.15717965563067787,
+        "rank_consistency_std_mean": 0.3390201171519454,
+        "rank_consistency_std_std": 0.06408136271335187,
+        "sinkhorn_mean_mean": 8.735595226287842,
+        "sinkhorn_mean_std": 0.6522317936998457,
+        "sinkhorn_std_mean": 0.7972115300446223,
+        "sinkhorn_std_std": 0.549238369171643
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_stage_embedding_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_stage_embedding_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_stage_embedding_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_stage_embedding_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_stage_embedding_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_stage_embedding_loss_curve.png"
+      }
+    },
+    "stagebridge__ablation_no_context_consistency": {
+      "model_name": "stagebridge",
+      "ablation": "no_context_consistency",
+      "overrides": {
+        "context_consistency_weight": 0.0
+      },
+      "folds": [
+        {
+          "best_val_loss": 0.3121281355619431,
+          "sinkhorn_mean": 9.05545425415039,
+          "sinkhorn_std": 0.024698257446289062,
+          "mmd_rbf_mean": 0.021558791399002075,
+          "mmd_rbf_std": 0.003365248441696167,
+          "classifier_auc_mean": 0.8088210490807893,
+          "classifier_auc_std": 0.027576319784112013,
+          "jsd_composition_mean": 0.017939564613888723,
+          "jsd_composition_std": 0.00034311522950597473,
+          "rank_consistency_mean": -0.006661154329776764,
+          "rank_consistency_std": 0.12676741927862167
+        },
+        {
+          "best_val_loss": 0.28992787301540374,
+          "sinkhorn_mean": 9.347882986068726,
+          "sinkhorn_std": 1.7286034544854973,
+          "mmd_rbf_mean": 0.03552490472793579,
+          "mmd_rbf_std": 0.015839668819692863,
+          "classifier_auc_mean": 0.8488783943329398,
+          "classifier_auc_std": 0.039801314022311414,
+          "jsd_composition_mean": 0.03891984986264166,
+          "jsd_composition_std": 0.04671132371835608,
+          "rank_consistency_mean": 0.028780754655599594,
+          "rank_consistency_std": 0.42021502969274466
+        },
+        {
+          "best_val_loss": 0.2624635636806488,
+          "sinkhorn_mean": 9.36353087425232,
+          "sinkhorn_std": 0.4593955091456619,
+          "mmd_rbf_mean": 0.027786418795585632,
+          "mmd_rbf_std": 0.0027096880831060243,
+          "classifier_auc_mean": 0.8134592680047226,
+          "classifier_auc_std": 0.037994575509210454,
+          "jsd_composition_mean": 0.03315306841708931,
+          "jsd_composition_std": 0.010369805480535817,
+          "rank_consistency_mean": 0.11204299330711365,
+          "rank_consistency_std": 0.26083179778832016
+        }
+      ],
+      "aggregate": {
+        "best_val_loss_mean": 0.2881731907526652,
+        "best_val_loss_std": 0.020313404563168592,
+        "classifier_auc_mean_mean": 0.8237195704728172,
+        "classifier_auc_mean_std": 0.017890464540551328,
+        "classifier_auc_std_mean": 0.03512406977187796,
+        "classifier_auc_std_std": 0.005387793204522374,
+        "jsd_composition_mean_mean": 0.030004160964539894,
+        "jsd_composition_mean_std": 0.008849851444640221,
+        "jsd_composition_std_mean": 0.01914141480946596,
+        "jsd_composition_std_std": 0.019919982216874566,
+        "mmd_rbf_mean_mean": 0.02829003830750783,
+        "mmd_rbf_mean_std": 0.005712752100272195,
+        "mmd_rbf_std_mean": 0.007304868448165018,
+        "mmd_rbf_std_std": 0.006040946552890123,
+        "rank_consistency_mean_mean": 0.04472086454431216,
+        "rank_consistency_mean_std": 0.049754289557104814,
+        "rank_consistency_std_mean": 0.26927141558656215,
+        "rank_consistency_std_std": 0.11994803145772487,
+        "sinkhorn_mean_mean": 9.255622704823812,
+        "sinkhorn_mean_std": 0.14168455710932876,
+        "sinkhorn_std_mean": 0.7375657403591495,
+        "sinkhorn_std_std": 0.7228910652255196
+      },
+      "checkpoints": [
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_context_consistency_fold0_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_context_consistency_fold1_best.pt",
+        "outputs/hca_poster/checkpoints/hca_poster_stagebridge__ablation_no_context_consistency_fold2_best.pt"
+      ],
+      "use_niche_tokens": false,
+      "preview_paths": {
+        "transition_src": "Normal",
+        "transition_tgt": "AAH",
+        "umap_pushforward_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_context_consistency_umap_pushforward.png",
+        "sankey_macroflow_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_context_consistency_sankey_macroflow.png",
+        "loss_curve_png": "outputs/hca_poster/figures/hca_poster_stagebridge__ablation_no_context_consistency_loss_curve.png"
+      }
+    }
+  }
+}

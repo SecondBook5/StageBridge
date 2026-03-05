@@ -49,6 +49,7 @@ class TransitionSampler:
         niche_sampling_strategy: str = "random_m",
         niche_fallback: str = "donor",
         niche_random_seed: int = 42,
+        wes_lookup: "dict[tuple[str, str], np.ndarray] | None" = None,
     ) -> None:
         self.device = torch.device(device)
         self.batch_cells = int(batch_cells)
@@ -59,6 +60,8 @@ class TransitionSampler:
 
         self._niche_token_bank = niche_token_bank
         self._use_niche_tokens = bool(use_niche_tokens and niche_token_bank is not None)
+        # WES lookup: (donor_id, stage_name) → feature np.ndarray
+        self._wes_lookup: dict[tuple[str, str], np.ndarray] | None = wes_lookup
         self._m_niche = max(1, int(m_niche))
         self._niche_sampling_strategy = str(niche_sampling_strategy)
         self._niche_fallback = str(niche_fallback)
@@ -177,6 +180,17 @@ class TransitionSampler:
                 sample_id = str(samples_used[0])
 
         context_mask = torch.ones((1, x_set.shape[0]), dtype=torch.bool, device=self.device)
+
+        wes_features: Tensor | None = None
+        if self._wes_lookup is not None:
+            key = (str(donor_id), src_name)
+            feat_np = self._wes_lookup.get(key)
+            if feat_np is None:
+                # Fallback: try donor without stage (use any stage for this donor)
+                feat_np = self._wes_lookup.get((str(donor_id), "LUAD"))
+            if feat_np is not None:
+                wes_features = torch.tensor(feat_np, dtype=torch.float32, device=self.device)
+
         return StageBatch(
             x_src=x_src,
             x_tgt=x_tgt,
@@ -186,6 +200,7 @@ class TransitionSampler:
             stage_tgt=stage_to_index(tgt_name),
             donor_id=str(donor_id),
             sample_id=sample_id,
+            wes_features=wes_features,
         )
 
     def sample_transition_pair(
@@ -280,7 +295,7 @@ class StageBridgeTrainer:
             lr=config.learning_rate,
             weight_decay=config.weight_decay,
         )
-        self.scaler = torch.cuda.amp.GradScaler(enabled=(config.mixed_precision and self.device.type == "cuda"))
+        self.scaler = torch.amp.GradScaler("cuda", enabled=(config.mixed_precision and self.device.type == "cuda"))
 
     def _run_steps(self, sampler: TransitionSampler, n_steps: int, train: bool) -> float:
         self.model.train(mode=train)
@@ -292,7 +307,7 @@ class StageBridgeTrainer:
         for step in range(n_steps):
             batch = sampler.sample_batch()
             with torch.set_grad_enabled(train):
-                with torch.cuda.amp.autocast(enabled=(self.config.mixed_precision and self.device.type == "cuda")):
+                with torch.amp.autocast("cuda", enabled=(self.config.mixed_precision and self.device.type == "cuda")):
                     loss, _, _ = flow_matching_loss(
                         batch=batch,
                         model=self.model,
@@ -301,6 +316,7 @@ class StageBridgeTrainer:
                         num_ot_pairs=self.config.num_ot_pairs,
                         context_consistency_weight=self.config.context_consistency_weight,
                         use_ot=self.config.use_ot,
+                        sigma=self.config.sigma if self.config.use_stochastic_bridge else 0.0,
                     )
                     loss_for_backward = loss / self.config.gradient_accumulation_steps
 
@@ -441,6 +457,7 @@ def build_samplers_from_anndata(
     niche_sampling_strategy: str = "random_m",
     niche_fallback: str = "donor",
     niche_random_seed: int = 42,
+    wes_lookup: "dict[tuple[str, str], np.ndarray] | None" = None,
 ) -> tuple[TransitionSampler, TransitionSampler, TransitionSampler]:
     """Create train/val/test transition samplers from AnnData and donor split."""
     if latent_key not in adata.obsm:
@@ -475,6 +492,7 @@ def build_samplers_from_anndata(
                 niche_sampling_strategy=niche_sampling_strategy,
                 niche_fallback=niche_fallback,
                 niche_random_seed=niche_random_seed,
+                wes_lookup=wes_lookup,
             )
         except ValueError:
             if strict_transition or transition_src is None or transition_tgt is None:
@@ -501,6 +519,7 @@ def build_samplers_from_anndata(
                 niche_sampling_strategy=niche_sampling_strategy,
                 niche_fallback=niche_fallback,
                 niche_random_seed=niche_random_seed,
+                wes_lookup=wes_lookup,
             )
 
     train = _build_sampler(split.train_donors, strict_transition=True)
