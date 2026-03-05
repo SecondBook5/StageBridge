@@ -24,7 +24,6 @@ import torch
 
 from stagebridge.logging_utils import get_logger
 from stagebridge.preprocessing.stage_ontology import (
-    CANONICAL_STAGE_ORDER,
     normalize_stage_label,
     ordered_transitions,
 )

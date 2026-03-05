@@ -88,7 +88,7 @@ def plot_transition_trajectory(eval_df: pd.DataFrame, output_path: Path) -> None
     ax1.grid(alpha=0.2)
 
     lines = ax1.get_lines() + ax2.get_lines()
-    labels = [l.get_label() for l in lines]
+    labels = [line.get_label() for line in lines]
     ax1.legend(lines, labels, loc="upper right")
 
     fig.tight_layout()

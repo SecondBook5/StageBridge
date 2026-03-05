@@ -301,7 +301,8 @@ def _build_gene_lookup_with_cache(
 
         query_symbol_norm = pd.Series([_normalize_symbol(x) for x in query_vars])
         mapped_from_symbol = query_symbol_norm.map(symbol_to_ensg).replace({np.nan: None}).to_numpy(dtype=object)
-        mapped_ensg = np.where(canonical_query_ensg != None, canonical_query_ensg, mapped_from_symbol)
+        has_canonical_ensg = np.array([ensg is not None for ensg in canonical_query_ensg], dtype=bool)
+        mapped_ensg = np.where(has_canonical_ensg, canonical_query_ensg, mapped_from_symbol)
 
         # cache mapping for deterministic resume/reuse
         cache_path.parent.mkdir(parents=True, exist_ok=True)

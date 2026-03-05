@@ -639,15 +639,18 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "convert":
         if len(sys.argv) != 4:
-            _usage(); sys.exit(1)
+            _usage()
+            sys.exit(1)
         convert_snrna_dense_counts_to_h5ad(Path(sys.argv[2]), Path(sys.argv[3]))
     elif cmd == "manifest":
         if len(sys.argv) != 4:
-            _usage(); sys.exit(1)
+            _usage()
+            sys.exit(1)
         build_snrna_manifest(Path(sys.argv[2]), Path(sys.argv[3]))
     elif cmd == "merge":
         if len(sys.argv) != 4:
-            _usage(); sys.exit(1)
+            _usage()
+            sys.exit(1)
         merge_snrna_h5ad(Path(sys.argv[2]), Path(sys.argv[3]))
     else:
         print(f"Unknown command: {cmd!r}")

@@ -22,3 +22,7 @@ config:
 
   # Regularization
   dropout: 0.1
+
+  # Spatial RPE (disabled by default)
+  use_spatial_rpe: false
+  rpe_hidden_dim: 16

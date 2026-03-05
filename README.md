@@ -8,6 +8,10 @@ All end-to-end runs (data build -> HLCA mapping -> evaluation/training) should b
 triggered from notebook controls. Scripts under `scripts/` remain the underlying,
 versioned implementations that the notebook calls.
 
+**Submission/Grading target:** The top-level `StageBridge.ipynb` notebook is the
+primary artefact for end-to-end execution (preprocessing -> training -> final
+outputs). The Python package and scripts exist to support notebook execution.
+
 Integrates:
 - **snRNA-seq** (GSE308103 — custom dense-counts format)
 - **10x Visium spatial** (GSE307534)

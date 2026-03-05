@@ -128,8 +128,10 @@ def make_celtype_umap(adata, out_dir: Path, n_cells_per_stage: int = 3_000) -> N
     fig, axes = plt.subplots(1, 5, figsize=(22, 4.5), constrained_layout=True)
     fig.suptitle("UMAP of HLCA Latent Space by Cell Type and Stage", fontsize=13, fontweight="bold")
 
-    unique_labels = sorted({l for l in sub_labels if l not in ("unlabeled", "")},
-                            key=lambda x: -np.sum(sub_labels == x))
+    unique_labels = sorted(
+        {label for label in sub_labels if label not in ("unlabeled", "")},
+        key=lambda x: -np.sum(sub_labels == x),
+    )
 
     for ax, stage in zip(axes, _ALL_STAGES):
         # Background: all cells, grey
@@ -454,7 +456,8 @@ def make_at2_stage_progression(model, adata, out_dir: Path, device: str = "cpu")
                    c=_STAGE_COLORS[stage], s=6, alpha=0.7, label=stage, rasterized=True)
     ax.set_title("Real AT2 cells by stage", fontsize=11)
     ax.legend(fontsize=9, markerscale=2)
-    ax.set_xlabel("UMAP 1"); ax.set_ylabel("UMAP 2")
+    ax.set_xlabel("UMAP 1")
+    ax.set_ylabel("UMAP 2")
 
     # Right: predicted transitions — per-cell scatter of predicted positions
     # plus thick centroid arrow showing mean displacement per transition
@@ -471,7 +474,6 @@ def make_at2_stage_progression(model, adata, out_dir: Path, device: str = "cpu")
         # Centroid arrow: thick, clearly visible
         src_c = src_uv.mean(axis=0)
         pred_c = pred_uv.mean(axis=0)
-        dx, dy = pred_c[0] - src_c[0], pred_c[1] - src_c[1]
         ax.annotate("", xy=(pred_c[0], pred_c[1]), xytext=(src_c[0], src_c[1]),
                     arrowprops=dict(arrowstyle="-|>", color=color, lw=2.5,
                                    mutation_scale=20, shrinkA=0, shrinkB=0),
@@ -484,7 +486,8 @@ def make_at2_stage_progression(model, adata, out_dir: Path, device: str = "cpu")
     handles = [mpatches.Patch(color=c, label=k) for k, c in arrow_colors.items()]
     ax.legend(handles=handles, fontsize=9, loc="best")
     ax.set_title("Predicted transitions: dots=predicted, arrows=centroid shift", fontsize=10)
-    ax.set_xlabel("UMAP 1"); ax.set_ylabel("UMAP 2")
+    ax.set_xlabel("UMAP 1")
+    ax.set_ylabel("UMAP 2")
 
     fig.savefig(out_dir / "at2_stage_progression.png", dpi=180, bbox_inches="tight")
     fig.savefig(out_dir / "at2_stage_progression.pdf", bbox_inches="tight")

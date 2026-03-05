@@ -1,6 +1,7 @@
 """OT coupling and flow-matching losses for StageBridge training."""
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import torch
@@ -101,6 +102,28 @@ def _stage_pair_tensor(model: Any, batch: StageBatch, n: int, device: torch.devi
     return torch.zeros((n,), dtype=torch.long, device=device)
 
 
+def _forward_set_context(
+    model: Any,
+    x_set: Tensor,
+    mask: Tensor | None = None,
+    niche_coords: Tensor | None = None,
+) -> Tensor:
+    """Call ``forward_set_context`` with optional niche coords only when supported."""
+    kwargs: dict[str, Any] = {}
+    if niche_coords is not None:
+        try:
+            sig = inspect.signature(model.forward_set_context)
+            params = sig.parameters.values()
+            accepts_var_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params)
+            accepts_niche_coords = "niche_coords" in sig.parameters
+            if accepts_var_kwargs or accepts_niche_coords:
+                kwargs["niche_coords"] = niche_coords
+        except (TypeError, ValueError):
+            # Best-effort compatibility for wrapped/compiled callables.
+            pass
+    return model.forward_set_context(x_set, mask=mask, **kwargs)
+
+
 def flow_matching_loss(
     batch: StageBatch,
     model: Any,
@@ -159,7 +182,13 @@ def flow_matching_loss(
         x_t = x_t + noise_scale * torch.randn_like(x_i)
     u_t = y_j - x_i
 
-    c_s = model.forward_set_context(x_set, mask=context_mask)
+    niche_coords = batch.niche_coords
+    c_s = _forward_set_context(
+        model=model,
+        x_set=x_set,
+        mask=context_mask,
+        niche_coords=niche_coords,
+    )
     if c_s.ndim == 2 and c_s.shape[0] == 1:
         c_rep = c_s.expand(num_ot_pairs, -1)
     else:
@@ -187,8 +216,13 @@ def flow_matching_loss(
                 mask_sub = context_mask[:, subset_idx]
             elif context_mask.ndim == 1:
                 mask_sub = context_mask[subset_idx].unsqueeze(0)
-        c_sub = model.forward_set_context(x_set[subset_idx], mask=mask_sub)
-        c_full = model.forward_set_context(x_set, mask=context_mask)
+        c_sub = _forward_set_context(model=model, x_set=x_set[subset_idx], mask=mask_sub)
+        c_full = _forward_set_context(
+            model=model,
+            x_set=x_set,
+            mask=context_mask,
+            niche_coords=niche_coords,
+        )
         loss_ctx = F.mse_loss(c_full, c_sub)
 
     total = loss_fm + context_consistency_weight * loss_ctx

@@ -23,6 +23,8 @@ class StageBridgeModel(nn.Module):
             num_heads=config.num_heads,
             num_inducing_points=config.num_inducing_points,
             dropout=config.dropout,
+            use_spatial_rpe=config.use_spatial_rpe,
+            rpe_hidden=config.rpe_hidden_dim,
         )
         self.isab2 = ISAB(
             dim=config.hidden_dim,
@@ -111,16 +113,29 @@ class StageBridgeModel(nn.Module):
         pair_id = self.encode_stage_pair(stage_src=stage_src, stage_tgt=stage_tgt)
         return torch.full((n,), pair_id, dtype=torch.long, device=device)
 
-    def forward_set_context(self, x_set: Tensor, mask: Tensor | None = None) -> Tensor:
+    def forward_set_context(
+        self,
+        x_set: Tensor,
+        mask: Tensor | None = None,
+        niche_coords: Tensor | None = None,
+    ) -> Tensor:
         """Encode source-stage cell set into context representation.
+
+        Parameters
+        ----------
+        x_set : (N, dim) or (B, N, dim)
+            Input token set (source cells ++ niche tokens when using spatial context).
+        mask : optional validity mask
+        niche_coords : (m_niche, 2) or (B, m_niche, 2), optional
+            Spatial (x, y) coordinates for the niche token tail of ``x_set``.
+            When provided and ``config.use_spatial_rpe=True``, ISAB1 receives
+            spatial RPE bias.
 
         Returns
         -------
         Tensor
             Shape ``(B, D)`` in the standard MLP-drift mode, or
             ``(B, num_seed_vectors, D)`` in cross-attention drift mode.
-            The calling code need not branch — :meth:`forward_vector_field`
-            dispatches on ``c_s.ndim`` automatically.
         """
         squeeze = False
         if x_set.ndim == 2:
@@ -128,7 +143,20 @@ class StageBridgeModel(nn.Module):
             squeeze = True
 
         h = self.input_projection(x_set)
-        h = self.isab1(h, mask=mask)
+
+        # Build full spatial coordinate tensor for Spatial RPE if enabled.
+        coords_3d: Tensor | None = None
+        n_src = 0
+        if self.config.use_spatial_rpe and niche_coords is not None:
+            m_niche = niche_coords.shape[-2]
+            n_total = x_set.shape[1]
+            n_src = n_total - m_niche
+            B = x_set.shape[0]
+            nc = niche_coords if niche_coords.ndim == 3 else niche_coords.unsqueeze(0).expand(B, -1, -1)
+            src_zeros = torch.zeros(B, n_src, 2, device=x_set.device, dtype=x_set.dtype)
+            coords_3d = torch.cat([src_zeros, nc.to(dtype=x_set.dtype)], dim=1)  # (B, n_total, 2)
+
+        h = self.isab1(h, mask=mask, coords=coords_3d, n_src=n_src)
         h = self.isab2(h, mask=mask)
         h = self.sab(h, mask=mask)
         pooled = self.pma(h, mask=mask)  # (B, k, D)
@@ -266,9 +294,10 @@ class StageBridgeModel(nn.Module):
         stage_tgt: int,
         mask: Tensor | None = None,
         wes_features: Tensor | None = None,
+        niche_coords: Tensor | None = None,
     ) -> Tensor:
         """Convenience forward path for training objectives."""
-        c_s = self.forward_set_context(x_set=x_set, mask=mask)
+        c_s = self.forward_set_context(x_set=x_set, mask=mask, niche_coords=niche_coords)
         stage_pair = self.encode_stage_pair_tensor(
             stage_src=stage_src,
             stage_tgt=stage_tgt,

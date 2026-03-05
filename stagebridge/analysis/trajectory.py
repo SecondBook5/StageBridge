@@ -15,7 +15,6 @@ from stagebridge.logging_utils import get_logger
 from stagebridge.preprocessing.stage_ontology import (
     infer_stage_pair_id,
     normalize_stage_label,
-    ordered_transitions,
 )
 
 log = get_logger(__name__)
@@ -76,7 +75,6 @@ def integrate_trajectories(
     stages = np.array([normalize_stage_label(s) for s in adata.obs[stage_col].astype(str).values])
 
     src_norm = normalize_stage_label(stage_src)
-    tgt_norm = normalize_stage_label(stage_tgt)
     src_mask = stages == src_norm
 
     if src_mask.sum() == 0:
@@ -98,7 +96,6 @@ def integrate_trajectories(
         log.info("No per-cell context found. Computing population-level context.")
         with torch.no_grad():
             x_src_t = torch.tensor(x0[:batch_size], dtype=torch.float32, device=device)
-            pair_id_t = torch.tensor([pair_id], dtype=torch.long, device=device)
             c_pop = model.forward_set_context(x_src_t.unsqueeze(0))
             # c_pop: (1, context_dim)
             ctx = c_pop.squeeze(0).cpu().numpy().astype(np.float32)

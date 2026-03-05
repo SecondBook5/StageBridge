@@ -52,6 +52,12 @@ class StageBridgeConfig:
     # to produce the drift vector.
     use_cross_attn_drift: bool = False
 
+    # Spatial Relative Position Encoding in ISAB
+    # When True, ISAB1 receives (x,y) niche token coordinates and adds a
+    # learned distance bias to the inducing→token attention logits.
+    use_spatial_rpe: bool = False
+    rpe_hidden_dim: int = 16
+
     # WES feature conditioning
     # When True, per-(patient, stage) somatic genomic features (TMB, driver
     # mutation flags) are projected and concatenated to the stage embedding.
@@ -102,6 +108,7 @@ class StageBatch:
     cell_type: "torch.Tensor | None" = None
     sample_id: str | None = None
     wes_features: "torch.Tensor | None" = None  # (wes_feature_dim,) per-patient WES vector
+    niche_coords: "torch.Tensor | None" = None  # (m_niche, 2) spatial coords for niche tokens
 
     def to(self, device: str) -> "StageBatch":
         """Move tensor payloads to *device* and return a new StageBatch."""
@@ -116,6 +123,7 @@ class StageBatch:
             cell_type=self.cell_type.to(device) if self.cell_type is not None else None,
             sample_id=self.sample_id,
             wes_features=self.wes_features.to(device) if self.wes_features is not None else None,
+            niche_coords=self.niche_coords.to(device) if self.niche_coords is not None else None,
         )
 
 
