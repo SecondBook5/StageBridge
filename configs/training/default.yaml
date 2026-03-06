@@ -26,6 +26,21 @@ use_cross_attn_drift: false   # set true to use xattn drift (overridden per vari
 # WES somatic feature conditioning (requires wes_features.parquet)
 use_wes_features: false       # set true to condition on per-patient somatic mutation features
 
+# ── Tier 3 conditioning features ─────────────────────────
+# LR signaling conditioning (requires lr_features.parquet)
+use_lr_features: false
+lr_features_path: ${data.data_root}/processed/features/lr_features.parquet
+
+# Spatial niche composition conditioning (requires X_spatial_niche in adata.obsm)
+use_spatial_niche: false
+spatial_niche_key: X_spatial_niche
+
+# Dirichlet stage assignment posterior
+use_dirichlet_head: false
+
+# Multi-hop skip-stage trajectory consistency
+use_multihop_consistency: false
+
 # Lineage filter: null = all cells, "epithelial" = epithelial cells only
 lineage_filter: null
 

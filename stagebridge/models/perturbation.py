@@ -241,17 +241,18 @@ class CausalPerturbationAnalyzer:
         Tensor
             Shape ``(input_dim, input_dim)`` — Jacobian matrix.
         """
-        x0 = x0.to(self.device).requires_grad_(True)
         c_s = c_s.to(self.device)
         stage_pair_id = stage_pair_id.to(self.device)
 
+        x_flat = x0.to(self.device).squeeze(0).detach().requires_grad_(True)  # (D,)
+
         def _flow(x: Tensor) -> Tensor:
             return self.model.integrate_euler(
-                x0=x, c_s=c_s, stage_pair_id=stage_pair_id,
+                x0=x.unsqueeze(0), c_s=c_s, stage_pair_id=stage_pair_id,
                 num_steps=num_steps, wes_features=wes_features,
             ).squeeze(0)  # (D,)
 
-        J = torch.autograd.functional.jacobian(_flow, x0.squeeze(0))  # (D_out, D_in)
+        J = torch.autograd.functional.jacobian(_flow, x_flat)  # (D_out, D_in)
         return J.detach().cpu()
 
     def jacobian_top_directions(

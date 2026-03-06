@@ -9,6 +9,17 @@ from torch import Tensor, nn
 from stagebridge.models.layers import CrossAttentionDrift, FiLMConditioner, ISAB, PMA, SAB, SinusoidalTimeEmbedding
 from stagebridge.utils.types import StageBridgeConfig
 
+# Lazy import to avoid circular / heavy dependency at module load time
+_DirichletStageHead = None
+
+
+def _get_dirichlet_head_cls() -> type:
+    global _DirichletStageHead
+    if _DirichletStageHead is None:
+        from stagebridge.models.dirichlet_stage import DirichletStageHead
+        _DirichletStageHead = DirichletStageHead
+    return _DirichletStageHead
+
 
 class StageBridgeModel(nn.Module):
     """Set Transformer conditioned continuous vector field model."""
@@ -61,8 +72,46 @@ class StageBridgeModel(nn.Module):
         else:
             self.wes_proj = None  # type: ignore[assignment]
 
-        # Effective stage dim seen by the drift head (stage_emb [+ wes_hidden])
-        _eff_stage_dim = config.stage_embedding_dim + (config.wes_hidden_dim if config.use_wes_features else 0)
+        # LR signaling feature projection (same pattern as WES)
+        if config.use_lr_features:
+            self.lr_proj = nn.Sequential(
+                nn.Linear(config.lr_feature_dim, config.lr_hidden_dim),
+                nn.GELU(),
+                nn.LayerNorm(config.lr_hidden_dim),
+            )
+        else:
+            self.lr_proj = None  # type: ignore[assignment]
+
+        # Spatial niche composition conditioning: fuses averaged cell-type
+        # composition from Tangram KNN into the set context representation.
+        if config.use_spatial_niche:
+            self.spatial_niche_proj = nn.Sequential(
+                nn.Linear(config.spatial_niche_dim, config.spatial_niche_hidden),
+                nn.GELU(),
+                nn.LayerNorm(config.spatial_niche_hidden),
+                nn.Linear(config.spatial_niche_hidden, config.hidden_dim),
+            )
+        else:
+            self.spatial_niche_proj = None  # type: ignore[assignment]
+
+        # Dirichlet stage assignment head
+        if config.use_dirichlet_head:
+            DirichletCls = _get_dirichlet_head_cls()
+            self.dirichlet_head = DirichletCls(
+                input_dim=config.input_dim,
+                num_stages=config.num_stages,
+                hidden_dim=config.dirichlet_hidden_dim,
+            )
+        else:
+            self.dirichlet_head = None  # type: ignore[assignment]
+
+        # Effective stage dim seen by the drift head
+        # (stage_emb [+ wes_hidden] [+ lr_hidden])
+        _eff_stage_dim = config.stage_embedding_dim
+        if config.use_wes_features:
+            _eff_stage_dim += config.wes_hidden_dim
+        if config.use_lr_features:
+            _eff_stage_dim += config.lr_hidden_dim
 
         condition_dim = config.hidden_dim + _eff_stage_dim
         self.film = FiLMConditioner(feature_dim=config.input_dim, condition_dim=condition_dim)
@@ -118,6 +167,7 @@ class StageBridgeModel(nn.Module):
         x_set: Tensor,
         mask: Tensor | None = None,
         niche_coords: Tensor | None = None,
+        spatial_niche: Tensor | None = None,
     ) -> Tensor:
         """Encode source-stage cell set into context representation.
 
@@ -130,6 +180,10 @@ class StageBridgeModel(nn.Module):
             Spatial (x, y) coordinates for the niche token tail of ``x_set``.
             When provided and ``config.use_spatial_rpe=True``, ISAB1 receives
             spatial RPE bias.
+        spatial_niche : (N, spatial_niche_dim) or (B, N, spatial_niche_dim), optional
+            Per-cell spatial niche composition vectors (Tangram KNN).
+            When provided and ``config.use_spatial_niche=True``, the mean
+            niche vector is projected and added to the pooled context.
 
         Returns
         -------
@@ -162,14 +216,28 @@ class StageBridgeModel(nn.Module):
         pooled = self.pma(h, mask=mask)  # (B, k, D)
 
         if self.config.use_cross_attn_drift:
-            # Return all k tokens for the cross-attention drift to attend over.
             context = self.context_head(pooled)   # (B, k, D) — applied token-wise
+
+            # Fuse spatial niche: project mean niche vector → (B, 1, D) and add
+            if self.config.use_spatial_niche and spatial_niche is not None and self.spatial_niche_proj is not None:
+                sn = spatial_niche if spatial_niche.ndim == 3 else spatial_niche.unsqueeze(0)
+                niche_mean = sn.mean(dim=1, keepdim=True)  # (B, 1, niche_dim)
+                niche_ctx = self.spatial_niche_proj(niche_mean)  # (B, 1, hidden_dim)
+                context = context + niche_ctx  # broadcast over k tokens
+
             if squeeze:
-                return context[0:1]               # (1, k, D)
+                return context[0:1]
             return context
         else:
-            # Pool to single vector (original behaviour).
             context = self.context_head(pooled[:, 0, :])  # (B, D)
+
+            # Fuse spatial niche: project mean niche vector → (B, D) and add
+            if self.config.use_spatial_niche and spatial_niche is not None and self.spatial_niche_proj is not None:
+                sn = spatial_niche if spatial_niche.ndim == 3 else spatial_niche.unsqueeze(0)
+                niche_mean = sn.mean(dim=1)  # (B, niche_dim)
+                niche_ctx = self.spatial_niche_proj(niche_mean)  # (B, hidden_dim)
+                context = context + niche_ctx
+
             if squeeze:
                 return context[0:1]
             return context
@@ -198,8 +266,9 @@ class StageBridgeModel(nn.Module):
         c_s: Tensor,
         stage_pair_id: Tensor,
         wes_features: Tensor | None = None,
+        lr_features: Tensor | None = None,
     ) -> Tensor:
-        """Predict velocity v_phi(x_t, t, c_s, e_stage[, wes]).
+        """Predict velocity v_phi(x_t, t, c_s, e_stage[, wes][, lr]).
 
         ``c_s`` may be either:
 
@@ -207,7 +276,7 @@ class StageBridgeModel(nn.Module):
         * shape ``(B, k, D)`` — k context tokens (cross-attention drift mode)
 
         ``wes_features``: optional ``(B, wes_feature_dim)`` somatic feature tensor.
-        When ``config.use_wes_features=True``, projected and concatenated to stage_emb.
+        ``lr_features``: optional ``(B, lr_feature_dim)`` LR signaling tensor.
         """
         n = x_t.shape[0]
         c_s, stage_pair_id = self._broadcast_condition(c_s=c_s, stage_pair_id=stage_pair_id, batch_size=n)
@@ -225,6 +294,16 @@ class StageBridgeModel(nn.Module):
                     wes_features = wes_features.unsqueeze(0).expand(n, -1)
                 wes_h = self.wes_proj(wes_features.to(x_t.dtype))
             stage_emb = torch.cat([stage_emb, wes_h], dim=-1)
+
+        # Optionally augment stage_emb with projected LR signaling features
+        if self.config.use_lr_features:
+            if lr_features is None:
+                lr_h = torch.zeros(n, self.config.lr_hidden_dim, device=x_t.device, dtype=x_t.dtype)
+            else:
+                if lr_features.ndim == 1:
+                    lr_features = lr_features.unsqueeze(0).expand(n, -1)
+                lr_h = self.lr_proj(lr_features.to(x_t.dtype))
+            stage_emb = torch.cat([stage_emb, lr_h], dim=-1)
 
         time_emb = self.time_embedding(t)
 
@@ -250,13 +329,17 @@ class StageBridgeModel(nn.Module):
         stage_pair_id: Tensor,
         num_steps: int = 8,
         wes_features: Tensor | None = None,
+        lr_features: Tensor | None = None,
     ) -> Tensor:
         """Integrate vector field with explicit Euler from t=0 to t=1."""
         x = x0
         dt = 1.0 / float(num_steps)
         for k in range(num_steps):
             t = torch.full((x.shape[0],), (k + 0.5) * dt, device=x.device, dtype=x.dtype)
-            v = self.forward_vector_field(x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id, wes_features=wes_features)
+            v = self.forward_vector_field(
+                x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id,
+                wes_features=wes_features, lr_features=lr_features,
+            )
             x = x + dt * v
         return x
 
@@ -268,6 +351,7 @@ class StageBridgeModel(nn.Module):
         num_steps: int = 8,
         sigma: float = 0.0,
         wes_features: Tensor | None = None,
+        lr_features: Tensor | None = None,
     ) -> Tensor:
         """Integrate with Euler-Maruyama (SDE) from t=0 to t=1.
 
@@ -279,11 +363,30 @@ class StageBridgeModel(nn.Module):
         sqrt_dt = dt ** 0.5
         for k in range(num_steps):
             t = torch.full((x.shape[0],), (k + 0.5) * dt, device=x.device, dtype=x.dtype)
-            v = self.forward_vector_field(x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id, wes_features=wes_features)
+            v = self.forward_vector_field(
+                x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id,
+                wes_features=wes_features, lr_features=lr_features,
+            )
             x = x + dt * v
             if sigma > 0.0:
                 x = x + sigma * sqrt_dt * torch.randn_like(x)
         return x
+
+    def predict_dirichlet(self, x: Tensor) -> Tensor | None:
+        """Predict Dirichlet concentration parameters for stage assignment.
+
+        Parameters
+        ----------
+        x : (B, input_dim) — raw cell latent representations.
+
+        Returns
+        -------
+        Tensor or None
+            Shape ``(B, num_stages)`` Dirichlet α if head is enabled, else None.
+        """
+        if self.dirichlet_head is None:
+            return None
+        return self.dirichlet_head(x)
 
     def forward(
         self,
@@ -294,17 +397,25 @@ class StageBridgeModel(nn.Module):
         stage_tgt: int,
         mask: Tensor | None = None,
         wes_features: Tensor | None = None,
+        lr_features: Tensor | None = None,
         niche_coords: Tensor | None = None,
+        spatial_niche: Tensor | None = None,
     ) -> Tensor:
         """Convenience forward path for training objectives."""
-        c_s = self.forward_set_context(x_set=x_set, mask=mask, niche_coords=niche_coords)
+        c_s = self.forward_set_context(
+            x_set=x_set, mask=mask,
+            niche_coords=niche_coords, spatial_niche=spatial_niche,
+        )
         stage_pair = self.encode_stage_pair_tensor(
             stage_src=stage_src,
             stage_tgt=stage_tgt,
             n=x_t.shape[0],
             device=x_t.device,
         )
-        return self.forward_vector_field(x_t=x_t, t=t, c_s=c_s, stage_pair_id=stage_pair, wes_features=wes_features)
+        return self.forward_vector_field(
+            x_t=x_t, t=t, c_s=c_s, stage_pair_id=stage_pair,
+            wes_features=wes_features, lr_features=lr_features,
+        )
 
 
 def build_stagebridge_model(config: StageBridgeConfig) -> StageBridgeModel:

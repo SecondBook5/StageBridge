@@ -152,6 +152,9 @@ all = [
   "ipywidgets",
 ]
 
+[project.scripts]
+stagebridge = "stagebridge.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["stagebridge*"]
