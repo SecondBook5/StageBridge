@@ -65,6 +65,32 @@ class StageBridgeConfig:
     wes_feature_dim: int = 8    # matches len(WES_FEATURE_COLS)
     wes_hidden_dim: int = 16    # projection bottleneck
 
+    # ── Tier 3: Ligand-receptor signaling conditioning ──────────────────
+    # When True, per-(patient, stage) LR interaction scores are projected
+    # and concatenated to the stage embedding (like WES features).
+    use_lr_features: bool = False
+    lr_feature_dim: int = 24    # matches len(LUNG_LR_PAIRS)
+    lr_hidden_dim: int = 32     # projection bottleneck
+
+    # ── Tier 3: Spatial niche composition conditioning ──────────────────
+    # When True, per-cell spatial niche composition vectors (from Tangram
+    # KNN) are averaged over the source set and fused with pooled context.
+    use_spatial_niche: bool = False
+    spatial_niche_dim: int = 20     # number of cell types from Tangram
+    spatial_niche_hidden: int = 32  # projection hidden dim
+
+    # ── Tier 3: Multi-hop skip-stage consistency ────────────────────────
+    # When True, a trajectory composition loss regularises direct skip
+    # transitions to match chained adjacent transitions.
+    use_multihop_consistency: bool = False
+    multihop_consistency_weight: float = 0.1
+
+    # ── Tier 3: Dirichlet stage assignment posterior ────────────────────
+    # When True, a Dirichlet head predicts per-cell stage uncertainty.
+    use_dirichlet_head: bool = False
+    dirichlet_hidden_dim: int = 64
+    dirichlet_loss_weight: float = 0.05
+
     # Optimization
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
@@ -109,6 +135,9 @@ class StageBatch:
     sample_id: str | None = None
     wes_features: "torch.Tensor | None" = None  # (wes_feature_dim,) per-patient WES vector
     niche_coords: "torch.Tensor | None" = None  # (m_niche, 2) spatial coords for niche tokens
+    lr_features: "torch.Tensor | None" = None   # (lr_feature_dim,) per-patient LR scores
+    spatial_niche: "torch.Tensor | None" = None  # (n_cells, spatial_niche_dim) per-cell niche
+    stage_index: "torch.Tensor | None" = None    # (n_src,) integer stage labels for Dirichlet head
 
     def to(self, device: str) -> "StageBatch":
         """Move tensor payloads to *device* and return a new StageBatch."""
@@ -124,6 +153,9 @@ class StageBatch:
             sample_id=self.sample_id,
             wes_features=self.wes_features.to(device) if self.wes_features is not None else None,
             niche_coords=self.niche_coords.to(device) if self.niche_coords is not None else None,
+            lr_features=self.lr_features.to(device) if self.lr_features is not None else None,
+            spatial_niche=self.spatial_niche.to(device) if self.spatial_niche is not None else None,
+            stage_index=self.stage_index.to(device) if self.stage_index is not None else None,
         )
 
 

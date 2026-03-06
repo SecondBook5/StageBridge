@@ -14,7 +14,7 @@ from stagebridge.io.niche_tokens import NicheTokenBank
 from stagebridge.logging_utils import get_logger
 from stagebridge.preprocessing.stage_ontology import CANONICAL_STAGE_ORDER, ordered_transitions, stage_to_index
 from stagebridge.training.eval import evaluate_transition
-from stagebridge.training.losses import flow_matching_loss
+from stagebridge.training.losses import flow_matching_loss, multihop_consistency_loss
 from stagebridge.utils.types import StageBatch, StageBridgeConfig
 
 log = get_logger(__name__)
@@ -50,6 +50,8 @@ class TransitionSampler:
         niche_fallback: str = "donor",
         niche_random_seed: int = 42,
         wes_lookup: "dict[tuple[str, str], np.ndarray] | None" = None,
+        lr_lookup: "dict[tuple[str, str], np.ndarray] | None" = None,
+        spatial_niche: np.ndarray | None = None,
     ) -> None:
         self.device = torch.device(device)
         self.batch_cells = int(batch_cells)
@@ -62,6 +64,10 @@ class TransitionSampler:
         self._use_niche_tokens = bool(use_niche_tokens and niche_token_bank is not None)
         # WES lookup: (donor_id, stage_name) → feature np.ndarray
         self._wes_lookup: dict[tuple[str, str], np.ndarray] | None = wes_lookup
+        # LR signaling lookup: (donor_id, stage_name) → feature np.ndarray
+        self._lr_lookup: dict[tuple[str, str], np.ndarray] | None = lr_lookup
+        # Spatial niche: per-cell composition vectors (N_total, n_celltypes)
+        self._spatial_niche_full: np.ndarray | None = spatial_niche
         self._m_niche = max(1, int(m_niche))
         self._niche_sampling_strategy = str(niche_sampling_strategy)
         self._niche_fallback = str(niche_fallback)
@@ -195,10 +201,29 @@ class TransitionSampler:
             key = (str(donor_id), src_name)
             feat_np = self._wes_lookup.get(key)
             if feat_np is None:
-                # Fallback: try donor without stage (use any stage for this donor)
                 feat_np = self._wes_lookup.get((str(donor_id), "LUAD"))
             if feat_np is not None:
                 wes_features = torch.tensor(feat_np, dtype=torch.float32, device=self.device)
+
+        lr_features: Tensor | None = None
+        if self._lr_lookup is not None:
+            key = (str(donor_id), src_name)
+            feat_np = self._lr_lookup.get(key)
+            if feat_np is None:
+                feat_np = self._lr_lookup.get((str(donor_id), "LUAD"))
+            if feat_np is not None:
+                lr_features = torch.tensor(feat_np, dtype=torch.float32, device=self.device)
+
+        # Spatial niche features: use mean over source cells as a batch-level feature.
+        spatial_niche: Tensor | None = None
+        if self._spatial_niche_full is not None:
+            # _spatial_niche_full is aligned to the subset kept by donor filter.
+            # We pass a uniform mean since per-cell indices aren't tracked here.
+            # This gives the set context a global niche signal for the donor.
+            sn_mean = self._spatial_niche_full.mean(axis=0)
+            spatial_niche = torch.tensor(
+                sn_mean, dtype=torch.float32, device=self.device,
+            ).unsqueeze(0).expand(x_src.shape[0], -1)  # (batch_cells, niche_dim)
 
         return StageBatch(
             x_src=x_src,
@@ -211,6 +236,8 @@ class TransitionSampler:
             sample_id=sample_id,
             wes_features=wes_features,
             niche_coords=niche_coords,
+            lr_features=lr_features,
+            spatial_niche=spatial_niche,
         )
 
     def sample_transition_pair(
@@ -328,6 +355,32 @@ class StageBridgeTrainer:
                         use_ot=self.config.use_ot,
                         sigma=self.config.sigma if self.config.use_stochastic_bridge else 0.0,
                     )
+
+                    # Dirichlet stage assignment loss
+                    if self.config.use_dirichlet_head and hasattr(self.model, "predict_dirichlet"):
+                        alpha = self.model.predict_dirichlet(batch.x_src)
+                        if alpha is not None:
+                            from stagebridge.models.dirichlet_stage import dirichlet_nll_loss
+                            stage_targets = torch.full(
+                                (batch.x_src.shape[0],), batch.stage_src,
+                                dtype=torch.long, device=batch.x_src.device,
+                            )
+                            loss = loss + self.config.dirichlet_loss_weight * dirichlet_nll_loss(alpha, stage_targets)
+
+                    # Multi-hop consistency loss for skip transitions
+                    if self.config.use_multihop_consistency and batch.stage_tgt - batch.stage_src >= 2:
+                        n_mh = min(64, batch.x_src.shape[0])
+                        mh_loss, _ = multihop_consistency_loss(
+                            model=self.model,
+                            x_src=batch.x_src[:n_mh],
+                            stage_src=batch.stage_src,
+                            stage_tgt=batch.stage_tgt,
+                            num_stages=self.config.num_stages,
+                            num_steps=8,
+                            wes_features=batch.wes_features,
+                        )
+                        loss = loss + self.config.multihop_consistency_weight * mh_loss
+
                     loss_for_backward = loss / self.config.gradient_accumulation_steps
 
             if train:
@@ -468,6 +521,8 @@ def build_samplers_from_anndata(
     niche_fallback: str = "donor",
     niche_random_seed: int = 42,
     wes_lookup: "dict[tuple[str, str], np.ndarray] | None" = None,
+    lr_lookup: "dict[tuple[str, str], np.ndarray] | None" = None,
+    spatial_niche_key: str | None = None,
 ) -> tuple[TransitionSampler, TransitionSampler, TransitionSampler]:
     """Create train/val/test transition samplers from AnnData and donor split."""
     if latent_key not in adata.obsm:
@@ -481,28 +536,44 @@ def build_samplers_from_anndata(
     obs_stage = np.asarray(adata.obs[stage_col].astype(str).values)
     obs_donor = np.asarray(adata.obs[donor_col].astype(str).values)
 
+    # Extract spatial niche features if available
+    spatial_niche_arr: np.ndarray | None = None
+    if spatial_niche_key is not None and spatial_niche_key in adata.obsm:
+        spatial_niche_arr = np.asarray(adata.obsm[spatial_niche_key], dtype=np.float32)
+
     def _build_sampler(
         donor_subset: list[str],
         *,
         strict_transition: bool,
     ) -> TransitionSampler:
+        # Subset spatial niche to donor
+        sn_sub: np.ndarray | None = None
+        if spatial_niche_arr is not None:
+            donor_mask = np.isin(obs_donor, np.asarray(donor_subset, dtype=object))
+            sn_sub = spatial_niche_arr[donor_mask]
+
+        common_kwargs: dict[str, Any] = dict(
+            latent=latent,
+            obs_stage=obs_stage,
+            obs_donor=obs_donor,
+            donor_ids=donor_subset,
+            batch_cells=batch_cells,
+            device=device,
+            niche_token_bank=niche_token_bank,
+            use_niche_tokens=use_niche_tokens,
+            m_niche=m_niche,
+            niche_sampling_strategy=niche_sampling_strategy,
+            niche_fallback=niche_fallback,
+            niche_random_seed=niche_random_seed,
+            wes_lookup=wes_lookup,
+            lr_lookup=lr_lookup,
+            spatial_niche=sn_sub,
+        )
         try:
             return TransitionSampler(
-                latent=latent,
-                obs_stage=obs_stage,
-                obs_donor=obs_donor,
-                donor_ids=donor_subset,
-                batch_cells=batch_cells,
-                device=device,
                 transition_src=transition_src,
                 transition_tgt=transition_tgt,
-                niche_token_bank=niche_token_bank,
-                use_niche_tokens=use_niche_tokens,
-                m_niche=m_niche,
-                niche_sampling_strategy=niche_sampling_strategy,
-                niche_fallback=niche_fallback,
-                niche_random_seed=niche_random_seed,
-                wes_lookup=wes_lookup,
+                **common_kwargs,
             )
         except ValueError:
             if strict_transition or transition_src is None or transition_tgt is None:
@@ -515,21 +586,9 @@ def build_samplers_from_anndata(
                 len(donor_subset),
             )
             return TransitionSampler(
-                latent=latent,
-                obs_stage=obs_stage,
-                obs_donor=obs_donor,
-                donor_ids=donor_subset,
-                batch_cells=batch_cells,
-                device=device,
                 transition_src=None,
                 transition_tgt=None,
-                niche_token_bank=niche_token_bank,
-                use_niche_tokens=use_niche_tokens,
-                m_niche=m_niche,
-                niche_sampling_strategy=niche_sampling_strategy,
-                niche_fallback=niche_fallback,
-                niche_random_seed=niche_random_seed,
-                wes_lookup=wes_lookup,
+                **common_kwargs,
             )
 
     train = _build_sampler(split.train_donors, strict_transition=True)

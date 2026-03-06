@@ -12,6 +12,16 @@ versioned implementations that the notebook calls.
 primary artefact for end-to-end execution (preprocessing -> training -> final
 outputs). The Python package and scripts exist to support notebook execution.
 
+Project structure guides:
+- `docs/PROJECT_LAYOUT.md`
+- `docs/NOTEBOOK_WORKFLOW.md`
+- `scripts/README.md`
+- `configs/README.md`
+
+Unified package CLI:
+- `python -m stagebridge.cli step build_snrna -o data=local`
+- `python -m stagebridge.cli train -o data=local -o training.max_epochs=1`
+
 Integrates:
 - **snRNA-seq** (GSE308103 — custom dense-counts format)
 - **10x Visium spatial** (GSE307534)

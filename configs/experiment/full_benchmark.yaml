@@ -10,8 +10,20 @@ variants:
   - stagebridge_xattn_sb  # StageBridge + cross-attention drift + SB-CFM (headline variant)
   - stagebridge_wes       # StageBridge + WES somatic features + SB-CFM
   - stagebridge_xattn_wes # Full model: cross-attn drift + WES features + SB-CFM
+
+  # ── Tier 3: advanced variants ──────────────────────────
+  - stagebridge_lr         # StageBridge + LR signaling features + SB-CFM
+  - stagebridge_spatial    # StageBridge + spatial niche conditioning + SB-CFM
+  - stagebridge_dirichlet  # StageBridge + Dirichlet stage head + SB-CFM
+  - stagebridge_multihop   # StageBridge + multi-hop consistency + SB-CFM
+  - stagebridge_full_t3    # Full Tier 3: xattn + WES + LR + spatial + Dirichlet + multihop
+
 ablations:
   - no_ot
   - no_context
   - no_stage_embedding
   - no_context_consistency
+  - no_lr_features         # Tier 3: ablate LR conditioning
+  - no_spatial_niche       # Tier 3: ablate spatial niche
+  - no_dirichlet           # Tier 3: ablate Dirichlet head
+  - no_multihop            # Tier 3: ablate multi-hop consistency

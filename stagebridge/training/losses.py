@@ -107,20 +107,22 @@ def _forward_set_context(
     x_set: Tensor,
     mask: Tensor | None = None,
     niche_coords: Tensor | None = None,
+    spatial_niche: Tensor | None = None,
 ) -> Tensor:
-    """Call ``forward_set_context`` with optional niche coords only when supported."""
+    """Call ``forward_set_context`` with optional kwargs only when supported."""
     kwargs: dict[str, Any] = {}
-    if niche_coords is not None:
-        try:
-            sig = inspect.signature(model.forward_set_context)
-            params = sig.parameters.values()
-            accepts_var_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params)
-            accepts_niche_coords = "niche_coords" in sig.parameters
-            if accepts_var_kwargs or accepts_niche_coords:
-                kwargs["niche_coords"] = niche_coords
-        except (TypeError, ValueError):
-            # Best-effort compatibility for wrapped/compiled callables.
-            pass
+    try:
+        sig = inspect.signature(model.forward_set_context)
+        param_names = set(sig.parameters.keys())
+        has_var_kwargs = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+        if niche_coords is not None and (has_var_kwargs or "niche_coords" in param_names):
+            kwargs["niche_coords"] = niche_coords
+        if spatial_niche is not None and (has_var_kwargs or "spatial_niche" in param_names):
+            kwargs["spatial_niche"] = spatial_niche
+    except (TypeError, ValueError):
+        pass
     return model.forward_set_context(x_set, mask=mask, **kwargs)
 
 
@@ -183,11 +185,13 @@ def flow_matching_loss(
     u_t = y_j - x_i
 
     niche_coords = batch.niche_coords
+    spatial_niche = batch.spatial_niche
     c_s = _forward_set_context(
         model=model,
         x_set=x_set,
         mask=context_mask,
         niche_coords=niche_coords,
+        spatial_niche=spatial_niche,
     )
     if c_s.ndim == 2 and c_s.shape[0] == 1:
         c_rep = c_s.expand(num_ot_pairs, -1)
@@ -195,14 +199,21 @@ def flow_matching_loss(
         c_rep = c_s
 
     stage_pair_id = _stage_pair_tensor(model=model, batch=batch, n=num_ot_pairs, device=device)
-    wes_features = batch.wes_features  # None unless use_wes_features=True
-    pred = model.forward_vector_field(
-        x_t=x_t,
-        t=t,
-        c_s=c_rep,
-        stage_pair_id=stage_pair_id,
-        wes_features=wes_features,
-    )
+    wes_features = batch.wes_features
+    lr_features = batch.lr_features
+
+    # Pass lr_features only to models that accept them
+    vf_kwargs: dict[str, Any] = {
+        "x_t": x_t, "t": t, "c_s": c_rep,
+        "stage_pair_id": stage_pair_id, "wes_features": wes_features,
+    }
+    try:
+        vf_sig = inspect.signature(model.forward_vector_field)
+        if "lr_features" in vf_sig.parameters:
+            vf_kwargs["lr_features"] = lr_features
+    except (TypeError, ValueError):
+        pass
+    pred = model.forward_vector_field(**vf_kwargs)
 
     loss_fm = F.mse_loss(pred, u_t)
 
@@ -222,6 +233,7 @@ def flow_matching_loss(
             x_set=x_set,
             mask=context_mask,
             niche_coords=niche_coords,
+            spatial_niche=spatial_niche,
         )
         loss_ctx = F.mse_loss(c_full, c_sub)
 
@@ -242,3 +254,122 @@ def flow_matching_loss(
         "num_pairs": float(num_ot_pairs),
     }
     return total, diagnostics, coupling
+
+
+# ---------------------------------------------------------------------------
+# Multi-hop skip-stage trajectory consistency loss
+# ---------------------------------------------------------------------------
+
+def _compose_trajectory(
+    model: Any,
+    x_src: Tensor,
+    stage_sequence: list[int],
+    num_steps: int = 8,
+    wes_features: Tensor | None = None,
+) -> Tensor:
+    """Compose sequential transitions through intermediate stages.
+
+    Parameters
+    ----------
+    model : StageBridgeModel
+        Model with ``forward_set_context`` and ``integrate_euler``.
+    x_src : (B, D)
+        Source cells.
+    stage_sequence : list[int]
+        Ordered stage indices [s0, s1, s2, ...] where the chain is
+        s0→s1→s2→...→sN.
+    num_steps : int
+        Euler integration steps per hop.
+    wes_features : Tensor or None
+        Optional WES conditioning.
+
+    Returns
+    -------
+    Tensor : (B, D) — endpoint after composing all hops.
+    """
+    x = x_src
+    for i in range(len(stage_sequence) - 1):
+        s_src = stage_sequence[i]
+        s_tgt = stage_sequence[i + 1]
+        c_s = model.forward_set_context(x)
+        pair_id = model.encode_stage_pair_tensor(
+            stage_src=s_src, stage_tgt=s_tgt,
+            n=x.shape[0], device=x.device,
+        )
+        x = model.integrate_euler(
+            x0=x, c_s=c_s, stage_pair_id=pair_id,
+            num_steps=num_steps, wes_features=wes_features,
+        )
+    return x
+
+
+def multihop_consistency_loss(
+    model: Any,
+    x_src: Tensor,
+    stage_src: int,
+    stage_tgt: int,
+    num_stages: int = 5,
+    num_steps: int = 8,
+    wes_features: Tensor | None = None,
+) -> tuple[Tensor, dict[str, float]]:
+    """Compute trajectory composition consistency loss for skip transitions.
+
+    For a transition with gap ≥ 2 (e.g., Normal→AIS, gap=2), computes:
+
+    * **Direct**:  x_T^direct = integrate(x_src, src→tgt)
+    * **Chained**: x_T^chain  = compose(x_src, src→mid₁→mid₂→...→tgt)
+    * **Loss**:    MSE(x_T^direct, sg(x_T^chain))
+
+    Stop-gradient on the chained result prevents collapse to trivial solutions.
+    For adjacent transitions (gap=1), returns zero loss.
+
+    Parameters
+    ----------
+    model : StageBridgeModel
+    x_src : (B, D) — source cells
+    stage_src, stage_tgt : int — stage indices
+    num_stages : int — total number of stages
+    num_steps : int — Euler steps per hop
+    wes_features : Tensor or None
+
+    Returns
+    -------
+    (loss, diagnostics) — scalar loss and info dict
+    """
+    gap = stage_tgt - stage_src
+    if gap <= 1:
+        zero = torch.tensor(0.0, device=x_src.device, dtype=x_src.dtype)
+        return zero, {"multihop_loss": 0.0, "gap": float(gap)}
+
+    # Build intermediate stage sequence
+    stage_sequence = list(range(stage_src, stage_tgt + 1))
+
+    # Direct transition: src → tgt in one shot
+    c_s_direct = model.forward_set_context(x_src)
+    pair_direct = model.encode_stage_pair_tensor(
+        stage_src=stage_src, stage_tgt=stage_tgt,
+        n=x_src.shape[0], device=x_src.device,
+    )
+    x_direct = model.integrate_euler(
+        x0=x_src, c_s=c_s_direct, stage_pair_id=pair_direct,
+        num_steps=num_steps, wes_features=wes_features,
+    )
+
+    # Chained transition: src → mid₁ → ... → tgt
+    x_chained = _compose_trajectory(
+        model=model, x_src=x_src,
+        stage_sequence=stage_sequence,
+        num_steps=num_steps,
+        wes_features=wes_features,
+    )
+
+    # Stop gradient on chained to prevent collapse
+    loss = F.mse_loss(x_direct, x_chained.detach())
+
+    diagnostics = {
+        "multihop_loss": float(loss.detach().item()),
+        "gap": float(gap),
+        "direct_norm": float(x_direct.norm(dim=-1).mean().item()),
+        "chained_norm": float(x_chained.norm(dim=-1).mean().item()),
+    }
+    return loss, diagnostics
