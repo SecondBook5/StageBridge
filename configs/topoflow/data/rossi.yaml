@@ -1,0 +1,22 @@
+# Rossi et al. — NSCLC brain metastasis cohort
+# GSE223499 (snRNA-seq), GSE223501 (Slide-seq V2), GSE223502 (lpWGS), GSE223500 (TCR)
+
+cohort: rossi
+description: "NSCLC brain metastasis: PRIMARY → BrainMet / ChestWallMet"
+
+raw:
+  snrna_tar: "${STAGEBRIDGE_DATA_ROOT}/raw/GSE223499_RAW.tar"
+  snrna_metadata: "${STAGEBRIDGE_DATA_ROOT}/raw/GSE223499_sn_integrated_data.csv.gz"
+  spatial_tar: "${STAGEBRIDGE_DATA_ROOT}/raw/GSE223501_RAW.tar"
+  lpwgs_tar: "${STAGEBRIDGE_DATA_ROOT}/raw/GSE223502_RAW.tar"
+  tcr_tar: "${STAGEBRIDGE_DATA_ROOT}/raw/GSE223500_RAW.tar"
+
+processed:
+  snrna_h5ad: "${STAGEBRIDGE_DATA_ROOT}/processed/anndata/brainmets_snrna.h5ad"
+  lpwgs_parquet: "${STAGEBRIDGE_DATA_ROOT}/processed/features/lpwgs_features.parquet"
+
+stages: [LUAD, BrainMet, ChestWallMet]
+tissue_aliases:
+  PRIMARY: LUAD
+  BRAIN_METS: BrainMet
+  CHEST_WALL_MET: ChestWallMet

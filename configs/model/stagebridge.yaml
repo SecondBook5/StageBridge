@@ -47,3 +47,8 @@ config:
   # Multi-hop skip-stage consistency
   use_multihop_consistency: false
   multihop_consistency_weight: 0.1
+
+  # ── Graph-of-Sets Transformer (GoST) ──────────────────
+  use_graph_transformer: false
+  graph_num_layers: 2
+  graph_num_heads: 4

@@ -66,3 +66,59 @@ def test_mini_training_epoch_writes_checkpoint(tmp_path):
 
     assert out.best_checkpoint.exists()
     assert len(out.history) >= 1
+
+
+def test_training_profile_json_written_when_enabled(tmp_path):
+    n = 400
+    d = 12
+    rng = np.random.default_rng(3)
+
+    X = rng.normal(size=(n, d)).astype(np.float32)
+    stages = np.array(["Normal", "AAH", "AIS", "MIA", "LUAD"] * (n // 5), dtype=object)
+    donors = np.array([f"D{i%8}" for i in range(n)], dtype=object)
+
+    adata = anndata.AnnData(X=np.zeros((n, 1), dtype=np.float32))
+    adata.obsm["X_hlca"] = X
+    adata.obs["stage"] = stages
+    adata.obs["patient_id"] = donors
+
+    splits = build_donor_holdout_splits(donor_ids=sorted(set(donors)), n_folds=2, seed=11)
+    train_sampler, val_sampler, test_sampler = build_samplers_from_anndata(
+        adata=adata,
+        split=splits[0],
+        latent_key="X_hlca",
+        stage_col="stage",
+        donor_col="patient_id",
+        batch_cells=48,
+        device="cpu",
+    )
+
+    cfg = StageBridgeConfig(
+        input_dim=d,
+        hidden_dim=24,
+        vector_field_hidden_dim=48,
+        num_heads=4,
+        num_inducing_points=8,
+        max_epochs=1,
+        steps_per_epoch=3,
+        val_steps=1,
+        patience=1,
+        num_ot_pairs=48,
+        mixed_precision=False,
+        device="cpu",
+        profile_train_steps=2,
+    )
+    model = StageBridgeModel(cfg)
+    trainer = StageBridgeTrainer(model=model, config=cfg)
+    out = trainer.fit(
+        train_sampler=train_sampler,
+        val_sampler=val_sampler,
+        test_sampler=test_sampler,
+        output_dir=tmp_path,
+        run_name="profile_smoke",
+    )
+
+    assert out.profile_path is not None
+    assert out.profile_path.exists()
+    assert out.profile_summary is not None
+    assert out.profile_summary["n_profiled_steps"] == 2.0

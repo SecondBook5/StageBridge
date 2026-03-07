@@ -66,10 +66,10 @@ class DeepSetsFlowModel(nn.Module):
     def encode_stage_pair_tensor(self, stage_src: int, stage_tgt: int, n: int, device: torch.device) -> Tensor:
         return torch.full((n,), self.encode_stage_pair(stage_src, stage_tgt), dtype=torch.long, device=device)
 
-    def forward_set_context(self, x_set: Tensor, mask: Tensor | None = None) -> Tensor:
+    def forward_set_context(self, x_set: Tensor, mask: Tensor | None = None, **kwargs: object) -> Tensor:
         return self.encoder(x_set, mask=mask)
 
-    def forward_vector_field(self, x_t: Tensor, t: Tensor, c_s: Tensor, stage_pair_id: Tensor, wes_features: Tensor | None = None) -> Tensor:
+    def forward_vector_field(self, x_t: Tensor, t: Tensor, c_s: Tensor, stage_pair_id: Tensor, wes_features: Tensor | None = None, **kwargs: object) -> Tensor:
         if c_s.ndim == 1:
             c_s = c_s.unsqueeze(0)
         if c_s.shape[0] == 1 and x_t.shape[0] > 1:
@@ -141,12 +141,12 @@ class NoContextFlowModel(nn.Module):
     def encode_stage_pair_tensor(self, stage_src: int, stage_tgt: int, n: int, device: torch.device) -> Tensor:
         return torch.zeros((n,), dtype=torch.long, device=device)
 
-    def forward_set_context(self, x_set: Tensor, mask: Tensor | None = None) -> Tensor:
+    def forward_set_context(self, x_set: Tensor, mask: Tensor | None = None, **kwargs: object) -> Tensor:
         if x_set.ndim == 2:
             return torch.zeros((1, self.config.hidden_dim), device=x_set.device, dtype=x_set.dtype)
         return torch.zeros((x_set.shape[0], self.config.hidden_dim), device=x_set.device, dtype=x_set.dtype)
 
-    def forward_vector_field(self, x_t: Tensor, t: Tensor, c_s: Tensor, stage_pair_id: Tensor, wes_features: Tensor | None = None) -> Tensor:
+    def forward_vector_field(self, x_t: Tensor, t: Tensor, c_s: Tensor, stage_pair_id: Tensor, wes_features: Tensor | None = None, **kwargs: object) -> Tensor:
         time_emb = self.time_embedding(t)
         inp = torch.cat([x_t, time_emb], dim=-1)
         return self.vector_field(inp)

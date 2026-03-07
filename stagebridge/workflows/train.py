@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 from datetime import datetime, timezone
 from dataclasses import replace
 from pathlib import Path
@@ -18,7 +17,7 @@ from stagebridge.logging_utils import configure_root_logger, get_logger
 from stagebridge.io.niche_tokens import NicheTokenBank
 from stagebridge.models.baselines import DeepSetsFlowModel, LinearTransitionBaseline, NoContextFlowModel
 from stagebridge.models.stagebridge import StageBridgeModel
-from stagebridge.preprocessing.harmonize import add_hlca_latent, ensure_required_obs_fields
+from stagebridge.preprocessing.harmonize import ensure_required_obs_fields
 from stagebridge.preprocessing.stage_ontology import normalize_stage_series, stage_to_index
 from stagebridge.runs import build_output_context
 from stagebridge.training.eval import evaluate_transition
@@ -27,6 +26,13 @@ from stagebridge.training.trainer import (
     build_donor_holdout_splits,
     build_samplers_from_anndata,
     donors_with_min_stage_coverage,
+)
+from stagebridge.utils.config_helpers import (
+    build_stagebridge_config_from_cfg,
+    ensure_latent,
+    maybe_load_lr_lookup,
+    maybe_load_wes_lookup,
+    stable_hash,
 )
 from stagebridge.utils.seeds import set_global_seed
 from stagebridge.utils.types import RunManifest, StageBridgeConfig
@@ -49,62 +55,9 @@ def _set_torch_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
-def _stable_hash(payload: object) -> str:
-    raw = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
-
-
-def _model_value(cfg: DictConfig, key: str) -> object:
-    """Read a model field from either cfg.model.config.<key> or cfg.model.<key>."""
-    value = OmegaConf.select(cfg, f"model.config.{key}")
-    if value is None:
-        value = OmegaConf.select(cfg, f"model.{key}")
-    if value is None:
-        raise KeyError(f"Missing model field '{key}' in cfg.model or cfg.model.config.")
-    return value
-
-
-def _ensure_latent(adata: anndata.AnnData, cfg: DictConfig) -> None:
-    target_key = str(cfg.data.latent_key)
-    fallback_key = str(cfg.data.fallback_latent_key)
-
-    if target_key in adata.obsm:
-        return
-
-    # Support latent-only AnnData where X already stores latent vectors
-    # (e.g., snrna_hlca_latent_full.h5ad with var_names latent_*).
-    var_names = adata.var_names.astype(str) if adata.var_names is not None else np.array([], dtype=object)
-    if adata.X is not None and adata.n_vars > 0 and all(str(v).startswith("latent_") for v in var_names):
-        adata.obsm[target_key] = np.asarray(adata.X, dtype=np.float32)
-        log.info("Attached latent from adata.X -> adata.obsm['%s'] (latent-only h5ad).", target_key)
-        return
-
-    if fallback_key not in adata.obsm:
-        X = adata.layers["log1p"] if "log1p" in adata.layers else adata.X
-        from sklearn.decomposition import TruncatedSVD
-
-        n_comp = min(int(_model_value(cfg, "input_dim")), min(X.shape) - 1)
-        svd = TruncatedSVD(n_components=n_comp, random_state=int(cfg.seed))
-        adata.obsm[fallback_key] = svd.fit_transform(X).astype(np.float32)
-        log.info("Computed fallback latent '%s' with %d components.", fallback_key, n_comp)
-
-    reference = None
-    if bool(cfg.data.use_hlca_reference):
-        from stagebridge.io.hlca import load_hlca_reference
-
-        hlca_path = Path(str(cfg.data.hlca_h5ad))
-        if hlca_path.exists():
-            reference = load_hlca_reference(h5ad_path=hlca_path, backed=None)
-        else:
-            log.warning("HLCA reference not found at %s; using fallback latent alignment.", hlca_path)
-
-    add_hlca_latent(
-        adata=adata,
-        reference=reference,
-        source_key=fallback_key,
-        output_key=target_key,
-        n_components=int(_model_value(cfg, "input_dim")),
-    )
+# Aliases for backward compatibility within this module
+_stable_hash = stable_hash
+_ensure_latent = ensure_latent
 
 
 # HLCA cell-type labels that constitute the epithelial lineage.
@@ -311,6 +264,137 @@ def _build_variant_specs(cfg: DictConfig) -> list[dict[str, Any]]:
     ablations = [str(a) for a in cfg.experiment.ablations]
     variants = [str(v) for v in (OmegaConf.select(cfg, "experiment.variants") or [])]
 
+    supported_models = {"stagebridge", "deepsets", "no_context", "linear"}
+    if primary not in supported_models:
+        raise ValueError(
+            f"Unsupported experiment.primary_model='{primary}'. "
+            f"Supported models: {sorted(supported_models)}."
+        )
+
+    unknown_baselines = sorted({m for m in baselines if m not in supported_models})
+    if unknown_baselines:
+        raise ValueError(
+            f"Unsupported baseline model(s): {unknown_baselines}. "
+            f"Supported models: {sorted(supported_models)}."
+        )
+
+    variant_map: dict[str, dict[str, Any]] = {
+        "stagebridge_sb": {
+            "model_name": "stagebridge",
+            "overrides": {"use_stochastic_bridge": True},
+        },
+        "stagebridge_xattn_sb": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_cross_attn_drift": True,
+                "use_stochastic_bridge": True,
+                "num_seed_vectors": 4,
+            },
+        },
+        "stagebridge_wes": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_wes_features": True,
+                "use_stochastic_bridge": True,
+            },
+        },
+        "stagebridge_xattn_wes": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_cross_attn_drift": True,
+                "use_stochastic_bridge": True,
+                "use_wes_features": True,
+                "num_seed_vectors": 4,
+            },
+        },
+        "stagebridge_lr": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_lr_features": True,
+                "use_stochastic_bridge": True,
+            },
+        },
+        "stagebridge_spatial": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_spatial_niche": True,
+                "use_stochastic_bridge": True,
+            },
+        },
+        "stagebridge_dirichlet": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_dirichlet_head": True,
+                "use_stochastic_bridge": True,
+            },
+        },
+        "stagebridge_multihop": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_multihop_consistency": True,
+                "use_stochastic_bridge": True,
+            },
+        },
+        "stagebridge_full_t3": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_cross_attn_drift": True,
+                "use_stochastic_bridge": True,
+                "use_wes_features": True,
+                "use_lr_features": True,
+                "use_spatial_niche": True,
+                "use_dirichlet_head": True,
+                "use_multihop_consistency": True,
+                "num_seed_vectors": 4,
+            },
+        },
+        "stagebridge_gost": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_graph_transformer": True,
+                "use_stochastic_bridge": True,
+                "num_seed_vectors": 4,
+            },
+        },
+        "stagebridge_gost_xattn": {
+            "model_name": "stagebridge",
+            "overrides": {
+                "use_graph_transformer": True,
+                "use_cross_attn_drift": True,
+                "use_stochastic_bridge": True,
+                "num_seed_vectors": 4,
+            },
+        },
+    }
+
+    ablation_map: dict[str, dict[str, Any]] = {
+        "no_ot": {"model_name": primary, "overrides": {"use_ot": False}},
+        "no_context": {"model_name": "no_context", "overrides": {}},
+        "no_stage_embedding": {"model_name": primary, "overrides": {"use_stage_embedding": False}},
+        "no_context_consistency": {
+            "model_name": primary,
+            "overrides": {"context_consistency_weight": 0.0},
+        },
+        "no_lr_features": {"model_name": primary, "overrides": {"use_lr_features": False}},
+        "no_spatial_niche": {"model_name": primary, "overrides": {"use_spatial_niche": False}},
+        "no_dirichlet": {"model_name": primary, "overrides": {"use_dirichlet_head": False}},
+        "no_multihop": {"model_name": primary, "overrides": {"use_multihop_consistency": False}},
+    }
+
+    unknown_variants = sorted({v for v in variants if v not in variant_map})
+    if unknown_variants:
+        raise ValueError(
+            f"Unsupported experiment variant(s): {unknown_variants}. "
+            f"Supported variants: {sorted(variant_map)}."
+        )
+
+    unknown_ablations = sorted({a for a in ablations if a not in ablation_map})
+    if unknown_ablations:
+        raise ValueError(
+            f"Unsupported experiment ablation(s): {unknown_ablations}. "
+            f"Supported ablations: {sorted(ablation_map)}."
+        )
+
     specs: list[dict[str, Any]] = []
 
     def _append(label: str, model_name: str, ablation: str | None, overrides: dict[str, Any]) -> None:
@@ -328,83 +412,22 @@ def _build_variant_specs(cfg: DictConfig) -> list[dict[str, Any]]:
         _append(label=model_name, model_name=model_name, ablation=None, overrides={})
 
     for variant in variants:
-        if variant == "stagebridge_sb":
-            _append(
-                label="stagebridge_sb",
-                model_name="stagebridge",
-                ablation=None,
-                overrides={"use_stochastic_bridge": True},
-            )
-        elif variant == "stagebridge_xattn_sb":
-            # Cross-attention drift + SB-CFM: the headline "impressive" variant.
-            # num_seed_vectors=4 gives the drift 4 niche context tokens to attend over.
-            _append(
-                label="stagebridge_xattn_sb",
-                model_name="stagebridge",
-                ablation=None,
-                overrides={
-                    "use_cross_attn_drift": True,
-                    "use_stochastic_bridge": True,
-                    "num_seed_vectors": 4,
-                },
-            )
-        elif variant == "stagebridge_wes":
-            # WES-conditioned StageBridge: somatic driver mutation features
-            # (TMB, KRAS, EGFR, TP53, STK11, KEAP1, SMAD4, BRAF) are projected
-            # and concatenated to the stage embedding, conditioning the drift on
-            # the patient's mutational landscape.
-            _append(
-                label="stagebridge_wes",
-                model_name="stagebridge",
-                ablation=None,
-                overrides={
-                    "use_wes_features": True,
-                    "use_stochastic_bridge": True,
-                },
-            )
-        elif variant == "stagebridge_xattn_wes":
-            # Full model: cross-attention drift + WES features + SB-CFM.
-            _append(
-                label="stagebridge_xattn_wes",
-                model_name="stagebridge",
-                ablation=None,
-                overrides={
-                    "use_cross_attn_drift": True,
-                    "use_stochastic_bridge": True,
-                    "use_wes_features": True,
-                    "num_seed_vectors": 4,
-                },
-            )
+        variant_spec = variant_map[variant]
+        _append(
+            label=variant,
+            model_name=str(variant_spec["model_name"]),
+            ablation=None,
+            overrides=dict(variant_spec["overrides"]),
+        )
 
     for ablation in ablations:
-        if ablation == "no_ot":
-            _append(
-                label=f"{primary}__ablation_no_ot",
-                model_name=primary,
-                ablation="no_ot",
-                overrides={"use_ot": False},
-            )
-        elif ablation == "no_context":
-            _append(
-                label=f"{primary}__ablation_no_context",
-                model_name="no_context",
-                ablation="no_context",
-                overrides={},
-            )
-        elif ablation == "no_stage_embedding":
-            _append(
-                label=f"{primary}__ablation_no_stage_embedding",
-                model_name=primary,
-                ablation="no_stage_embedding",
-                overrides={"use_stage_embedding": False},
-            )
-        elif ablation == "no_context_consistency":
-            _append(
-                label=f"{primary}__ablation_no_context_consistency",
-                model_name=primary,
-                ablation="no_context_consistency",
-                overrides={"context_consistency_weight": 0.0},
-            )
+        ablation_spec = ablation_map[ablation]
+        _append(
+            label=f"{primary}__ablation_{ablation}",
+            model_name=str(ablation_spec["model_name"]),
+            ablation=ablation,
+            overrides=dict(ablation_spec["overrides"]),
+        )
 
     # Deduplicate by label while preserving order.
     deduped: list[dict[str, Any]] = []
@@ -412,9 +435,8 @@ def _build_variant_specs(cfg: DictConfig) -> list[dict[str, Any]]:
     for spec in specs:
         if spec["label"] in seen:
             continue
-        _known_variants = {"stagebridge_sb", "stagebridge_xattn_sb", "stagebridge_wes", "stagebridge_xattn_wes"}
-        if spec["model_name"] not in {"stagebridge", "deepsets", "no_context", "linear"} and spec["label"] not in _known_variants:
-            continue
+        if spec["model_name"] not in supported_models:
+            raise ValueError(f"Unsupported model '{spec['model_name']}' in variant specification.")
         deduped.append(spec)
         seen.add(spec["label"])
     return deduped
@@ -430,29 +452,8 @@ def _resolve_transition_filter(cfg: DictConfig) -> tuple[str | None, str | None]
     return src_val, tgt_val
 
 
-def _maybe_load_wes_lookup(cfg: DictConfig) -> "dict[tuple[str, str], np.ndarray] | None":
-    """Load WES features parquet and return a (patient_id, stage) → np.ndarray lookup."""
-    use_wes = bool(OmegaConf.select(cfg, "training.use_wes_features") or False)
-    if not use_wes:
-        return None
-    from stagebridge.io.paths import StageBridgePaths
-    paths = StageBridgePaths.from_cfg(cfg)
-    wes_path = Path(paths.data_root) / "processed" / "features" / "wes_features.parquet"
-    if not wes_path.exists():
-        log.warning(
-            "use_wes_features=true but wes_features.parquet not found at %s. "
-            "Run scripts/run_wes_pipeline.py first. Proceeding without WES features.",
-            wes_path,
-        )
-        return None
-    from stagebridge.io.geo_wes import WES_FEATURE_COLS, load_wes_features
-    df = load_wes_features(wes_path)
-    lookup: dict[tuple[str, str], np.ndarray] = {}
-    for _, row in df.iterrows():
-        key = (str(row["patient_id"]), str(row["stage"]))
-        lookup[key] = row[WES_FEATURE_COLS].values.astype(np.float32)
-    log.info("Loaded WES features for %d (patient, stage) pairs", len(lookup))
-    return lookup
+_maybe_load_wes_lookup = maybe_load_wes_lookup
+_maybe_load_lr_lookup = maybe_load_lr_lookup
 
 
 def _maybe_load_niche_token_bank(cfg: DictConfig) -> NicheTokenBank | None:
@@ -582,48 +583,9 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
     out_ctx = build_output_context(cfg.output_dir)
     run_dir = out_ctx.output_dir
 
-    model_hidden_dim = int(_model_value(cfg, "hidden_dim"))
-    model_vector_field_hidden_dim = int(_model_value(cfg, "vector_field_hidden_dim"))
-    model_num_heads = int(_model_value(cfg, "num_heads"))
-    model_num_inducing_points = int(_model_value(cfg, "num_inducing_points"))
-    model_num_seed_vectors = int(_model_value(cfg, "num_seed_vectors"))
-    model_num_stages = int(_model_value(cfg, "num_stages"))
-    model_time_embedding_dim = int(_model_value(cfg, "time_embedding_dim"))
-    model_stage_embedding_dim = int(_model_value(cfg, "stage_embedding_dim"))
-    model_dropout = float(_model_value(cfg, "dropout"))
-
-    base_cfg = StageBridgeConfig(
+    base_cfg = build_stagebridge_config_from_cfg(
+        cfg,
         input_dim=_actual_input_dim,
-        hidden_dim=model_hidden_dim,
-        vector_field_hidden_dim=model_vector_field_hidden_dim,
-        num_heads=model_num_heads,
-        num_inducing_points=model_num_inducing_points,
-        num_seed_vectors=model_num_seed_vectors,
-        num_stages=model_num_stages,
-        time_embedding_dim=model_time_embedding_dim,
-        stage_embedding_dim=model_stage_embedding_dim,
-        dropout=model_dropout,
-        ot_epsilon=float(cfg.training.ot_epsilon),
-        sinkhorn_iters=int(cfg.training.sinkhorn_iters),
-        num_ot_pairs=int(cfg.training.num_ot_pairs),
-        context_consistency_weight=float(cfg.training.context_consistency_weight),
-        learning_rate=float(cfg.training.learning_rate),
-        weight_decay=float(cfg.training.weight_decay),
-        grad_clip_norm=float(cfg.training.grad_clip_norm),
-        max_epochs=int(cfg.training.max_epochs),
-        steps_per_epoch=int(cfg.training.steps_per_epoch),
-        val_steps=int(cfg.training.val_steps),
-        patience=int(cfg.training.patience),
-        gradient_accumulation_steps=int(cfg.training.gradient_accumulation_steps),
-        mixed_precision=bool(cfg.training.mixed_precision),
-        device=str(cfg.training.device),
-        seed=int(cfg.training.seed),
-        use_ot=bool(cfg.training.use_ot),
-        use_stage_embedding=bool(cfg.training.use_stage_embedding),
-        sigma=float(OmegaConf.select(cfg, "training.sigma") or 0.0),
-        use_stochastic_bridge=bool(OmegaConf.select(cfg, "training.use_stochastic_bridge") or False),
-        use_cross_attn_drift=bool(OmegaConf.select(cfg, "training.use_cross_attn_drift") or False),
-        use_wes_features=bool(OmegaConf.select(cfg, "training.use_wes_features") or False),
     )
 
     variant_specs = _build_variant_specs(cfg)
@@ -632,7 +594,20 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
     resolved_cfg = OmegaConf.to_container(cfg, resolve=True)
     transition_src, transition_tgt = _resolve_transition_filter(cfg)
     niche_bank = _maybe_load_niche_token_bank(cfg)
-    wes_lookup = _maybe_load_wes_lookup(cfg)
+    needs_wes = bool(base_cfg.use_wes_features) or any(
+        bool(spec["overrides"].get("use_wes_features", False)) for spec in variant_specs
+    )
+    needs_lr = bool(base_cfg.use_lr_features) or any(
+        bool(spec["overrides"].get("use_lr_features", False)) for spec in variant_specs
+    )
+    needs_spatial_niche = bool(base_cfg.use_spatial_niche) or any(
+        bool(spec["overrides"].get("use_spatial_niche", False)) for spec in variant_specs
+    )
+    wes_lookup = _maybe_load_wes_lookup(cfg, enabled=needs_wes)
+    lr_lookup = _maybe_load_lr_lookup(cfg, enabled=needs_lr)
+    spatial_niche_key = str(
+        OmegaConf.select(cfg, "training.spatial_niche_key") or "X_spatial_niche"
+    )
     use_niche_cfg = bool(OmegaConf.select(cfg, "training.use_niche_tokens") or False)
     m_niche = int(OmegaConf.select(cfg, "training.m_niche") or 64)
     niche_sampling_strategy = str(OmegaConf.select(cfg, "training.niche_sampling_strategy") or "random_m")
@@ -651,6 +626,8 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
         checkpoints: list[str] = []
         history_payloads: list[dict[str, object]] = []
         preview_paths: dict[str, str] = {}
+        profile_paths: list[str] = []
+        profile_summaries: list[dict[str, float]] = []
 
         variant_cfg = replace(base_cfg)
         for key, value in overrides.items():
@@ -664,6 +641,7 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
 
         for fold_idx, split in enumerate(splits):
             fold_name = f"{cfg.run_name}_{label}_fold{fold_idx}"
+            fold_profile_path: str | None = None
 
             if model_name == "linear":
                 fold_metrics = _run_linear_baseline_fold(
@@ -697,6 +675,8 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
                     niche_fallback=niche_fallback,
                     niche_random_seed=niche_random_seed,
                     wes_lookup=wes_lookup if variant_cfg.use_wes_features else None,
+                    lr_lookup=lr_lookup if variant_cfg.use_lr_features else None,
+                    spatial_niche_key=spatial_niche_key if (needs_spatial_niche and variant_cfg.use_spatial_niche) else None,
                 )
 
                 out = trainer.fit(
@@ -712,6 +692,11 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
                 fold_metrics.update(out.benchmark_metrics)
                 fold_outputs.append(fold_metrics)
                 checkpoints.append(str(out.best_checkpoint))
+                if out.profile_path is not None:
+                    fold_profile_path = str(out.profile_path)
+                    profile_paths.append(fold_profile_path)
+                if out.profile_summary is not None:
+                    profile_summaries.append(out.profile_summary)
 
                 if fold_idx == 0:
                     preview_paths = _plot_variant_preview(
@@ -726,6 +711,14 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
                         transition_tgt=transition_tgt,
                         seed=int(cfg.seed),
                     )
+
+            output_paths = {
+                "output_dir": str(run_dir),
+                "tables_dir": str(run_dir / "tables"),
+                "figures_dir": str(run_dir / "figures"),
+            }
+            if fold_profile_path is not None:
+                output_paths["profile_json"] = fold_profile_path
 
             run_manifest = RunManifest(
                 run_name=fold_name,
@@ -751,11 +744,7 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
                     "hlca_h5ad": str(cfg.data.hlca_h5ad),
                     "niche_token_bank": str(OmegaConf.select(cfg, "training.niche_token_bank_path") or ""),
                 },
-                output_paths={
-                    "output_dir": str(run_dir),
-                    "tables_dir": str(run_dir / "tables"),
-                    "figures_dir": str(run_dir / "figures"),
-                },
+                output_paths=output_paths,
                 notes=f"fold={fold_idx}; transition={transition_src}->{transition_tgt}",
             )
             run_manifests.append(run_manifest.to_dict())
@@ -768,6 +757,16 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
                 aggregate[f"{key}_mean"] = float(np.nanmean(vals))
                 aggregate[f"{key}_std"] = float(np.nanstd(vals))
 
+        profile_aggregate: dict[str, float] = {}
+        if profile_summaries:
+            profile_keys = sorted({k for s in profile_summaries for k in s.keys()})
+            for key in profile_keys:
+                vals = np.array([float(s[key]) for s in profile_summaries if key in s], dtype=float)
+                if vals.size == 0:
+                    continue
+                profile_aggregate[f"{key}_mean"] = float(np.nanmean(vals))
+                profile_aggregate[f"{key}_std"] = float(np.nanstd(vals))
+
         if history_payloads:
             loss_curve_path = run_dir / "figures" / f"{cfg.run_name}_{label}_loss_curve.png"
             plot_training_curves(history_payloads=history_payloads, output_path=loss_curve_path)
@@ -779,7 +778,9 @@ def run_training(cfg: DictConfig) -> dict[str, object]:
             "overrides": overrides,
             "folds": fold_outputs,
             "aggregate": aggregate,
+            "profile_aggregate": profile_aggregate,
             "checkpoints": checkpoints,
+            "profile_paths": profile_paths,
             "use_niche_tokens": variant_use_niche,
             "preview_paths": preview_paths,
         }

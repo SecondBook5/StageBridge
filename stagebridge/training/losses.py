@@ -1,7 +1,6 @@
 """OT coupling and flow-matching losses for StageBridge training."""
 from __future__ import annotations
 
-import inspect
 from typing import Any
 
 import torch
@@ -45,14 +44,14 @@ def build_sinkhorn_coupling(
     log_u = torch.zeros_like(log_a)
     log_v = torch.zeros_like(log_b)
 
-    for _ in range(max(n_iters, 400)):
+    for _ in range(max(int(n_iters), 1)):
         log_u = log_a - torch.logsumexp(log_k + log_v.unsqueeze(0), dim=1)
         log_v = log_b - torch.logsumexp(log_k.T + log_u.unsqueeze(0), dim=1)
 
     log_pi = log_u.unsqueeze(1) + log_k + log_v.unsqueeze(0)
     pi = torch.exp(log_pi)
     # Final balancing pass improves marginal accuracy after finite-iteration updates.
-    for _ in range(5):
+    for _ in range(20):
         pi = pi * (a / pi.sum(dim=1).clamp_min(1e-12)).unsqueeze(1)
         pi = pi * (b / pi.sum(dim=0).clamp_min(1e-12)).unsqueeze(0)
     return pi.to(dtype)
@@ -109,20 +108,17 @@ def _forward_set_context(
     niche_coords: Tensor | None = None,
     spatial_niche: Tensor | None = None,
 ) -> Tensor:
-    """Call ``forward_set_context`` with optional kwargs only when supported."""
+    """Call ``forward_set_context`` passing optional conditioning kwargs.
+
+    All model classes (StageBridgeModel, DeepSetsFlowModel, NoContextFlowModel)
+    accept ``**kwargs`` in forward_set_context, so unknown kwargs are safely
+    absorbed by baselines that don't use them.
+    """
     kwargs: dict[str, Any] = {}
-    try:
-        sig = inspect.signature(model.forward_set_context)
-        param_names = set(sig.parameters.keys())
-        has_var_kwargs = any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-        )
-        if niche_coords is not None and (has_var_kwargs or "niche_coords" in param_names):
-            kwargs["niche_coords"] = niche_coords
-        if spatial_niche is not None and (has_var_kwargs or "spatial_niche" in param_names):
-            kwargs["spatial_niche"] = spatial_niche
-    except (TypeError, ValueError):
-        pass
+    if niche_coords is not None:
+        kwargs["niche_coords"] = niche_coords
+    if spatial_niche is not None:
+        kwargs["spatial_niche"] = spatial_niche
     return model.forward_set_context(x_set, mask=mask, **kwargs)
 
 
@@ -202,18 +198,12 @@ def flow_matching_loss(
     wes_features = batch.wes_features
     lr_features = batch.lr_features
 
-    # Pass lr_features only to models that accept them
-    vf_kwargs: dict[str, Any] = {
-        "x_t": x_t, "t": t, "c_s": c_rep,
-        "stage_pair_id": stage_pair_id, "wes_features": wes_features,
-    }
-    try:
-        vf_sig = inspect.signature(model.forward_vector_field)
-        if "lr_features" in vf_sig.parameters:
-            vf_kwargs["lr_features"] = lr_features
-    except (TypeError, ValueError):
-        pass
-    pred = model.forward_vector_field(**vf_kwargs)
+    pred = model.forward_vector_field(
+        x_t=x_t, t=t, c_s=c_rep,
+        stage_pair_id=stage_pair_id,
+        wes_features=wes_features,
+        lr_features=lr_features,
+    )
 
     loss_fm = F.mse_loss(pred, u_t)
 

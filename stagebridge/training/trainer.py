@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,11 @@ from stagebridge.training.losses import flow_matching_loss, multihop_consistency
 from stagebridge.utils.types import StageBatch, StageBridgeConfig
 
 log = get_logger(__name__)
+
+try:  # pragma: no cover - platform dependent
+    import resource
+except Exception:  # pragma: no cover - non-POSIX
+    resource = None
 
 
 @dataclass(slots=True)
@@ -53,10 +60,16 @@ class TransitionSampler:
         lr_lookup: "dict[tuple[str, str], np.ndarray] | None" = None,
         spatial_niche: np.ndarray | None = None,
     ) -> None:
+        if int(batch_cells) <= 0:
+            raise ValueError(f"batch_cells must be >= 1, got {batch_cells}.")
+
         self.device = torch.device(device)
         self.batch_cells = int(batch_cells)
         self.stage_order = stage_order
-        self.input_dim = int(latent.shape[1])
+        latent_arr = np.asarray(latent, dtype=np.float32)
+        if latent_arr.ndim != 2:
+            raise ValueError(f"latent must be 2D, got shape={latent_arr.shape}.")
+        self.input_dim = int(latent_arr.shape[1])
         self._rng = np.random.default_rng(int(niche_random_seed))
         self._token_projection: dict[int, Tensor] = {}
 
@@ -66,38 +79,68 @@ class TransitionSampler:
         self._wes_lookup: dict[tuple[str, str], np.ndarray] | None = wes_lookup
         # LR signaling lookup: (donor_id, stage_name) → feature np.ndarray
         self._lr_lookup: dict[tuple[str, str], np.ndarray] | None = lr_lookup
-        # Spatial niche: per-cell composition vectors (N_total, n_celltypes)
-        self._spatial_niche_full: np.ndarray | None = spatial_niche
         self._m_niche = max(1, int(m_niche))
         self._niche_sampling_strategy = str(niche_sampling_strategy)
         self._niche_fallback = str(niche_fallback)
 
-        keep = np.isin(obs_donor, np.asarray(donor_ids, dtype=object))
-        latent = latent[keep]
-        obs_stage = obs_stage[keep]
-        obs_donor = obs_donor[keep]
-        self.donor_ids = sorted({str(x) for x in obs_donor.tolist()})
+        obs_stage_arr = np.asarray(obs_stage, dtype=object)
+        obs_donor_arr = np.asarray(obs_donor, dtype=object)
+        if obs_stage_arr.shape[0] != latent_arr.shape[0]:
+            raise ValueError(
+                "obs_stage length must match latent rows: "
+                f"{obs_stage_arr.shape[0]} != {latent_arr.shape[0]}."
+            )
+        if obs_donor_arr.shape[0] != latent_arr.shape[0]:
+            raise ValueError(
+                "obs_donor length must match latent rows: "
+                f"{obs_donor_arr.shape[0]} != {latent_arr.shape[0]}."
+            )
+        if len(donor_ids) == 0:
+            raise ValueError("donor_ids must be non-empty.")
+        keep = np.isin(obs_donor_arr, np.asarray(donor_ids, dtype=object))
+        keep_idx = np.where(keep)[0]
+        if keep_idx.shape[0] == 0:
+            raise ValueError("No cells found for requested donor_ids subset.")
+        obs_stage_sub = obs_stage_arr[keep]
+        obs_donor_sub = obs_donor_arr[keep]
+        self._latent = latent_arr
+        self.donor_ids = sorted({str(x) for x in obs_donor_sub.tolist()})
 
-        self.stage_to_cells: dict[str, Tensor] = {}
+        # Spatial niche: per-cell composition vectors aligned to donor-filtered subset.
+        self._spatial_niche_full: np.ndarray | None = None
+        self._donor_to_spatial_rows: dict[str, np.ndarray] = {}
+        if spatial_niche is not None:
+            spatial_arr = np.asarray(spatial_niche, dtype=np.float32)
+            if spatial_arr.ndim != 2:
+                raise ValueError(
+                    f"Spatial niche array must be 2D, got shape={spatial_arr.shape}."
+                )
+            if spatial_arr.shape[0] == obs_donor_arr.shape[0]:
+                spatial_arr = spatial_arr[keep]
+            elif spatial_arr.shape[0] != keep_idx.shape[0]:
+                raise ValueError(
+                    "Spatial niche array must align to either full obs rows or donor-filtered rows. "
+                    f"Got shape[0]={spatial_arr.shape[0]}, expected {obs_donor_arr.shape[0]} or {keep_idx.shape[0]}."
+                )
+            self._spatial_niche_full = spatial_arr
+
+        self.stage_to_cells: dict[str, np.ndarray] = {}
         for stage in stage_order:
-            idx = np.where(obs_stage == stage)[0]
+            idx = np.where(obs_stage_sub == stage)[0]
             if len(idx) == 0:
                 continue
-            arr = torch.tensor(latent[idx], dtype=torch.float32, device=self.device)
-            self.stage_to_cells[stage] = arr
+            self.stage_to_cells[stage] = keep_idx[idx]
 
-        self.donor_stage_to_cells: dict[tuple[str, str], Tensor] = {}
+        self.donor_stage_to_cells: dict[tuple[str, str], np.ndarray] = {}
         for donor in self.donor_ids:
-            donor_mask = obs_donor == donor
+            donor_mask = obs_donor_sub == donor
             for stage in stage_order:
-                idx = np.where(donor_mask & (obs_stage == stage))[0]
+                idx = np.where(donor_mask & (obs_stage_sub == stage))[0]
                 if idx.shape[0] == 0:
                     continue
-                self.donor_stage_to_cells[(donor, stage)] = torch.tensor(
-                    latent[idx],
-                    dtype=torch.float32,
-                    device=self.device,
-                )
+                self.donor_stage_to_cells[(donor, stage)] = keep_idx[idx]
+            if self._spatial_niche_full is not None:
+                self._donor_to_spatial_rows[donor] = np.where(donor_mask)[0]
 
         candidate_transitions: list[tuple[str, str]]
         if transition_src is not None or transition_tgt is not None:
@@ -127,12 +170,17 @@ class TransitionSampler:
     def available_transitions(self) -> list[tuple[str, str]]:
         return list(self.transitions)
 
-    def _sample_cells(self, x: Tensor, n: int) -> Tensor:
-        if x.shape[0] >= n:
-            idx = torch.randperm(x.shape[0], device=x.device)[:n]
-            return x[idx]
-        idx = torch.randint(0, x.shape[0], (n,), device=x.device)
-        return x[idx]
+    def _sample_cells(self, pool_idx: np.ndarray, n: int) -> Tensor:
+        """Sample latent rows by index and move the sampled batch to runtime device."""
+        if pool_idx.shape[0] == 0:
+            raise ValueError("Cannot sample from an empty index pool.")
+        replace = pool_idx.shape[0] < n
+        local_idx = self._rng.choice(pool_idx.shape[0], size=n, replace=replace)
+        sampled_idx = pool_idx[local_idx]
+        batch = torch.from_numpy(self._latent[sampled_idx])
+        if self.device.type == "cpu":
+            return batch
+        return batch.to(device=self.device, non_blocking=True)
 
     def _project_tokens(self, tokens: Tensor) -> Tensor:
         if tokens.shape[1] == self.input_dim:
@@ -217,10 +265,11 @@ class TransitionSampler:
         # Spatial niche features: use mean over source cells as a batch-level feature.
         spatial_niche: Tensor | None = None
         if self._spatial_niche_full is not None:
-            # _spatial_niche_full is aligned to the subset kept by donor filter.
-            # We pass a uniform mean since per-cell indices aren't tracked here.
-            # This gives the set context a global niche signal for the donor.
-            sn_mean = self._spatial_niche_full.mean(axis=0)
+            donor_rows = self._donor_to_spatial_rows.get(str(donor_id))
+            if donor_rows is None or donor_rows.shape[0] == 0:
+                sn_mean = self._spatial_niche_full.mean(axis=0)
+            else:
+                sn_mean = self._spatial_niche_full[donor_rows].mean(axis=0)
             spatial_niche = torch.tensor(
                 sn_mean, dtype=torch.float32, device=self.device,
             ).unsqueeze(0).expand(x_src.shape[0], -1)  # (batch_cells, niche_dim)
@@ -283,7 +332,13 @@ def build_donor_holdout_splits(
     """Create donor-held-out cross-validation splits."""
     if n_folds < 2:
         raise ValueError("n_folds must be >= 2")
+    if not donor_ids:
+        raise ValueError("donor_ids must contain at least one donor.")
     donor_ids = sorted(set(donor_ids))
+    if len(donor_ids) < n_folds:
+        raise ValueError(
+            f"n_folds={n_folds} requires at least {n_folds} unique donors, got {len(donor_ids)}."
+        )
     rng = np.random.default_rng(seed)
     shuffled = donor_ids.copy()
     rng.shuffle(shuffled)
@@ -316,6 +371,8 @@ class TrainOutput:
     history: list[dict[str, float]]
     best_val_loss: float
     benchmark_metrics: dict[str, float]
+    profile_path: Path | None = None
+    profile_summary: dict[str, float] | None = None
 
 
 class StageBridgeTrainer:
@@ -334,7 +391,63 @@ class StageBridgeTrainer:
         )
         self.scaler = torch.amp.GradScaler("cuda", enabled=(config.mixed_precision and self.device.type == "cuda"))
 
-    def _run_steps(self, sampler: TransitionSampler, n_steps: int, train: bool) -> float:
+    @staticmethod
+    def _batch_tensor_mb(batch: StageBatch) -> float:
+        total = 0
+        tensors = [
+            batch.x_src,
+            batch.x_tgt,
+            batch.x_set,
+            batch.context_mask,
+            batch.cell_type,
+            batch.wes_features,
+            batch.niche_coords,
+            batch.lr_features,
+            batch.spatial_niche,
+            batch.stage_index,
+        ]
+        for tensor in tensors:
+            if tensor is None:
+                continue
+            total += tensor.numel() * tensor.element_size()
+        return float(total) / (1024.0 * 1024.0)
+
+    @staticmethod
+    def _cpu_rss_mb() -> float | None:
+        if resource is None:
+            return None
+        rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if rss <= 0:
+            return None
+        # macOS reports bytes, Linux reports KiB.
+        if sys.platform == "darwin":  # pragma: no cover - CI is Linux
+            return float(rss) / (1024.0 * 1024.0)
+        return float(rss) / 1024.0
+
+    @staticmethod
+    def _summarize_profile_rows(rows: list[dict[str, float]]) -> dict[str, float]:
+        if not rows:
+            return {}
+        summary: dict[str, float] = {"n_profiled_steps": float(len(rows))}
+        keys = sorted({k for row in rows for k in row.keys() if k != "step_index"})
+        for key in keys:
+            vals = np.array([float(row[key]) for row in rows if key in row], dtype=float)
+            if vals.size == 0:
+                continue
+            summary[f"{key}_mean"] = float(np.nanmean(vals))
+            summary[f"{key}_p50"] = float(np.nanpercentile(vals, 50))
+            summary[f"{key}_p95"] = float(np.nanpercentile(vals, 95))
+        return summary
+
+    def _run_steps(
+        self,
+        sampler: TransitionSampler,
+        n_steps: int,
+        train: bool,
+        *,
+        profile_rows: list[dict[str, float]] | None = None,
+        profile_limit: int = 0,
+    ) -> float:
         self.model.train(mode=train)
         losses: list[float] = []
 
@@ -342,7 +455,18 @@ class StageBridgeTrainer:
             self.optimizer.zero_grad(set_to_none=True)
 
         for step in range(n_steps):
+            do_profile = bool(
+                train and profile_rows is not None and len(profile_rows) < max(0, int(profile_limit))
+            )
+            step_t0 = time.perf_counter() if do_profile else 0.0
+            if do_profile and self.device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats(self.device)
+
+            sample_t0 = time.perf_counter() if do_profile else 0.0
             batch = sampler.sample_batch()
+            sample_s = (time.perf_counter() - sample_t0) if do_profile else 0.0
+
+            fwd_t0 = time.perf_counter() if do_profile else 0.0
             with torch.set_grad_enabled(train):
                 with torch.amp.autocast("cuda", enabled=(self.config.mixed_precision and self.device.type == "cuda")):
                     loss, _, _ = flow_matching_loss(
@@ -382,7 +506,9 @@ class StageBridgeTrainer:
                         loss = loss + self.config.multihop_consistency_weight * mh_loss
 
                     loss_for_backward = loss / self.config.gradient_accumulation_steps
+            fwd_bwd_s = (time.perf_counter() - fwd_t0) if do_profile else 0.0
 
+            optim_t0 = time.perf_counter() if do_profile else 0.0
             if train:
                 self.scaler.scale(loss_for_backward).backward()
                 if (step + 1) % self.config.gradient_accumulation_steps == 0:
@@ -391,8 +517,42 @@ class StageBridgeTrainer:
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     self.optimizer.zero_grad(set_to_none=True)
+            optim_s = (time.perf_counter() - optim_t0) if do_profile else 0.0
+
+            if do_profile and profile_rows is not None:
+                row: dict[str, float] = {
+                    "step_index": float(len(profile_rows)),
+                    "sample_s": float(sample_s),
+                    "forward_backward_s": float(fwd_bwd_s),
+                    "optimizer_s": float(optim_s),
+                    "step_s": float(time.perf_counter() - step_t0),
+                    "batch_tensor_mb": float(self._batch_tensor_mb(batch)),
+                }
+                if self.device.type == "cuda":
+                    row["peak_cuda_alloc_mb"] = float(
+                        torch.cuda.max_memory_allocated(self.device) / (1024.0 * 1024.0)
+                    )
+                    row["peak_cuda_reserved_mb"] = float(
+                        torch.cuda.max_memory_reserved(self.device) / (1024.0 * 1024.0)
+                    )
+                else:
+                    cpu_rss = self._cpu_rss_mb()
+                    if cpu_rss is not None:
+                        row["rss_mb"] = float(cpu_rss)
+                profile_rows.append(row)
 
             losses.append(float(loss.detach().item()))
+
+        if (
+            train
+            and n_steps > 0
+            and (n_steps % self.config.gradient_accumulation_steps) != 0
+        ):
+            self.scaler.unscale_(self.optimizer)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.optimizer.zero_grad(set_to_none=True)
 
         return float(np.mean(losses)) if losses else float("nan")
 
@@ -449,9 +609,17 @@ class StageBridgeTrainer:
         best_ckpt = ckpt_dir / f"{run_name}_best.pt"
         no_improve = 0
         history: list[dict[str, float]] = []
+        profile_rows: list[dict[str, float]] = []
+        profile_limit = max(0, int(self.config.profile_train_steps))
 
         for epoch in range(1, self.config.max_epochs + 1):
-            train_loss = self._run_steps(train_sampler, self.config.steps_per_epoch, train=True)
+            train_loss = self._run_steps(
+                train_sampler,
+                self.config.steps_per_epoch,
+                train=True,
+                profile_rows=profile_rows if profile_limit > 0 else None,
+                profile_limit=profile_limit,
+            )
             val_loss = self._run_steps(val_sampler, self.config.val_steps, train=False)
 
             row = {
@@ -496,11 +664,25 @@ class StageBridgeTrainer:
         with history_path.open("w", encoding="utf-8") as fh:
             json.dump(history, fh, indent=2)
 
+        profile_path: Path | None = None
+        profile_summary: dict[str, float] | None = None
+        if profile_rows:
+            profile_path = output_dir / f"profile_{run_name}.json"
+            profile_summary = self._summarize_profile_rows(profile_rows)
+            with profile_path.open("w", encoding="utf-8") as fh:
+                json.dump(
+                    {"run_name": run_name, "summary": profile_summary, "steps": profile_rows},
+                    fh,
+                    indent=2,
+                )
+
         return TrainOutput(
             best_checkpoint=best_ckpt,
             history=history,
             best_val_loss=float(best_val),
             benchmark_metrics=benchmark,
+            profile_path=profile_path,
+            profile_summary=profile_summary,
         )
 
 
@@ -546,12 +728,6 @@ def build_samplers_from_anndata(
         *,
         strict_transition: bool,
     ) -> TransitionSampler:
-        # Subset spatial niche to donor
-        sn_sub: np.ndarray | None = None
-        if spatial_niche_arr is not None:
-            donor_mask = np.isin(obs_donor, np.asarray(donor_subset, dtype=object))
-            sn_sub = spatial_niche_arr[donor_mask]
-
         common_kwargs: dict[str, Any] = dict(
             latent=latent,
             obs_stage=obs_stage,
@@ -567,7 +743,7 @@ def build_samplers_from_anndata(
             niche_random_seed=niche_random_seed,
             wes_lookup=wes_lookup,
             lr_lookup=lr_lookup,
-            spatial_niche=sn_sub,
+            spatial_niche=spatial_niche_arr,
         )
         try:
             return TransitionSampler(

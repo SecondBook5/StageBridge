@@ -1,0 +1,17 @@
+# Peng et al. — LUAD evolution cohort
+# GSE308103 (snRNA-seq), GSE307534 (10x Visium), GSE307529 (WES)
+
+cohort: peng
+description: "Early lung cancer evolution: Normal → AAH → AIS → MIA → LUAD"
+
+raw:
+  snrna_tar: "${STAGEBRIDGE_DATA_ROOT}/raw/GSE308103_RAW.tar"
+  spatial_tar: "${STAGEBRIDGE_DATA_ROOT}/raw/GSE307534_RAW.tar"
+  wes_tar: "${STAGEBRIDGE_DATA_ROOT}/raw/GSE307529_RAW.tar"
+
+processed:
+  snrna_h5ad: "${STAGEBRIDGE_DATA_ROOT}/processed/anndata/snrna_merged.h5ad"
+  spatial_h5ad: "${STAGEBRIDGE_DATA_ROOT}/processed/anndata/spatial_merged.h5ad"
+  wes_parquet: "${STAGEBRIDGE_DATA_ROOT}/processed/features/wes_features.parquet"
+
+stages: [Normal, AAH, AIS, MIA, LUAD]
