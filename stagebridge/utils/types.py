@@ -91,6 +91,20 @@ class StageBridgeConfig:
     dirichlet_hidden_dim: int = 64
     dirichlet_loss_weight: float = 0.05
 
+    # ── Graph-of-Sets Transformer (GoST) ────────────────────────────────
+    # When True, PMA summaries are enriched via graph attention over
+    # neighboring (patient, stage) nodes before conditioning the drift.
+    use_graph_transformer: bool = False
+    graph_num_layers: int = 2       # number of Graph Transformer blocks
+    graph_num_heads: int = 4        # attention heads in graph attention
+
+    # ── Unified genomic niche encoder (cross-dataset) ─────────────────
+    # When True, uses a unified encoder that maps heterogeneous genomic
+    # features (WES somatic variants + lpWGS copy-number) into a shared
+    # niche embedding for cross-dataset Schrödinger bridge conditioning.
+    use_genomic_niche: bool = False
+    genomic_niche_dim: int = 32     # shared niche embedding dimension
+
     # Optimization
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
@@ -105,6 +119,8 @@ class StageBridgeConfig:
     mixed_precision: bool = True
     device: str = "cuda"
     seed: int = 42
+    # Number of early train steps to profile for runtime/memory diagnostics.
+    profile_train_steps: int = 0
 
     def resolved_device(self) -> str:
         """Return a valid runtime device string."""
@@ -138,6 +154,7 @@ class StageBatch:
     lr_features: "torch.Tensor | None" = None   # (lr_feature_dim,) per-patient LR scores
     spatial_niche: "torch.Tensor | None" = None  # (n_cells, spatial_niche_dim) per-cell niche
     stage_index: "torch.Tensor | None" = None    # (n_src,) integer stage labels for Dirichlet head
+    genomic_niche: "torch.Tensor | None" = None  # (genomic_niche_dim,) unified niche embedding
 
     def to(self, device: str) -> "StageBatch":
         """Move tensor payloads to *device* and return a new StageBatch."""
@@ -156,6 +173,7 @@ class StageBatch:
             lr_features=self.lr_features.to(device) if self.lr_features is not None else None,
             spatial_niche=self.spatial_niche.to(device) if self.spatial_niche is not None else None,
             stage_index=self.stage_index.to(device) if self.stage_index is not None else None,
+            genomic_niche=self.genomic_niche.to(device) if self.genomic_niche is not None else None,
         )
 
 

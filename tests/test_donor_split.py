@@ -1,3 +1,5 @@
+import pytest
+
 from stagebridge.training.trainer import build_donor_holdout_splits
 
 
@@ -14,3 +16,8 @@ def test_donor_holdout_split_no_overlap():
         assert train.isdisjoint(val)
         assert train.isdisjoint(test)
         assert val.isdisjoint(test)
+
+
+def test_donor_holdout_split_requires_enough_donors() -> None:
+    with pytest.raises(ValueError, match="requires at least"):
+        build_donor_holdout_splits(donor_ids=["D1", "D2"], n_folds=3, seed=42)

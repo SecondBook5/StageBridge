@@ -15,6 +15,7 @@ outputs). The Python package and scripts exist to support notebook execution.
 Project structure guides:
 - `docs/PROJECT_LAYOUT.md`
 - `docs/NOTEBOOK_WORKFLOW.md`
+- `docs/STATUS_AND_PATH_FORWARD.md`
 - `scripts/README.md`
 - `configs/README.md`
 

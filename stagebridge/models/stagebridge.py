@@ -94,6 +94,27 @@ class StageBridgeModel(nn.Module):
         else:
             self.spatial_niche_proj = None  # type: ignore[assignment]
 
+        # Graph-of-Sets Transformer for inter-set context propagation
+        if config.use_graph_transformer:
+            from stagebridge.models.graph_of_sets import GraphOfSetsTransformer
+            self.graph_transformer = GraphOfSetsTransformer(
+                dim=config.hidden_dim,
+                num_graph_layers=config.graph_num_layers,
+                num_heads=config.graph_num_heads,
+                dropout=config.dropout,
+            )
+        else:
+            self.graph_transformer = None  # type: ignore[assignment]
+
+        # Unified genomic niche encoder (cross-dataset WES + lpWGS)
+        if config.use_genomic_niche:
+            from stagebridge.models.genomic_niche import GenomicNicheConfig, GenomicNicheEncoder
+            self.genomic_niche_encoder = GenomicNicheEncoder(
+                GenomicNicheConfig(niche_dim=config.genomic_niche_dim)
+            )
+        else:
+            self.genomic_niche_encoder = None  # type: ignore[assignment]
+
         # Dirichlet stage assignment head
         if config.use_dirichlet_head:
             DirichletCls = _get_dirichlet_head_cls()
@@ -106,12 +127,14 @@ class StageBridgeModel(nn.Module):
             self.dirichlet_head = None  # type: ignore[assignment]
 
         # Effective stage dim seen by the drift head
-        # (stage_emb [+ wes_hidden] [+ lr_hidden])
+        # (stage_emb [+ wes_hidden] [+ lr_hidden] [+ genomic_niche_dim])
         _eff_stage_dim = config.stage_embedding_dim
         if config.use_wes_features:
             _eff_stage_dim += config.wes_hidden_dim
         if config.use_lr_features:
             _eff_stage_dim += config.lr_hidden_dim
+        if config.use_genomic_niche:
+            _eff_stage_dim += config.genomic_niche_dim
 
         condition_dim = config.hidden_dim + _eff_stage_dim
         self.film = FiLMConditioner(feature_dim=config.input_dim, condition_dim=condition_dim)
@@ -242,6 +265,72 @@ class StageBridgeModel(nn.Module):
                 return context[0:1]
             return context
 
+    def forward_graph_enriched_context(
+        self,
+        node_sets: list[Tensor],
+        graph: "SetGraph",
+        query_node: int,
+        mask: Tensor | None = None,
+        **kwargs: object,
+    ) -> Tensor:
+        """Compute graph-enriched context for a specific (patient, stage) node.
+
+        This is the core GoST pipeline:
+        1. Encode each node's cell set via the shared Set Transformer
+        2. Stack summaries → (N, K, D)
+        3. Pass through GraphOfSetsTransformer for inter-set attention
+        4. Return the enriched summary for the query node
+
+        Parameters
+        ----------
+        node_sets : list[Tensor]
+            Per-node cell sets.  node_sets[i] has shape (n_cells_i, input_dim).
+        graph : SetGraph
+            Graph structure over nodes.
+        query_node : int
+            Index of the node whose enriched context to return.
+        mask : optional
+        **kwargs : spatial_niche, niche_coords etc. forwarded per query node only.
+
+        Returns
+        -------
+        Tensor
+            Shape ``(1, D)`` (MLP mode) or ``(1, K, D)`` (cross-attn mode).
+        """
+        from stagebridge.models.graph_of_sets import SetGraph as _SG  # noqa: F811
+
+        if self.graph_transformer is None:
+            # Fallback: just encode the query node's set directly
+            return self.forward_set_context(node_sets[query_node], mask=mask, **kwargs)
+
+        # Step 1: Encode each node's cell set (shared weights, no grad for non-query)
+        summaries = []
+        for i, x_set in enumerate(node_sets):
+            if x_set.ndim == 2:
+                x_set = x_set.unsqueeze(0)
+            h = self.input_projection(x_set)
+            h = self.isab1(h)
+            h = self.isab2(h)
+            h = self.sab(h)
+            pma_out = self.pma(h)  # (1, K, D)
+            # Apply context head token-wise
+            if self.config.use_cross_attn_drift:
+                ctx = self.context_head(pma_out)
+            else:
+                ctx = self.context_head(pma_out[:, 0:1, :])
+            summaries.append(ctx)
+
+        # Step 2: Stack into (N, K, D)
+        node_summaries = torch.cat(summaries, dim=0)
+
+        # Step 3: Graph enrichment
+        enriched = self.graph_transformer(node_summaries, graph, query_node=query_node)
+
+        # Step 4: Return in expected shape
+        if not self.config.use_cross_attn_drift:
+            return enriched.squeeze(1)  # (1, D)
+        return enriched  # (1, K, D)
+
     def _broadcast_condition(
         self,
         c_s: Tensor,
@@ -267,8 +356,9 @@ class StageBridgeModel(nn.Module):
         stage_pair_id: Tensor,
         wes_features: Tensor | None = None,
         lr_features: Tensor | None = None,
+        genomic_niche: Tensor | None = None,
     ) -> Tensor:
-        """Predict velocity v_phi(x_t, t, c_s, e_stage[, wes][, lr]).
+        """Predict velocity v_phi(x_t, t, c_s, e_stage[, wes][, lr][, niche]).
 
         ``c_s`` may be either:
 
@@ -277,6 +367,7 @@ class StageBridgeModel(nn.Module):
 
         ``wes_features``: optional ``(B, wes_feature_dim)`` somatic feature tensor.
         ``lr_features``: optional ``(B, lr_feature_dim)`` LR signaling tensor.
+        ``genomic_niche``: optional ``(B, genomic_niche_dim)`` unified niche embedding.
         """
         n = x_t.shape[0]
         c_s, stage_pair_id = self._broadcast_condition(c_s=c_s, stage_pair_id=stage_pair_id, batch_size=n)
@@ -304,6 +395,16 @@ class StageBridgeModel(nn.Module):
                     lr_features = lr_features.unsqueeze(0).expand(n, -1)
                 lr_h = self.lr_proj(lr_features.to(x_t.dtype))
             stage_emb = torch.cat([stage_emb, lr_h], dim=-1)
+
+        # Optionally augment with unified genomic niche embedding
+        if self.config.use_genomic_niche:
+            if genomic_niche is None:
+                niche_h = torch.zeros(n, self.config.genomic_niche_dim, device=x_t.device, dtype=x_t.dtype)
+            else:
+                if genomic_niche.ndim == 1:
+                    genomic_niche = genomic_niche.unsqueeze(0).expand(n, -1)
+                niche_h = genomic_niche.to(x_t.dtype)
+            stage_emb = torch.cat([stage_emb, niche_h], dim=-1)
 
         time_emb = self.time_embedding(t)
 

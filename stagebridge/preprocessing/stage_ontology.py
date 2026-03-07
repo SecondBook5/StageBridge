@@ -9,6 +9,26 @@ import pandas as pd
 
 CANONICAL_STAGE_ORDER: tuple[str, ...] = ("Normal", "AAH", "AIS", "MIA", "LUAD")
 
+# Extended ontology for cross-dataset modeling (Normal → ... → metastasis).
+# LUAD/PRIMARY are treated as the same biological stage (primary NSCLC tumor)
+# bridging the early-progression (GSE308103) and brain-mets (GSE223499) datasets.
+EXTENDED_STAGE_ORDER: tuple[str, ...] = (
+    "Normal", "AAH", "AIS", "MIA", "LUAD",  # early progression
+    "BrainMet",                               # brain metastasis
+    "ChestWallMet",                           # chest wall metastasis
+)
+
+# Adjacency edges in the extended graph (not necessarily linear).
+# LUAD branches to BrainMet and ChestWallMet.
+EXTENDED_STAGE_EDGES: list[tuple[str, str]] = [
+    ("Normal", "AAH"),
+    ("AAH", "AIS"),
+    ("AIS", "MIA"),
+    ("MIA", "LUAD"),
+    ("LUAD", "BrainMet"),
+    ("LUAD", "ChestWallMet"),
+]
+
 _ALIASES: dict[str, str] = {
     "normal": "Normal",
     "healthy": "Normal",
@@ -22,6 +42,14 @@ _ALIASES: dict[str, str] = {
     "luad": "LUAD",
     "invasive luad": "LUAD",
     "adenocarcinoma": "LUAD",
+    "primary": "LUAD",
+    "brain mets": "BrainMet",
+    "brain_mets": "BrainMet",
+    "brainmet": "BrainMet",
+    "brain metastasis": "BrainMet",
+    "chest wall met": "ChestWallMet",
+    "chest_wall_met": "ChestWallMet",
+    "chestwallmet": "ChestWallMet",
 }
 
 
@@ -48,24 +76,35 @@ def normalize_stage_series(series: pd.Series) -> pd.Series:
     return series.astype(str).map(normalize_stage_label)
 
 
-def stage_to_index(stage: str) -> int:
-    """Map canonical stage name to ordinal index."""
+def stage_to_index(stage: str, *, extended: bool = False) -> int:
+    """Map canonical stage name to ordinal index.
+
+    Parameters
+    ----------
+    stage : str
+        Stage name (raw or normalized).
+    extended : bool
+        When True, use the extended ontology (includes BrainMet, ChestWallMet).
+        Default False uses the original 5-stage LUAD ontology.
+    """
+    order = EXTENDED_STAGE_ORDER if extended else CANONICAL_STAGE_ORDER
     normalized = normalize_stage_label(stage)
-    if normalized not in CANONICAL_STAGE_ORDER:
+    if normalized not in order:
         raise ValueError(
             f"Unknown stage '{stage}' (normalized='{normalized}'). "
-            f"Expected one of {CANONICAL_STAGE_ORDER}."
+            f"Expected one of {order}."
         )
-    return CANONICAL_STAGE_ORDER.index(normalized)
+    return order.index(normalized)
 
 
-def index_to_stage(index: int) -> str:
+def index_to_stage(index: int, *, extended: bool = False) -> str:
     """Inverse mapping from stage index to name."""
-    if index < 0 or index >= len(CANONICAL_STAGE_ORDER):
+    order = EXTENDED_STAGE_ORDER if extended else CANONICAL_STAGE_ORDER
+    if index < 0 or index >= len(order):
         raise IndexError(
-            f"Stage index {index} out of range [0, {len(CANONICAL_STAGE_ORDER)-1}]"
+            f"Stage index {index} out of range [0, {len(order)-1}]"
         )
-    return CANONICAL_STAGE_ORDER[index]
+    return order[index]
 
 
 def ordered_transitions(order: tuple[str, ...] | None = None) -> list[tuple[str, str]]:

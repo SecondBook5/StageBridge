@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-import hashlib
+import re
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from stagebridge.logging_utils import configure_root_logger, get_logger
 from stagebridge.models.stagebridge import StageBridgeModel
-from stagebridge.preprocessing.harmonize import add_hlca_latent, ensure_required_obs_fields
+from stagebridge.preprocessing.harmonize import ensure_required_obs_fields
 from stagebridge.preprocessing.stage_ontology import stage_to_index
 from stagebridge.runs import build_output_context
 from stagebridge.training.trainer import (
@@ -21,6 +22,11 @@ from stagebridge.training.trainer import (
     donors_with_min_stage_coverage,
 )
 from stagebridge.training.eval import evaluate_transition
+from stagebridge.utils.config_helpers import (
+    build_stagebridge_config_from_cfg,
+    ensure_latent,
+    stable_hash,
+)
 from stagebridge.utils.types import RunManifest, StageBridgeConfig
 
 configure_root_logger()
@@ -33,47 +39,36 @@ except Exception as exc:  # pragma: no cover
 
 
 
-def _ensure_latent(adata: anndata.AnnData, cfg: DictConfig) -> None:
-    target_key = str(cfg.data.latent_key)
-    fallback_key = str(cfg.data.fallback_latent_key)
-
-    if target_key in adata.obsm:
-        return
-
-    # Support latent-only AnnData where X already stores latent vectors.
-    var_names = adata.var_names.astype(str) if adata.var_names is not None else np.array([], dtype=object)
-    if adata.X is not None and adata.n_vars > 0 and all(str(v).startswith("latent_") for v in var_names):
-        adata.obsm[target_key] = np.asarray(adata.X, dtype=np.float32)
-        log.info("Attached latent from adata.X -> adata.obsm['%s'] (latent-only h5ad).", target_key)
-        return
-
-    if fallback_key not in adata.obsm:
-        raise KeyError(
-            f"Missing both '{cfg.data.latent_key}' and '{cfg.data.fallback_latent_key}' in obsm."
-        )
-
-    add_hlca_latent(
-        adata=adata,
-        reference=None,
-        source_key=fallback_key,
-        output_key=target_key,
-        n_components=int(_model_value(cfg, "input_dim")),
-    )
+_stable_hash = stable_hash
 
 
-def _stable_hash(payload: object) -> str:
-    raw = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
+def _ensure_latent(adata: "anndata.AnnData", cfg: DictConfig) -> None:
+    ensure_latent(adata, cfg, allow_hlca_reference=False)
 
 
-def _model_value(cfg: DictConfig, key: str) -> object:
-    """Read a model field from either cfg.model.config.<key> or cfg.model.<key>."""
-    value = OmegaConf.select(cfg, f"model.config.{key}")
-    if value is None:
-        value = OmegaConf.select(cfg, f"model.{key}")
-    if value is None:
-        raise KeyError(f"Missing model field '{key}' in cfg.model or cfg.model.config.")
-    return value
+def _fold_index_from_checkpoint_name(ckpt_path: Path, n_folds: int) -> int:
+    match = re.search(r"_fold(\d+)", ckpt_path.stem)
+    if match is None:
+        return 0
+    idx = int(match.group(1))
+    if idx < 0 or idx >= n_folds:
+        log.warning("Checkpoint fold index %d is out of range for n_folds=%d; using fold 0.", idx, n_folds)
+        return 0
+    return idx
+
+
+def _build_eval_model_cfg(cfg: DictConfig, ckpt_cfg: dict[str, object]) -> StageBridgeConfig:
+    merged = asdict(build_stagebridge_config_from_cfg(cfg))
+
+    # Checkpoint should override architecture/training fields when present.
+    fields = set(StageBridgeConfig.__dataclass_fields__.keys())
+    for key, value in ckpt_cfg.items():
+        if key in fields:
+            merged[key] = value
+
+    # Always evaluate on the currently requested device.
+    merged["device"] = str(cfg.training.device)
+    return StageBridgeConfig(**merged)
 
 
 def run_evaluation(cfg: DictConfig) -> dict[str, object]:
@@ -99,41 +94,12 @@ def run_evaluation(cfg: DictConfig) -> dict[str, object]:
         n_folds=int(cfg.splits.n_folds),
         seed=int(cfg.training.seed),
     )
-    split = splits[0]
+    split_idx = _fold_index_from_checkpoint_name(ckpt_path, n_folds=len(splits))
+    split = splits[split_idx]
 
     payload = torch.load(ckpt_path, map_location="cpu")
     ckpt_cfg = payload.get("config", {})
-
-    model_input_dim = int(_model_value(cfg, "input_dim"))
-    model_hidden_dim = int(_model_value(cfg, "hidden_dim"))
-    model_vector_field_hidden_dim = int(_model_value(cfg, "vector_field_hidden_dim"))
-    model_num_heads = int(_model_value(cfg, "num_heads"))
-    model_num_inducing_points = int(_model_value(cfg, "num_inducing_points"))
-    model_num_seed_vectors = int(_model_value(cfg, "num_seed_vectors"))
-    model_num_stages = int(_model_value(cfg, "num_stages"))
-    model_time_embedding_dim = int(_model_value(cfg, "time_embedding_dim"))
-    model_stage_embedding_dim = int(_model_value(cfg, "stage_embedding_dim"))
-    model_dropout = float(_model_value(cfg, "dropout"))
-
-    model_cfg = StageBridgeConfig(
-        input_dim=int(ckpt_cfg.get("input_dim", model_input_dim)),
-        hidden_dim=int(ckpt_cfg.get("hidden_dim", model_hidden_dim)),
-        vector_field_hidden_dim=int(
-            ckpt_cfg.get("vector_field_hidden_dim", model_vector_field_hidden_dim)
-        ),
-        num_heads=int(ckpt_cfg.get("num_heads", model_num_heads)),
-        num_inducing_points=int(ckpt_cfg.get("num_inducing_points", model_num_inducing_points)),
-        num_seed_vectors=int(ckpt_cfg.get("num_seed_vectors", model_num_seed_vectors)),
-        num_stages=int(ckpt_cfg.get("num_stages", model_num_stages)),
-        time_embedding_dim=int(ckpt_cfg.get("time_embedding_dim", model_time_embedding_dim)),
-        stage_embedding_dim=int(ckpt_cfg.get("stage_embedding_dim", model_stage_embedding_dim)),
-        dropout=float(ckpt_cfg.get("dropout", model_dropout)),
-        ot_epsilon=float(ckpt_cfg.get("ot_epsilon", cfg.training.ot_epsilon)),
-        sinkhorn_iters=int(ckpt_cfg.get("sinkhorn_iters", cfg.training.sinkhorn_iters)),
-        use_ot=bool(ckpt_cfg.get("use_ot", cfg.training.use_ot)),
-        use_stage_embedding=bool(ckpt_cfg.get("use_stage_embedding", cfg.training.use_stage_embedding)),
-        device=str(cfg.training.device),
-    )
+    model_cfg = _build_eval_model_cfg(cfg=cfg, ckpt_cfg=ckpt_cfg)
 
     model = StageBridgeModel(config=model_cfg)
     model.load_state_dict(payload["model_state_dict"])

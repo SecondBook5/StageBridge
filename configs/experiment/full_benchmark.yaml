@@ -18,6 +18,10 @@ variants:
   - stagebridge_multihop   # StageBridge + multi-hop consistency + SB-CFM
   - stagebridge_full_t3    # Full Tier 3: xattn + WES + LR + spatial + Dirichlet + multihop
 
+  # ── Graph-of-Sets Transformer (GoST) ─────────────────
+  - stagebridge_gost       # StageBridge + GoST inter-set context + SB-CFM
+  - stagebridge_gost_xattn # GoST + cross-attention drift + SB-CFM
+
 ablations:
   - no_ot
   - no_context

@@ -1,0 +1,56 @@
+# StageBridge TopoFlow — full production config
+# Data paths use ${STAGEBRIDGE_DATA_ROOT} env var
+
+data:
+  data_root: "${STAGEBRIDGE_DATA_ROOT}"
+  snrna_path: "${STAGEBRIDGE_DATA_ROOT}/processed/anndata/snrna_merged.h5ad"
+  spatial_path: "${STAGEBRIDGE_DATA_ROOT}/processed/anndata/spatial_merged.h5ad"
+  hlca_path: "${STAGEBRIDGE_DATA_ROOT}/external/hlca/hlca_full.h5ad"
+  wes_path: "${STAGEBRIDGE_DATA_ROOT}/processed/features/wes_features.parquet"
+
+model:
+  input_dim: 64
+  hidden_dim: 128
+  vector_field_hidden_dim: 256
+  num_heads: 8
+  num_inducing_points: 16
+  num_seed_vectors: 1
+  num_stages: 5
+  time_embedding_dim: 32
+  stage_embedding_dim: 32
+  dropout: 0.1
+  use_ot: true
+  use_stage_embedding: true
+  use_cross_attn_drift: false
+  use_spatial_rpe: false
+  use_graph_transformer: false
+  graph_num_layers: 2
+  graph_num_heads: 4
+
+bridge:
+  ot_epsilon: 0.05
+  sinkhorn_iters: 80
+  num_ot_pairs: 512
+  sigma: 0.0
+  use_stochastic_bridge: false
+  context_consistency_weight: 0.1
+
+training:
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-4
+  grad_clip_norm: 1.0
+  max_epochs: 150
+  steps_per_epoch: 50
+  val_steps: 10
+  patience: 20
+  gradient_accumulation_steps: 1
+  mixed_precision: true
+  device: cuda
+  seed: 42
+
+stages:
+  order: [Normal, AAH, AIS, MIA, LUAD]
+  extended: false
+
+output:
+  output_dir: outputs/runs

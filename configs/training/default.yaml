@@ -58,3 +58,6 @@ m_niche: 64
 niche_sampling_strategy: random_m
 niche_fallback: donor
 niche_random_seed: 42
+
+# Optional trainer profiling (0 disables)
+profile_train_steps: 0
