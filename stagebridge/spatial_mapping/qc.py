@@ -14,6 +14,22 @@ from stagebridge.logging_utils import get_logger
 log = get_logger(__name__)
 
 
+def summarize_mapping_qc(compositions: np.ndarray) -> dict[str, float]:
+    """Return compact QC metrics for a spot-composition matrix."""
+    arr = np.asarray(compositions, dtype=np.float32)
+    if arr.ndim != 2:
+        raise ValueError(f"Expected 2D composition matrix, got shape={arr.shape}.")
+    row_sums = arr.sum(axis=1)
+    max_vals = arr.max(axis=1)
+    return {
+        "mean_row_sum": float(row_sums.mean()) if row_sums.size else 0.0,
+        "std_row_sum": float(row_sums.std()) if row_sums.size else 0.0,
+        "mean_max_assignment": float(max_vals.mean()) if max_vals.size else 0.0,
+        "n_spots": float(arr.shape[0]),
+        "n_features": float(arr.shape[1]),
+    }
+
+
 def compute_basic_qc(adata: anndata.AnnData, layer: str | None = None) -> None:
     """Compute per-cell QC metrics and store them in ``adata.obs``.
 

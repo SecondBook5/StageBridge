@@ -37,6 +37,8 @@ def _infer_promoted_slots(metadata: RunMetadata) -> list[str]:
     slots: list[str] = []
     if metadata.mode == "rna_only":
         slots.append("best_rna_only")
+    if metadata.context_model_mode == "deep_sets" and not metadata.wes_regularizer_enabled:
+        slots.append("best_deep_sets")
     if metadata.context_model_mode == "set_only" and not metadata.wes_regularizer_enabled:
         slots.append("best_set_only")
     if metadata.context_model_mode == "graph_of_sets" and not metadata.wes_regularizer_enabled:

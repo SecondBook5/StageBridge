@@ -29,15 +29,185 @@ import anndata
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from sklearn.decomposition import PCA, TruncatedSVD
 from tqdm import tqdm
 
 from stagebridge.logging_utils import get_logger
+from stagebridge.data.common.schema import LatentCohort
+from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.data.luad_evo.stages import (
     CANONICAL_STAGE_ORDER,
     normalize_stage_label,
 )
 
 log = get_logger(__name__)
+
+
+def resolve_snrna_latent_path(cfg: Any | None = None) -> Path:
+    """Resolve the active LUAD latent path with fallbacks to real local assets."""
+    if cfg is not None:
+        paths = resolve_luad_evo_paths(cfg)
+        candidates = [
+            paths.snrna_latent_h5ad,
+            paths.snrna_h5ad,
+        ]
+    else:
+        candidates = [
+            Path("/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad"),
+            Path("/mnt/e/StageBridge_data/interim/anndata/snrna/snrna_full.h5ad"),
+        ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "Could not resolve an snRNA latent file for luad_evo. "
+        f"Tried: {[str(path) for path in candidates]}"
+    )
+
+
+def load_luad_evo_snrna_latent(
+    cfg: Any | None = None,
+    *,
+    stages: list[str] | None = None,
+    donors: list[str] | None = None,
+    max_cells_per_stage: int | None = None,
+    seed: int = 42,
+) -> LatentCohort:
+    """Load the active LUAD snRNA latent table used by Mission 3 pipelines."""
+    latent_path = resolve_snrna_latent_path(cfg)
+    adata = anndata.read_h5ad(latent_path)
+    obs = adata.obs.copy()
+    if "stage" not in obs.columns:
+        raise KeyError(f"Missing 'stage' column in {latent_path}.")
+
+    if "donor_id" not in obs.columns and "patient_id" in obs.columns:
+        obs["donor_id"] = obs["patient_id"].astype(str)
+    if "patient_id" not in obs.columns and "donor_id" in obs.columns:
+        obs["patient_id"] = obs["donor_id"].astype(str)
+    if "sample_id" not in obs.columns:
+        obs["sample_id"] = obs.index.astype(str)
+    obs["stage"] = obs["stage"].astype(str).map(normalize_stage_label)
+    obs["donor_id"] = obs["donor_id"].astype(str)
+    obs["patient_id"] = obs["patient_id"].astype(str)
+
+    mask = np.ones(adata.n_obs, dtype=bool)
+    if stages:
+        wanted = {normalize_stage_label(stage) for stage in stages}
+        mask &= obs["stage"].isin(wanted).to_numpy()
+    if donors:
+        wanted_donors = {str(donor) for donor in donors}
+        mask &= obs["donor_id"].isin(wanted_donors).to_numpy()
+
+    if max_cells_per_stage is not None and max_cells_per_stage > 0:
+        rng = np.random.default_rng(int(seed))
+        chosen = np.zeros(adata.n_obs, dtype=bool)
+        masked_positions = np.flatnonzero(mask)
+        masked_stages = obs.iloc[masked_positions]["stage"].to_numpy()
+        for stage_name in pd.unique(masked_stages):
+            stage_rows = masked_positions[masked_stages == stage_name]
+            if stage_rows.shape[0] <= max_cells_per_stage:
+                chosen[stage_rows] = True
+                continue
+            keep = rng.choice(stage_rows, size=int(max_cells_per_stage), replace=False)
+            chosen[keep] = True
+        mask &= chosen
+
+    latent = np.asarray(adata.X[mask], dtype=np.float32)
+    obs = obs.loc[mask].reset_index(drop=True)
+    feature_names = tuple(f"{(getattr(cfg, 'data', {}) or {}).get('latent_key', 'X_hlca')}_{i}" for i in range(latent.shape[1]))
+    return LatentCohort(
+        latent=latent,
+        obs=obs,
+        feature_names=feature_names,
+        source_path=latent_path,
+        latent_key="X_hlca",
+    )
+
+
+def load_luad_evo_snrna_pca_latent(
+    cfg: Any | None = None,
+    *,
+    stages: list[str] | None = None,
+    donors: list[str] | None = None,
+    max_cells_per_stage: int | None = None,
+    n_components: int = 32,
+    seed: int = 42,
+    log1p_transform: bool = True,
+) -> LatentCohort:
+    """Fit a lightweight PCA/SVD latent directly from the active snRNA matrix.
+
+    This is the deliberate fallback backend for latent-sensitivity testing.
+    It uses the raw snRNA h5ad rather than the precomputed HLCA latent file.
+    """
+    paths = resolve_luad_evo_paths(cfg or {})
+    raw_path = paths.snrna_h5ad
+    if not raw_path.exists():
+        raise FileNotFoundError(f"Raw snRNA h5ad not found: {raw_path}")
+
+    adata = anndata.read_h5ad(raw_path, backed="r")
+    obs = adata.obs.copy()
+    if "stage" not in obs.columns:
+        raise KeyError(f"Missing 'stage' column in {raw_path}.")
+    if "donor_id" not in obs.columns and "patient_id" in obs.columns:
+        obs["donor_id"] = obs["patient_id"].astype(str)
+    if "patient_id" not in obs.columns and "donor_id" in obs.columns:
+        obs["patient_id"] = obs["donor_id"].astype(str)
+    if "sample_id" not in obs.columns:
+        obs["sample_id"] = obs.index.astype(str)
+    obs["stage"] = obs["stage"].astype(str).map(normalize_stage_label)
+    obs["donor_id"] = obs["donor_id"].astype(str)
+    obs["patient_id"] = obs["patient_id"].astype(str)
+
+    mask = np.ones(adata.n_obs, dtype=bool)
+    if stages:
+        wanted = {normalize_stage_label(stage) for stage in stages}
+        mask &= obs["stage"].isin(wanted).to_numpy()
+    if donors:
+        wanted_donors = {str(donor) for donor in donors}
+        mask &= obs["donor_id"].isin(wanted_donors).to_numpy()
+
+    if max_cells_per_stage is not None and max_cells_per_stage > 0:
+        rng = np.random.default_rng(int(seed))
+        chosen = np.zeros(adata.n_obs, dtype=bool)
+        masked_positions = np.flatnonzero(mask)
+        masked_stages = obs.iloc[masked_positions]["stage"].to_numpy()
+        for stage_name in pd.unique(masked_stages):
+            stage_rows = masked_positions[masked_stages == stage_name]
+            if stage_rows.shape[0] <= max_cells_per_stage:
+                chosen[stage_rows] = True
+                continue
+            keep = rng.choice(stage_rows, size=int(max_cells_per_stage), replace=False)
+            chosen[keep] = True
+        mask &= chosen
+
+    rows = np.flatnonzero(mask)
+    if rows.size == 0:
+        raise ValueError("No snRNA rows remained after PCA latent filtering.")
+
+    matrix = adata.X[rows]
+    if sp.issparse(matrix):
+        matrix = matrix.tocsr().astype(np.float32, copy=False)
+        if log1p_transform:
+            matrix = matrix.copy()
+            matrix.data = np.log1p(matrix.data)
+        n_eff = max(2, min(int(n_components), int(matrix.shape[0]) - 1, int(matrix.shape[1]) - 1))
+        latent = TruncatedSVD(n_components=n_eff, random_state=int(seed)).fit_transform(matrix).astype(np.float32)
+    else:
+        matrix = np.asarray(matrix, dtype=np.float32)
+        if log1p_transform:
+            matrix = np.log1p(matrix)
+        n_eff = max(2, min(int(n_components), int(matrix.shape[0]) - 1, int(matrix.shape[1]) - 1))
+        latent = PCA(n_components=n_eff, random_state=int(seed)).fit_transform(matrix).astype(np.float32)
+
+    obs = obs.iloc[rows].reset_index(drop=True)
+    feature_names = tuple(f"X_pca_{i}" for i in range(latent.shape[1]))
+    return LatentCohort(
+        latent=latent,
+        obs=obs,
+        feature_names=feature_names,
+        source_path=raw_path,
+        latent_key="X_pca",
+    )
 
 # ---------------------------------------------------------------------------
 # Filename parsing

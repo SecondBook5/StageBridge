@@ -13,14 +13,24 @@ from .run_transition_model import run_transition_model
 
 
 def run_full(cfg: DictConfig) -> dict[str, Any]:
+    reference = run_reference(cfg)
+    spatial_mapping = run_spatial_mapping(cfg, reference_output=reference)
+    context_model = run_context_model(cfg, spatial_output=spatial_mapping)
+    transition_model = run_transition_model(
+        cfg,
+        reference_output=reference,
+        spatial_output=spatial_mapping,
+        context_output=context_model,
+    )
+    evaluation = run_evaluation(cfg, transition_output=transition_model, context_output=context_model)
     return {
         "ok": True,
         "pipeline": "full",
         "steps": {
-            "reference": run_reference(cfg),
-            "spatial_mapping": run_spatial_mapping(cfg),
-            "context_model": run_context_model(cfg),
-            "transition_model": run_transition_model(cfg),
-            "evaluation": run_evaluation(cfg),
+            "reference": reference,
+            "spatial_mapping": spatial_mapping,
+            "context_model": context_model,
+            "transition_model": transition_model,
+            "evaluation": evaluation,
         },
     }

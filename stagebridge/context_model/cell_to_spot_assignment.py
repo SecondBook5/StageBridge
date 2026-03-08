@@ -26,6 +26,33 @@ _TANGRAM_KEY = "X_tangram_ct"
 _SPATIAL_KEY = "spatial"
 
 
+def select_stage_donor_token_context(
+    typed_tokens: np.ndarray,
+    coords: np.ndarray,
+    obs: Any,
+    *,
+    donor_id: str,
+    stage: str,
+    max_spots: int = 256,
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Select the typed token set for one donor-stage context, with stage/global fallback."""
+    obs_df = obs if hasattr(obs, "loc") else None
+    if obs_df is None:
+        raise TypeError("obs must be a pandas DataFrame-like object.")
+    mask = (obs_df["donor_id"].astype(str) == str(donor_id)) & (obs_df["stage"].astype(str) == str(stage))
+    if not mask.any():
+        mask = obs_df["stage"].astype(str) == str(stage)
+    if not mask.any():
+        mask = np.ones(len(obs_df), dtype=bool)
+
+    idx = np.flatnonzero(np.asarray(mask, dtype=bool))
+    if idx.shape[0] > max_spots > 0:
+        rng = np.random.default_rng(int(seed))
+        idx = np.sort(rng.choice(idx, size=int(max_spots), replace=False))
+    return typed_tokens[idx], coords[idx]
+
+
 def build_snrna_spatial_niche_features(
     adata_snrna: Any,
     adata_spatial: Any,

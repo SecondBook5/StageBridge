@@ -12,6 +12,8 @@ profiles:
 
 reference:
   method: hlca
+  latent_backend: hlca
   latent_key: X_hlca
   label_key: hlca_label
+  n_components: 32
   reference_h5ad: /mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad

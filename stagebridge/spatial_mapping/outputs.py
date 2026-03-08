@@ -11,3 +11,4 @@ class SpatialMappingArtifacts:
 
     method: str
     output_path: Path
+    summary_path: Path | None = None

@@ -18,12 +18,80 @@ from tqdm.auto import tqdm
 import zarr
 
 from stagebridge.logging_utils import get_logger
+from stagebridge.context_model.token_schema import TypedTokenSchema, default_typed_token_schema
 
 log = get_logger(__name__)
 
 INDEX_COLUMN = "__index_level_0__"
 DEFAULT_TOKEN_PREFIX = "tok_"
 DEFAULT_SMOOTH_TOKEN_PREFIX = "tok_smooth_"
+
+
+@dataclass(slots=True, frozen=True)
+class TypedTokenResult:
+    """Typed token table produced from spot-level spatial mapping outputs."""
+
+    tokens: np.ndarray
+    coords: np.ndarray
+    obs: pd.DataFrame
+    schema: TypedTokenSchema
+
+    def summary(self) -> dict[str, object]:
+        return {
+            "n_tokens": int(self.tokens.shape[0]),
+            "token_dim": int(self.tokens.shape[1]),
+            "typed_feature_names": list(self.schema.typed_feature_names),
+            "stage_counts": {str(k): int(v) for k, v in self.obs.groupby("stage").size().items()},
+        }
+
+
+def build_typed_spot_tokens(
+    compositions: np.ndarray,
+    coords: np.ndarray,
+    obs: pd.DataFrame,
+    raw_feature_names: list[str] | tuple[str, ...],
+    *,
+    schema: TypedTokenSchema | None = None,
+    normalize_rows: bool = True,
+) -> TypedTokenResult:
+    """Aggregate raw Tangram cell-state outputs into typed niche token groups."""
+    raw = np.asarray(compositions, dtype=np.float32)
+    if raw.ndim != 2:
+        raise ValueError(f"Expected 2D compositions matrix, got shape={raw.shape}.")
+    if coords.shape[0] != raw.shape[0]:
+        raise ValueError("coords rows must match compositions rows.")
+    if obs.shape[0] != raw.shape[0]:
+        raise ValueError("obs rows must match compositions rows.")
+
+    schema = schema or default_typed_token_schema(raw_feature_names)
+    feature_names = [str(name) for name in raw_feature_names]
+    if len(feature_names) != raw.shape[1]:
+        raise ValueError(
+            f"Feature-name length mismatch: {len(feature_names)} names for {raw.shape[1]} columns."
+        )
+
+    values = raw.copy()
+    if normalize_rows:
+        row_sums = values.sum(axis=1, keepdims=True)
+        values = np.divide(
+            values,
+            row_sums,
+            out=np.zeros_like(values),
+            where=row_sums > 0,
+        )
+
+    typed = np.zeros((values.shape[0], len(schema.typed_feature_names)), dtype=np.float32)
+    group_to_col = {name: idx for idx, name in enumerate(schema.typed_feature_names)}
+    for col_idx, feature_name in enumerate(feature_names):
+        group_name = schema.group_for(feature_name)
+        typed[:, group_to_col[group_name]] += values[:, col_idx]
+
+    return TypedTokenResult(
+        tokens=typed,
+        coords=np.asarray(coords, dtype=np.float32),
+        obs=obs.reset_index(drop=True).copy(),
+        schema=schema,
+    )
 
 
 @dataclass(slots=True)

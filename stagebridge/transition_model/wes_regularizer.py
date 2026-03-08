@@ -25,6 +25,7 @@ FiLM or concatenation, just like the existing WES feature path.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 from torch import Tensor, nn
@@ -38,6 +39,14 @@ class GenomicNicheConfig:
     niche_dim: int = 32    # shared niche embedding dimension
     dropout: float = 0.1
     num_modalities: int = 3  # 0=none, 1=wes, 2=lpwgs
+
+
+@dataclass(slots=True, frozen=True)
+class WESRegularizerConfig:
+    """Configuration for WES-based transport regularization."""
+
+    penalty_scale: float = 0.5
+    normalize: bool = True
 
 
 class GenomicNicheEncoder(nn.Module):
@@ -169,3 +178,63 @@ def build_niche_lookup(
                 lookup[pid]["modality"] = 2
 
     return lookup
+
+
+def lookup_wes_vectors(
+    obs: Any,
+    wes_lookup: dict[tuple[str, str], Any],
+    *,
+    donor_col: str = "donor_id",
+    patient_col: str = "patient_id",
+    stage_col: str = "stage",
+) -> Tensor:
+    """Align `(donor, stage)` WES vectors to observation rows, zero-filling missing pairs."""
+    if hasattr(obs, "to_dict"):
+        records = obs.to_dict(orient="records")
+    else:
+        records = list(obs)
+
+    feature_dim = 0
+    if wes_lookup:
+        first_value = next(iter(wes_lookup.values()))
+        feature_dim = int(len(first_value))
+
+    vectors: list[Tensor] = []
+    for row in records:
+        donor_id = str(row.get(donor_col) or row.get(patient_col) or "")
+        stage = str(row.get(stage_col) or "")
+        value = wes_lookup.get((donor_id, stage))
+        if value is None:
+            vectors.append(torch.zeros(feature_dim, dtype=torch.float32))
+        else:
+            vectors.append(torch.as_tensor(value, dtype=torch.float32))
+
+    if not vectors:
+        return torch.zeros((0, feature_dim), dtype=torch.float32)
+    return torch.stack(vectors, dim=0)
+
+
+def pairwise_wes_penalty(
+    src_wes: Tensor | Any,
+    tgt_wes: Tensor | Any,
+    *,
+    penalty_scale: float = 0.5,
+    normalize: bool = True,
+) -> Tensor:
+    """Compute a pairwise WES compatibility penalty for transport regularization."""
+    src = src_wes if isinstance(src_wes, Tensor) else torch.as_tensor(src_wes, dtype=torch.float32)
+    tgt = tgt_wes if isinstance(tgt_wes, Tensor) else torch.as_tensor(tgt_wes, dtype=torch.float32)
+    if src.ndim != 2 or tgt.ndim != 2:
+        raise ValueError(
+            f"src_wes and tgt_wes must be 2D, got {tuple(src.shape)} and {tuple(tgt.shape)}."
+        )
+    if src.shape[1] != tgt.shape[1]:
+        raise ValueError(
+            "src_wes and tgt_wes must share the same feature dimension: "
+            f"{src.shape[1]} != {tgt.shape[1]}."
+        )
+
+    penalty = torch.cdist(src, tgt, p=1)
+    if normalize and src.shape[1] > 0:
+        penalty = penalty / float(src.shape[1])
+    return float(penalty_scale) * penalty

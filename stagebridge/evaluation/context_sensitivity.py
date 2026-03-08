@@ -32,6 +32,64 @@ from stagebridge.transition_model.losses import sinkhorn_distance
 log = get_logger(__name__)
 
 
+def compare_real_vs_shuffled_context(
+    model: Any,
+    x_src: torch.Tensor,
+    x_tgt: torch.Tensor,
+    *,
+    real_context: torch.Tensor,
+    shuffled_context: torch.Tensor,
+    edge_id: int,
+    num_steps: int = 8,
+    stochastic: bool = False,
+    ot_epsilon: float = 0.05,
+    sinkhorn_iters: int = 80,
+) -> dict[str, float]:
+    """Measure how much edge predictions change when context is shuffled."""
+    edge_ids = torch.full((x_src.shape[0],), int(edge_id), dtype=torch.long, device=x_src.device)
+    with torch.no_grad():
+        pred_real, _ = model.rollout(
+            x_src,
+            context=real_context,
+            edge_ids=edge_ids,
+            num_steps=int(num_steps),
+            stochastic=bool(stochastic),
+        )
+        pred_shuffled, _ = model.rollout(
+            x_src,
+            context=shuffled_context,
+            edge_ids=edge_ids,
+            num_steps=int(num_steps),
+            stochastic=bool(stochastic),
+        )
+
+    n = min(pred_real.shape[0], pred_shuffled.shape[0], x_tgt.shape[0])
+    pred_real = pred_real[:n]
+    pred_shuffled = pred_shuffled[:n]
+    x_tgt = x_tgt[:n]
+    sink_real = float(
+        sinkhorn_distance(
+            x_src=pred_real,
+            x_tgt=x_tgt,
+            epsilon=float(ot_epsilon),
+            n_iters=int(sinkhorn_iters),
+        ).item()
+    )
+    sink_shuffled = float(
+        sinkhorn_distance(
+            x_src=pred_shuffled,
+            x_tgt=x_tgt,
+            epsilon=float(ot_epsilon),
+            n_iters=int(sinkhorn_iters),
+        ).item()
+    )
+    return {
+        "sinkhorn_real_context": sink_real,
+        "sinkhorn_shuffled_context": sink_shuffled,
+        "context_sensitivity_delta": sink_shuffled - sink_real,
+    }
+
+
 def compute_context_sensitivity(
     model: Any,
     adata: Any,

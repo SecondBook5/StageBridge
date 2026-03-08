@@ -44,12 +44,103 @@ import scipy.sparse as sp
 from scipy import io as sio
 
 from stagebridge.logging_utils import get_logger
+from stagebridge.data.common.schema import SpatialCohort
+from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.data.luad_evo.stages import (
     CANONICAL_STAGE_ORDER,
     normalize_stage_label,
 )
 
 log = get_logger(__name__)
+
+
+def resolve_spatial_tangram_path(cfg: Any | None = None) -> Path:
+    """Resolve the active Tangram spatial output for LUAD evolution."""
+    if cfg is not None:
+        paths = resolve_luad_evo_paths(cfg)
+        candidates = [paths.spatial_tangram_h5ad, paths.spatial_h5ad]
+    else:
+        candidates = [
+            Path("/mnt/e/StageBridge_data/processed/tangram/spatial_tangram_full.h5ad"),
+            Path("/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad"),
+        ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "Could not resolve a spatial LUAD file. "
+        f"Tried: {[str(path) for path in candidates]}"
+    )
+
+
+def load_luad_evo_spatial_mapping(
+    cfg: Any | None = None,
+    *,
+    mapping_h5ad_path: Path | None = None,
+    composition_key: str = "X_tangram_ct",
+    columns_key: str = "tangram_ct_columns",
+    stages: list[str] | None = None,
+    donors: list[str] | None = None,
+    max_spots_per_stage: int | None = None,
+    seed: int = 42,
+) -> SpatialCohort:
+    """Load a LUAD spatial provider output with standardized filtering."""
+    spatial_path = Path(mapping_h5ad_path) if mapping_h5ad_path is not None else resolve_spatial_tangram_path(cfg)
+    adata = anndata.read_h5ad(spatial_path)
+    if composition_key not in adata.obsm:
+        raise KeyError(
+            f"Expected '{composition_key}' in {spatial_path}. "
+            f"Available obsm keys: {list(adata.obsm.keys())}"
+        )
+    if "spatial" not in adata.obsm:
+        raise KeyError(f"Expected 'spatial' coordinates in {spatial_path}.")
+
+    obs = adata.obs.copy()
+    if "patient_id" not in obs.columns and "donor_id" in obs.columns:
+        obs["patient_id"] = obs["donor_id"].astype(str)
+    if "donor_id" not in obs.columns and "patient_id" in obs.columns:
+        obs["donor_id"] = obs["patient_id"].astype(str)
+    obs["stage"] = obs["stage"].astype(str).map(normalize_stage_label)
+    obs["donor_id"] = obs["donor_id"].astype(str)
+    obs["patient_id"] = obs["patient_id"].astype(str)
+    if "sample_id" not in obs.columns:
+        obs["sample_id"] = obs.index.astype(str)
+
+    mask = np.ones(adata.n_obs, dtype=bool)
+    if stages:
+        wanted = {normalize_stage_label(stage) for stage in stages}
+        mask &= obs["stage"].isin(wanted).to_numpy()
+    if donors:
+        wanted_donors = {str(donor) for donor in donors}
+        mask &= obs["donor_id"].isin(wanted_donors).to_numpy()
+
+    if max_spots_per_stage is not None and max_spots_per_stage > 0:
+        rng = np.random.default_rng(int(seed))
+        chosen = np.zeros(adata.n_obs, dtype=bool)
+        masked_positions = np.flatnonzero(mask)
+        masked_stages = obs.iloc[masked_positions]["stage"].to_numpy()
+        for stage_name in pd.unique(masked_stages):
+            rows = masked_positions[masked_stages == stage_name]
+            if rows.shape[0] <= max_spots_per_stage:
+                chosen[rows] = True
+                continue
+            keep = rng.choice(rows, size=int(max_spots_per_stage), replace=False)
+            chosen[keep] = True
+        mask &= chosen
+
+    feature_names = tuple(str(name) for name in adata.uns.get(columns_key, adata.obsm[composition_key].dtype.names or []))
+    if not feature_names:
+        feature_names = tuple(str(name) for name in getattr(adata, "var_names", [])[: adata.obsm[composition_key].shape[1]])
+    if not feature_names or len(feature_names) != adata.obsm[composition_key].shape[1]:
+        feature_names = tuple(f"ct_{i}" for i in range(adata.obsm[composition_key].shape[1]))
+
+    return SpatialCohort(
+        compositions=np.asarray(adata.obsm[composition_key][mask], dtype=np.float32),
+        coords=np.asarray(adata.obsm["spatial"][mask], dtype=np.float32),
+        obs=obs.loc[mask].reset_index(drop=True),
+        feature_names=feature_names,
+        source_path=spatial_path,
+    )
 
 # ---------------------------------------------------------------------------
 # squidpy import (optional — graceful fallback)
