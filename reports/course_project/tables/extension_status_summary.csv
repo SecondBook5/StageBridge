@@ -1,0 +1,4 @@
+component,tested,current_status,evidence_summary,use_in_course_main_story,future_role
+graph_of_sets,yes,mixed,Does not consistently outperform set_only; underperforms on both edges,extension_only,Potential improvement with more graph construction tuning
+wes_regularization,yes,mixed,WES gate results show slight improvement on AAH->AIS but not AIS->MIA,extension_only,Optional genomic constraint on transport
+state_dependent_diffusion,yes,mixed,Diffusion gate shows no consistent improvement over drift-only,extension_only,Required for stochastic SDE interpretation
