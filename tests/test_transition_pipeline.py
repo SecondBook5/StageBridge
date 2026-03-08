@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+import pandas as pd
+
+from stagebridge.notebook_api import compose_config
+from stagebridge.pipelines.run_evaluation import run_evaluation
+from stagebridge.pipelines.run_full import run_full
+from stagebridge.pipelines.run_transition_model import run_transition_model
+from stagebridge.results.run_writer import write_pipeline_scratch_run
+from stagebridge.transition_model.train import build_stagewise_edge_split
+
+
+def test_stagewise_edge_split_reports_missing_same_donor_overlap() -> None:
+    src_obs = pd.DataFrame({"donor_id": ["P1", "P2", "P3"], "stage": ["AIS"] * 3})
+    tgt_obs = pd.DataFrame({"donor_id": ["P4", "P5"], "stage": ["MIA"] * 2})
+
+    split = build_stagewise_edge_split(
+        src_obs,
+        tgt_obs,
+        donor_col="donor_id",
+        stage_src="AIS",
+        stage_tgt="MIA",
+    )
+
+    assert split.split_strategy == "stagewise_donor_holdout"
+    assert split.overlap_donors == []
+    assert split.notes
+
+
+def test_rna_only_transition_and_evaluation_smoke_runs_on_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=rna_only",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=32",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+    evaluation = run_evaluation(cfg, transition_output=transition)
+
+    assert transition["ok"] is True
+    assert transition["status"] == "complete"
+    assert transition["edge"] == "AAH->AIS"
+    assert transition["mode"] == "rna_only"
+    assert transition["training_history"]
+    assert evaluation["ok"] is True
+    assert evaluation["status"] == "complete"
+    assert "sinkhorn" in evaluation["heldout_metrics"]
+
+
+def test_set_only_transition_smoke_runs_on_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=set_only",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=32",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+
+    assert transition["ok"] is True
+    assert transition["status"] == "complete"
+    assert transition["mode"] == "set_only"
+    assert transition["context_diagnostics"]["context_norm"] > 0.0
+
+
+def test_pooled_transition_smoke_runs_on_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=pooled",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=32",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+
+    assert transition["ok"] is True
+    assert transition["status"] == "complete"
+    assert transition["mode"] == "pooled"
+    assert transition["context_diagnostics"]["context_norm"] > 0.0
+
+
+def test_deep_sets_transition_smoke_runs_on_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=deep_sets",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=32",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+
+    assert transition["ok"] is True
+    assert transition["status"] == "complete"
+    assert transition["mode"] == "deep_sets"
+    assert transition["context_diagnostics"]["context_norm"] > 0.0
+
+
+def test_graph_of_sets_transition_smoke_runs_on_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model=graph_of_sets",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=32",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+
+    assert transition["ok"] is True
+    assert transition["status"] == "complete"
+    assert transition["mode"] == "graph_of_sets"
+    assert transition["context_diagnostics"]["graph_num_edges"] > 0
+
+
+def test_set_only_transition_smoke_runs_on_ais_to_mia_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=set_only",
+            "transition_model.active_edge=[AIS,MIA]",
+            "transition_model.max_cells_per_stage=32",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+
+    assert transition["ok"] is True
+    assert transition["status"] == "complete"
+    assert transition["edge"] == "AIS->MIA"
+    assert transition["mode"] == "set_only"
+    assert transition["split_summary"]["split_strategy"] == "stagewise_donor_holdout"
+    assert transition["split_summary"]["overlap_donors"] == []
+    assert transition["context_diagnostics"]["context_norm"] > 0.0
+
+
+def test_rna_only_transition_smoke_runs_on_ais_to_mia_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=rna_only",
+            "transition_model.active_edge=[AIS,MIA]",
+            "transition_model.max_cells_per_stage=32",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+    evaluation = run_evaluation(cfg, transition_output=transition)
+
+    assert transition["ok"] is True
+    assert transition["status"] == "complete"
+    assert transition["edge"] == "AIS->MIA"
+    assert transition["mode"] == "rna_only"
+    assert transition["split_summary"]["split_strategy"] == "stagewise_donor_holdout"
+    assert transition["split_summary"]["overlap_donors"] == []
+    assert evaluation["ok"] is True
+    assert evaluation["status"] == "complete"
+    assert "sinkhorn" in evaluation["heldout_metrics"]
+
+
+def test_full_pipeline_threads_reference_and_spatial_outputs_into_transition() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=set_only",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=24",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    full = run_full(cfg)
+    reference = full["steps"]["reference"]
+    spatial = full["steps"]["spatial_mapping"]
+    context = full["steps"]["context_model"]
+    transition = full["steps"]["transition_model"]
+
+    assert full["ok"] is True
+    assert transition["reference"]["source_path"] == reference["reference"]["source_path"]
+    assert transition["spatial_mapping"]["method"] == spatial["spatial_mapping"]["method"] == "tangram"
+    assert transition["context_model"]["mode"] == context["context_model"]["mode"] == "set_only"
+    assert transition["context_diagnostics"]["spatial_mapping_method"] == "tangram"
+
+
+def test_write_pipeline_scratch_run_records_edge_level_metadata(tmp_path) -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=rna_only",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=24",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    full = run_full(cfg)
+    written = write_pipeline_scratch_run(cfg, full, notebook_source="StageBridge.ipynb", base_dir=tmp_path)
+
+    assert written["ok"] is True
+    assert written["run_metadata"]["mode"] == "rna_only"
+    assert written["run_metadata"]["stage_edges"] == ["AAH->AIS"]
+    assert written["metrics"]["primary_metric"] is not None

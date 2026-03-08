@@ -7,7 +7,12 @@ import torch
 from torch import Tensor, nn
 
 from stagebridge.context_model.set_encoder import ISAB, PMA, SAB, SinusoidalTimeEmbedding
-from stagebridge.transition_model.drift_network import CrossAttentionDrift, FiLMConditioner
+from stagebridge.transition_model.diffusion_network import StateDependentDiffusionNetwork
+from stagebridge.transition_model.drift_network import (
+    CrossAttentionDrift,
+    EdgeConditionedDriftMLP,
+    FiLMConditioner,
+)
 from stagebridge.utils.types import StageBridgeConfig
 
 
@@ -485,3 +490,98 @@ class StageBridgeModel(nn.Module):
 def build_stagebridge_model(config: StageBridgeConfig) -> StageBridgeModel:
     """Factory helper to instantiate the canonical StageBridge model."""
     return StageBridgeModel(config=config)
+
+
+class EdgeWiseStochasticDynamics(nn.Module):
+    """Composable drift-diffusion wrapper for edge-wise stochastic transitions."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        context_dim: int,
+        *,
+        hidden_dim: int = 128,
+        time_dim: int = 32,
+        edge_dim: int = 16,
+        num_edges: int = 4,
+        dropout: float = 0.1,
+        min_diffusion_scale: float = 1e-3,
+        state_dependent_diffusion: bool = True,
+    ) -> None:
+        super().__init__()
+        self.drift = EdgeConditionedDriftMLP(
+            input_dim=input_dim,
+            context_dim=context_dim,
+            hidden_dim=hidden_dim,
+            time_dim=time_dim,
+            edge_dim=edge_dim,
+            num_edges=num_edges,
+            dropout=dropout,
+        )
+        self.diffusion = StateDependentDiffusionNetwork(
+            input_dim=input_dim,
+            context_dim=context_dim,
+            hidden_dim=hidden_dim,
+            time_dim=time_dim,
+            edge_dim=edge_dim,
+            num_edges=num_edges,
+            dropout=dropout,
+            min_scale=min_diffusion_scale,
+            state_dependent=state_dependent_diffusion,
+        )
+
+    def forward_drift(self, x_t: Tensor, t: Tensor, context: Tensor, edge_ids: Tensor) -> Tensor:
+        return self.drift(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
+
+    def forward_diffusion(self, x_t: Tensor, t: Tensor, context: Tensor, edge_ids: Tensor) -> Tensor:
+        return self.diffusion(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
+
+    def sample_step(
+        self,
+        x_t: Tensor,
+        *,
+        t: Tensor,
+        dt: float,
+        context: Tensor,
+        edge_ids: Tensor,
+        noise: Tensor | None = None,
+        stochastic: bool = True,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        drift = self.forward_drift(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
+        diffusion = self.forward_diffusion(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
+        x_next = x_t + float(dt) * drift
+        if stochastic:
+            noise_tensor = torch.randn_like(x_t) if noise is None else noise
+            x_next = x_next + (float(dt) ** 0.5) * diffusion * noise_tensor
+        return x_next, drift, diffusion
+
+    def rollout(
+        self,
+        x0: Tensor,
+        *,
+        context: Tensor,
+        edge_ids: Tensor,
+        num_steps: int = 8,
+        stochastic: bool = True,
+    ) -> tuple[Tensor, dict[str, float]]:
+        x = x0
+        dt = 1.0 / float(num_steps)
+        drift_norms: list[float] = []
+        diffusion_means: list[float] = []
+        for step in range(int(num_steps)):
+            t = torch.full((x.shape[0],), (step + 0.5) * dt, device=x.device, dtype=x.dtype)
+            x, drift, diffusion = self.sample_step(
+                x,
+                t=t,
+                dt=dt,
+                context=context,
+                edge_ids=edge_ids,
+                stochastic=stochastic,
+            )
+            drift_norms.append(float(drift.norm(dim=1).mean().item()))
+            diffusion_means.append(float(diffusion.mean().item()))
+        diagnostics = {
+            "mean_drift_norm": float(sum(drift_norms) / max(len(drift_norms), 1)),
+            "mean_diffusion_scale": float(sum(diffusion_means) / max(len(diffusion_means), 1)),
+        }
+        return x, diagnostics

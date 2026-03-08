@@ -32,6 +32,9 @@ from typing import Iterator
 import numpy as np
 import pandas as pd
 
+from stagebridge.data.common.schema import WESCohort
+from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -284,3 +287,49 @@ WES_FEATURE_COLS: list[str] = [
     "smad4_mut",
     "braf_mut",
 ]
+
+
+def resolve_wes_features_path(cfg: object | None = None) -> Path:
+    """Resolve the active LUAD WES parquet path."""
+    if cfg is not None:
+        return resolve_luad_evo_paths(cfg).wes_features_path
+    return Path("/mnt/e/StageBridge_data/processed/features/wes_features.parquet")
+
+
+def load_luad_evo_wes_features(
+    cfg: object | None = None,
+    *,
+    stages: list[str] | None = None,
+    donors: list[str] | None = None,
+) -> WESCohort:
+    """Load the active LUAD WES feature table."""
+    path = resolve_wes_features_path(cfg)
+    df = pd.read_parquet(path).copy()
+    if stages:
+        df = df[df["stage"].isin(stages)].copy()
+    if donors:
+        df = df[df["patient_id"].isin([str(donor) for donor in donors])].copy()
+    return WESCohort(
+        frame=df.reset_index(drop=True),
+        feature_columns=tuple(WES_FEATURE_COLS),
+        source_path=path,
+    )
+
+
+def build_wes_feature_lookup(
+    wes: WESCohort | pd.DataFrame,
+) -> dict[tuple[str, str], np.ndarray]:
+    """Build a `(donor_id, stage)` lookup for WES regularization."""
+    if isinstance(wes, WESCohort):
+        frame = wes.frame
+        feature_columns = list(wes.feature_columns)
+    else:
+        frame = wes
+        feature_columns = [col for col in WES_FEATURE_COLS if col in frame.columns]
+    lookup: dict[tuple[str, str], np.ndarray] = {}
+    for row in frame.itertuples(index=False):
+        lookup[(str(row.patient_id), str(row.stage))] = np.asarray(
+            [getattr(row, col) for col in feature_columns],
+            dtype=np.float32,
+        )
+    return lookup

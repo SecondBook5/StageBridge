@@ -9,14 +9,31 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from dataclasses import dataclass
 
 from stagebridge.logging_utils import get_logger
+from stagebridge.data.common.schema import LatentCohort
 from stagebridge.data.common.harmonize import add_hlca_latent, pca_fit_transform_snrna
 
 if TYPE_CHECKING:
     pass
 
 log = get_logger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class LatentStore:
+    """Reusable in-memory store for the active reference latent table."""
+
+    cohort: LatentCohort
+
+    def summary(self) -> dict[str, object]:
+        return {
+            "source_path": str(self.cohort.source_path),
+            "latent_key": self.cohort.latent_key,
+            "shape": [int(self.cohort.n_obs), int(self.cohort.n_vars)],
+            "feature_names": list(self.cohort.feature_names[: min(5, len(self.cohort.feature_names))]),
+        }
 
 
 def build_latent(

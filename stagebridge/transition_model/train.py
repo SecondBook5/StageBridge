@@ -760,3 +760,185 @@ def build_samplers_from_anndata(
     val = _build_sampler(split.val_donors, strict_transition=False)
     test = _build_sampler(split.test_donors, strict_transition=False)
     return train, val, test
+
+
+@dataclass(slots=True)
+class EdgeSplitSummary:
+    """Visible donor split diagnostics for one directed edge."""
+
+    stage_src: str
+    stage_tgt: str
+    source_train_donors: list[str]
+    source_test_donors: list[str]
+    target_train_donors: list[str]
+    target_test_donors: list[str]
+    overlap_donors: list[str]
+    split_strategy: str
+    notes: list[str]
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class EdgeTrainingResult:
+    """Minimal training bundle for the Mission 3 active edge path."""
+
+    model: nn.Module
+    history: list[dict[str, float]]
+    split_summary: EdgeSplitSummary
+    sigma: float
+    diffusion_weight: float
+
+
+def build_stagewise_edge_split(
+    src_obs: Any,
+    tgt_obs: Any,
+    *,
+    donor_col: str = "donor_id",
+    holdout_fraction: float = 0.25,
+    min_intersection_donors: int = 4,
+    stage_src: str,
+    stage_tgt: str,
+) -> EdgeSplitSummary:
+    """Build an honest donor split summary for one edge.
+
+    The split falls back to stagewise donor holdout when same-donor overlap
+    across the edge is too small to support a meaningful paired holdout.
+    """
+    src_donors = sorted({str(value) for value in src_obs[donor_col].astype(str).tolist()})
+    tgt_donors = sorted({str(value) for value in tgt_obs[donor_col].astype(str).tolist()})
+    overlap = sorted(set(src_donors) & set(tgt_donors))
+
+    def _split(donors: list[str]) -> tuple[list[str], list[str]]:
+        if len(donors) <= 1:
+            return donors, []
+        n_test = max(1, int(round(len(donors) * float(holdout_fraction))))
+        n_test = min(n_test, len(donors) - 1)
+        return donors[:-n_test], donors[-n_test:]
+
+    notes: list[str] = []
+    if len(overlap) >= int(min_intersection_donors):
+        train_overlap, test_overlap = _split(overlap)
+        source_train = [donor for donor in src_donors if donor in train_overlap]
+        source_test = [donor for donor in src_donors if donor in test_overlap]
+        target_train = [donor for donor in tgt_donors if donor in train_overlap]
+        target_test = [donor for donor in tgt_donors if donor in test_overlap]
+        strategy = "same_donor_overlap_holdout"
+    else:
+        source_train, source_test = _split(src_donors)
+        target_train, target_test = _split(tgt_donors)
+        strategy = "stagewise_donor_holdout"
+        notes.append(
+            "Insufficient same-donor overlap across the edge for paired donor holdout; "
+            "using stagewise donor holdout instead."
+        )
+        notes.append(f"same_donor_overlap_n={len(overlap)}")
+
+    return EdgeSplitSummary(
+        stage_src=stage_src,
+        stage_tgt=stage_tgt,
+        source_train_donors=source_train,
+        source_test_donors=source_test,
+        target_train_donors=target_train,
+        target_test_donors=target_test,
+        overlap_donors=overlap,
+        split_strategy=strategy,
+        notes=notes,
+    )
+
+
+def _sample_rows(x: Tensor, n: int, *, seed: int, step: int) -> tuple[Tensor, Tensor]:
+    if x.shape[0] <= n:
+        idx = torch.arange(x.shape[0], device=x.device)
+        return x, idx
+    generator = torch.Generator(device=x.device)
+    generator.manual_seed(int(seed) + int(step))
+    idx = torch.randperm(x.shape[0], generator=generator, device=x.device)[:n]
+    return x[idx], idx
+
+
+def train_edgewise_transition_model(
+    *,
+    model: nn.Module,
+    x_src_train: Tensor,
+    x_tgt_train: Tensor,
+    context: Tensor,
+    edge_id: int,
+    learning_rate: float,
+    weight_decay: float,
+    max_epochs: int,
+    steps_per_epoch: int,
+    batch_cells: int,
+    sigma: float,
+    diffusion_weight: float,
+    epsilon: float,
+    sinkhorn_iters: int,
+    num_ot_pairs: int,
+    seed: int,
+    extra_cost: Tensor | None = None,
+) -> list[dict[str, float]]:
+    """Train the active edge-wise transition model on one directed edge."""
+    from stagebridge.transition_model.schrodinger_bridge import edgewise_schrodinger_bridge_loss
+
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=float(learning_rate),
+        weight_decay=float(weight_decay),
+    )
+    history: list[dict[str, float]] = []
+    edge_ids_full = torch.full((x_src_train.shape[0],), int(edge_id), dtype=torch.long, device=x_src_train.device)
+
+    for epoch in range(int(max_epochs)):
+        losses: list[float] = []
+        drift_losses: list[float] = []
+        diffusion_losses: list[float] = []
+        for step in range(int(steps_per_epoch)):
+            batch_src, src_idx = _sample_rows(
+                x_src_train,
+                int(batch_cells),
+                seed=seed,
+                step=epoch * steps_per_epoch + step,
+            )
+            batch_tgt, tgt_idx = _sample_rows(
+                x_tgt_train,
+                int(batch_cells),
+                seed=seed + 10_000,
+                step=epoch * steps_per_epoch + step,
+            )
+
+            batch_extra: Tensor | None = None
+            if extra_cost is not None:
+                batch_extra = extra_cost.index_select(0, src_idx).index_select(1, tgt_idx)
+
+            loss, diagnostics, _ = edgewise_schrodinger_bridge_loss(
+                model,
+                x_src=batch_src,
+                x_tgt=batch_tgt,
+                context=context,
+                edge_ids=edge_ids_full[: batch_src.shape[0]],
+                epsilon=float(epsilon),
+                sinkhorn_iters=int(sinkhorn_iters),
+                num_ot_pairs=int(num_ot_pairs),
+                sigma=float(sigma),
+                diffusion_weight=float(diffusion_weight),
+                extra_cost=batch_extra,
+            )
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+
+            losses.append(float(loss.detach().item()))
+            drift_losses.append(float(diagnostics["loss_drift"]))
+            diffusion_losses.append(float(diagnostics["loss_diffusion"]))
+
+        history.append(
+            {
+                "epoch": float(epoch + 1),
+                "loss_total": float(np.mean(losses)),
+                "loss_drift": float(np.mean(drift_losses)),
+                "loss_diffusion": float(np.mean(diffusion_losses)),
+            }
+        )
+    return history

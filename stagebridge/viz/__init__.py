@@ -7,6 +7,13 @@ from .embeddings import (
     plot_umap_with_trajectories,
 )
 from .flows import compute_macroflow_matrix, plot_macroflow_sankey
+from .research_frontend import (
+    configure_research_style,
+    plot_context_frontend,
+    plot_reference_frontend,
+    plot_spatial_mapping_frontend,
+    plot_transition_frontend,
+)
 from .summary_panels import (
     make_full_poster,
     make_panel_a_model_diagram,
@@ -36,6 +43,11 @@ __all__ = [
     # macro flow
     "compute_macroflow_matrix",
     "plot_macroflow_sankey",
+    "configure_research_style",
+    "plot_reference_frontend",
+    "plot_spatial_mapping_frontend",
+    "plot_context_frontend",
+    "plot_transition_frontend",
     # spatial plots (Visium)
     "plot_spatial_stage_map",
     "plot_spatial_context_score",

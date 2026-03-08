@@ -1,5 +1,6 @@
 spatial_mapping:
   method: tangram
+  execution_mode: load_precomputed
   label_col: hlca_label
   device: auto
   learning_rate: 0.1
@@ -9,3 +10,5 @@ spatial_mapping:
   min_label_coverage: 0.9
   min_cells_per_label: 20
   max_training_genes: 3000
+  max_reference_cells_per_label: 4000
+  verbose: true

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import gc
 from dataclasses import dataclass
+import hashlib
+from importlib import metadata
 import json
 from pathlib import Path
 import time
@@ -16,8 +18,299 @@ import scipy.sparse as sp
 from tqdm.auto import tqdm
 
 from stagebridge.logging_utils import get_logger
+from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
+from stagebridge.data.luad_evo.visium import load_luad_evo_spatial_mapping
+from stagebridge.spatial_mapping.base import SpatialMappingResult
+from stagebridge.spatial_mapping.qc import summarize_mapping_qc
 
 log = get_logger(__name__)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _provider_version(package_name: str, fallback: str = "unknown") -> str:
+    try:
+        return metadata.version(package_name)
+    except Exception:
+        return fallback
+
+
+def _mapping_cache_root(method: str) -> Path:
+    root = _REPO_ROOT / "outputs" / "scratch" / "cache" / "spatial_mapping" / method
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _stable_hash(payload: dict[str, Any]) -> str:
+    def _normalize(value: Any) -> Any:
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        if isinstance(value, dict):
+            return {str(key): _normalize(inner) for key, inner in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [_normalize(item) for item in value]
+        try:
+            from omegaconf import DictConfig, ListConfig, OmegaConf
+
+            if isinstance(value, (DictConfig, ListConfig)):
+                return _normalize(OmegaConf.to_container(value, resolve=True))
+        except Exception:
+            pass
+        return str(value)
+
+    normalized = _normalize(payload)
+    return hashlib.sha256(json.dumps(normalized, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def _normalize_obs_fields(obs: pd.DataFrame) -> pd.DataFrame:
+    out = obs.copy()
+    if "patient_id" not in out.columns and "donor_id" in out.columns:
+        out["patient_id"] = out["donor_id"].astype(str)
+    if "donor_id" not in out.columns and "patient_id" in out.columns:
+        out["donor_id"] = out["patient_id"].astype(str)
+    if "sample_id" not in out.columns:
+        out["sample_id"] = out.index.astype(str)
+    out["stage"] = out["stage"].astype(str)
+    out["donor_id"] = out["donor_id"].astype(str)
+    out["patient_id"] = out["patient_id"].astype(str)
+    return out
+
+
+def _select_stage_rows(
+    obs: pd.DataFrame,
+    *,
+    stages: list[str] | None,
+    donors: list[str] | None,
+    max_rows_per_stage: int | None,
+    seed: int,
+) -> np.ndarray:
+    mask = np.ones(obs.shape[0], dtype=bool)
+    if stages:
+        mask &= obs["stage"].astype(str).isin([str(stage) for stage in stages]).to_numpy()
+    if donors:
+        mask &= obs["donor_id"].astype(str).isin([str(donor) for donor in donors]).to_numpy()
+    if max_rows_per_stage is not None and max_rows_per_stage > 0:
+        rng = np.random.default_rng(int(seed))
+        chosen = np.zeros(obs.shape[0], dtype=bool)
+        masked_positions = np.flatnonzero(mask)
+        masked_stages = obs.iloc[masked_positions]["stage"].to_numpy()
+        for stage_name in pd.unique(masked_stages):
+            rows = masked_positions[masked_stages == stage_name]
+            if rows.shape[0] <= max_rows_per_stage:
+                chosen[rows] = True
+                continue
+            keep = rng.choice(rows, size=int(max_rows_per_stage), replace=False)
+            chosen[keep] = True
+        mask &= chosen
+    return np.flatnonzero(mask)
+
+
+def _aligned_label_series_from_sources(
+    *,
+    obs: pd.DataFrame,
+    obs_index: pd.Index,
+    label_col: str,
+    fallback_labels_parquet_path: Path | None = None,
+    fallback_latent_h5ad_path: Path | None = None,
+) -> tuple[pd.Series, dict[str, Any]]:
+    if label_col in obs.columns:
+        series = obs[label_col].astype(str).copy()
+        series.index = obs_index.astype(str)
+        return series, {"source": "snrna_obs", "path": None}
+
+    if fallback_labels_parquet_path is not None and Path(fallback_labels_parquet_path).exists():
+        labels_df = pd.read_parquet(fallback_labels_parquet_path)
+        if label_col in labels_df.columns:
+            aligned = pd.Series(index=obs_index.astype(str), dtype=object, name=label_col)
+            labels_df.index = labels_df.index.astype(str)
+            overlap = aligned.index.intersection(labels_df.index)
+            aligned.loc[overlap] = labels_df.loc[overlap, label_col].astype(str).to_numpy()
+            if aligned.notna().any():
+                return aligned, {"source": "labels_parquet", "path": str(Path(fallback_labels_parquet_path))}
+
+    if fallback_latent_h5ad_path is not None and Path(fallback_latent_h5ad_path).exists():
+        latent = anndata.read_h5ad(fallback_latent_h5ad_path, backed="r")
+        latent_obs = latent.obs.copy()
+        latent_index = latent_obs.index.astype(str)
+        if label_col not in latent_obs.columns and "cell_id" in latent_obs.columns:
+            latent_index = latent_obs["cell_id"].astype(str)
+        if label_col in latent_obs.columns:
+            aligned = pd.Series(index=obs_index.astype(str), dtype=object, name=label_col)
+            source = pd.Series(latent_obs[label_col].astype(str).to_numpy(), index=latent_index, name=label_col)
+            overlap = aligned.index.intersection(source.index)
+            aligned.loc[overlap] = source.loc[overlap].to_numpy()
+            if aligned.notna().any():
+                return aligned, {"source": "latent_h5ad", "path": str(Path(fallback_latent_h5ad_path))}
+
+    raise KeyError(
+        f"Missing '{label_col}' in raw snRNA obs and no usable fallback labels were found."
+    )
+
+
+def _write_label_parquet_from_snrna(
+    *,
+    snrna_h5ad_path: Path,
+    labels_parquet_path: Path,
+    label_col: str,
+    stages: list[str] | None,
+    max_cells_per_label: int,
+    seed: int,
+    fallback_labels_parquet_path: Path | None = None,
+    fallback_latent_h5ad_path: Path | None = None,
+) -> dict[str, Any]:
+    adata = anndata.read_h5ad(snrna_h5ad_path, backed="r")
+    obs = _normalize_obs_fields(adata.obs)
+    rows = _select_stage_rows(
+        obs,
+        stages=stages,
+        donors=None,
+        max_rows_per_stage=None,
+        seed=seed,
+    )
+    obs = obs.iloc[rows].copy()
+    obs.index = adata.obs_names[rows].astype(str)
+    labels, label_meta = _aligned_label_series_from_sources(
+        obs=obs,
+        obs_index=obs.index,
+        label_col=label_col,
+        fallback_labels_parquet_path=fallback_labels_parquet_path,
+        fallback_latent_h5ad_path=fallback_latent_h5ad_path,
+    )
+    obs[label_col] = labels
+    obs = obs.loc[obs[label_col].notna()].copy()
+    if max_cells_per_label > 0:
+        rng = np.random.default_rng(int(seed))
+        keep_rows: list[int] = []
+        for _, frame in obs.groupby(label_col, sort=True):
+            local = np.arange(frame.shape[0], dtype=np.int64)
+            if frame.shape[0] <= max_cells_per_label:
+                keep_rows.extend(frame.index.tolist())
+                continue
+            keep_idx = rng.choice(local, size=int(max_cells_per_label), replace=False)
+            keep_rows.extend(frame.index.to_numpy()[keep_idx].tolist())
+        obs = obs.loc[keep_rows].copy()
+    labels_parquet_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({label_col: obs[label_col].astype(str)}, index=obs.index.astype(str)).to_parquet(
+        labels_parquet_path,
+        index=True,
+        engine="pyarrow",
+    )
+    return {
+        "label_col": label_col,
+        "n_cells": int(obs.shape[0]),
+        "n_labels": int(obs[label_col].nunique()),
+        "label_source": label_meta,
+    }
+
+
+def _write_spatial_subset_h5ad(
+    *,
+    spatial_h5ad_path: Path,
+    subset_h5ad_path: Path,
+    stages: list[str] | None,
+    donors: list[str] | None,
+    max_spots_per_stage: int | None,
+    seed: int,
+) -> dict[str, Any]:
+    adata = anndata.read_h5ad(spatial_h5ad_path, backed="r")
+    obs = _normalize_obs_fields(adata.obs)
+    rows = _select_stage_rows(
+        obs,
+        stages=stages,
+        donors=donors,
+        max_rows_per_stage=max_spots_per_stage,
+        seed=seed,
+    )
+    subset_h5ad_path.parent.mkdir(parents=True, exist_ok=True)
+    subset = anndata.AnnData(
+        X=_coerce_csr_float32(adata.X[rows, :]),
+        obs=obs.iloc[rows].copy(),
+        var=adata.var.copy(),
+    )
+    if "counts" in adata.layers:
+        subset.layers["counts"] = _coerce_csr_float32(adata.layers["counts"][rows, :])
+    if "spatial" in adata.obsm:
+        subset.obsm["spatial"] = np.asarray(adata.obsm["spatial"][rows], dtype=np.float32)
+    subset.write_h5ad(subset_h5ad_path, compression="lzf")
+    return {
+        "n_spots": int(subset.n_obs),
+        "n_genes": int(subset.n_vars),
+        "stages": sorted(subset.obs["stage"].astype(str).unique().tolist()),
+    }
+
+
+def _tangram_cache_bundle(
+    cfg: Any,
+    *,
+    stages: list[str] | None,
+    donors: list[str] | None,
+    max_spots_per_stage: int | None,
+    seed: int,
+) -> dict[str, Path]:
+    paths = resolve_luad_evo_paths(cfg)
+    provider_cfg = dict(cfg.get("spatial_mapping", {})) if hasattr(cfg, "get") else dict(cfg["spatial_mapping"])
+    cache_key = _stable_hash(
+        {
+            "method": "tangram",
+            "snrna_h5ad": str(paths.snrna_h5ad),
+            "snrna_latent_h5ad": str(paths.snrna_latent_h5ad),
+            "hlca_labels_parquet": str(paths.hlca_labels_parquet),
+            "spatial_h5ad": str(paths.spatial_h5ad),
+            "stages": stages,
+            "donors": donors,
+            "max_spots_per_stage": max_spots_per_stage,
+            "seed": seed,
+            "provider_cfg": provider_cfg,
+        }
+    )
+    cache_dir = _mapping_cache_root("tangram") / cache_key
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "cache_dir": cache_dir,
+        "labels_parquet": cache_dir / "snrna_labels.parquet",
+        "spatial_subset_h5ad": cache_dir / "spatial_subset.h5ad",
+        "mapping_h5ad": cache_dir / "mapping.h5ad",
+        "spatial_h5ad": cache_dir / "spatial_projected.h5ad",
+        "scores_parquet": cache_dir / "scores.parquet",
+        "report_json": cache_dir / "report.json",
+    }
+
+
+def load_active_tangram_mapping(
+    cfg: Any,
+    *,
+    mapping_h5ad_path: Path | None = None,
+    stages: list[str] | None = None,
+    donors: list[str] | None = None,
+    max_spots_per_stage: int | None = None,
+    seed: int = 42,
+) -> SpatialMappingResult:
+    """Load the active LUAD Tangram mapping output as the Mission 3 provider."""
+    cohort = load_luad_evo_spatial_mapping(
+        cfg,
+        mapping_h5ad_path=mapping_h5ad_path,
+        composition_key="X_tangram_ct",
+        columns_key="tangram_ct_columns",
+        stages=stages,
+        donors=donors,
+        max_spots_per_stage=max_spots_per_stage,
+        seed=seed,
+    )
+    return SpatialMappingResult(
+        method="tangram",
+        status="complete",
+        provider_version=_provider_version("tangram-sc", _provider_version("tangram")),
+        execution_mode="load_precomputed",
+        compositions=cohort.compositions,
+        coords=cohort.coords,
+        obs=cohort.obs,
+        feature_names=cohort.feature_names,
+        source_path=cohort.source_path,
+        qc=summarize_mapping_qc(cohort.compositions),
+        provenance={"mode": "loaded", "cache_dir": None},
+        notes="Loaded precomputed Tangram spot-level composition outputs for luad_evo.",
+    )
 
 
 @dataclass(slots=True)
@@ -30,6 +323,112 @@ class TangramMappingResult:
     scores_parquet_path: Path
     report_path: Path
     report: dict[str, Any]
+
+
+def run_tangram(
+    cfg: Any,
+    *,
+    stages: list[str] | None = None,
+    donors: list[str] | None = None,
+    max_spots_per_stage: int | None = None,
+    seed: int = 42,
+) -> SpatialMappingResult:
+    """Run or load Tangram through the active provider contract."""
+    provider_cfg = dict(cfg.get("spatial_mapping", {})) if hasattr(cfg, "get") else dict(cfg["spatial_mapping"])
+    execution_mode = str(provider_cfg.get("execution_mode", "load_precomputed"))
+    provider_version = _provider_version("tangram-sc", _provider_version("tangram"))
+
+    if execution_mode == "load_precomputed":
+        return load_active_tangram_mapping(
+            cfg,
+            stages=stages,
+            donors=donors,
+            max_spots_per_stage=max_spots_per_stage,
+            seed=seed,
+        )
+    if execution_mode not in {"rebuild_cached", "force_rebuild"}:
+        raise ValueError(
+            f"Unsupported Tangram execution_mode '{execution_mode}'. "
+            "Use 'load_precomputed', 'rebuild_cached', or 'force_rebuild'."
+        )
+
+    paths = resolve_luad_evo_paths(cfg)
+    cache = _tangram_cache_bundle(
+        cfg,
+        stages=stages,
+        donors=donors,
+        max_spots_per_stage=max_spots_per_stage,
+        seed=seed,
+    )
+    needs_rebuild = execution_mode == "force_rebuild" or not cache["spatial_h5ad"].exists()
+    label_meta: dict[str, Any] | None = None
+    spatial_meta: dict[str, Any] | None = None
+    report_path = cache["report_json"]
+    if needs_rebuild:
+        label_meta = _write_label_parquet_from_snrna(
+            snrna_h5ad_path=paths.snrna_h5ad,
+            labels_parquet_path=cache["labels_parquet"],
+            label_col=str(provider_cfg.get("label_col", "hlca_label")),
+            stages=stages,
+            max_cells_per_label=int(provider_cfg.get("max_reference_cells_per_label", 4000)),
+            seed=seed,
+            fallback_labels_parquet_path=paths.hlca_labels_parquet,
+            fallback_latent_h5ad_path=paths.snrna_latent_h5ad,
+        )
+        spatial_meta = _write_spatial_subset_h5ad(
+            spatial_h5ad_path=paths.spatial_h5ad,
+            subset_h5ad_path=cache["spatial_subset_h5ad"],
+            stages=stages,
+            donors=donors,
+            max_spots_per_stage=max_spots_per_stage,
+            seed=seed,
+        )
+        tangram_result = run_tangram_hlca_projection(
+            run_id=cache["cache_dir"].name,
+            snrna_h5ad_path=paths.snrna_h5ad,
+            spatial_h5ad_path=cache["spatial_subset_h5ad"],
+            labels_parquet_path=cache["labels_parquet"],
+            output_mapping_h5ad_path=cache["mapping_h5ad"],
+            output_spatial_h5ad_path=cache["spatial_h5ad"],
+            output_scores_parquet_path=cache["scores_parquet"],
+            report_path=cache["report_json"],
+            tangram_cfg=provider_cfg,
+        )
+        report_path = tangram_result.report_path
+
+    result = load_active_tangram_mapping(
+        cfg,
+        mapping_h5ad_path=cache["spatial_h5ad"],
+        stages=stages,
+        donors=donors,
+        max_spots_per_stage=max_spots_per_stage,
+        seed=seed,
+    )
+    return SpatialMappingResult(
+        method="tangram",
+        status=result.status,
+        provider_version=provider_version,
+        execution_mode=execution_mode,
+        compositions=result.compositions,
+        coords=result.coords,
+        obs=result.obs,
+        feature_names=result.feature_names,
+        source_path=result.source_path,
+        qc=result.qc,
+        provenance={
+            "mode": "rebuilt" if needs_rebuild else "cached",
+            "cache_dir": str(cache["cache_dir"]),
+            "report_path": str(report_path),
+            "labels_path": str(cache["labels_parquet"]),
+            "label_metadata": label_meta,
+            "spatial_subset_metadata": spatial_meta,
+        },
+        notes=(
+            "Tangram mapping rebuilt from raw snRNA and spatial assets."
+            if needs_rebuild
+            else "Tangram mapping loaded from the reusable rebuild cache."
+        ),
+    )
 
 
 def _now_rss_mb(process: psutil.Process) -> float:

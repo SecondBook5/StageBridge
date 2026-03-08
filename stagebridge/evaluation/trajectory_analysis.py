@@ -193,3 +193,15 @@ def project_trajectories_to_umap(
 
     log.info("Projected %d trajectories to UMAP space.", len(x0))
     return uv0, uv1_pred
+
+
+def summarize_edge_trajectory(x_src: np.ndarray, x_pred: np.ndarray, x_tgt: np.ndarray) -> dict[str, float]:
+    """Low-claim summary of source, predicted, and target trajectory geometry."""
+    src_mean = x_src.mean(axis=0)
+    pred_mean = x_pred.mean(axis=0)
+    tgt_mean = x_tgt.mean(axis=0)
+    return {
+        "src_to_pred_mean_distance": float(np.linalg.norm(pred_mean - src_mean)),
+        "src_to_tgt_mean_distance": float(np.linalg.norm(tgt_mean - src_mean)),
+        "pred_to_tgt_mean_distance": float(np.linalg.norm(tgt_mean - pred_mean)),
+    }

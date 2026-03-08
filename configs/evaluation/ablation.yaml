@@ -3,6 +3,8 @@ evaluation:
   report_level: ablation
   ablations:
     - rna_only
+    - pooled
+    - deep_sets
     - set_only
     - graph_of_sets
     - graph_of_sets_plus_wes

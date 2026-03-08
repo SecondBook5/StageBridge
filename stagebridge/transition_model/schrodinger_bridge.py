@@ -34,6 +34,12 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from stagebridge.transition_model.couplings import build_ot_coupling
+from stagebridge.transition_model.gaussian_init import (
+    GaussianBridgeMoments,
+    build_gaussian_bridge,
+    interpolate_bridge_moments,
+)
 from stagebridge.transition_model.losses import (
     build_sinkhorn_coupling,
     pairwise_squared_euclidean,
@@ -265,3 +271,68 @@ def ipf_update_coupling(
         coupling = build_sinkhorn_coupling(x_transported, x_tgt, epsilon=epsilon)
 
     return coupling
+
+
+def edgewise_schrodinger_bridge_loss(
+    model: Any,
+    *,
+    x_src: Tensor,
+    x_tgt: Tensor,
+    context: Tensor,
+    edge_ids: Tensor,
+    epsilon: float = 0.05,
+    sinkhorn_iters: int = 80,
+    num_ot_pairs: int = 128,
+    sigma: float = 0.1,
+    diffusion_weight: float = 0.1,
+    extra_cost: Tensor | None = None,
+    coupling: Tensor | None = None,
+    bridge: GaussianBridgeMoments | None = None,
+) -> tuple[Tensor, dict[str, float], Tensor]:
+    """Bridge loss for explicit drift-diffusion models with edge-wise conditioning."""
+    device = x_src.device
+    if coupling is None:
+        coupling = build_ot_coupling(
+            x_src=x_src,
+            x_tgt=x_tgt,
+            epsilon=epsilon,
+            n_iters=sinkhorn_iters,
+            extra_cost=extra_cost,
+        )
+    src_idx, tgt_idx = sample_coupling_pairs(coupling=coupling, num_pairs=num_ot_pairs)
+    x_i = x_src[src_idx]
+    y_j = x_tgt[tgt_idx]
+    sampled_edge_ids = edge_ids[src_idx] if edge_ids.shape[0] == x_src.shape[0] else edge_ids
+
+    t = torch.rand((num_ot_pairs,), device=device, dtype=x_src.dtype)
+    x_t, target_drift, _ = schrodinger_bridge_interpolant(x_i, y_j, t, sigma=sigma)
+
+    pred_drift = model.forward_drift(x_t=x_t, t=t, context=context, edge_ids=sampled_edge_ids)
+    pred_diffusion = model.forward_diffusion(x_t=x_t, t=t, context=context, edge_ids=sampled_edge_ids)
+
+    if bridge is None:
+        bridge = build_gaussian_bridge(x_src, x_tgt, sigma=sigma)
+    bridge_moments = interpolate_bridge_moments(bridge, t)
+    target_diffusion = bridge_moments.variance.sqrt()
+    if target_diffusion.ndim == 1:
+        target_diffusion = target_diffusion.unsqueeze(0).expand_as(pred_diffusion)
+
+    loss_drift = F.mse_loss(pred_drift, target_drift)
+    loss_diffusion = F.mse_loss(pred_diffusion, target_diffusion)
+    total = loss_drift + float(diffusion_weight) * loss_diffusion
+
+    with torch.no_grad():
+        cost = pairwise_squared_euclidean(x_src, x_tgt)
+        if extra_cost is not None:
+            cost = cost + extra_cost.to(cost.dtype)
+        ot_cost = float((coupling * cost).sum().item())
+
+    diagnostics = {
+        "loss_total": float(total.detach().item()),
+        "loss_drift": float(loss_drift.detach().item()),
+        "loss_diffusion": float(loss_diffusion.detach().item()),
+        "ot_cost": ot_cost,
+        "sigma": float(sigma),
+        "num_pairs": float(num_ot_pairs),
+    }
+    return total, diagnostics, coupling

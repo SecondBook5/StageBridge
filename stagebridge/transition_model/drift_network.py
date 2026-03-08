@@ -4,7 +4,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from stagebridge.context_model.set_encoder import FeedForwardBlock
+from stagebridge.context_model.set_encoder import FeedForwardBlock, SinusoidalTimeEmbedding
 
 
 class CrossAttentionDrift(nn.Module):
@@ -53,3 +53,69 @@ class FiLMConditioner(nn.Module):
         gamma, beta = torch.chunk(gamma_beta, chunks=2, dim=-1)
         gamma = 1.0 + 0.1 * torch.tanh(gamma)
         return gamma * x + beta
+
+
+class EdgeConditionedDriftMLP(nn.Module):
+    """Diagonal drift network conditioned on time, edge identity, and niche context."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        context_dim: int,
+        *,
+        hidden_dim: int = 128,
+        time_dim: int = 32,
+        edge_dim: int = 16,
+        num_edges: int = 4,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.input_dim = int(input_dim)
+        self.context_dim = int(context_dim)
+        self.time_embedding = SinusoidalTimeEmbedding(int(time_dim))
+        self.edge_embedding = nn.Embedding(int(num_edges), int(edge_dim))
+        self.network = nn.Sequential(
+            nn.Linear(self.input_dim + self.context_dim + int(time_dim) + int(edge_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.Dropout(float(dropout)),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.Dropout(float(dropout)),
+            nn.Linear(int(hidden_dim), self.input_dim),
+        )
+
+    def forward(
+        self,
+        x_t: Tensor,
+        t: Tensor,
+        context: Tensor,
+        edge_ids: Tensor,
+    ) -> Tensor:
+        if x_t.ndim != 2:
+            raise ValueError(f"x_t must be 2D, got shape {tuple(x_t.shape)}.")
+
+        if context.ndim == 1:
+            context = context.unsqueeze(0)
+        if context.shape[0] == 1 and x_t.shape[0] > 1:
+            context = context.expand(x_t.shape[0], -1)
+        if context.shape != (x_t.shape[0], self.context_dim):
+            raise ValueError(
+                "context must align to the batch dimension and configured context dim: "
+                f"got {tuple(context.shape)}, expected ({x_t.shape[0]}, {self.context_dim})."
+            )
+
+        if t.ndim == 0:
+            t = t.repeat(x_t.shape[0])
+        if t.ndim != 1 or t.shape[0] != x_t.shape[0]:
+            raise ValueError(f"t must have shape ({x_t.shape[0]},), got {tuple(t.shape)}.")
+
+        if edge_ids.ndim == 0:
+            edge_ids = edge_ids.repeat(x_t.shape[0])
+        if edge_ids.ndim != 1 or edge_ids.shape[0] != x_t.shape[0]:
+            raise ValueError(
+                f"edge_ids must have shape ({x_t.shape[0]},), got {tuple(edge_ids.shape)}."
+            )
+
+        time_emb = self.time_embedding(t)
+        edge_emb = self.edge_embedding(edge_ids.long())
+        return self.network(torch.cat([x_t, time_emb, context, edge_emb], dim=-1))

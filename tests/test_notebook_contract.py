@@ -32,15 +32,24 @@ def test_stagebridge_notebook_is_thin_orchestration_surface() -> None:
         "## 5. Write Scratch Run Record",
         "## 6. Inspect Registry",
         "## 7. Optionally Promote Milestone",
+        "### Reference Latent Branch",
+        "### Spatial Mapping Branch",
+        "### Typed Niche Context Branch",
+        "### Transition And Evaluation Branch",
     ]
     for section in required_sections:
         assert any(section in cell for cell in markdown_cells)
 
     assert "from stagebridge.pipelines.run_full import run_full" in code
     assert "from stagebridge.results import (" in code
-    assert "write_scratch_run(" in code
+    assert "write_pipeline_scratch_run(" in code or "write_scratch_run(" in code
+    assert "plot_reference_frontend(" in code
+    assert "plot_spatial_mapping_frontend(" in code
+    assert "plot_context_frontend(" in code
+    assert "plot_transition_frontend(" in code
     assert "read_results_registry()" in code
     assert "promote_current_scratch_run(" in code
+    assert "mission2_smoke" not in code
 
     assert not re.search(r"^class\\s+\\w+", code, flags=re.MULTILINE)
     assert "torch.nn.Module" not in code

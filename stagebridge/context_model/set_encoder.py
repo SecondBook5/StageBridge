@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
@@ -182,3 +183,113 @@ class SinusoidalTimeEmbedding(nn.Module):
             pad = torch.zeros((emb.shape[0], self.dim - emb.shape[1]), device=device, dtype=dtype)
             emb = torch.cat([emb, pad], dim=-1)
         return emb
+
+
+@dataclass(slots=True, frozen=True)
+class SetContextSummary:
+    """Output summary from the typed set encoder."""
+
+    pooled_context: Tensor
+    token_embeddings: Tensor
+
+
+class DeepSetsContextEncoder(nn.Module):
+    """Permutation-invariant Deep Sets baseline for typed niche tokens."""
+
+    def __init__(self, input_dim: int, hidden_dim: int = 128, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.phi = nn.Sequential(
+            nn.Linear(int(input_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+            nn.Dropout(float(dropout)),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+        self.rho = nn.Sequential(
+            nn.Linear(int(hidden_dim) * 2, int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+            nn.Dropout(float(dropout)),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+
+    def forward(self, tokens: Tensor) -> SetContextSummary:
+        if tokens.ndim != 2:
+            raise ValueError(f"tokens must be 2D, got shape {tuple(tokens.shape)}.")
+        embeddings = self.phi(tokens)
+        pooled_mean = embeddings.mean(dim=0)
+        pooled_max = embeddings.max(dim=0).values
+        pooled = torch.cat([pooled_mean, pooled_max], dim=0)
+        context = self.rho(pooled.unsqueeze(0))[0]
+        return SetContextSummary(pooled_context=context, token_embeddings=embeddings)
+
+
+class TypedSetContextEncoder(nn.Module):
+    """Encode a donor-stage set of typed spatial tokens into one context vector."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int = 128,
+        num_heads: int = 4,
+        num_inducing_points: int = 16,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.input_projection = nn.Linear(input_dim, hidden_dim)
+        self.isab = ISAB(
+            dim=hidden_dim,
+            num_heads=num_heads,
+            num_inducing_points=num_inducing_points,
+            dropout=dropout,
+        )
+        self.sab = SAB(dim=hidden_dim, num_heads=num_heads, dropout=dropout)
+        self.pma = PMA(dim=hidden_dim, num_heads=num_heads, num_seed_vectors=1, dropout=dropout)
+        self.context_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.LayerNorm(hidden_dim),
+        )
+
+    def forward(self, tokens: Tensor, mask: Tensor | None = None) -> SetContextSummary:
+        squeeze = False
+        if tokens.ndim == 2:
+            tokens = tokens.unsqueeze(0)
+            squeeze = True
+        h = self.input_projection(tokens)
+        h = self.isab(h, mask=mask)
+        h = self.sab(h, mask=mask)
+        pooled = self.pma(h, mask=mask)[:, 0, :]
+        context = self.context_head(pooled)
+        if squeeze:
+            return SetContextSummary(pooled_context=context[0], token_embeddings=h[0])
+        return SetContextSummary(pooled_context=context, token_embeddings=h)
+
+
+class PooledContextEncoder(nn.Module):
+    """Simple pooled baseline over typed token sets."""
+
+    def __init__(self, input_dim: int, hidden_dim: int = 128) -> None:
+        super().__init__()
+        self.summary_mlp = nn.Sequential(
+            nn.Linear(int(input_dim) * 3, int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+
+    def forward(self, tokens: Tensor) -> SetContextSummary:
+        if tokens.ndim != 2:
+            raise ValueError(f"tokens must be 2D, got shape {tuple(tokens.shape)}.")
+        token_mean = tokens.mean(dim=0)
+        token_std = tokens.std(dim=0, unbiased=False)
+        token_max = tokens.max(dim=0).values
+        pooled = torch.cat([token_mean, token_std, token_max], dim=0)
+        context = self.summary_mlp(pooled.unsqueeze(0))[0]
+        return SetContextSummary(pooled_context=context, token_embeddings=tokens)

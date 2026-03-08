@@ -1,11 +1,12 @@
 """Scratch-run writer for the lightweight StageBridge results system."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
 from pathlib import Path
 import shutil
-from typing import Any, Mapping
+from typing import Any
 
 from omegaconf import DictConfig, OmegaConf
 import yaml
@@ -84,6 +85,9 @@ def _write_artifacts(
                 destination.write_bytes(value)
             else:
                 destination.write_text(value, encoding="utf-8")
+            continue
+        if isinstance(value, Mapping):
+            destination.write_text(json.dumps(value, indent=2), encoding="utf-8")
             continue
         source_path = Path(value)
         if source_path.is_dir():
@@ -236,6 +240,69 @@ def load_current_scratch_run(base_dir: str | Path | None = None) -> dict[str, An
         if path.is_file()
     )
     return payload
+
+
+def write_pipeline_scratch_run(
+    cfg: DictConfig | Mapping[str, Any] | None,
+    pipeline_output: Mapping[str, Any],
+    *,
+    notebook_source: str = "StageBridge.ipynb",
+    experiment_name: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Write a biological pipeline run into the scratch workspace with inferred metrics."""
+    steps = pipeline_output.get("steps", {}) if isinstance(pipeline_output, Mapping) else {}
+    transition = steps.get("transition_model", {}) if isinstance(steps, Mapping) else {}
+    evaluation = steps.get("evaluation", {}) if isinstance(steps, Mapping) else {}
+    status = "complete" if all(bool(steps.get(name, {}).get("ok")) for name in steps) else "partial"
+    edge = transition.get("edge")
+    mode = transition.get("mode")
+    heldout = evaluation.get("heldout_metrics", {})
+    calibration = evaluation.get("calibration", {})
+    metric_notes = []
+    if transition.get("reference"):
+        metric_notes.append(f"reference={transition['reference'].get('source_path')}")
+    if transition.get("spatial_mapping"):
+        metric_notes.append(f"spatial={transition['spatial_mapping'].get('method')}")
+    if transition.get("context_diagnostics"):
+        metric_notes.append(f"context={transition['context_diagnostics'].get('mode')}")
+    metrics = RunMetrics(
+        primary_metric=heldout.get("sinkhorn"),
+        secondary_metrics=heldout,
+        calibration=calibration,
+        ablation_label=str(mode) if mode is not None else None,
+        notes=" | ".join(metric_notes) if metric_notes else "Notebook pipeline execution.",
+    )
+    artifact_sources = {}
+    if isinstance(evaluation, Mapping):
+        artifact_sources.update(evaluation.get("artifact_sources", {}))
+    if isinstance(transition, Mapping):
+        artifact_sources["transition_summary.json"] = {
+            "edge": transition.get("edge"),
+            "mode": transition.get("mode"),
+            "reference": transition.get("reference"),
+            "spatial_mapping": transition.get("spatial_mapping"),
+            "context_model": transition.get("context_model"),
+            "split_summary": transition.get("split_summary"),
+            "context_diagnostics": transition.get("context_diagnostics"),
+            "wes_diagnostics": transition.get("wes_diagnostics"),
+        }
+    return write_scratch_run(
+        cfg,
+        pipeline_output,
+        experiment_name=experiment_name or str(
+            transition.get("edge", "stagebridge_pipeline_run")
+        ).replace("->", "_to_"),
+        mode=str(mode) if mode is not None else None,
+        stage_edges=[str(edge)] if edge is not None else None,
+        status=status,
+        notebook_source=notebook_source,
+        metrics=metrics,
+        milestone_candidate=False,
+        next_recommended_step="Inspect held-out metrics and gate outputs before any promotion decision.",
+        artifact_sources=artifact_sources,
+        base_dir=base_dir,
+    )
 
 
 def run_smoke_execution(

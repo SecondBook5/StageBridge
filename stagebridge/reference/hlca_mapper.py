@@ -19,9 +19,102 @@ from tqdm.auto import tqdm
 
 from stagebridge import config
 from stagebridge.logging_utils import get_logger
+from stagebridge.data.common.schema import LatentCohort
+from stagebridge.data.luad_evo.snrna import load_luad_evo_snrna_latent, load_luad_evo_snrna_pca_latent
+from stagebridge.reference.diagnostics import donor_leakage_diagnostics, stage_preservation_diagnostics, summarize_latent
+from stagebridge.reference.label_transfer import transfer_reference_labels
+from stagebridge.reference.latent_store import LatentStore
 from stagebridge.data.luad_evo.stages import normalize_stage_series
 
 log = get_logger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class ReferenceLatentResult:
+    """Active reference-latent bundle used downstream by Mission 3."""
+
+    cohort: LatentCohort
+    latent_store: LatentStore
+    diagnostics: dict[str, Any]
+    label_transfer: dict[str, Any]
+    backend_name: str
+    backend_version: str
+    feature_set_used: str
+    provenance: dict[str, Any]
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "backend_name": self.backend_name,
+            "backend_version": self.backend_version,
+            "feature_set_used": self.feature_set_used,
+            "provenance": self.provenance,
+            "source_path": str(self.cohort.source_path),
+            "latent_key": self.cohort.latent_key,
+            "latent_shape": [int(self.cohort.n_obs), int(self.cohort.n_vars)],
+            "diagnostics": self.diagnostics,
+            "label_transfer": self.label_transfer,
+        }
+
+
+def run_active_reference_latent(
+    cfg: Any,
+    *,
+    stages: list[str] | None = None,
+    max_cells_per_stage: int | None = None,
+    seed: int = 42,
+) -> ReferenceLatentResult:
+    """Load the active reference latent table and expose downstream diagnostics."""
+    reference_cfg = cfg.get("reference", {}) if hasattr(cfg, "get") else cfg.get("reference", {})
+    backend = str(reference_cfg.get("latent_backend", reference_cfg.get("method", "hlca"))).lower()
+    n_components = int(reference_cfg.get("n_components", 32))
+    if backend == "hlca":
+        cohort = load_luad_evo_snrna_latent(
+            cfg,
+            stages=stages,
+            max_cells_per_stage=max_cells_per_stage,
+            seed=seed,
+        )
+        feature_set_used = "precomputed_hlca_latent"
+        provenance = {
+            "mode": "loaded",
+            "loaded_from": str(cohort.source_path),
+            "fit_source": None,
+        }
+    elif backend == "pca":
+        cohort = load_luad_evo_snrna_pca_latent(
+            cfg,
+            stages=stages,
+            max_cells_per_stage=max_cells_per_stage,
+            n_components=n_components,
+            seed=seed,
+        )
+        feature_set_used = "raw_snrna_counts_log1p"
+        provenance = {
+            "mode": "fit",
+            "loaded_from": None,
+            "fit_source": str(cohort.source_path),
+            "n_components": int(cohort.n_vars),
+        }
+    else:
+        raise ValueError(f"Unsupported reference latent backend '{backend}'.")
+
+    latent_store = LatentStore(cohort=cohort)
+    diagnostics = {
+        "latent_summary": summarize_latent(cohort.latent),
+        "stage_preservation": stage_preservation_diagnostics(cohort.latent, cohort.obs),
+        "donor_leakage": donor_leakage_diagnostics(cohort.latent, cohort.obs),
+    }
+    labels = transfer_reference_labels(cohort.obs, label_col="hlca_label")
+    return ReferenceLatentResult(
+        cohort=cohort,
+        latent_store=latent_store,
+        diagnostics=diagnostics,
+        label_transfer=labels,
+        backend_name=backend,
+        backend_version="stagebridge_v1",
+        feature_set_used=feature_set_used,
+        provenance=provenance,
+    )
 
 
 HLCA_FULL_URL = (

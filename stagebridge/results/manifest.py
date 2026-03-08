@@ -45,6 +45,7 @@ MILESTONE_INDEX_COLUMNS = [
 ]
 PROMOTED_RESULT_KEYS = [
     "best_rna_only",
+    "best_deep_sets",
     "best_set_only",
     "best_graph_of_sets",
     "best_graph_of_sets_wes",
@@ -146,6 +147,8 @@ def infer_mode_from_config(cfg: Mapping[str, Any]) -> str:
         return "graph_of_sets_wes"
     if context_mode == "graph_of_sets":
         return "graph_of_sets"
+    if context_mode == "deep_sets":
+        return "deep_sets"
     if context_mode == "set_only":
         return "set_only"
     return "rna_only"

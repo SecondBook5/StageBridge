@@ -1,3 +1,4 @@
 spatial_mapping:
   method: destvi
-  status: interface_only
+  execution_mode: load_precomputed
+  precomputed_h5ad: null

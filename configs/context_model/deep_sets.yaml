@@ -1,0 +1,12 @@
+context_model:
+  mode: deep_sets
+  graph_enabled: false
+  token_types:
+    - epithelial
+    - stromal
+    - immune
+    - vascular
+  hidden_dim: 128
+  num_heads: 8
+  num_inducing_points: 16
+  num_seed_vectors: 1
