@@ -1,0 +1,12 @@
+train:
+  profile: full_v1
+  max_epochs: 150
+  steps_per_epoch: 50
+  val_steps: 10
+  batch_cells: 256
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  grad_clip_norm: 1.0
+  mixed_precision: true
+  device: cuda
+  seed: 42

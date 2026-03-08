@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from stagebridge.logging_utils import get_logger
-from stagebridge.preprocessing.stage_ontology import CANONICAL_STAGE_ORDER
+from stagebridge.data.luad_evo.stages import CANONICAL_STAGE_ORDER
 
 if TYPE_CHECKING:
     pass
@@ -187,7 +187,7 @@ def plot_context_vector_umap(
 ) -> None:
     """2-D UMAP of per-cell context vectors c_s, colored by stage.
 
-    The context vectors come from ``stagebridge.analysis.gene_attribution.extract_context_vectors``
+    The context vectors come from ``stagebridge.evaluation.gene_attribution.extract_context_vectors``
     and live in ``adata.obsm["X_context"]``.  This function reduces them further to 2-D for
     visualization, testing whether the Set Transformer encodes stage-relevant information.
 

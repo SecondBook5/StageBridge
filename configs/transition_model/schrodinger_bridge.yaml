@@ -1,0 +1,7 @@
+transition_model:
+  schrodinger_bridge:
+    enabled: true
+    ot_epsilon: 0.05
+    sinkhorn_iters: 80
+    num_ot_pairs: 512
+    sigma: 0.1

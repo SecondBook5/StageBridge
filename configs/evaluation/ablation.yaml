@@ -1,0 +1,8 @@
+evaluation:
+  profile: ablation
+  report_level: ablation
+  ablations:
+    - rna_only
+    - set_only
+    - graph_of_sets
+    - graph_of_sets_plus_wes

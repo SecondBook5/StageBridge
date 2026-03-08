@@ -1,0 +1,17 @@
+run_name: stagebridge_v1
+output_dir: outputs/scratch
+seed: 42
+
+profiles:
+  data: luad_evo
+  spatial_mapping: tangram
+  context_model: set_only
+  splits: donor_holdout
+  train: full_v1
+  evaluation: baseline
+
+reference:
+  method: hlca
+  latent_key: X_hlca
+  label_key: hlca_label
+  reference_h5ad: /mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad

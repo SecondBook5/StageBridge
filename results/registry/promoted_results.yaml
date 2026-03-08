@@ -1,0 +1,19 @@
+best_aah_to_ais: null
+best_ais_to_mia: null
+best_full_v1_candidate: null
+best_graph_of_sets: null
+best_graph_of_sets_wes: null
+best_rna_only: null
+best_set_only: &id001
+  milestone_id: mission2_smoke_keep
+  milestone_path: results/milestones/mission2_smoke_keep
+  mode: smoke_infrastructure
+  primary_metric: null
+  stage_edges:
+  - Normal->AAH
+  - AAH->AIS
+  - AIS->MIA
+  - MIA->LUAD
+  summary: Mission 2 smoke promotion
+  timestamp: '2026-03-08T01:05:53.423162+00:00'
+latest_promoted: *id001
