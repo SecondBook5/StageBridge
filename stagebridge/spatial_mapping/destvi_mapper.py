@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import scvi
 import scipy.sparse as sp
+import torch
 from scvi.model import CondSCVI, DestVI
 
 from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
@@ -25,6 +26,17 @@ from stagebridge.spatial_mapping.tangram_mapper import (
     _sorted_shared_genes,
     _write_spatial_subset_h5ad,
 )
+
+
+def _resolve_training_device(requested: str) -> tuple[str, str]:
+    choice = str(requested).strip().lower()
+    if choice == "auto":
+        return ("cuda", "gpu") if torch.cuda.is_available() else ("cpu", "cpu")
+    if choice == "cuda":
+        return ("cuda", "gpu") if torch.cuda.is_available() else ("cpu", "cpu")
+    if choice in {"gpu", "cuda:0"}:
+        return ("cuda", "gpu") if torch.cuda.is_available() else ("cpu", "cpu")
+    return "cpu", "cpu"
 
 
 def _destvi_cache_bundle(
@@ -153,8 +165,8 @@ def _run_destvi_training(
     max_training_genes = int(provider_cfg.get("max_training_genes", 1000))
     min_shared_genes = int(provider_cfg.get("min_shared_genes", 200))
     batch_size = int(provider_cfg.get("batch_size", 128))
-    device = str(provider_cfg.get("device", "cpu"))
-    accelerator = "gpu" if device == "cuda" else "cpu"
+    requested_device = str(provider_cfg.get("device", "auto"))
+    device, accelerator = _resolve_training_device(requested_device)
     devices = 1
 
     condscvi_cfg = dict(provider_cfg.get("condscvi", {}))
@@ -222,7 +234,9 @@ def _run_destvi_training(
         "condscvi_epochs": condscvi_epochs,
         "destvi_epochs": destvi_epochs,
         "batch_size": batch_size,
+        "requested_device": requested_device,
         "device": device,
+        "accelerator": accelerator,
     }
     report_json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report

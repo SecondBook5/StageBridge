@@ -279,6 +279,7 @@ def edgewise_schrodinger_bridge_loss(
     x_src: Tensor,
     x_tgt: Tensor,
     context: Tensor,
+    context_tokens: Tensor | None = None,
     edge_ids: Tensor,
     epsilon: float = 0.05,
     sinkhorn_iters: int = 80,
@@ -307,7 +308,13 @@ def edgewise_schrodinger_bridge_loss(
     t = torch.rand((num_ot_pairs,), device=device, dtype=x_src.dtype)
     x_t, target_drift, _ = schrodinger_bridge_interpolant(x_i, y_j, t, sigma=sigma)
 
-    pred_drift = model.forward_drift(x_t=x_t, t=t, context=context, edge_ids=sampled_edge_ids)
+    pred_drift = model.forward_drift(
+        x_t=x_t,
+        t=t,
+        context=context,
+        context_tokens=context_tokens,
+        edge_ids=sampled_edge_ids,
+    )
     pred_diffusion = model.forward_diffusion(x_t=x_t, t=t, context=context, edge_ids=sampled_edge_ids)
 
     if bridge is None:

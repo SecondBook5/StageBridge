@@ -15,6 +15,12 @@ spatial_mapping:
   selection_status: provisional
   selection_reason: benchmark_not_run
 
+context_model:
+  use_spatial_rpe: true
+  use_confidence_gate: true
+  token_dropout_rate: 0.05
+  auxiliary_context_shuffle_weight: 0.1
+
 reference:
   method: hlca
   latent_backend: hlca

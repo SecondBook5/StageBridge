@@ -5,10 +5,11 @@ from typing import Any
 
 import numpy as np
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from stagebridge.context_model.graph_builder import build_spatial_knn_graph
 from stagebridge.context_model.graph_encoder import GraphOfSetsContextEncoder
+from stagebridge.context_model.hierarchical_transformer import TypedHierarchicalTransformerEncoder, dataset_name_to_id
 from stagebridge.context_model.set_encoder import DeepSetsContextEncoder, PooledContextEncoder, TypedSetContextEncoder
 from stagebridge.context_model.token_builder import build_typed_spot_tokens
 from stagebridge.data.common.schema import LatentCohort
@@ -18,12 +19,32 @@ from stagebridge.pipelines.run_reference import run_reference
 from stagebridge.pipelines.run_spatial_mapping import run_spatial_mapping
 from stagebridge.transition_model.disease_edges import edge_id_map, edge_label, resolve_disease_edge
 from stagebridge.transition_model.stochastic_dynamics import EdgeWiseStochasticDynamics
+from stagebridge.transition_model.relational_pretraining import RelationalPretrainingConfig
 from stagebridge.transition_model.train import (
     build_stagewise_edge_split,
+    pretrain_relational_transformer,
     train_edgewise_transition_model,
     train_edgewise_transition_model_with_context_encoder,
 )
 from stagebridge.transition_model.wes_regularizer import lookup_wes_vectors, pairwise_wes_penalty
+
+
+def _build_shuffled_control_tokens(
+    tokens: np.ndarray,
+    coords: np.ndarray,
+    confidence: np.ndarray,
+    token_type_ids: np.ndarray,
+    *,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(int(seed))
+    shuffled_tokens = np.asarray(tokens, dtype=np.float32).copy()
+    for col_idx in range(shuffled_tokens.shape[1]):
+        shuffled_tokens[:, col_idx] = shuffled_tokens[rng.permutation(shuffled_tokens.shape[0]), col_idx]
+    shuffled_coords = np.asarray(coords, dtype=np.float32)[rng.permutation(coords.shape[0])].copy()
+    shuffled_confidence = np.asarray(confidence, dtype=np.float32)[rng.permutation(confidence.shape[0])].copy()
+    shuffled_token_type_ids = np.asarray(token_type_ids, dtype=np.int64)[rng.permutation(token_type_ids.shape[0])].copy()
+    return shuffled_tokens, shuffled_coords, shuffled_confidence, shuffled_token_type_ids
 
 
 def _select_context_rows(
@@ -33,7 +54,7 @@ def _select_context_rows(
     stage: str,
     max_spots: int,
     seed: int,
-) -> tuple[np.ndarray, np.ndarray, Any, str, dict[str, Any]]:
+) -> tuple[np.ndarray, np.ndarray, Any, str, dict[str, Any], np.ndarray]:
     obs = typed.obs
     chosen_rows: np.ndarray | None = None
     chosen_donor = ""
@@ -70,7 +91,137 @@ def _select_context_rows(
         obs.iloc[chosen_rows].reset_index(drop=True),
         chosen_donor,
         diagnostics,
+        chosen_rows,
     )
+
+
+def _build_optional_negative_control(
+    typed: Any,
+    *,
+    stage: str,
+    max_spots: int,
+    seed: int,
+    donor_candidates: list[str] | None = None,
+    exclude_donors: list[str] | None = None,
+    fallback_stage: str | None = None,
+) -> dict[str, Any] | None:
+    """Construct one biologically mismatched context control when possible."""
+    obs = typed.obs
+    donor_candidates = [str(item) for item in (donor_candidates or [])]
+    exclude = {str(item) for item in (exclude_donors or [])}
+    rows = np.array([], dtype=int)
+    chosen_donor = None
+
+    for donor_id in donor_candidates:
+        if donor_id in exclude:
+            continue
+        mask = (obs["donor_id"].astype(str) == donor_id) & (obs["stage"].astype(str) == str(stage))
+        rows = np.flatnonzero(mask.to_numpy())
+        if rows.size > 0:
+            chosen_donor = donor_id
+            break
+
+    if rows.size == 0:
+        mask = obs["stage"].astype(str) == str(stage)
+        if exclude:
+            mask &= ~obs["donor_id"].astype(str).isin(sorted(exclude))
+        rows = np.flatnonzero(mask.to_numpy())
+    if rows.size == 0 and fallback_stage is not None:
+        mask = obs["stage"].astype(str) == str(fallback_stage)
+        if exclude:
+            mask &= ~obs["donor_id"].astype(str).isin(sorted(exclude))
+        rows = np.flatnonzero(mask.to_numpy())
+    if rows.size == 0:
+        return None
+
+    if rows.size > max_spots > 0:
+        rng = np.random.default_rng(int(seed))
+        rows = np.sort(rng.choice(rows, size=int(max_spots), replace=False))
+
+    return {
+        "tokens": torch.tensor(typed.tokens[rows], dtype=torch.float32),
+        "coords": torch.tensor(typed.coords[rows], dtype=torch.float32),
+        "confidence": torch.tensor(typed.token_confidence[rows], dtype=torch.float32),
+        "token_type_ids": torch.tensor(typed.token_type_ids[rows], dtype=torch.long),
+        "dataset_ids": None,
+        "note": "biological_mismatch",
+        "stage": str(stage),
+        "donor_id": None if chosen_donor is None else str(chosen_donor),
+    }
+
+
+def _spot_alignment_keys(obs: Any) -> list[str]:
+    sample_ids = obs["sample_id"].astype(str) if "sample_id" in obs.columns else obs.index.astype(str)
+    if "spot_id" in obs.columns:
+        spot_ids = obs["spot_id"].astype(str)
+    elif "barcode" in obs.columns:
+        spot_ids = obs["barcode"].astype(str)
+    else:
+        spot_ids = obs.index.astype(str)
+    stages = obs["stage"].astype(str) if "stage" in obs.columns else ["unknown"] * len(obs)
+    return [
+        f"{sample_id}|{spot_id}|{stage}"
+        for sample_id, spot_id, stage in zip(sample_ids.tolist(), spot_ids.tolist(), list(stages), strict=False)
+    ]
+
+
+def _build_cross_provider_views(
+    cfg: DictConfig,
+    *,
+    typed: Any,
+    chosen_rows: np.ndarray,
+    edge_id: int,
+    selected_method: str | None,
+) -> list[dict[str, Any]]:
+    methods = list(cfg.get("context_model", {}).get("pretraining", {}).get("provider_methods", ["tangram", "tacco", "destvi"]))
+    if not methods:
+        return []
+    reference_obs = typed.obs.iloc[chosen_rows].reset_index(drop=True)
+    reference_keys = _spot_alignment_keys(reference_obs)
+    dataset_ids = torch.tensor(
+        [dataset_name_to_id(str(cfg.get("data", {}).get("dataset", "luad_evo")))],
+        dtype=torch.long,
+    )
+    edge_ids = torch.tensor([int(edge_id)], dtype=torch.long)
+    provider_views: list[dict[str, Any]] = []
+    for method in methods:
+        method_name = str(method)
+        if selected_method is not None and method_name == str(selected_method):
+            continue
+        cfg_alt = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
+        cfg_alt.spatial_mapping.method = method_name
+        try:
+            alt_spatial = run_spatial_mapping(cfg_alt)
+        except Exception:
+            continue
+        alt_result = alt_spatial.get("mapping_result")
+        if alt_result is None or alt_result.compositions is None or alt_result.coords is None or alt_result.obs is None:
+            continue
+        alt_typed = build_typed_spot_tokens(
+            alt_result.compositions,
+            alt_result.coords,
+            alt_result.obs,
+            alt_result.feature_names,
+        )
+        alt_keys = _spot_alignment_keys(alt_typed.obs)
+        alt_index = {key: idx for idx, key in enumerate(alt_keys)}
+        matched_rows = [alt_index[key] for key in reference_keys if key in alt_index]
+        if len(matched_rows) != len(reference_keys):
+            continue
+        matched = np.asarray(matched_rows, dtype=np.int64)
+        provider_views.append(
+            {
+                "method": method_name,
+                "tokens": torch.tensor(alt_typed.tokens[matched], dtype=torch.float32),
+                "coords": torch.tensor(alt_typed.coords[matched], dtype=torch.float32),
+                "confidence": torch.tensor(alt_typed.token_confidence[matched], dtype=torch.float32),
+                "token_type_ids": torch.tensor(alt_typed.token_type_ids[matched], dtype=torch.long),
+                "dataset_ids": dataset_ids.clone(),
+                "edge_ids": edge_ids.clone(),
+                "notes": "cross_provider_view",
+            }
+        )
+    return provider_views
 
 
 def _build_context_bundle(
@@ -78,6 +229,8 @@ def _build_context_bundle(
     *,
     mode: str,
     stage_src: str,
+    stage_tgt: str,
+    edge_id: int,
     donor_candidates: list[str],
     typed: Any | None = None,
     spatial_method: str | None = None,
@@ -91,9 +244,17 @@ def _build_context_bundle(
             "context_encoder": None,
             "context_tokens": None,
             "shuffled_context_tokens": None,
+            "context_coords": None,
+            "shuffled_context_coords": None,
+            "context_confidence": None,
+            "shuffled_context_confidence": None,
+            "context_missing_mask": None,
             "context_graph": None,
             "token_type_ids": None,
             "shuffled_token_type_ids": None,
+            "dataset_ids": None,
+            "provider_views": [],
+            "context_negative_controls": [],
             "diagnostics": {"mode": "rna_only", "context_norm": 0.0},
             "typed_subset_tokens": None,
             "typed_feature_names": None,
@@ -101,23 +262,80 @@ def _build_context_bundle(
 
     if typed is None:
         raise ValueError("Typed spatial tokens are required for non-rna_only transition modes.")
-    node_tokens, node_coords, node_obs, _, diagnostics = _select_context_rows(
+    node_tokens, node_coords, node_obs, _, diagnostics, chosen_rows = _select_context_rows(
         typed,
         donor_candidates=donor_candidates,
         stage=stage_src,
         max_spots=int(cfg.get("context_model", {}).get("max_context_spots", 128)),
         seed=int(cfg.get("seed", 42)),
     )
-    shuffled_tokens = node_tokens.copy()
-    rng = np.random.default_rng(int(cfg.get("seed", 42)))
-    rng.shuffle(shuffled_tokens, axis=0)
-    token_type_ids = np.argmax(node_tokens[:, : len(typed.schema.typed_feature_names)], axis=1).astype(np.int64)
-    shuffled_token_type_ids = np.argmax(
-        shuffled_tokens[:, : len(typed.schema.typed_feature_names)],
-        axis=1,
-    ).astype(np.int64)
+    token_type_ids = typed.token_type_ids[chosen_rows].astype(np.int64, copy=False)
+    token_confidence = typed.token_confidence[chosen_rows].astype(np.float32, copy=False)
+    token_missing_mask = typed.token_missing_mask[chosen_rows].astype(bool, copy=False)
+    shuffled_tokens, shuffled_coords, shuffled_confidence, shuffled_token_type_ids = _build_shuffled_control_tokens(
+        node_tokens,
+        node_coords,
+        token_confidence,
+        token_type_ids,
+        seed=int(cfg.get("seed", 42)),
+    )
+    diagnostics.update(
+        {
+            "mean_token_confidence": float(token_confidence.mean()) if token_confidence.size else 0.0,
+            "missing_token_fraction": float(token_missing_mask.mean()) if token_missing_mask.size else 0.0,
+            "token_group_means": {
+                str(name): float(node_tokens[:, idx].mean())
+                for idx, name in enumerate(typed.schema.typed_feature_names)
+            },
+        }
+    )
+    dataset_name = str(cfg.get("data", {}).get("dataset", "luad_evo"))
+    transfer_dataset = cfg.get("context_model", {}).get("transfer_dataset")
+    dataset_ids = torch.tensor([dataset_name_to_id(dataset_name)], dtype=torch.long)
+    context_negative_controls: list[dict[str, Any]] = []
+    wrong_stage_control = _build_optional_negative_control(
+        typed,
+        stage=stage_tgt,
+        max_spots=int(cfg.get("context_model", {}).get("max_context_spots", 128)),
+        seed=int(cfg.get("seed", 42)) + 101,
+        donor_candidates=donor_candidates,
+        exclude_donors=[],
+        fallback_stage=stage_src,
+    )
+    wrong_donor_candidates = [
+        donor
+        for donor in sorted(set(typed.obs["donor_id"].astype(str).tolist()))
+        if str(donor) not in {str(item) for item in donor_candidates}
+    ]
+    wrong_donor_control = _build_optional_negative_control(
+        typed,
+        stage=stage_src,
+        max_spots=int(cfg.get("context_model", {}).get("max_context_spots", 128)),
+        seed=int(cfg.get("seed", 42)) + 202,
+        donor_candidates=wrong_donor_candidates,
+        exclude_donors=donor_candidates,
+    )
+    for control in (wrong_stage_control, wrong_donor_control):
+        if control is not None:
+            control["dataset_ids"] = dataset_ids.clone()
+            control["label"] = str(control.get("note", "biological_mismatch"))
+            context_negative_controls.append(control)
+    if transfer_dataset and str(transfer_dataset) != dataset_name:
+        context_negative_controls.append(
+            {
+                "tokens": torch.tensor(node_tokens, dtype=torch.float32),
+                "coords": torch.tensor(node_coords, dtype=torch.float32),
+                "confidence": torch.tensor(token_confidence, dtype=torch.float32),
+                "token_type_ids": torch.tensor(token_type_ids, dtype=torch.long),
+                "dataset_ids": torch.tensor([dataset_name_to_id(str(transfer_dataset))], dtype=torch.long),
+                "label": "dataset_id_mismatch",
+                "note": "cross_dataset_id_control",
+                "stage": str(stage_src),
+                "donor_id": diagnostics.get("source_context_donor"),
+            }
+        )
 
-    if mode in {"pooled", "deep_sets", "set_only"}:
+    if mode in {"pooled", "deep_sets", "set_only", "typed_hierarchical_transformer"}:
         if mode == "pooled":
             encoder = PooledContextEncoder(
                 input_dim=node_tokens.shape[1],
@@ -129,7 +347,7 @@ def _build_context_bundle(
                 hidden_dim=hidden_dim,
                 dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
             )
-        else:
+        elif mode == "set_only":
             encoder = TypedSetContextEncoder(
                 input_dim=node_tokens.shape[1],
                 hidden_dim=hidden_dim,
@@ -137,6 +355,28 @@ def _build_context_bundle(
                 num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
                 dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
                 num_token_types=len(typed.schema.typed_feature_names),
+                use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
+                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
+                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
+            )
+        else:
+            encoder = TypedHierarchicalTransformerEncoder(
+                input_dim=node_tokens.shape[1],
+                hidden_dim=hidden_dim,
+                num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
+                num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
+                dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                num_token_types=len(typed.schema.typed_feature_names),
+                num_group_summary_tokens=int(cfg.get("context_model", {}).get("num_group_summary_tokens", 2)),
+                num_fusion_queries=int(cfg.get("context_model", {}).get("num_fusion_queries", 7)),
+                dataset_embedding_dim=int(cfg.get("context_model", {}).get("dataset_embedding_dim", 16)),
+                num_datasets=4,
+                num_edges=max(8, len(edge_id_map())),
+                use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
+                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
+                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
+                use_relation_tokens=bool(cfg.get("context_model", {}).get("use_relation_tokens", True)),
+                group_names=list(typed.schema.typed_feature_names),
             )
         diagnostics.update(
             {
@@ -144,17 +384,37 @@ def _build_context_bundle(
                 "spatial_mapping_method": spatial_method,
                 "trainable_context_encoder": True,
                 "context_training_mode": "joint_transition_optimization",
+                "dataset_name": dataset_name,
             }
         )
+        provider_views = []
+        if mode == "typed_hierarchical_transformer" and bool(cfg.get("context_model", {}).get("pretraining", {}).get("provider_consistency_enabled", True)):
+            provider_views = _build_cross_provider_views(
+                cfg,
+                typed=typed,
+                chosen_rows=chosen_rows,
+                edge_id=edge_id,
+                selected_method=spatial_method,
+            )
+            diagnostics["provider_views_available"] = [str(view["method"]) for view in provider_views]
         return {
             "context": None,
             "shuffled_context": None,
             "context_encoder": encoder,
             "context_tokens": torch.tensor(node_tokens, dtype=torch.float32),
             "shuffled_context_tokens": torch.tensor(shuffled_tokens, dtype=torch.float32),
+            "context_coords": torch.tensor(node_coords, dtype=torch.float32),
+            "shuffled_context_coords": torch.tensor(shuffled_coords, dtype=torch.float32),
+            "context_confidence": torch.tensor(token_confidence, dtype=torch.float32),
+            "shuffled_context_confidence": torch.tensor(shuffled_confidence, dtype=torch.float32),
+            "context_missing_mask": torch.tensor(token_missing_mask, dtype=torch.bool),
             "context_graph": None,
             "token_type_ids": torch.tensor(token_type_ids, dtype=torch.long),
             "shuffled_token_type_ids": torch.tensor(shuffled_token_type_ids, dtype=torch.long),
+            "dataset_ids": dataset_ids,
+            "edge_ids": torch.tensor([int(edge_id)], dtype=torch.long),
+            "provider_views": provider_views,
+            "context_negative_controls": context_negative_controls,
             "diagnostics": diagnostics,
             "typed_subset_tokens": node_tokens,
             "typed_feature_names": typed.schema.typed_feature_names,
@@ -195,9 +455,18 @@ def _build_context_bundle(
         "context_encoder": encoder,
         "context_tokens": torch.tensor(node_tokens, dtype=torch.float32),
         "shuffled_context_tokens": torch.tensor(shuffled_tokens, dtype=torch.float32),
+        "context_coords": torch.tensor(node_coords, dtype=torch.float32),
+        "shuffled_context_coords": torch.tensor(shuffled_coords, dtype=torch.float32),
+        "context_confidence": torch.tensor(token_confidence, dtype=torch.float32),
+        "shuffled_context_confidence": torch.tensor(shuffled_confidence, dtype=torch.float32),
+        "context_missing_mask": torch.tensor(token_missing_mask, dtype=torch.bool),
         "context_graph": graph,
         "token_type_ids": torch.tensor(token_type_ids, dtype=torch.long),
         "shuffled_token_type_ids": torch.tensor(shuffled_token_type_ids, dtype=torch.long),
+        "dataset_ids": dataset_ids,
+        "edge_ids": torch.tensor([int(edge_id)], dtype=torch.long),
+        "provider_views": [],
+        "context_negative_controls": [],
         "diagnostics": diagnostics,
         "typed_subset_tokens": node_tokens,
         "typed_feature_names": typed.schema.typed_feature_names,
@@ -209,6 +478,8 @@ def _summarize_attention_maps(
     *,
     token_type_ids: torch.Tensor | None,
     typed_feature_names: list[str] | tuple[str, ...] | None,
+    token_coords: torch.Tensor | None = None,
+    token_confidence: torch.Tensor | None = None,
 ) -> dict[str, Any] | None:
     if not attention_maps:
         return None
@@ -240,6 +511,23 @@ def _summarize_attention_maps(
                     feature_names[token_type] if 0 <= token_type < len(feature_names) else str(token_type)
                 )
             summary["top_token_types"] = token_names
+        if token_coords is not None:
+            coords_cpu = token_coords.detach().float().cpu()
+            dists = torch.linalg.norm(coords_cpu, dim=-1)
+            summary["top_token_coordinates"] = [
+                [float(value) for value in coords_cpu[int(idx)].tolist()]
+                for idx in top_indices.tolist()
+            ]
+            summary["top_token_distance_bins"] = [float(dists[int(idx)].item()) for idx in top_indices.tolist()]
+        if token_confidence is not None:
+            confidence_cpu = token_confidence.detach().float().cpu()
+            summary["top_token_confidence"] = [float(confidence_cpu[int(idx)].item()) for idx in top_indices.tolist()]
+            weighted = token_scores * confidence_cpu
+            weighted = weighted / weighted.sum().clamp_min(1e-8)
+            summary["confidence_weighted_attention_entropy"] = float(
+                (-(weighted * weighted.clamp_min(1e-8).log()).sum()).item()
+            )
+            summary["mean_confidence_weighted_attention"] = float(weighted.mean().item())
         normalized = token_scores / token_scores.sum().clamp_min(1e-8)
         summary["pma_attention_entropy"] = float(
             (-(normalized * normalized.clamp_min(1e-8).log()).sum()).item()
@@ -396,6 +684,8 @@ def run_transition_model(
         cfg,
         mode=mode,
         stage_src=edge.stage_src,
+        stage_tgt=edge.stage_tgt,
+        edge_id=edge_id,
         donor_candidates=split.source_train_donors,
         typed=typed,
         spatial_method=spatial_method,
@@ -438,6 +728,16 @@ def run_transition_model(
         state_dependent_diffusion=bool(
             cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("state_dependent_diffusion", True)
         ),
+        use_cross_attention_drift=bool(
+            mode in {"set_only", "typed_hierarchical_transformer"}
+            and cfg.get("context_model", {}).get("use_cross_attention_drift", True)
+        ),
+        use_ude=bool(
+            cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("use_ude", False)
+        ),
+        ude_gate_init=float(
+            cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("ude_gate_init", 0.0)
+        ),
     ).to(device)
 
     learning_rate = float(cfg.get("train", {}).get("learning_rate", 1e-3))
@@ -453,12 +753,16 @@ def run_transition_model(
     attention_summary = None
     encoder_parameter_delta = 0.0
     trained_context_encoder = context_bundle.get("context_encoder")
+    trained_context_tokens = None
+    shuffled_context_tokens = None
+    pretraining_summary = None
     if trained_context_encoder is None:
         history = train_edgewise_transition_model(
             model=model,
             x_src_train=x_src_train,
             x_tgt_train=x_tgt_train,
             context=context_bundle["context"].to(device),
+            context_tokens=None,
             edge_id=edge_id,
             learning_rate=learning_rate,
             weight_decay=weight_decay,
@@ -480,11 +784,78 @@ def run_transition_model(
         if context_graph is not None and hasattr(context_graph, "to"):
             context_graph = context_graph.to(device)
         trained_context_encoder = trained_context_encoder.to(device)
+        pretraining_heads = None
+        pretraining_config = None
+        if mode == "typed_hierarchical_transformer" and bool(cfg.get("context_model", {}).get("pretraining", {}).get("enabled", True)):
+            pre_cfg = cfg.get("context_model", {}).get("pretraining", {})
+            pretraining_config = RelationalPretrainingConfig(
+                mask_fraction=float(pre_cfg.get("mask_fraction", 0.15)),
+                masked_token_weight=float(pre_cfg.get("masked_token_weight", 0.35)),
+                ranking_weight=float(pre_cfg.get("ranking_weight", 0.35)),
+                provider_consistency_weight=float(pre_cfg.get("provider_consistency_weight", 0.15)),
+                coordinate_corruption_weight=float(pre_cfg.get("coordinate_corruption_weight", 0.10)),
+                group_relation_weight=float(pre_cfg.get("group_relation_weight", 0.05)),
+                ranking_margin=float(pre_cfg.get("ranking_margin", 0.2)),
+                max_epochs=int(pre_cfg.get("max_epochs", 2)),
+                steps_per_epoch=int(pre_cfg.get("steps_per_epoch", 4)),
+                learning_rate=float(pre_cfg.get("learning_rate", learning_rate)),
+                weight_decay=float(pre_cfg.get("weight_decay", weight_decay)),
+                seed=seed,
+            )
+            pretraining = pretrain_relational_transformer(
+                context_encoder=trained_context_encoder,
+                context_tokens=context_bundle["context_tokens"].to(device),
+                token_type_ids=context_bundle["token_type_ids"].to(device),
+                token_coords=None if context_bundle["context_coords"] is None else context_bundle["context_coords"].to(device),
+                token_confidence=None if context_bundle["context_confidence"] is None else context_bundle["context_confidence"].to(device),
+                dataset_ids=None if context_bundle["dataset_ids"] is None else context_bundle["dataset_ids"].to(device),
+                edge_ids=None if context_bundle.get("edge_ids") is None else context_bundle["edge_ids"].to(device),
+                negative_controls=[
+                    {
+                        **control,
+                        "tokens": control["tokens"].to(device),
+                        "coords": None if control.get("coords") is None else control["coords"].to(device),
+                        "confidence": None if control.get("confidence") is None else control["confidence"].to(device),
+                        "token_type_ids": None if control.get("token_type_ids") is None else control["token_type_ids"].to(device),
+                        "dataset_ids": None if control.get("dataset_ids") is None else control["dataset_ids"].to(device),
+                    }
+                    for control in context_bundle.get("context_negative_controls", [])
+                ],
+                provider_views=[
+                    {
+                        **view,
+                        "tokens": view["tokens"].to(device),
+                        "coords": None if view.get("coords") is None else view["coords"].to(device),
+                        "confidence": None if view.get("confidence") is None else view["confidence"].to(device),
+                        "token_type_ids": None if view.get("token_type_ids") is None else view["token_type_ids"].to(device),
+                        "dataset_ids": None if view.get("dataset_ids") is None else view["dataset_ids"].to(device),
+                    }
+                    for view in context_bundle.get("provider_views", [])
+                ],
+                config=pretraining_config,
+            )
+            pretraining_heads = pretraining["heads"]
+            pretraining_summary = {
+                "history": pretraining["history"],
+                "metrics": pretraining["metrics"],
+                "encoder_parameter_delta": float(pretraining["encoder_parameter_delta"]),
+            }
+            context_bundle["diagnostics"]["pretraining_summary"] = pretraining_summary
         joint = train_edgewise_transition_model_with_context_encoder(
             model=model,
             context_encoder=trained_context_encoder,
             context_tokens=context_bundle["context_tokens"].to(device),
             shuffled_context_tokens=context_bundle["shuffled_context_tokens"].to(device),
+            context_coords=None if context_bundle["context_coords"] is None else context_bundle["context_coords"].to(device),
+            shuffled_context_coords=None
+            if context_bundle["shuffled_context_coords"] is None
+            else context_bundle["shuffled_context_coords"].to(device),
+            context_confidence=None
+            if context_bundle["context_confidence"] is None
+            else context_bundle["context_confidence"].to(device),
+            shuffled_context_confidence=None
+            if context_bundle["shuffled_context_confidence"] is None
+            else context_bundle["shuffled_context_confidence"].to(device),
             x_src_train=x_src_train,
             x_tgt_train=x_tgt_train,
             edge_id=edge_id,
@@ -505,16 +876,77 @@ def run_transition_model(
             shuffled_token_type_ids=None
             if context_bundle["shuffled_token_type_ids"] is None
             else context_bundle["shuffled_token_type_ids"].to(device),
-            capture_attention=bool(mode == "set_only"),
+            dataset_ids=None if context_bundle["dataset_ids"] is None else context_bundle["dataset_ids"].to(device),
+            edge_ids=None if context_bundle.get("edge_ids") is None else context_bundle["edge_ids"].to(device),
+            context_negative_controls=[
+                {
+                    **control,
+                    "tokens": control["tokens"].to(device),
+                    "coords": None if control.get("coords") is None else control["coords"].to(device),
+                    "confidence": None if control.get("confidence") is None else control["confidence"].to(device),
+                    "token_type_ids": None if control.get("token_type_ids") is None else control["token_type_ids"].to(device),
+                    "dataset_ids": None if control.get("dataset_ids") is None else control["dataset_ids"].to(device),
+                }
+                for control in context_bundle.get("context_negative_controls", [])
+            ],
+            provider_views=[
+                {
+                    **view,
+                    "tokens": view["tokens"].to(device),
+                    "coords": None if view.get("coords") is None else view["coords"].to(device),
+                    "confidence": None if view.get("confidence") is None else view["confidence"].to(device),
+                    "token_type_ids": None if view.get("token_type_ids") is None else view["token_type_ids"].to(device),
+                    "dataset_ids": None if view.get("dataset_ids") is None else view["dataset_ids"].to(device),
+                }
+                for view in context_bundle.get("provider_views", [])
+            ],
+            capture_attention=bool(mode in {"set_only", "typed_hierarchical_transformer"}),
+            auxiliary_loss_weight=float(cfg.get("context_model", {}).get("auxiliary_context_shuffle_weight", 0.1)),
+            pretraining_config=None
+            if pretraining_config is None
+            else RelationalPretrainingConfig(
+                mask_fraction=float(pretraining_config.mask_fraction),
+                masked_token_weight=float(cfg.get("context_model", {}).get("finetune", {}).get("masked_token_weight", 0.05)),
+                ranking_weight=float(cfg.get("context_model", {}).get("finetune", {}).get("ranking_weight", 0.15)),
+                provider_consistency_weight=float(cfg.get("context_model", {}).get("finetune", {}).get("provider_consistency_weight", 0.05)),
+                coordinate_corruption_weight=0.0,
+                group_relation_weight=0.0,
+                ranking_margin=float(pretraining_config.ranking_margin),
+                learning_rate=float(learning_rate),
+                weight_decay=float(weight_decay),
+                seed=seed,
+            ),
+            pretraining_heads=pretraining_heads,
         )
         history = joint["history"]
         trained_summary = joint["context_summary"]
         shuffled_summary = joint["shuffled_context_summary"]
         trained_context = trained_summary.pooled_context.to(device)
+        trained_context_tokens = None if getattr(trained_summary, "context_tokens", None) is None else trained_summary.context_tokens.to(device)
         shuffled_context = shuffled_summary.pooled_context.to(device)
+        shuffled_context_tokens = None if getattr(shuffled_summary, "context_tokens", None) is None else shuffled_summary.context_tokens.to(device)
         encoder_parameter_delta = float(joint["encoder_parameter_delta"])
         context_bundle["diagnostics"]["context_norm"] = float(trained_context.norm().item())
         context_bundle["diagnostics"]["encoder_parameter_delta"] = encoder_parameter_delta
+        context_bundle["diagnostics"]["encoder_internal"] = getattr(trained_summary, "diagnostics", {})
+        context_bundle["diagnostics"]["auxiliary_context_shuffle_loss"] = float(joint["auxiliary_metrics"]["loss"])
+        context_bundle["diagnostics"]["auxiliary_context_shuffle_accuracy"] = float(joint["auxiliary_metrics"]["accuracy"])
+        context_bundle["diagnostics"]["context_separation_score"] = float(joint["auxiliary_metrics"]["separation_score"])
+        context_bundle["diagnostics"]["auxiliary_task"] = str(joint["auxiliary_metrics"].get("task", "context_match_ranking"))
+        context_bundle["diagnostics"]["auxiliary_margin"] = float(joint["auxiliary_metrics"].get("margin", 0.0))
+        context_bundle["diagnostics"]["auxiliary_positive_score"] = float(joint["auxiliary_metrics"].get("positive_score", 0.0))
+        context_bundle["diagnostics"]["drift_context_gate"] = float(joint["auxiliary_metrics"].get("drift_context_gate", 0.0))
+        context_bundle["diagnostics"]["drift_context_attention_entropy"] = float(
+            joint["auxiliary_metrics"].get("drift_context_attention_entropy", 0.0)
+        )
+        context_bundle["diagnostics"]["negative_control_scores"] = {
+            str(key): float(value)
+            for key, value in (joint["auxiliary_metrics"].get("negative_control_scores", {}) or {}).items()
+        }
+        context_bundle["diagnostics"]["auxiliary_loss_components"] = {
+            str(key): float(value)
+            for key, value in ((joint["auxiliary_metrics"].get("loss_components", {}) or {}).items())
+        }
         if mode == "graph_of_sets":
             context_bundle["diagnostics"]["graph_num_nodes"] = int(getattr(trained_summary, "num_nodes", 0))
             context_bundle["diagnostics"]["graph_num_edges"] = int(getattr(trained_summary, "num_edges", 0))
@@ -522,7 +954,26 @@ def run_transition_model(
             getattr(trained_summary, "attention_maps", None),
             token_type_ids=getattr(trained_summary, "token_type_ids", None),
             typed_feature_names=context_bundle["typed_feature_names"],
+            token_coords=getattr(trained_summary, "token_coords", None),
+            token_confidence=getattr(trained_summary, "token_confidence", None),
         )
+        if mode == "typed_hierarchical_transformer":
+            hierarchical_diag = (getattr(trained_summary, "diagnostics", {}) or {}).get("group_diagnostics", [])
+            if hierarchical_diag:
+                first_diag = hierarchical_diag[0]
+                group_scores = first_diag.get("fusion_attention_by_group", {})
+                relation_scores = first_diag.get("fusion_attention_by_relation", {})
+                query_scores = first_diag.get("query_attention_by_group", {})
+                ranked_groups = sorted(group_scores.items(), key=lambda item: item[1], reverse=True)
+                attention_summary = {
+                    "available_maps": sorted((getattr(trained_summary, "attention_maps", {}) or {}).keys()),
+                    "top_token_types": [str(name) for name, _ in ranked_groups[:4]],
+                    "top_token_attention": [float(score) for _, score in ranked_groups[:4]],
+                    "pma_attention_entropy": float(np.nan),
+                    "group_attention_scores": {str(key): float(value) for key, value in group_scores.items()},
+                    "relation_attention_scores": {str(key): float(value) for key, value in relation_scores.items()},
+                    "query_attention_by_group": query_scores,
+                }
         if attention_summary is not None:
             context_bundle["diagnostics"]["attention_summary"] = attention_summary
 
@@ -544,13 +995,40 @@ def run_transition_model(
         "evaluation_notes": evaluation_notes,
         "model": model,
         "context": trained_context,
+        "context_tokens": trained_context_tokens,
         "shuffled_context": shuffled_context,
+        "shuffled_context_tokens": shuffled_context_tokens,
         "trained_context_encoder": trained_context_encoder,
         "attention_summary": attention_summary,
         "encoder_parameter_delta": encoder_parameter_delta,
+        "auxiliary_context_shuffle_metrics": None if trained_context_encoder is None else joint["auxiliary_metrics"],
+        "pretraining_summary": pretraining_summary,
         "edge_id": edge_id,
         "x_src_test": x_src_test,
         "x_tgt_test": x_tgt_test,
         "typed_subset_tokens": context_bundle["typed_subset_tokens"],
         "typed_feature_names": context_bundle["typed_feature_names"],
+        "token_package": {
+            "token_values": None if context_bundle["context_tokens"] is None else context_bundle["context_tokens"].detach().cpu(),
+            "token_coords": None if context_bundle["context_coords"] is None else context_bundle["context_coords"].detach().cpu(),
+            "token_confidence": None if context_bundle["context_confidence"] is None else context_bundle["context_confidence"].detach().cpu(),
+            "token_type_ids": None if context_bundle["token_type_ids"] is None else context_bundle["token_type_ids"].detach().cpu(),
+            "token_missing_mask": None if context_bundle["context_missing_mask"] is None else context_bundle["context_missing_mask"].detach().cpu(),
+            "dataset_ids": None if context_bundle.get("dataset_ids") is None else context_bundle["dataset_ids"].detach().cpu(),
+        },
+        "dataset_transfer_diagnostics": {
+            "source_dataset": str(cfg.get("data", {}).get("dataset", "luad_evo")),
+            "transfer_dataset": cfg.get("context_model", {}).get("transfer_dataset"),
+            "dataset_embedding_enabled": bool(mode == "typed_hierarchical_transformer"),
+            "provider_views_used": [str(view.get("method", "unknown")) for view in context_bundle.get("provider_views", [])],
+            "cross_dataset_negatives_used": int(
+                sum(
+                    1
+                    for control in context_bundle.get("context_negative_controls", [])
+                    if control.get("dataset_ids") is not None
+                    and int(control["dataset_ids"][0].item()) != int(context_bundle["dataset_ids"][0].item())
+                )
+            ),
+            "negative_control_labels": [str(control.get("label", "negative")) for control in context_bundle.get("context_negative_controls", [])],
+        },
     }

@@ -227,8 +227,14 @@ class SetContextSummary:
 
     pooled_context: Tensor
     token_embeddings: Tensor
+    context_tokens: Tensor | None = None
+    group_summary_tokens: Tensor | None = None
+    relation_tokens: Tensor | None = None
     attention_maps: dict[str, Tensor] = field(default_factory=dict)
     token_type_ids: Tensor | None = None
+    token_confidence: Tensor | None = None
+    token_coords: Tensor | None = None
+    diagnostics: dict[str, float] = field(default_factory=dict)
 
 
 class DeepSetsContextEncoder(nn.Module):
@@ -279,18 +285,38 @@ class TypedSetContextEncoder(nn.Module):
         *,
         num_token_types: int = 4,
         use_token_type_embeddings: bool = True,
+        use_spatial_rpe: bool = True,
+        token_dropout_rate: float = 0.05,
+        use_confidence_gate: bool = True,
     ) -> None:
         super().__init__()
         self.input_projection = nn.Linear(input_dim, hidden_dim)
         self.num_token_types = int(num_token_types)
+        self.token_dropout_rate = float(token_dropout_rate)
         self.token_type_embedding = (
             nn.Embedding(self.num_token_types, hidden_dim) if use_token_type_embeddings else None
+        )
+        self.coord_projection = nn.Sequential(
+            nn.Linear(2, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.confidence_gate = (
+            nn.Sequential(
+                nn.Linear(1, hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.Sigmoid(),
+            )
+            if use_confidence_gate
+            else None
         )
         self.isab = ISAB(
             dim=hidden_dim,
             num_heads=num_heads,
             num_inducing_points=num_inducing_points,
             dropout=dropout,
+            use_spatial_rpe=use_spatial_rpe,
         )
         self.sab = SAB(dim=hidden_dim, num_heads=num_heads, dropout=dropout)
         self.pma = PMA(dim=hidden_dim, num_heads=num_heads, num_seed_vectors=1, dropout=dropout)
@@ -305,12 +331,53 @@ class TypedSetContextEncoder(nn.Module):
             return tokens[..., : self.num_token_types].argmax(dim=-1)
         return torch.zeros(tokens.shape[:-1], dtype=torch.long, device=tokens.device)
 
+    def _normalize_by_group(self, tokens: Tensor, token_type_ids: Tensor) -> Tensor:
+        normalized = tokens.clone()
+        for group_idx in range(self.num_token_types):
+            group_mask = token_type_ids == group_idx
+            if not torch.any(group_mask):
+                continue
+            group_values = normalized[group_mask]
+            group_mean = group_values.mean(dim=0, keepdim=True)
+            group_std = group_values.std(dim=0, unbiased=False, keepdim=True).clamp_min(1e-4)
+            normalized[group_mask] = (group_values - group_mean) / group_std
+        return normalized
+
+    @staticmethod
+    def _normalize_coords(coords: Tensor | None) -> Tensor | None:
+        if coords is None:
+            return None
+        centered = coords - coords.mean(dim=-2, keepdim=True)
+        scale = centered.norm(dim=-1).quantile(0.95).clamp_min(1e-4)
+        return centered / scale
+
+    def _apply_training_dropout(
+        self,
+        tokens: Tensor,
+        token_type_ids: Tensor,
+        token_confidence: Tensor | None,
+    ) -> tuple[Tensor, Tensor, Tensor | None]:
+        if not self.training or self.token_dropout_rate <= 0.0 or tokens.shape[-2] <= 1:
+            return tokens, token_type_ids, token_confidence
+        keep_prob = 1.0 - self.token_dropout_rate
+        keep_mask = torch.rand(tokens.shape[:-1], device=tokens.device) < keep_prob
+        if keep_mask.ndim == 1:
+            keep_mask[0] = True
+        else:
+            keep_mask[..., 0] = True
+        dropped = tokens * keep_mask.unsqueeze(-1).to(tokens.dtype)
+        if token_confidence is not None:
+            token_confidence = token_confidence * keep_mask.to(token_confidence.dtype)
+        return dropped, token_type_ids, token_confidence
+
     def forward(
         self,
         tokens: Tensor,
         mask: Tensor | None = None,
         *,
         token_type_ids: Tensor | None = None,
+        token_coords: Tensor | None = None,
+        token_confidence: Tensor | None = None,
         return_attention: bool = False,
     ) -> SetContextSummary:
         squeeze = False
@@ -322,13 +389,41 @@ class TypedSetContextEncoder(nn.Module):
         if token_type_ids.ndim == 1:
             token_type_ids = token_type_ids.unsqueeze(0)
         token_type_ids = token_type_ids.long()
-        h = self.input_projection(tokens)
+        if token_confidence is not None and token_confidence.ndim == 1:
+            token_confidence = token_confidence.unsqueeze(0)
+        if token_coords is not None and token_coords.ndim == 2:
+            token_coords = token_coords.unsqueeze(0)
+
+        tokens, token_type_ids, token_confidence = self._apply_training_dropout(
+            tokens,
+            token_type_ids,
+            token_confidence,
+        )
+        normalized_tokens = torch.stack(
+            [self._normalize_by_group(batch_tokens, batch_type_ids) for batch_tokens, batch_type_ids in zip(tokens, token_type_ids, strict=False)],
+            dim=0,
+        )
+        h = self.input_projection(normalized_tokens)
         if self.token_type_embedding is not None:
             h = h + self.token_type_embedding(token_type_ids)
+        normalized_coords = self._normalize_coords(token_coords)
+        if normalized_coords is not None:
+            h = h + self.coord_projection(normalized_coords)
+        confidence_gate_mean = 1.0
+        if token_confidence is not None and self.confidence_gate is not None:
+            gate = self.confidence_gate(token_confidence.unsqueeze(-1))
+            confidence_gate_mean = float(gate.detach().mean().item())
+            h = h * gate
 
         attention_maps: dict[str, Tensor] = {}
         if return_attention:
-            h, isab_attention = self.isab(h, mask=mask, return_attention=True)
+            h, isab_attention = self.isab(
+                h,
+                mask=mask,
+                coords=normalized_coords,
+                n_src=0,
+                return_attention=True,
+            )
             h, sab_attention = self.sab(h, mask=mask, return_attention=True)
             pooled_tokens, pma_attention = self.pma(h, mask=mask, return_attention=True)
             attention_maps = {
@@ -338,23 +433,36 @@ class TypedSetContextEncoder(nn.Module):
                 "pma_seed_attention": pma_attention,
             }
         else:
-            h = self.isab(h, mask=mask)
+            h = self.isab(h, mask=mask, coords=normalized_coords, n_src=0)
             h = self.sab(h, mask=mask)
             pooled_tokens = self.pma(h, mask=mask)
         pooled = pooled_tokens[:, 0, :]
         context = self.context_head(pooled)
+        diagnostics = {
+            "confidence_gate_mean": confidence_gate_mean,
+            "mean_token_confidence": float(token_confidence.detach().mean().item()) if token_confidence is not None else 1.0,
+            "mean_token_radius": float(normalized_coords.detach().norm(dim=-1).mean().item()) if normalized_coords is not None else 0.0,
+        }
         if squeeze:
             return SetContextSummary(
                 pooled_context=context[0],
                 token_embeddings=h[0],
+                context_tokens=pooled_tokens[0],
                 attention_maps={key: value[0] for key, value in attention_maps.items()},
                 token_type_ids=token_type_ids[0],
+                token_confidence=None if token_confidence is None else token_confidence[0],
+                token_coords=None if normalized_coords is None else normalized_coords[0],
+                diagnostics=diagnostics,
             )
         return SetContextSummary(
             pooled_context=context,
             token_embeddings=h,
+            context_tokens=pooled_tokens,
             attention_maps=attention_maps,
             token_type_ids=token_type_ids,
+            token_confidence=token_confidence,
+            token_coords=normalized_coords,
+            diagnostics=diagnostics,
         )
 
 

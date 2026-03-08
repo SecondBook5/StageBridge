@@ -18,6 +18,7 @@ from stagebridge.pipelines.run_transition_model import run_transition_model
 
 EDGE_LIST = ["AAH->AIS", "AIS->MIA"]
 BASELINE_MODES = ["rna_only", "pooled", "deep_sets", "graph_of_sets"]
+TRANSFORMER_CORE_MODES = ["deep_sets", "set_only", "graph_of_sets", "typed_hierarchical_transformer"]
 
 
 @dataclass(slots=True, frozen=True)
@@ -61,13 +62,18 @@ def suggest_set_only_hyperparameters(trial: optuna.trial.Trial) -> dict[str, Any
         "hidden_dim": trial.suggest_categorical("hidden_dim", [64, 96, 128, 160]),
         "num_heads": trial.suggest_categorical("num_heads", [2, 4, 8]),
         "num_inducing_points": trial.suggest_categorical("num_inducing_points", [8, 12, 16, 24]),
+        "num_seed_vectors": trial.suggest_categorical("num_seed_vectors", [2, 4]),
         "dropout": trial.suggest_float("dropout", 0.0, 0.25),
+        "token_dropout_rate": trial.suggest_float("token_dropout_rate", 0.0, 0.2),
+        "auxiliary_context_shuffle_weight": trial.suggest_float("auxiliary_context_shuffle_weight", 0.1, 0.3),
         "learning_rate": trial.suggest_float("learning_rate", 3e-4, 3e-3, log=True),
         "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
         "max_context_spots": trial.suggest_categorical("max_context_spots", [32, 64, 96, 128]),
         "batch_cells": trial.suggest_categorical("batch_cells", [32, 48, 64]),
-        "steps_per_epoch": trial.suggest_categorical("steps_per_epoch", [4, 6, 8]),
-        "max_epochs": trial.suggest_categorical("max_epochs", [3, 4, 5, 6]),
+        "steps_per_epoch": trial.suggest_categorical("steps_per_epoch", [8, 12, 16, 24]),
+        "max_epochs": trial.suggest_categorical("max_epochs", [6, 8, 12, 16]),
+        "use_ude": True,
+        "use_cross_attention_drift": True,
     }
 
 
@@ -77,6 +83,14 @@ def apply_transformer_hyperparameters(cfg: DictConfig, params: Mapping[str, Any]
     tuned.context_model.num_heads = int(params["num_heads"])
     tuned.context_model.num_inducing_points = int(params["num_inducing_points"])
     tuned.context_model.max_context_spots = int(params["max_context_spots"])
+    tuned.context_model.token_dropout_rate = float(params["token_dropout_rate"])
+    tuned.context_model.auxiliary_context_shuffle_weight = float(params["auxiliary_context_shuffle_weight"])
+    if "num_seed_vectors" in params:
+        tuned.context_model.num_seed_vectors = int(params["num_seed_vectors"])
+    if "use_cross_attention_drift" in params:
+        tuned.context_model.use_cross_attention_drift = bool(params["use_cross_attention_drift"])
+    if "use_ude" in params:
+        tuned.transition_model.stochastic_dynamics.use_ude = bool(params["use_ude"])
     tuned.transition_model.stochastic_dynamics.dropout = float(params["dropout"])
     tuned.train.learning_rate = float(params["learning_rate"])
     tuned.train.weight_decay = float(params["weight_decay"])
@@ -180,6 +194,88 @@ def run_mode_baseline_summary(
             dominant_decrease_group=("dominant_decrease_group", lambda s: s.mode().iloc[0] if not s.mode().empty else None),
         )
     )
+
+
+def summarize_transformer_vs_deep_sets(
+    benchmark_table: pd.DataFrame,
+    *,
+    transformer_mode: str = "typed_hierarchical_transformer",
+) -> dict[str, Any]:
+    """Build a strict decision summary against Deep Sets for the flagship transformer."""
+    if benchmark_table.empty:
+        return {
+            "status": "inconclusive",
+            "decision": "needs_more_data",
+            "interpretation": "No benchmark rows were available.",
+            "edge_results": [],
+        }
+    deep_sets = benchmark_table.loc[benchmark_table["mode"] == "deep_sets"].set_index("edge")
+    transformer = benchmark_table.loc[benchmark_table["mode"] == transformer_mode].set_index("edge")
+    rows: list[dict[str, Any]] = []
+    wins_sinkhorn = []
+    calibration_ok = []
+    for edge in sorted(set(deep_sets.index).intersection(set(transformer.index))):
+        deep_row = deep_sets.loc[edge]
+        trans_row = transformer.loc[edge]
+        sinkhorn_delta = float(trans_row["sinkhorn_mean"] - deep_row["sinkhorn_mean"])
+        calibration_delta = float(trans_row["calibration_mean"] - deep_row["calibration_mean"])
+        rows.append(
+            {
+                "edge": str(edge),
+                "transformer_sinkhorn_mean": float(trans_row["sinkhorn_mean"]),
+                "deep_sets_sinkhorn_mean": float(deep_row["sinkhorn_mean"]),
+                "sinkhorn_delta": sinkhorn_delta,
+                "transformer_calibration_mean": float(trans_row["calibration_mean"]),
+                "deep_sets_calibration_mean": float(deep_row["calibration_mean"]),
+                "calibration_delta": calibration_delta,
+            }
+        )
+        wins_sinkhorn.append(sinkhorn_delta <= 0.0)
+        calibration_ok.append(calibration_delta <= 0.25)
+
+    if rows and all(wins_sinkhorn) and all(calibration_ok):
+        status = "pass"
+        decision = "keep"
+        interpretation = f"{transformer_mode} beat Deep Sets on Sinkhorn for all benchmarked edges without a material calibration collapse."
+    elif rows and any(wins_sinkhorn):
+        status = "weak_pass"
+        decision = "keep_as_optional"
+        interpretation = f"{transformer_mode} improved at least one edge but did not clear a strict all-edge win over Deep Sets."
+    else:
+        status = "fail"
+        decision = "demote"
+        interpretation = f"{transformer_mode} did not beat Deep Sets under the current fixed benchmark."
+    return {
+        "status": status,
+        "decision": decision,
+        "interpretation": interpretation,
+        "edge_results": rows,
+    }
+
+
+def run_transformer_core_benchmark(
+    cfg: DictConfig,
+    *,
+    modes: list[str] | None = None,
+    edges: list[str] | None = None,
+    seeds: list[int] | None = None,
+) -> dict[str, Any]:
+    """Run the fixed transformer-core benchmark against Deep Sets and baselines."""
+    modes = modes or TRANSFORMER_CORE_MODES
+    edges = edges or EDGE_LIST
+    seeds = seeds or [7, 13, 29]
+    cfg_base = prepare_transformer_tuning_config(cfg)
+    summary = run_mode_baseline_summary(
+        cfg_base,
+        modes=modes,
+        edges=edges,
+        seeds=seeds,
+    )
+    decision = summarize_transformer_vs_deep_sets(summary)
+    return {
+        "benchmark_table": summary,
+        "transformer_decision": decision,
+    }
 
 
 def _deep_sets_reference_map(baseline_summary: pd.DataFrame) -> dict[str, dict[str, float]]:
@@ -433,4 +529,3 @@ def run_set_only_optuna_study(
         "interpretation": interpretation,
         "figure_bundle": build_optuna_figure_bundle(study),
     }
-

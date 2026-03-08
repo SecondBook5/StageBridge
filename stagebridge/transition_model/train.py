@@ -17,6 +17,12 @@ from stagebridge.logging_utils import get_logger
 from stagebridge.data.luad_evo.stages import CANONICAL_STAGE_ORDER, ordered_transitions, stage_to_index
 from stagebridge.transition_model.infer import evaluate_transition
 from stagebridge.transition_model.losses import flow_matching_loss, multihop_consistency_loss
+from stagebridge.transition_model.relational_pretraining import (
+    RelationalPretrainingConfig,
+    RelationalPretrainingHeads,
+    compute_relational_auxiliary_losses,
+    pretrain_relational_transformer,
+)
 from stagebridge.utils.types import StageBatch, StageBridgeConfig
 
 log = get_logger(__name__)
@@ -878,6 +884,10 @@ def _forward_context_encoder(
     *,
     context_graph: Any | None = None,
     token_type_ids: Tensor | None = None,
+    token_coords: Tensor | None = None,
+    token_confidence: Tensor | None = None,
+    dataset_ids: Tensor | None = None,
+    edge_ids: Tensor | None = None,
     return_attention: bool = False,
 ) -> Any:
     if context_graph is not None:
@@ -885,12 +895,87 @@ def _forward_context_encoder(
     kwargs: dict[str, Any] = {}
     if token_type_ids is not None:
         kwargs["token_type_ids"] = token_type_ids
+    if token_coords is not None:
+        kwargs["token_coords"] = token_coords
+    if token_confidence is not None:
+        kwargs["token_confidence"] = token_confidence
+    if dataset_ids is not None:
+        kwargs["dataset_ids"] = dataset_ids
+    if edge_ids is not None:
+        kwargs["edge_ids"] = edge_ids
     if return_attention:
         kwargs["return_attention"] = True
     try:
         return context_encoder(context_tokens, **kwargs)
     except TypeError:
-        return context_encoder(context_tokens)
+        reduced_kwargs = dict(kwargs)
+        reduced_kwargs.pop("dataset_ids", None)
+        reduced_kwargs.pop("edge_ids", None)
+        try:
+            return context_encoder(context_tokens, **reduced_kwargs)
+        except TypeError:
+            return context_encoder(context_tokens)
+
+
+def _infer_token_type_ids_from_tokens(tokens: Tensor, num_token_types: int | None = None) -> Tensor | None:
+    if num_token_types is None:
+        num_token_types = int(tokens.shape[-1])
+    if tokens.ndim != 2 or tokens.shape[-1] < 1:
+        return None
+    usable = min(int(num_token_types), int(tokens.shape[-1]))
+    return tokens[:, :usable].argmax(dim=-1).long()
+
+
+def _build_context_negative_controls(
+    *,
+    context_tokens: Tensor,
+    shuffled_context_tokens: Tensor,
+    context_coords: Tensor | None,
+    shuffled_context_coords: Tensor | None,
+    context_confidence: Tensor | None,
+    shuffled_context_confidence: Tensor | None,
+    token_type_ids: Tensor | None,
+    shuffled_token_type_ids: Tensor | None,
+    dataset_ids: Tensor | None = None,
+) -> list[dict[str, Tensor | None]]:
+    negatives: list[dict[str, Tensor | None]] = [
+        {
+            "tokens": shuffled_context_tokens,
+            "coords": shuffled_context_coords,
+            "confidence": shuffled_context_confidence,
+            "token_type_ids": shuffled_token_type_ids,
+            "dataset_ids": dataset_ids,
+            "label": "token_shuffle",
+        }
+    ]
+    if context_tokens.ndim != 2:
+        return negatives
+
+    group_permuted_tokens = torch.roll(context_tokens, shifts=1, dims=-1)
+    group_permuted_types = _infer_token_type_ids_from_tokens(group_permuted_tokens, token_type_ids.max().item() + 1 if token_type_ids is not None else None)
+    negatives.append(
+        {
+            "tokens": group_permuted_tokens,
+            "coords": context_coords,
+            "confidence": context_confidence,
+            "token_type_ids": group_permuted_types,
+            "dataset_ids": dataset_ids,
+            "label": "group_permutation",
+        }
+    )
+
+    if context_coords is not None:
+        negatives.append(
+            {
+                "tokens": context_tokens,
+                "coords": torch.roll(context_coords, shifts=1, dims=0),
+                "confidence": context_confidence if context_confidence is None else torch.flip(context_confidence, dims=[0]),
+                "token_type_ids": token_type_ids,
+                "dataset_ids": dataset_ids,
+                "label": "coordinate_permutation",
+            }
+        )
+    return negatives
 
 
 def train_edgewise_transition_model(
@@ -899,6 +984,7 @@ def train_edgewise_transition_model(
     x_src_train: Tensor,
     x_tgt_train: Tensor,
     context: Tensor,
+    context_tokens: Tensor | None,
     edge_id: int,
     learning_rate: float,
     weight_decay: float,
@@ -951,6 +1037,7 @@ def train_edgewise_transition_model(
                 x_src=batch_src,
                 x_tgt=batch_tgt,
                 context=context,
+                context_tokens=context_tokens,
                 edge_ids=edge_ids_full[: batch_src.shape[0]],
                 epsilon=float(epsilon),
                 sinkhorn_iters=int(sinkhorn_iters),
@@ -985,6 +1072,10 @@ def train_edgewise_transition_model_with_context_encoder(
     context_encoder: nn.Module,
     context_tokens: Tensor,
     shuffled_context_tokens: Tensor,
+    context_coords: Tensor | None,
+    shuffled_context_coords: Tensor | None,
+    context_confidence: Tensor | None,
+    shuffled_context_confidence: Tensor | None,
     x_src_train: Tensor,
     x_tgt_train: Tensor,
     edge_id: int,
@@ -1003,26 +1094,91 @@ def train_edgewise_transition_model_with_context_encoder(
     context_graph: Any | None = None,
     token_type_ids: Tensor | None = None,
     shuffled_token_type_ids: Tensor | None = None,
+    dataset_ids: Tensor | None = None,
+    edge_ids: Tensor | None = None,
+    context_negative_controls: list[dict[str, Any]] | None = None,
+    provider_views: list[dict[str, Any]] | None = None,
     capture_attention: bool = False,
+    auxiliary_loss_weight: float = 0.1,
+    pretraining_config: RelationalPretrainingConfig | None = None,
+    pretraining_heads: RelationalPretrainingHeads | None = None,
 ) -> dict[str, Any]:
     """Train the context encoder jointly with the edge-wise transition model."""
     from stagebridge.transition_model.schrodinger_bridge import edgewise_schrodinger_bridge_loss
 
-    parameters = list(model.parameters()) + list(context_encoder.parameters())
-    optimizer = torch.optim.Adam(
-        parameters,
-        lr=float(learning_rate),
+    with torch.no_grad():
+        probe_summary = _forward_context_encoder(
+            context_encoder,
+            context_tokens,
+            context_graph=context_graph,
+            token_type_ids=token_type_ids,
+            token_coords=context_coords,
+            token_confidence=context_confidence,
+            dataset_ids=dataset_ids,
+            edge_ids=edge_ids,
+            return_attention=False,
+        )
+    probe_context = probe_summary.pooled_context
+    context_dim = int(probe_context.shape[-1]) if probe_context.ndim > 0 else 1
+    use_relational_aux = pretraining_heads is not None
+    compatibility_head: nn.Module | None = None
+    if not use_relational_aux:
+        compatibility_head = nn.Sequential(
+            nn.Linear(context_dim, max(context_dim // 2, 16)),
+            nn.GELU(),
+            nn.Linear(max(context_dim // 2, 16), 1),
+        ).to(x_src_train.device)
+    param_groups = [
+        {"params": list(context_encoder.parameters()), "lr": float(learning_rate) * 0.3},
+        {"params": list(model.parameters()), "lr": float(learning_rate)},
+    ]
+    if compatibility_head is not None:
+        param_groups.append({"params": list(compatibility_head.parameters()), "lr": float(learning_rate)})
+    if pretraining_heads is not None:
+        param_groups.append({"params": list(pretraining_heads.parameters()), "lr": float(learning_rate) * 0.5})
+    parameters = [param for group in param_groups for param in group["params"]]
+    optimizer = torch.optim.AdamW(
+        param_groups,
         weight_decay=float(weight_decay),
     )
     history: list[dict[str, float]] = []
     edge_ids_full = torch.full((x_src_train.shape[0],), int(edge_id), dtype=torch.long, device=x_src_train.device)
     before = _clone_trainable_parameters(context_encoder)
+    negative_controls = _build_context_negative_controls(
+        context_tokens=context_tokens,
+        shuffled_context_tokens=shuffled_context_tokens,
+        context_coords=context_coords,
+        shuffled_context_coords=shuffled_context_coords,
+        context_confidence=context_confidence,
+        shuffled_context_confidence=shuffled_context_confidence,
+        token_type_ids=token_type_ids,
+        shuffled_token_type_ids=shuffled_token_type_ids,
+        dataset_ids=dataset_ids,
+    )
+    if context_negative_controls:
+        negative_controls.extend(context_negative_controls)
+    provider_views = list(provider_views or [])
+    if pretraining_config is None:
+        pretraining_config = RelationalPretrainingConfig(
+            masked_token_weight=0.05,
+            ranking_weight=float(auxiliary_loss_weight),
+            provider_consistency_weight=0.05 if provider_views else 0.0,
+            coordinate_corruption_weight=0.0,
+            group_relation_weight=0.0,
+            learning_rate=float(learning_rate),
+            weight_decay=float(weight_decay),
+            seed=int(seed),
+        )
 
     for epoch in range(int(max_epochs)):
         losses: list[float] = []
         drift_losses: list[float] = []
         diffusion_losses: list[float] = []
         context_norms: list[float] = []
+        auxiliary_losses: list[float] = []
+        auxiliary_accuracies: list[float] = []
+        provider_cosines: list[float] = []
+        drift_context_gates: list[float] = []
         for step in range(int(steps_per_epoch)):
             batch_src, src_idx = _sample_rows(
                 x_src_train,
@@ -1046,14 +1202,20 @@ def train_edgewise_transition_model_with_context_encoder(
                 context_tokens,
                 context_graph=context_graph,
                 token_type_ids=token_type_ids,
+                token_coords=context_coords,
+                token_confidence=context_confidence,
+                dataset_ids=dataset_ids,
+                edge_ids=edge_ids,
                 return_attention=False,
             )
             context = context_summary.pooled_context
+            context_tokens_for_drift = getattr(context_summary, "context_tokens", None)
             loss, diagnostics, _ = edgewise_schrodinger_bridge_loss(
                 model,
                 x_src=batch_src,
                 x_tgt=batch_tgt,
                 context=context,
+                context_tokens=context_tokens_for_drift,
                 edge_ids=edge_ids_full[: batch_src.shape[0]],
                 epsilon=float(epsilon),
                 sinkhorn_iters=int(sinkhorn_iters),
@@ -1062,15 +1224,69 @@ def train_edgewise_transition_model_with_context_encoder(
                 diffusion_weight=float(diffusion_weight),
                 extra_cost=batch_extra,
             )
+            if use_relational_aux and pretraining_heads is not None:
+                auxiliary_loss, _, relational_metrics, _ = compute_relational_auxiliary_losses(
+                    context_encoder=context_encoder,
+                    heads=pretraining_heads,
+                    context_tokens=context_tokens,
+                    token_type_ids=token_type_ids if token_type_ids is not None else torch.zeros(context_tokens.shape[0], dtype=torch.long, device=context_tokens.device),
+                    token_coords=context_coords,
+                    token_confidence=context_confidence,
+                    dataset_ids=dataset_ids,
+                    edge_ids=edge_ids,
+                    negative_controls=negative_controls,
+                    provider_views=provider_views,
+                    config=pretraining_config,
+                    seed=seed + epoch * 1_000 + step,
+                    include_masked_token=bool(pretraining_config.masked_token_weight > 0.0),
+                    include_provider_consistency=bool(pretraining_config.provider_consistency_weight > 0.0 and provider_views),
+                    include_coordinate_corruption=False,
+                    include_group_relation=False,
+                    return_attention=False,
+                )
+                total_loss = loss + auxiliary_loss
+                aux_accuracy = float(relational_metrics.get("ranking_accuracy", float("nan")))
+                provider_cos = relational_metrics.get("provider_consistency_cosine", float("nan"))
+                if np.isfinite(provider_cos):
+                    provider_cosines.append(float(provider_cos))
+            else:
+                context_for_head = context.unsqueeze(0) if context.ndim == 1 else context
+                negative_contexts: list[Tensor] = []
+                for control in negative_controls:
+                    negative_summary = _forward_context_encoder(
+                        context_encoder,
+                        control["tokens"],
+                        context_graph=context_graph,
+                        token_type_ids=control["token_type_ids"],
+                        token_coords=control["coords"],
+                        token_confidence=control["confidence"],
+                        dataset_ids=control.get("dataset_ids"),
+                        edge_ids=edge_ids,
+                        return_attention=False,
+                    )
+                    negative_context = negative_summary.pooled_context
+                    negative_contexts.append(negative_context.unsqueeze(0) if negative_context.ndim == 1 else negative_context)
+                shuffled_for_head = torch.cat(negative_contexts, dim=0)
+                assert compatibility_head is not None
+                positive_score = compatibility_head(context_for_head)
+                negative_scores = compatibility_head(shuffled_for_head)
+                margin = torch.tensor(0.2, device=context.device, dtype=context.dtype)
+                auxiliary_loss = torch.relu(margin - positive_score + negative_scores).mean()
+                total_loss = loss + float(auxiliary_loss_weight) * auxiliary_loss
+                aux_accuracy = float((positive_score.detach() > negative_scores.detach()).float().mean().item())
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            total_loss.backward()
             torch.nn.utils.clip_grad_norm_(parameters, 1.0)
             optimizer.step()
 
-            losses.append(float(loss.detach().item()))
+            losses.append(float(total_loss.detach().item()))
             drift_losses.append(float(diagnostics["loss_drift"]))
             diffusion_losses.append(float(diagnostics["loss_diffusion"]))
             context_norms.append(float(context.detach().norm().item()))
+            auxiliary_losses.append(float(auxiliary_loss.detach().item()))
+            auxiliary_accuracies.append(aux_accuracy)
+            if getattr(model, "cross_attention_drift", None) is not None:
+                drift_context_gates.append(float(getattr(model.cross_attention_drift, "last_context_gate_mean", 0.0)))
 
         history.append(
             {
@@ -1079,28 +1295,135 @@ def train_edgewise_transition_model_with_context_encoder(
                 "loss_drift": float(np.mean(drift_losses)),
                 "loss_diffusion": float(np.mean(diffusion_losses)),
                 "context_norm": float(np.mean(context_norms)),
+                "loss_context_shuffle": float(np.mean(auxiliary_losses)),
+                "context_shuffle_accuracy": float(np.mean(auxiliary_accuracies)),
+                "provider_consistency_cosine": float(np.mean(provider_cosines)) if provider_cosines else float("nan"),
+                "drift_context_gate": float(np.mean(drift_context_gates)) if drift_context_gates else float("nan"),
             }
         )
 
     with torch.no_grad():
-        final_context_summary = _forward_context_encoder(
-            context_encoder,
-            context_tokens,
-            context_graph=context_graph,
-            token_type_ids=token_type_ids,
-            return_attention=bool(capture_attention),
-        )
-        final_shuffled_summary = _forward_context_encoder(
-            context_encoder,
-            shuffled_context_tokens,
-            context_graph=context_graph,
-            token_type_ids=shuffled_token_type_ids,
-            return_attention=False,
-        )
+        if use_relational_aux and pretraining_heads is not None:
+            final_aux_loss, _, final_aux_metrics, final_context_summary = compute_relational_auxiliary_losses(
+                context_encoder=context_encoder,
+                heads=pretraining_heads,
+                context_tokens=context_tokens,
+                token_type_ids=token_type_ids if token_type_ids is not None else torch.zeros(context_tokens.shape[0], dtype=torch.long, device=context_tokens.device),
+                token_coords=context_coords,
+                token_confidence=context_confidence,
+                dataset_ids=dataset_ids,
+                edge_ids=edge_ids,
+                negative_controls=negative_controls,
+                provider_views=provider_views,
+                config=pretraining_config,
+                seed=seed + 99_999,
+                include_masked_token=bool(pretraining_config.masked_token_weight > 0.0),
+                include_provider_consistency=bool(pretraining_config.provider_consistency_weight > 0.0 and provider_views),
+                include_coordinate_corruption=False,
+                include_group_relation=False,
+                return_attention=bool(capture_attention),
+            )
+            first_negative = negative_controls[0]
+            final_shuffled_summary = _forward_context_encoder(
+                context_encoder,
+                first_negative["tokens"],
+                context_graph=context_graph,
+                token_type_ids=first_negative.get("token_type_ids"),
+                token_coords=first_negative.get("coords"),
+                token_confidence=first_negative.get("confidence"),
+                dataset_ids=first_negative.get("dataset_ids"),
+                edge_ids=edge_ids,
+                return_attention=False,
+            )
+            final_aux_accuracy = float(final_aux_metrics.get("ranking_accuracy", float("nan")))
+            separation_score = float(final_aux_metrics.get("provider_consistency_cosine", 0.0))
+            negative_control_scores = {
+                str(key): float(value)
+                for key, value in (final_aux_metrics.get("negative_control_scores", {}) or {}).items()
+            }
+        else:
+            final_context_summary = _forward_context_encoder(
+                context_encoder,
+                context_tokens,
+                context_graph=context_graph,
+                token_type_ids=token_type_ids,
+                token_coords=context_coords,
+                token_confidence=context_confidence,
+                dataset_ids=dataset_ids,
+                edge_ids=edge_ids,
+                return_attention=bool(capture_attention),
+            )
+            final_negative_summaries = [
+                _forward_context_encoder(
+                    context_encoder,
+                    control["tokens"],
+                    context_graph=context_graph,
+                    token_type_ids=control["token_type_ids"],
+                    token_coords=control["coords"],
+                    token_confidence=control["confidence"],
+                    dataset_ids=control.get("dataset_ids"),
+                    edge_ids=edge_ids,
+                    return_attention=False,
+                )
+                for control in negative_controls
+            ]
+            final_shuffled_summary = final_negative_summaries[0]
+            final_context = final_context_summary.pooled_context
+            final_negative_contexts = [summary.pooled_context for summary in final_negative_summaries]
+            final_context_for_head = final_context.unsqueeze(0) if final_context.ndim == 1 else final_context
+            final_shuffled_for_head = torch.cat(
+                [neg.unsqueeze(0) if neg.ndim == 1 else neg for neg in final_negative_contexts],
+                dim=0,
+            )
+            assert compatibility_head is not None
+            final_positive_score = compatibility_head(final_context_for_head)
+            final_negative_scores = compatibility_head(final_shuffled_for_head)
+            final_margin = torch.tensor(0.2, device=final_positive_score.device, dtype=final_positive_score.dtype)
+            final_aux_loss = torch.relu(final_margin - final_positive_score + final_negative_scores).mean()
+            final_aux_accuracy = float((final_positive_score > final_negative_scores).float().mean().item())
+            separation_score = float(
+                torch.norm(
+                    final_context_for_head.mean(dim=0) - final_shuffled_for_head.mean(dim=0),
+                    p=2,
+                ).item()
+            )
+            negative_control_scores = {}
+            for idx, control in enumerate(negative_controls):
+                label = str(control.get("label", f"negative_{idx}"))
+                negative_control_scores[label] = float(final_negative_scores[idx].mean().item())
+
+    drift_context_gate = float(getattr(getattr(model, "cross_attention_drift", None), "last_context_gate_mean", 0.0))
+    drift_context_attention_entropy = float(
+        getattr(getattr(model, "cross_attention_drift", None), "last_context_attention_entropy", 0.0)
+    )
 
     return {
         "history": history,
         "context_summary": final_context_summary,
         "shuffled_context_summary": final_shuffled_summary,
         "encoder_parameter_delta": _mean_parameter_delta(before, context_encoder),
+        "auxiliary_metrics": {
+            "loss": float(final_aux_loss.item()),
+            "accuracy": final_aux_accuracy,
+            "separation_score": separation_score,
+            "n_negative_controls": len(negative_controls),
+            "task": "relational_pretraining_finetune" if use_relational_aux else "context_match_ranking",
+            "margin": float(pretraining_config.ranking_margin if use_relational_aux else final_margin.item()),
+            "positive_score": float(final_aux_metrics.get("positive_score", 0.0)) if use_relational_aux else float(final_positive_score.mean().item()),
+            "negative_control_scores": negative_control_scores,
+            "provider_consistency_cosine": float(final_aux_metrics.get("provider_consistency_cosine", float("nan"))) if use_relational_aux else float("nan"),
+            "masked_token_count": int(final_aux_metrics.get("masked_token_count", 0)) if use_relational_aux else 0,
+            "coordinate_corruption_accuracy": float(final_aux_metrics.get("coordinate_corruption_accuracy", float("nan"))) if use_relational_aux else float("nan"),
+            "group_relation_accuracy": float(final_aux_metrics.get("group_relation_accuracy", float("nan"))) if use_relational_aux else float("nan"),
+            "loss_components": {
+                "masked_token": float(final_aux_metrics.get("loss_masked_token", 0.0)) if use_relational_aux else 0.0,
+                "ranking": float(final_aux_metrics.get("loss_ranking", 0.0)) if use_relational_aux else float(final_aux_loss.item()),
+                "provider_consistency": float(final_aux_metrics.get("loss_provider_consistency", 0.0)) if use_relational_aux else 0.0,
+                "coordinate_corruption": float(final_aux_metrics.get("loss_coordinate_corruption", 0.0)) if use_relational_aux else 0.0,
+                "group_relation": float(final_aux_metrics.get("loss_group_relation", 0.0)) if use_relational_aux else 0.0,
+            },
+            "drift_context_gate": drift_context_gate,
+            "drift_context_attention_entropy": drift_context_attention_entropy,
+        },
+        "pretraining_heads": pretraining_heads,
     }

@@ -101,6 +101,13 @@ def test_set_only_transition_jointly_trains_context_encoder_and_emits_attention(
     assert transition["attention_summary"] is not None
     assert transition["attention_summary"]["available_maps"]
     assert transition["attention_summary"]["top_token_attention"]
+    assert transition["attention_summary"]["top_token_types"]
+    assert transition["attention_summary"]["top_token_distance_bins"]
+    assert transition["auxiliary_context_shuffle_metrics"]["accuracy"] >= 0.5
+    assert transition["auxiliary_context_shuffle_metrics"]["loss"] >= 0.0
+    assert transition["token_package"]["token_coords"] is not None
+    assert transition["token_package"]["token_confidence"] is not None
+    assert transition["token_package"]["token_type_ids"] is not None
 
 
 def test_pooled_transition_smoke_runs_on_real_data() -> None:
@@ -170,6 +177,41 @@ def test_graph_of_sets_transition_smoke_runs_on_real_data() -> None:
     assert transition["status"] == "complete"
     assert transition["mode"] == "graph_of_sets"
     assert transition["context_diagnostics"]["graph_num_edges"] > 0
+
+
+def test_typed_hierarchical_transformer_transition_smoke_runs_on_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model=typed_hierarchical_transformer",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=24",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+            "context_model.pretraining.max_epochs=1",
+            "context_model.pretraining.steps_per_epoch=1",
+            "context_model.pretraining.provider_consistency_enabled=false",
+            "context_model.finetune.provider_consistency_weight=0.0",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+    evaluation = run_evaluation(cfg, transition_output=transition)
+
+    assert transition["ok"] is True
+    assert transition["mode"] == "typed_hierarchical_transformer"
+    assert transition["context_tokens"] is not None
+    assert transition["dataset_transfer_diagnostics"]["dataset_embedding_enabled"] is True
+    assert transition["dataset_transfer_diagnostics"]["cross_dataset_negatives_used"] >= 1
+    assert transition["auxiliary_context_shuffle_metrics"]["task"] == "relational_pretraining_finetune"
+    assert "dataset_id_mismatch" in transition["auxiliary_context_shuffle_metrics"]["negative_control_scores"]
+    assert transition["auxiliary_context_shuffle_metrics"]["drift_context_gate"] >= 0.0
+    assert transition["pretraining_summary"] is not None
+    assert transition["attention_summary"] is not None
+    assert evaluation["ok"] is True
 
 
 def test_set_only_transition_smoke_runs_on_ais_to_mia_real_data() -> None:

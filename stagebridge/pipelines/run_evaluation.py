@@ -44,7 +44,9 @@ def run_evaluation(
     x_src = transition["x_src_test"]
     x_tgt = transition["x_tgt_test"]
     context = transition["context"]
+    context_tokens = transition.get("context_tokens")
     shuffled_context = transition["shuffled_context"]
+    shuffled_context_tokens = transition.get("shuffled_context_tokens")
     edge_id = int(transition["edge_id"])
     mode = str(transition["mode"])
 
@@ -52,6 +54,7 @@ def run_evaluation(
         model,
         x_src,
         context=context,
+        context_tokens=context_tokens,
         edge_id=edge_id,
         num_steps=8,
         stochastic=False,
@@ -61,6 +64,7 @@ def run_evaluation(
         x_src,
         x_tgt,
         context=context,
+        context_tokens=context_tokens,
         edge_id=edge_id,
         num_steps=8,
         stochastic=False,
@@ -76,6 +80,8 @@ def run_evaluation(
             x_tgt,
             real_context=context,
             shuffled_context=shuffled_context,
+            real_context_tokens=context_tokens,
+            shuffled_context_tokens=shuffled_context_tokens,
             edge_id=edge_id,
             num_steps=8,
             stochastic=False,
@@ -142,7 +148,12 @@ def run_evaluation(
         "calibration.json": calibration,
         "diffusion_diagnostics.json": diffusion_diagnostics,
         "split_summary.json": transition["split_summary"],
+        "dataset_transfer_diagnostics.json": transition.get("dataset_transfer_diagnostics", {}),
     }
+    if transition.get("pretraining_summary") is not None:
+        artifact_sources["pretraining_summary.json"] = transition.get("pretraining_summary", {})
+    if transition.get("auxiliary_context_shuffle_metrics") is not None:
+        artifact_sources["transformer_auxiliary_metrics.json"] = transition.get("auxiliary_context_shuffle_metrics", {})
     if context_sensitivity is not None:
         artifact_sources["context_sensitivity.json"] = context_sensitivity
     if niche_regimes is not None:
@@ -165,6 +176,7 @@ def run_evaluation(
         "diffusion_diagnostics": diffusion_diagnostics,
         "ablation": ablation,
         "report": report,
+        "dataset_transfer_diagnostics": transition.get("dataset_transfer_diagnostics", {}),
         "artifact_sources": artifact_sources,
     }
 

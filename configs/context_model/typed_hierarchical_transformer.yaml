@@ -1,0 +1,42 @@
+context_model:
+  mode: typed_hierarchical_transformer
+  graph_enabled: false
+  token_types:
+    - epithelial
+    - stromal
+    - immune
+    - vascular
+  hidden_dim: 160
+  num_heads: 4
+  num_inducing_points: 16
+  num_group_summary_tokens: 3
+  num_fusion_queries: 7
+  dataset_embedding_dim: 16
+  use_cross_attention_drift: true
+  use_spatial_rpe: true
+  use_confidence_gate: true
+  token_dropout_rate: 0.03
+  auxiliary_context_shuffle_weight: 0.1
+  transfer_dataset: brainmets
+  pretraining:
+    enabled: true
+    mask_fraction: 0.15
+    masked_token_weight: 0.35
+    ranking_weight: 0.35
+    provider_consistency_weight: 0.15
+    coordinate_corruption_weight: 0.10
+    group_relation_weight: 0.05
+    ranking_margin: 0.2
+    max_epochs: 2
+    steps_per_epoch: 4
+    learning_rate: 0.0008
+    weight_decay: 0.0001
+    provider_consistency_enabled: true
+    provider_methods:
+      - tangram
+      - tacco
+      - destvi
+  finetune:
+    masked_token_weight: 0.05
+    ranking_weight: 0.15
+    provider_consistency_weight: 0.05

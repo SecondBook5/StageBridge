@@ -9,4 +9,9 @@ context_model:
   hidden_dim: 128
   num_heads: 8
   num_inducing_points: 16
-  num_seed_vectors: 1
+  num_seed_vectors: 4
+  use_spatial_rpe: true
+  use_confidence_gate: true
+  token_dropout_rate: 0.05
+  auxiliary_context_shuffle_weight: 0.1
+  use_cross_attention_drift: true

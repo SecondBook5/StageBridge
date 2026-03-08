@@ -991,6 +991,13 @@ def build_context_summary_table(context_output: dict[str, Any]) -> pd.DataFrame:
     if "example_context_norm" in summary:
         rows.append({"metric": "context_norm", "value": summary.get("example_context_norm", float("nan"))})
         rows.append({"metric": "context_dim", "value": summary.get("example_context_dim", 0)})
+    if "mean_token_confidence" in summary:
+        rows.append({"metric": "mean_token_confidence", "value": summary.get("mean_token_confidence", float("nan"))})
+    if "example_context_tokens" in summary:
+        rows.append({"metric": "example_context_tokens", "value": summary.get("example_context_tokens", 0)})
+    if "dataset_name" in summary:
+        rows.append({"metric": "dataset_name", "value": summary.get("dataset_name", "n/a")})
+        rows.append({"metric": "dataset_embedding_enabled", "value": summary.get("dataset_embedding_enabled", False)})
     if "graph_context_norm" in summary:
         rows.append({"metric": "graph_context_norm", "value": summary.get("graph_context_norm", float("nan"))})
         rows.append({"metric": "graph_num_nodes", "value": summary.get("graph_num_nodes", 0)})
@@ -1022,10 +1029,70 @@ def build_transition_summary_table(
     ]
     if "encoder_parameter_delta" in transition_output:
         rows.append({"metric": "encoder_parameter_delta", "value": transition_output.get("encoder_parameter_delta", 0.0)})
+    pretraining = transition_output.get("pretraining_summary") or {}
+    if pretraining:
+        metrics = pretraining.get("metrics", {}) or {}
+        rows.append({"metric": "pretraining_encoder_delta", "value": pretraining.get("encoder_parameter_delta", float("nan"))})
+        rows.append({"metric": "pretraining_loss_total", "value": metrics.get("loss_total", float("nan"))})
+        rows.append({"metric": "pretraining_ranking_accuracy", "value": metrics.get("ranking_accuracy", float("nan"))})
+        rows.append({"metric": "pretraining_provider_cosine", "value": metrics.get("provider_consistency_cosine", float("nan"))})
+        rows.append({"metric": "pretraining_coordinate_accuracy", "value": metrics.get("coordinate_corruption_accuracy", float("nan"))})
+        rows.append({"metric": "pretraining_group_relation_accuracy", "value": metrics.get("group_relation_accuracy", float("nan"))})
+    aux = transition_output.get("auxiliary_context_shuffle_metrics") or {}
+    if aux:
+        rows.append({"metric": "context_auxiliary_task", "value": aux.get("task", "context_shuffle")})
+        rows.append({"metric": "context_shuffle_loss", "value": aux.get("loss", float("nan"))})
+        rows.append({"metric": "context_shuffle_accuracy", "value": aux.get("accuracy", float("nan"))})
+        rows.append({"metric": "context_separation_score", "value": aux.get("separation_score", float("nan"))})
+        rows.append({"metric": "context_auxiliary_margin", "value": aux.get("margin", float("nan"))})
+        rows.append({"metric": "context_positive_score", "value": aux.get("positive_score", float("nan"))})
+        rows.append({"metric": "drift_context_gate", "value": aux.get("drift_context_gate", float("nan"))})
+        rows.append({"metric": "drift_context_attention_entropy", "value": aux.get("drift_context_attention_entropy", float("nan"))})
+        rows.append({"metric": "provider_consistency_cosine", "value": aux.get("provider_consistency_cosine", float("nan"))})
+        rows.append({"metric": "group_relation_accuracy", "value": aux.get("group_relation_accuracy", float("nan"))})
+        negative_scores = aux.get("negative_control_scores", {}) or {}
+        if negative_scores:
+            rows.append(
+                {
+                    "metric": "negative_control_scores",
+                    "value": ", ".join(f"{key}={float(value):.3f}" for key, value in negative_scores.items()),
+                }
+            )
     attention = transition_output.get("attention_summary") or {}
     if attention:
         rows.append({"metric": "attention_maps", "value": ", ".join(attention.get("available_maps", []))})
         rows.append({"metric": "top_attention_token_types", "value": ", ".join(attention.get("top_token_types", []))})
+        rows.append({"metric": "attention_entropy", "value": attention.get("pma_attention_entropy", float("nan"))})
+        rows.append({"metric": "confidence_weighted_attention_entropy", "value": attention.get("confidence_weighted_attention_entropy", float("nan"))})
+        if attention.get("group_attention_scores"):
+            rows.append(
+                {
+                    "metric": "group_attention_scores",
+                    "value": ", ".join(
+                        f"{key}={float(value):.3f}" for key, value in attention["group_attention_scores"].items()
+                    ),
+                }
+            )
+        if attention.get("relation_attention_scores"):
+            rows.append(
+                {
+                    "metric": "relation_attention_scores",
+                    "value": ", ".join(
+                        f"{key}={float(value):.3f}" for key, value in attention["relation_attention_scores"].items()
+                    ),
+                }
+            )
+    transfer = transition_output.get("dataset_transfer_diagnostics") or {}
+    if transfer:
+        rows.append({"metric": "source_dataset", "value": transfer.get("source_dataset", "n/a")})
+        rows.append({"metric": "transfer_dataset", "value": transfer.get("transfer_dataset", "n/a")})
+        provider_views = transfer.get("provider_views_used", []) or []
+        if provider_views:
+            rows.append({"metric": "provider_views_used", "value": ", ".join(str(view) for view in provider_views)})
+        rows.append({"metric": "cross_dataset_negatives_used", "value": transfer.get("cross_dataset_negatives_used", 0)})
+        labels = transfer.get("negative_control_labels", []) or []
+        if labels:
+            rows.append({"metric": "negative_control_labels", "value": ", ".join(str(label) for label in labels)})
     return pd.DataFrame(rows)
 
 
@@ -1072,7 +1139,7 @@ def run_mode_ladder(
     edge: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run matched context-mode comparisons while reusing upstream steps."""
-    modes = modes or ["rna_only", "pooled", "deep_sets", "set_only", "graph_of_sets"]
+    modes = modes or ["rna_only", "pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "graph_of_sets"]
     cfg_base = clone_config(cfg)
     if edge is not None:
         src, tgt = [part.strip() for part in str(edge).split("->", 1)]

@@ -35,6 +35,10 @@ class TypedTokenResult:
     coords: np.ndarray
     obs: pd.DataFrame
     schema: TypedTokenSchema
+    token_type_ids: np.ndarray
+    token_confidence: np.ndarray
+    token_missing_mask: np.ndarray
+    token_group_means: dict[str, float]
 
     def summary(self) -> dict[str, object]:
         return {
@@ -42,6 +46,9 @@ class TypedTokenResult:
             "token_dim": int(self.tokens.shape[1]),
             "typed_feature_names": list(self.schema.typed_feature_names),
             "stage_counts": {str(k): int(v) for k, v in self.obs.groupby("stage").size().items()},
+            "mean_token_confidence": float(self.token_confidence.mean()) if self.token_confidence.size else 0.0,
+            "missing_token_fraction": float(self.token_missing_mask.mean()) if self.token_missing_mask.size else 0.0,
+            "token_group_means": {str(key): float(value) for key, value in self.token_group_means.items()},
         }
 
 
@@ -71,8 +78,9 @@ def build_typed_spot_tokens(
         )
 
     values = raw.copy()
+    row_sums = values.sum(axis=1, keepdims=True)
+    missing_mask = np.squeeze(row_sums <= 0.0, axis=1)
     if normalize_rows:
-        row_sums = values.sum(axis=1, keepdims=True)
         values = np.divide(
             values,
             row_sums,
@@ -80,17 +88,42 @@ def build_typed_spot_tokens(
             where=row_sums > 0,
         )
 
+    safe = np.clip(values, 1e-8, 1.0)
+    entropy = -(safe * np.log(safe)).sum(axis=1)
+    max_entropy = float(np.log(max(values.shape[1], 2)))
+    normalized_entropy = entropy / max_entropy if max_entropy > 0 else np.zeros_like(entropy)
+    confidence = np.clip(1.0 - normalized_entropy, 0.0, 1.0).astype(np.float32, copy=False)
+    confidence[missing_mask] = 0.0
+
     typed = np.zeros((values.shape[0], len(schema.typed_feature_names)), dtype=np.float32)
     group_to_col = {name: idx for idx, name in enumerate(schema.typed_feature_names)}
     for col_idx, feature_name in enumerate(feature_names):
         group_name = schema.group_for(feature_name)
         typed[:, group_to_col[group_name]] += values[:, col_idx]
 
+    token_type_ids = np.argmax(typed, axis=1).astype(np.int64, copy=False)
+    group_means = {
+        str(group_name): float(typed[:, group_idx].mean())
+        for group_name, group_idx in group_to_col.items()
+    }
+    centered_coords = np.asarray(coords, dtype=np.float32).copy()
+    centroid = centered_coords.mean(axis=0, keepdims=True)
+    centered_coords = centered_coords - centroid
+    radii = np.linalg.norm(centered_coords, axis=1)
+    coord_scale = float(np.percentile(radii, 95)) if radii.size else 1.0
+    if not np.isfinite(coord_scale) or coord_scale <= 0.0:
+        coord_scale = 1.0
+    centered_coords = centered_coords / np.float32(coord_scale)
+
     return TypedTokenResult(
         tokens=typed,
-        coords=np.asarray(coords, dtype=np.float32),
+        coords=centered_coords,
         obs=obs.reset_index(drop=True).copy(),
         schema=schema,
+        token_type_ids=token_type_ids,
+        token_confidence=confidence,
+        token_missing_mask=missing_mask.astype(bool, copy=False),
+        token_group_means=group_means,
     )
 
 

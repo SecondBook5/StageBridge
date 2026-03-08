@@ -57,6 +57,28 @@ def test_write_scratch_run_creates_current_workspace(tmp_path: Path) -> None:
     assert (scratch_dir / "artifacts" / "notes" / "summary.txt").read_text(encoding="utf-8") == "artifact payload"
 
 
+def test_write_scratch_run_serializes_list_artifacts(tmp_path: Path) -> None:
+    cfg = _smoke_cfg()
+    pipeline_output = {"steps": {"reference": {"ok": True}}}
+
+    write_scratch_run(
+        cfg,
+        pipeline_output,
+        artifact_sources={
+            "tables/provider_rows.json": [
+                {"method": "tangram", "score": 0.81},
+                {"method": "tacco", "score": 0.77},
+            ]
+        },
+        base_dir=tmp_path,
+    )
+
+    artifact_path = tmp_path / "outputs" / "scratch" / "current" / "artifacts" / "tables" / "provider_rows.json"
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload[0]["method"] == "tangram"
+    assert payload[1]["score"] == 0.77
+
+
 def test_scratch_run_metadata_schema_and_result_card(tmp_path: Path) -> None:
     run_smoke_execution(_smoke_cfg(), base_dir=tmp_path)
 
