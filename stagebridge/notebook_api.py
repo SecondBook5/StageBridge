@@ -6,9 +6,16 @@ from pathlib import Path
 from typing import Any, Callable
 from collections import Counter
 
+import anndata
+import h5py
+import numpy as np
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
+from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
+from stagebridge.data.luad_evo.stages import normalize_stage_label
+from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS, load_luad_evo_wes_features
+from stagebridge.evaluation.provider_benchmark import render_provider_benchmark_md, summarize_provider_benchmark
 from stagebridge.pipelines.run_context_model import run_context_model
 from stagebridge.pipelines.run_evaluation import run_evaluation
 from stagebridge.pipelines.run_full import run_full
@@ -106,6 +113,17 @@ def clone_config(cfg: DictConfig) -> DictConfig:
     return OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
 
 
+def _progress_iter(iterable: list[str], *, desc: str, enabled: bool) -> Any:
+    if not enabled:
+        return iterable
+    try:
+        from tqdm.auto import tqdm
+
+        return tqdm(iterable, desc=desc, unit="run")
+    except Exception:
+        return iterable
+
+
 _STEP_REGISTRY: dict[str, StepFn] = {
     "reference": run_reference,
     "spatial_mapping": run_spatial_mapping,
@@ -182,11 +200,362 @@ def build_step_status_table(pipeline_output: dict[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _normalize_dataset_obs(obs: pd.DataFrame) -> pd.DataFrame:
+    out = obs.copy()
+    if "patient_id" not in out.columns and "donor_id" in out.columns:
+        out["patient_id"] = out["donor_id"].astype(str)
+    if "donor_id" not in out.columns and "patient_id" in out.columns:
+        out["donor_id"] = out["patient_id"].astype(str)
+    if "sample_id" not in out.columns:
+        out["sample_id"] = out.index.astype(str)
+    if "stage" in out.columns:
+        out["stage"] = out["stage"].astype(str).map(normalize_stage_label)
+    out["donor_id"] = out["donor_id"].astype(str)
+    out["patient_id"] = out["patient_id"].astype(str)
+    out["sample_id"] = out["sample_id"].astype(str)
+    return out
+
+
+def _decode_h5_values(values: np.ndarray) -> np.ndarray:
+    if values.dtype.kind in {"S", "O", "U"}:
+        return np.asarray(
+            [value.decode() if isinstance(value, bytes) else str(value) for value in values],
+            dtype=object,
+        )
+    return values
+
+
+def _read_h5ad_obs_column(group: h5py.Group, name: str, rows: np.ndarray) -> np.ndarray:
+    obj = group[name]
+    if isinstance(obj, h5py.Dataset):
+        return _decode_h5_values(obj[rows])
+    if "categories" in obj and "codes" in obj:
+        categories = _decode_h5_values(obj["categories"][:])
+        codes = np.asarray(obj["codes"][rows], dtype=np.int64)
+        values = np.empty(rows.shape[0], dtype=object)
+        missing = codes < 0
+        values[missing] = None
+        valid = ~missing
+        values[valid] = categories[codes[valid]]
+        return values
+    raise TypeError(f"Unsupported obs column encoding for '{name}'.")
+
+
+def _read_h5ad_obs_frame(path: Path, *, columns: list[str]) -> pd.DataFrame:
+    with h5py.File(path, "r") as handle:
+        obs_group = handle["obs"]
+        index = _decode_h5_values(obs_group["_index"][:])
+        values: dict[str, np.ndarray] = {}
+        for column in columns:
+            if column in {"spot_id", "barcode", "sample_id"} and column not in obs_group:
+                values[column] = index
+                continue
+            if column == "donor_id" and column not in obs_group and "patient_id" in obs_group:
+                values[column] = _read_h5ad_obs_column(obs_group, "patient_id", np.arange(index.shape[0], dtype=np.int64))
+                continue
+            if column == "patient_id" and column not in obs_group and "donor_id" in obs_group:
+                values[column] = _read_h5ad_obs_column(obs_group, "donor_id", np.arange(index.shape[0], dtype=np.int64))
+                continue
+            values[column] = _read_h5ad_obs_column(obs_group, column, np.arange(index.shape[0], dtype=np.int64))
+    return pd.DataFrame(values, index=pd.Index(index.astype(str)))
+
+
+def _read_h5ad_spatial_coords(path: Path, rows: np.ndarray) -> np.ndarray:
+    with h5py.File(path, "r") as handle:
+        spatial = handle["obsm"]["spatial"]
+        return np.asarray(spatial[rows], dtype=np.float32)
+
+
+def _read_h5ad_n_vars(path: Path) -> int:
+    with h5py.File(path, "r") as handle:
+        X = handle["X"]
+        if isinstance(X, h5py.Dataset):
+            return int(X.shape[1])
+        shape = X.attrs.get("shape")
+        return int(shape[1])
+
+
+def _sample_rows_by_stage(
+    obs: pd.DataFrame,
+    *,
+    stages: list[str] | None,
+    max_rows_per_stage: int,
+    seed: int,
+) -> np.ndarray:
+    mask = np.ones(obs.shape[0], dtype=bool)
+    if stages:
+        wanted = {normalize_stage_label(stage) for stage in stages}
+        mask &= obs["stage"].isin(wanted).to_numpy()
+    positions = np.flatnonzero(mask)
+    if positions.size == 0:
+        return positions
+    if max_rows_per_stage <= 0:
+        return positions
+    rng = np.random.default_rng(int(seed))
+    chosen = np.zeros(obs.shape[0], dtype=bool)
+    masked_stages = obs.iloc[positions]["stage"].to_numpy()
+    for stage_name in pd.unique(masked_stages):
+        stage_rows = positions[masked_stages == stage_name]
+        if stage_rows.shape[0] <= max_rows_per_stage:
+            chosen[stage_rows] = True
+            continue
+        keep = rng.choice(stage_rows, size=int(max_rows_per_stage), replace=False)
+        chosen[keep] = True
+    return np.flatnonzero(mask & chosen)
+
+
+def _two_dimensional_embedding(matrix: Any, *, seed: int) -> np.ndarray:
+    arr = matrix
+    try:
+        import scipy.sparse as sp
+        from sklearn.decomposition import PCA, TruncatedSVD
+
+        if sp.issparse(arr):
+            arr = arr.tocsr().astype(np.float32, copy=False)
+            arr = arr.copy()
+            arr.data = np.log1p(arr.data)
+            n_eff = max(2, min(8, int(arr.shape[0]) - 1, int(arr.shape[1]) - 1))
+            emb = TruncatedSVD(n_components=n_eff, random_state=int(seed)).fit_transform(arr).astype(np.float32)
+        else:
+            arr = np.asarray(arr, dtype=np.float32)
+            arr = np.log1p(np.clip(arr, 0.0, None))
+            n_eff = max(2, min(8, int(arr.shape[0]) - 1, int(arr.shape[1]) - 1))
+            emb = PCA(n_components=n_eff, random_state=int(seed)).fit_transform(arr).astype(np.float32)
+    except Exception:
+        arr = np.asarray(arr, dtype=np.float32)
+        emb = arr[:, : min(2, arr.shape[1])]
+
+    if emb.shape[1] >= 2:
+        return emb[:, :2]
+    padded = np.zeros((emb.shape[0], 2), dtype=np.float32)
+    padded[:, : emb.shape[1]] = emb
+    return padded
+
+
+def _umap_embedding(matrix: Any, *, seed: int) -> np.ndarray:
+    arr = np.asarray(matrix, dtype=np.float32)
+    if arr.ndim != 2:
+        raise ValueError(f"Expected a 2D array, got shape={arr.shape}.")
+    if arr.shape[0] < 3:
+        return _two_dimensional_embedding(arr, seed=seed)
+    try:
+        import umap
+
+        reducer = umap.UMAP(
+            n_components=2,
+            n_neighbors=min(20, max(2, arr.shape[0] - 1)),
+            min_dist=0.15,
+            random_state=int(seed),
+        )
+        emb = reducer.fit_transform(arr).astype(np.float32)
+    except Exception:
+        emb = _two_dimensional_embedding(arr, seed=seed)
+    if emb.shape[1] >= 2:
+        return emb[:, :2]
+    padded = np.zeros((emb.shape[0], 2), dtype=np.float32)
+    padded[:, : emb.shape[1]] = emb
+    return padded
+
+
+def _select_spatial_panel_genes(var_names: pd.Index) -> tuple[list[str], dict[str, str], bool]:
+    var_lookup = {str(name).upper(): str(name) for name in var_names.astype(str)}
+    requested = {
+        "epithelial": ["EPCAM", "KRT19", "KRT8", "EPCAM"],
+        "stromal": ["COL1A1", "COL1A2", "DCN", "COL3A1"],
+        "immune": ["PTPRC", "LYZ", "CD3D", "HLA-DRA"],
+        "vascular_program": ["VWF", "EMCN", "KDR", "PECAM1"],
+    }
+    chosen: list[str] = []
+    roles: dict[str, str] = {}
+    used_proxy = False
+    for role, candidates in requested.items():
+        selected = None
+        for gene in candidates:
+            selected = var_lookup.get(gene.upper())
+            if selected is not None:
+                break
+        if selected is None:
+            used_proxy = True
+            continue
+        chosen.append(selected)
+        roles[selected] = role
+        if selected.upper() != candidates[0].upper():
+            used_proxy = True
+    return chosen, roles, used_proxy
+
+
+def run_data_preprocessing_overview(
+    cfg: DictConfig,
+    *,
+    max_cells_per_stage: int = 256,
+    max_spots_per_stage: int = 256,
+) -> dict[str, Any]:
+    """Load notebook-friendly data previews for snRNA, Visium, and WES."""
+    paths = resolve_luad_evo_paths(cfg)
+    stages = list(cfg.get("data", {}).get("stages", [])) or None
+    seed = int(cfg.get("seed", 42))
+
+    snrna_adata = anndata.read_h5ad(paths.snrna_latent_h5ad, backed="r")
+    try:
+        snrna_obs = _normalize_dataset_obs(snrna_adata.obs.copy())
+        snrna_rows = _sample_rows_by_stage(
+            snrna_obs,
+            stages=stages,
+            max_rows_per_stage=int(max_cells_per_stage),
+            seed=seed,
+        )
+        snrna_obs_view = snrna_obs.iloc[snrna_rows].reset_index(drop=True)
+        snrna_matrix = np.asarray(snrna_adata.X[snrna_rows], dtype=np.float32)
+        snrna_pca = _two_dimensional_embedding(snrna_matrix, seed=seed)
+        snrna_umap = _umap_embedding(snrna_matrix, seed=seed)
+        snrna_label_col = "hlca_label" if "hlca_label" in snrna_obs_view.columns else None
+        snrna_top_labels: list[tuple[str, int]] = []
+        if snrna_label_col is not None:
+            snrna_top_labels = list(
+                snrna_obs_view[snrna_label_col].astype(str).value_counts().head(8).items()
+            )
+        snrna_n_genes = int(snrna_adata.shape[1])
+    finally:
+        try:
+            snrna_adata.file.close()
+        except Exception:
+            pass
+
+    spatial_obs = _normalize_dataset_obs(
+        _read_h5ad_obs_frame(
+            paths.spatial_h5ad,
+            columns=["spot_id", "barcode", "donor_id", "patient_id", "stage", "sample_id"],
+        )
+    )
+    spatial_rows = _sample_rows_by_stage(
+        spatial_obs,
+        stages=stages,
+        max_rows_per_stage=int(max_spots_per_stage),
+        seed=seed,
+    )
+    spatial_obs_view = spatial_obs.iloc[spatial_rows].reset_index(drop=True)
+    spatial_coords = _read_h5ad_spatial_coords(paths.spatial_h5ad, spatial_rows)
+    spatial_adata = anndata.read_h5ad(paths.spatial_h5ad, backed="r")
+    try:
+        spatial_var_names = pd.Index(spatial_adata.var_names.astype(str))
+        panel_genes, panel_roles, used_proxy = _select_spatial_panel_genes(spatial_var_names)
+        if panel_genes:
+            gene_indices = [int(spatial_var_names.get_loc(gene)) for gene in panel_genes]
+            panel_matrix = spatial_adata.X[spatial_rows][:, gene_indices]
+            if hasattr(panel_matrix, "toarray"):
+                panel_matrix = panel_matrix.toarray()
+            panel_frame = pd.DataFrame(
+                np.asarray(panel_matrix, dtype=np.float32),
+                columns=panel_genes,
+            )
+        else:
+            panel_frame = pd.DataFrame(index=np.arange(spatial_rows.shape[0]))
+    finally:
+        try:
+            spatial_adata.file.close()
+        except Exception:
+            pass
+
+    wes = load_luad_evo_wes_features(cfg, stages=stages)
+    wes_frame = wes.frame.copy()
+
+    return {
+        "ok": True,
+        "status": "complete",
+        "snrna": {
+            "obs": snrna_obs_view,
+            "latent": snrna_matrix,
+            "pca_embedding": snrna_pca,
+            "umap_embedding": snrna_umap,
+            "source_path": str(paths.snrna_latent_h5ad),
+            "n_cells": int(snrna_obs_view.shape[0]),
+            "n_genes": snrna_n_genes,
+            "n_donors": int(snrna_obs_view["donor_id"].nunique()),
+            "n_samples": int(snrna_obs_view["sample_id"].nunique()),
+            "stage_counts": snrna_obs_view["stage"].value_counts().to_dict(),
+            "sample_stage_counts": pd.crosstab(
+                snrna_obs_view["sample_id"].astype(str),
+                snrna_obs_view["stage"].astype(str),
+            ),
+            "top_labels": snrna_top_labels,
+        },
+        "spatial": {
+            "obs": spatial_obs_view,
+            "coords": spatial_coords,
+            "source_path": str(paths.spatial_h5ad),
+            "n_spots": int(spatial_obs_view.shape[0]),
+            "n_genes": _read_h5ad_n_vars(paths.spatial_h5ad),
+            "n_donors": int(spatial_obs_view["donor_id"].nunique()),
+            "n_samples": int(spatial_obs_view["sample_id"].nunique()),
+            "stage_counts": spatial_obs_view["stage"].value_counts().to_dict(),
+            "feature_panel": panel_frame,
+            "feature_panel_genes": panel_genes,
+            "feature_panel_roles": panel_roles,
+            "feature_panel_uses_proxy_genes": used_proxy,
+        },
+        "wes": {
+            "frame": wes_frame,
+            "feature_columns": list(wes.feature_columns),
+            "source_path": str(wes.source_path),
+            "n_rows": int(wes_frame.shape[0]),
+            "n_donors": int(wes_frame["patient_id"].nunique()) if not wes_frame.empty else 0,
+            "n_stages": int(wes_frame["stage"].nunique()) if not wes_frame.empty else 0,
+            "stage_counts": wes_frame["stage"].value_counts().to_dict(),
+            "tmb_mean": float(wes_frame["tmb"].mean()) if not wes_frame.empty else float("nan"),
+            "mutation_prevalence": {
+                column: float(wes_frame[column].mean()) if column in wes_frame.columns and not wes_frame.empty else float("nan")
+                for column in WES_FEATURE_COLS
+            },
+        },
+    }
+
+
+def build_dataset_preprocessing_table(data_output: dict[str, Any]) -> pd.DataFrame:
+    """Summarize the notebook-driven dataset preprocessing preview."""
+    snrna = data_output.get("snrna", {})
+    spatial = data_output.get("spatial", {})
+    wes = data_output.get("wes", {})
+    rows = [
+        {
+            "modality": "snRNA-seq",
+            "n_obs": snrna.get("n_cells", 0),
+            "n_features": snrna.get("n_genes", 0),
+            "n_donors": snrna.get("n_donors", 0),
+            "n_samples": snrna.get("n_samples", 0),
+            "n_stage_groups": len(snrna.get("stage_counts", {})),
+            "source_path": snrna.get("source_path", "n/a"),
+        },
+        {
+            "modality": "Visium",
+            "n_obs": spatial.get("n_spots", 0),
+            "n_features": spatial.get("n_genes", 0),
+            "n_donors": spatial.get("n_donors", 0),
+            "n_samples": spatial.get("n_samples", 0),
+            "n_stage_groups": len(spatial.get("stage_counts", {})),
+            "source_path": spatial.get("source_path", "n/a"),
+        },
+        {
+            "modality": "WES",
+            "n_obs": wes.get("n_rows", 0),
+            "n_features": len(wes.get("feature_columns", [])),
+            "n_donors": wes.get("n_donors", 0),
+            "n_samples": 0,
+            "n_stage_groups": wes.get("n_stages", 0),
+            "source_path": wes.get("source_path", "n/a"),
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
 def build_reference_summary_table(reference_output: dict[str, Any]) -> pd.DataFrame:
     """Summarize the active reference-latent branch for notebook display."""
     reference = reference_output.get("reference", {})
     diagnostics = reference.get("diagnostics", {})
     donor = diagnostics.get("donor_leakage", {})
+    stage_probe = diagnostics.get("stage_preservation", {}).get("probe", {})
+    gene_overlap = diagnostics.get("gene_overlap", {})
+    label_neighborhood = diagnostics.get("label_neighborhood", {})
+    gate = diagnostics.get("alignment_gate", {})
     label_transfer = reference.get("label_transfer", {})
     shape = tuple(reference.get("latent_shape", [0, 0]))
     rows = [
@@ -196,9 +565,19 @@ def build_reference_summary_table(reference_output: dict[str, Any]) -> pd.DataFr
         {"metric": "latent_n_cells", "value": int(shape[0]) if len(shape) > 0 else 0},
         {"metric": "latent_dim", "value": int(shape[1]) if len(shape) > 1 else 0},
         {"metric": "stage_count", "value": diagnostics.get("stage_preservation", {}).get("n_stages", 0)},
+        {"metric": "stage_probe_accuracy", "value": stage_probe.get("logreg_accuracy", float("nan"))},
+        {"metric": "stage_probe_balanced_accuracy", "value": stage_probe.get("balanced_accuracy", float("nan"))},
         {"metric": "donor_leakage_accuracy", "value": donor.get("logreg_accuracy", float("nan"))},
         {"metric": "donor_chance_accuracy", "value": donor.get("chance_accuracy", float("nan"))},
         {"metric": "label_coverage", "value": label_transfer.get("coverage", 0.0)},
+        {"metric": "gene_overlap_fraction", "value": gene_overlap.get("reference_query_overlap_fraction", float("nan"))},
+        {"metric": "missing_gene_fraction", "value": gene_overlap.get("missing_gene_fraction", float("nan"))},
+        {
+            "metric": "neighbor_label_agreement",
+            "value": label_neighborhood.get("mean_neighbor_label_agreement", float("nan")),
+        },
+        {"metric": "alignment_gate_status", "value": gate.get("status", "n/a")},
+        {"metric": "alignment_gate_action", "value": gate.get("recommended_action", "n/a")},
     ]
     return pd.DataFrame(rows)
 
@@ -210,6 +589,58 @@ def build_reference_label_table(reference_output: dict[str, Any]) -> pd.DataFram
     if not top_labels:
         return pd.DataFrame(columns=["label", "count"])
     return pd.DataFrame(top_labels, columns=["label", "count"])
+
+
+def build_reference_evaluation_table(reference_output: dict[str, Any]) -> pd.DataFrame:
+    """Expose notebook-friendly HLCA reference quality metrics."""
+    reference = reference_output.get("reference", {})
+    diagnostics = reference.get("diagnostics", {})
+    stage = diagnostics.get("stage_preservation", {})
+    probe = stage.get("probe", {})
+    donor = diagnostics.get("donor_leakage", {})
+    gene_overlap = diagnostics.get("gene_overlap", {})
+    label_neighborhood = diagnostics.get("label_neighborhood", {})
+    label_alignment = diagnostics.get("stage_label_alignment", {})
+    gate = diagnostics.get("alignment_gate", {})
+    label_transfer = reference.get("label_transfer", {})
+    centroid_distances = [float(value) for value in stage.get("centroid_distances", {}).values()]
+    rows = [
+        {"metric": "stage_probe_accuracy", "value": probe.get("logreg_accuracy", float("nan"))},
+        {"metric": "stage_probe_balanced_accuracy", "value": probe.get("balanced_accuracy", float("nan"))},
+        {"metric": "stage_probe_chance", "value": probe.get("chance_accuracy", float("nan"))},
+        {"metric": "donor_leakage_accuracy", "value": donor.get("logreg_accuracy", float("nan"))},
+        {"metric": "donor_leakage_chance", "value": donor.get("chance_accuracy", float("nan"))},
+        {
+            "metric": "mean_stage_centroid_distance",
+            "value": float(np.mean(centroid_distances)) if centroid_distances else float("nan"),
+        },
+        {
+            "metric": "min_stage_centroid_distance",
+            "value": float(np.min(centroid_distances)) if centroid_distances else float("nan"),
+        },
+        {"metric": "label_coverage", "value": label_transfer.get("coverage", float("nan"))},
+        {"metric": "gene_overlap_fraction", "value": gene_overlap.get("reference_query_overlap_fraction", float("nan"))},
+        {"metric": "missing_gene_fraction", "value": gene_overlap.get("missing_gene_fraction", float("nan"))},
+        {
+            "metric": "nearest_neighbor_label_agreement",
+            "value": label_neighborhood.get("mean_neighbor_label_agreement", float("nan")),
+        },
+        {
+            "metric": "n_labeled_cells_for_neighbor_check",
+            "value": label_neighborhood.get("n_labeled_cells", 0),
+        },
+        {
+            "metric": "stage_label_alignment_rows",
+            "value": len(label_alignment.get("rows", [])),
+        },
+        {
+            "metric": "stage_label_alignment_cols",
+            "value": len(label_alignment.get("cols", [])),
+        },
+        {"metric": "alignment_gate_status", "value": gate.get("status", "n/a")},
+        {"metric": "alignment_gate_action", "value": gate.get("recommended_action", "n/a")},
+    ]
+    return pd.DataFrame(rows)
 
 
 def build_spatial_summary_table(spatial_output: dict[str, Any]) -> pd.DataFrame:
@@ -226,6 +657,325 @@ def build_spatial_summary_table(spatial_output: dict[str, Any]) -> pd.DataFrame:
         {"metric": "source_path", "value": summary.get("source_path", "n/a")},
     ]
     return pd.DataFrame(rows)
+
+
+def run_spatial_provider_ladder(
+    cfg: DictConfig,
+    *,
+    methods: list[str] | None = None,
+    reference_output: dict[str, Any] | None = None,
+    use_tqdm: bool = True,
+    execution_mode: str = "force_rebuild",
+) -> dict[str, dict[str, Any]]:
+    """Run Tangram/TACCO/DestVI through the active pipeline surface with notebook progress."""
+    methods = methods or ["tangram", "tacco", "destvi"]
+    outputs: dict[str, dict[str, Any]] = {}
+    iterator = _progress_iter(methods, desc="Spatial providers", enabled=use_tqdm)
+    for method in iterator:
+        cfg_method = clone_config(cfg)
+        cfg_method = OmegaConf.merge(cfg_method, _load_component(_COMPONENT_DIRS["spatial_mapping"] / f"{method}.yaml"))
+        if not hasattr(cfg_method, "profiles") or cfg_method.profiles is None:
+            cfg_method.profiles = OmegaConf.create({})
+        cfg_method.profiles.spatial_mapping = method
+        cfg_method.spatial_mapping.method = method
+        cfg_method.spatial_mapping.execution_mode = execution_mode
+        if use_tqdm:
+            cfg_method.spatial_mapping.show_progress = True
+        outputs[method] = run_spatial_mapping(cfg_method, reference_output=reference_output)
+        if hasattr(iterator, "set_postfix_str"):
+            iterator.set_postfix_str(f"{method}:{outputs[method].get('status', 'n/a')}")
+    return outputs
+
+
+def build_spatial_provider_table(provider_outputs: dict[str, dict[str, Any]]) -> pd.DataFrame:
+    """Summarize notebook-driven provider runs for quick inspection."""
+    rows: list[dict[str, Any]] = []
+    for method, payload in provider_outputs.items():
+        summary = payload.get("spatial_mapping", {})
+        rows.append(
+            {
+                "method": method,
+                "status": payload.get("status", summary.get("status", "n/a")),
+                "provider_version": summary.get("provider_version", "n/a"),
+                "execution_mode": summary.get("execution_mode", "n/a"),
+                "n_spots": summary.get("n_spots", 0),
+                "n_features": summary.get("n_features", 0),
+                "source_path": summary.get("source_path", "n/a"),
+                "notes": summary.get("notes", ""),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _provider_matrix_and_columns(payload: dict[str, Any]) -> tuple[np.ndarray | None, list[str], pd.Index | None]:
+    mapping = payload.get("mapping_result")
+    if mapping is None or mapping.compositions is None:
+        return None, [], None
+    matrix = np.asarray(mapping.compositions, dtype=np.float32)
+    columns = [str(value) for value in getattr(mapping, "feature_names", ()) or ()]
+    obs = getattr(mapping, "obs", None)
+    index = None if obs is None else pd.Index(obs.index.astype(str))
+    return matrix, columns, index
+
+
+def _normalized_provider_matrix(matrix: np.ndarray) -> np.ndarray:
+    arr = np.asarray(matrix, dtype=np.float32)
+    row_sums = arr.sum(axis=1, keepdims=True)
+    return np.divide(arr, row_sums, out=np.zeros_like(arr), where=row_sums > 0)
+
+
+def build_spatial_provider_metric_table(provider_outputs: dict[str, dict[str, Any]]) -> pd.DataFrame:
+    """Build comparable QC metrics for live provider runs.
+
+    This is an internal quality screen, not a ground-truth accuracy claim.
+    """
+    rows: list[dict[str, Any]] = []
+    for method, payload in provider_outputs.items():
+        summary = payload.get("spatial_mapping", {})
+        matrix, columns, _ = _provider_matrix_and_columns(payload)
+        row: dict[str, Any] = {
+            "method": method,
+            "status": payload.get("status", summary.get("status", "n/a")),
+            "execution_mode": summary.get("execution_mode", "n/a"),
+            "n_spots": summary.get("n_spots", 0),
+            "n_features": summary.get("n_features", 0),
+            "provider_version": summary.get("provider_version", "n/a"),
+        }
+        if matrix is None or matrix.size == 0:
+            rows.append(row)
+            continue
+
+        probs = _normalized_provider_matrix(matrix)
+        row_sums = matrix.sum(axis=1)
+        max_assignment = probs.max(axis=1)
+        entropy = -(np.clip(probs, 1e-8, 1.0) * np.log(np.clip(probs, 1e-8, 1.0))).sum(axis=1)
+        norm_entropy = entropy / np.log(max(2, probs.shape[1]))
+        winners = np.argmax(probs, axis=1)
+        top_feature = columns[int(pd.Series(winners).mode().iloc[0])] if columns else "n/a"
+        row_sum_closeness = float(np.mean(np.clip(1.0 - np.abs(row_sums - 1.0), 0.0, 1.0)))
+        heuristic_score = (
+            0.45 * row_sum_closeness
+            + 0.35 * float(max_assignment.mean())
+            + 0.20 * float((1.0 - norm_entropy).mean())
+        )
+        row.update(
+            {
+                "mean_row_sum": float(row_sums.mean()),
+                "std_row_sum": float(row_sums.std()),
+                "rows_close_to_one_frac": float(np.mean(np.abs(row_sums - 1.0) <= 0.05)),
+                "mean_max_assignment": float(max_assignment.mean()),
+                "mean_normalized_entropy": float(norm_entropy.mean()),
+                "winner_diversity": int(np.unique(winners).size),
+                "dominant_feature": top_feature,
+                "qc_heuristic_score": heuristic_score,
+            }
+        )
+        rows.append(row)
+    table = pd.DataFrame(rows)
+    if "qc_heuristic_score" in table.columns:
+        table = table.sort_values(["status", "qc_heuristic_score"], ascending=[True, False], na_position="last").reset_index(drop=True)
+    return table
+
+
+def build_spatial_provider_agreement_table(provider_outputs: dict[str, dict[str, Any]]) -> pd.DataFrame:
+    """Compare provider outputs on overlapping spots and shared feature columns."""
+    rows: list[dict[str, Any]] = []
+    methods = list(provider_outputs.keys())
+    for idx, left_method in enumerate(methods):
+        left_matrix, left_columns, left_index = _provider_matrix_and_columns(provider_outputs[left_method])
+        if left_matrix is None or left_index is None:
+            continue
+        left_df = pd.DataFrame(_normalized_provider_matrix(left_matrix), index=left_index, columns=left_columns)
+        for right_method in methods[idx + 1 :]:
+            right_matrix, right_columns, right_index = _provider_matrix_and_columns(provider_outputs[right_method])
+            if right_matrix is None or right_index is None:
+                continue
+            right_df = pd.DataFrame(_normalized_provider_matrix(right_matrix), index=right_index, columns=right_columns)
+            shared_spots = left_df.index.intersection(right_df.index)
+            shared_features = [feature for feature in left_df.columns if feature in right_df.columns]
+            row = {
+                "left_method": left_method,
+                "right_method": right_method,
+                "n_shared_spots": int(shared_spots.size),
+                "n_shared_features": int(len(shared_features)),
+            }
+            if shared_spots.empty or not shared_features:
+                rows.append(row)
+                continue
+            left_aligned = left_df.loc[shared_spots, shared_features].to_numpy(dtype=np.float32)
+            right_aligned = right_df.loc[shared_spots, shared_features].to_numpy(dtype=np.float32)
+            left_winners = np.argmax(left_aligned, axis=1)
+            right_winners = np.argmax(right_aligned, axis=1)
+            row.update(
+                {
+                    "winner_agreement": float(np.mean(left_winners == right_winners)),
+                    "mean_abs_diff": float(np.mean(np.abs(left_aligned - right_aligned))),
+                    "mean_cosine_similarity": float(
+                        np.mean(
+                            np.sum(left_aligned * right_aligned, axis=1)
+                            / np.clip(
+                                np.linalg.norm(left_aligned, axis=1) * np.linalg.norm(right_aligned, axis=1),
+                                1e-8,
+                                None,
+                            )
+                        )
+                    ),
+                }
+            )
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def run_provider_benchmark(
+    cfg: DictConfig,
+    *,
+    methods: list[str] | None = None,
+    modes: list[str] | None = None,
+    edges: list[str] | None = None,
+    seeds: list[int] | None = None,
+    execution_mode: str = "force_rebuild",
+    use_tqdm: bool = True,
+    reference_output: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run a matched provider benchmark with raw provider rebuilds and downstream scoring."""
+    methods = methods or ["tangram", "tacco", "destvi"]
+    modes = modes or ["pooled", "deep_sets"]
+    edges = edges or ["AAH->AIS", "AIS->MIA"]
+    seeds = seeds or [7, 13, 29]
+
+    base_cfg = clone_config(cfg)
+    base_cfg = OmegaConf.merge(base_cfg, _load_component(_COMPONENT_DIRS["train"] / "medium.yaml"))
+    base_cfg.train.profile = "medium"
+    if hasattr(base_cfg, "profiles") and base_cfg.profiles is not None:
+        base_cfg.profiles.train = "medium"
+    base_cfg.transition_model.wes_regularizer.enabled = False
+    base_cfg.transition_model.schrodinger_bridge.sigma = 0.0
+
+    reference = reference_output or run_reference(base_cfg)
+    reference_gate = (reference.get("reference", {}).get("diagnostics", {}) or {}).get("alignment_gate", {})
+
+    provider_outputs_by_seed: dict[int, dict[str, dict[str, Any]]] = {}
+    provider_metric_rows: list[pd.DataFrame] = []
+    agreement_rows: list[pd.DataFrame] = []
+    downstream_rows: list[dict[str, Any]] = []
+
+    seed_iter = _progress_iter([str(seed) for seed in seeds], desc="Provider benchmark seeds", enabled=use_tqdm)
+    for seed_label in seed_iter:
+        seed = int(seed_label)
+        seed_outputs: dict[str, dict[str, Any]] = {}
+        for method in methods:
+            cfg_run = clone_config(base_cfg)
+            cfg_run.seed = seed
+            cfg_run.train.seed = seed
+            cfg_run.spatial_mapping.method = method
+            cfg_run.spatial_mapping.execution_mode = execution_mode
+            if use_tqdm:
+                cfg_run.spatial_mapping.show_progress = True
+            if hasattr(cfg_run, "profiles") and cfg_run.profiles is not None:
+                cfg_run.profiles.spatial_mapping = method
+
+            spatial_output = run_spatial_mapping(cfg_run, reference_output=reference)
+            seed_outputs[method] = spatial_output
+
+            metric_table = build_spatial_provider_metric_table({method: spatial_output})
+            if not metric_table.empty:
+                metric_table["seed"] = seed
+                provider_metric_rows.append(metric_table)
+
+            if spatial_output.get("status") != "complete":
+                continue
+
+            for edge in edges:
+                src, tgt = [part.strip() for part in str(edge).split("->", 1)]
+                for mode in modes:
+                    cfg_eval = clone_config(cfg_run)
+                    cfg_eval.context_model.mode = mode
+                    cfg_eval.context_model.graph_enabled = bool(mode == "graph_of_sets")
+                    cfg_eval.transition_model.active_edge = [src, tgt]
+                    context_output = run_context_model(cfg_eval, spatial_output=spatial_output)
+                    transition_output = run_transition_model(
+                        cfg_eval,
+                        reference_output=reference,
+                        spatial_output=spatial_output,
+                        context_output=context_output,
+                    )
+                    evaluation_output = run_evaluation(
+                        cfg_eval,
+                        transition_output=transition_output,
+                        context_output=context_output,
+                    )
+                    biology = evaluation_output.get("biology_summary") or {}
+                    downstream_rows.append(
+                        {
+                            "method": method,
+                            "seed": seed,
+                            "edge": edge,
+                            "mode": mode,
+                            "sinkhorn": float(evaluation_output["heldout_metrics"]["sinkhorn"]),
+                            "calibration_error": float(evaluation_output["calibration"]["mean_abs_shift_error"]),
+                            "dominant_increase_group": biology.get("dominant_increase_group"),
+                            "dominant_decrease_group": biology.get("dominant_decrease_group"),
+                            "status": evaluation_output.get("status", "complete"),
+                        }
+                    )
+
+        provider_outputs_by_seed[seed] = seed_outputs
+        agreement = build_spatial_provider_agreement_table(seed_outputs)
+        if not agreement.empty:
+            agreement["seed"] = seed
+            agreement_rows.append(agreement)
+
+    provider_metric_table = (
+        pd.concat(provider_metric_rows, ignore_index=True)
+        if provider_metric_rows
+        else pd.DataFrame(columns=["method", "seed"])
+    )
+    agreement_table = (
+        pd.concat(agreement_rows, ignore_index=True)
+        if agreement_rows
+        else pd.DataFrame(columns=["left_method", "right_method", "seed"])
+    )
+    downstream_table = pd.DataFrame(downstream_rows)
+    benchmark = summarize_provider_benchmark(
+        provider_metric_table=provider_metric_table,
+        downstream_table=downstream_table,
+        agreement_table=agreement_table,
+        reference_gate=reference_gate,
+    )
+    benchmark_md = render_provider_benchmark_md(benchmark)
+    return {
+        "reference_gate": reference_gate,
+        "provider_outputs_by_seed": provider_outputs_by_seed,
+        "provider_metric_table": provider_metric_table,
+        "provider_agreement_table": agreement_table,
+        "provider_downstream_table": downstream_table,
+        "benchmark": benchmark,
+        "benchmark_md": benchmark_md,
+    }
+
+
+def build_provider_benchmark_table(benchmark_output: dict[str, Any]) -> pd.DataFrame:
+    rows = benchmark_output.get("benchmark", {}).get("provider_scores", [])
+    if not rows:
+        return pd.DataFrame(columns=["method", "hybrid_rank_score"])
+    return pd.DataFrame(rows).sort_values("hybrid_rank_score").reset_index(drop=True)
+
+
+def apply_selected_provider(cfg: DictConfig, benchmark_output: dict[str, Any]) -> DictConfig:
+    """Clone config and apply the benchmark-selected provider as the downstream default."""
+    selected = (benchmark_output.get("benchmark") or {}).get("selected_provider")
+    selection_status = (benchmark_output.get("benchmark") or {}).get("selection_status", "inconclusive")
+    selection_reason = (benchmark_output.get("benchmark") or {}).get("selection_reason", "selection_not_run")
+    if not selected:
+        return clone_config(cfg)
+    cfg_selected = clone_config(cfg)
+    cfg_selected.spatial_mapping.method = str(selected)
+    cfg_selected.spatial_mapping.selected_provider = str(selected)
+    cfg_selected.spatial_mapping.selection_status = str(selection_status)
+    cfg_selected.spatial_mapping.selection_reason = str(selection_reason)
+    if hasattr(cfg_selected, "profiles") and cfg_selected.profiles is not None:
+        cfg_selected.profiles.spatial_mapping = str(selected)
+    return cfg_selected
 
 
 def build_context_summary_table(context_output: dict[str, Any]) -> pd.DataFrame:
@@ -270,6 +1020,12 @@ def build_transition_summary_table(
         {"metric": "heldout_auc", "value": heldout.get("classifier_auc", float("nan"))},
         {"metric": "calibration_error", "value": calibration.get("mean_abs_shift_error", float("nan"))},
     ]
+    if "encoder_parameter_delta" in transition_output:
+        rows.append({"metric": "encoder_parameter_delta", "value": transition_output.get("encoder_parameter_delta", 0.0)})
+    attention = transition_output.get("attention_summary") or {}
+    if attention:
+        rows.append({"metric": "attention_maps", "value": ", ".join(attention.get("available_maps", []))})
+        rows.append({"metric": "top_attention_token_types", "value": ", ".join(attention.get("top_token_types", []))})
     return pd.DataFrame(rows)
 
 
@@ -513,11 +1269,18 @@ def available_steps() -> list[str]:
 
 __all__ = [
     "available_steps",
+    "apply_selected_provider",
     "build_biology_summary_table",
     "build_context_summary_table",
+    "build_dataset_preprocessing_table",
     "build_gate_ready_table",
     "build_latent_comparison_table",
+    "build_provider_benchmark_table",
+    "build_reference_evaluation_table",
     "build_mode_comparison_table",
+    "build_spatial_provider_agreement_table",
+    "build_spatial_provider_metric_table",
+    "build_spatial_provider_table",
     "build_seeded_mode_summary_table",
     "build_reference_label_table",
     "build_reference_summary_table",
@@ -527,9 +1290,12 @@ __all__ = [
     "clone_config",
     "compose_config",
     "load_run",
+    "run_data_preprocessing_overview",
     "run_latent_backend_compare",
     "run_mode_ladder",
+    "run_provider_benchmark",
     "run_seeded_mode_ladder",
+    "run_spatial_provider_ladder",
     "run_pipeline",
     "run_step",
 ]

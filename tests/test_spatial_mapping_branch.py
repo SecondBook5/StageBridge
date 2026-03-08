@@ -123,7 +123,7 @@ def test_tangram_mapping_contract_and_interfaces(tmp_path: Path) -> None:
     tacco = run_tacco(cfg)
     destvi = run_destvi(cfg)
     assert tacco.status in {"missing_inputs", "complete"}
-    assert destvi.status == "not_configured"
+    assert destvi.status in {"missing_inputs", "complete"}
 
     pipeline_output = run_spatial_mapping(cfg)
     assert pipeline_output["ok"] is True
@@ -206,11 +206,37 @@ def test_tangram_rebuild_and_tacco_raw_provider_paths(tmp_path: Path) -> None:
     destvi_cfg = {
         "seed": 42,
         "data": tangram_cfg["data"],
+        "reference": tangram_cfg["reference"],
         "spatial_mapping": {
             "method": "destvi",
-            "execution_mode": "load_precomputed",
-            "precomputed_h5ad": None,
+            "execution_mode": "rebuild_cached",
+            "label_col": "hlca_label",
+            "batch_size": 2,
+            "max_reference_cells_per_label": 2,
+            "max_training_genes": 3,
+            "min_shared_genes": 2,
+            "show_progress": False,
+            "condscvi": {
+                "max_epochs": 1,
+                "n_hidden": 16,
+                "n_latent": 3,
+                "n_layers": 1,
+                "dropout_rate": 0.05,
+                "lr": 1e-3,
+                "prior": "mog",
+                "num_classes_mog": 2,
+            },
+            "destvi": {
+                "max_epochs": 1,
+                "lr": 1e-3,
+                "vamp_prior_p": 2,
+            },
         },
     }
     destvi = run_destvi(destvi_cfg, stages=["AAH", "AIS"], max_spots_per_stage=2, seed=42)
-    assert destvi.status == "not_configured"
+    assert destvi.status == "complete"
+    assert destvi.execution_mode == "rebuild_cached"
+    assert destvi.provenance is not None
+    assert destvi.provenance["training_report"]["n_labels"] == 2
+    assert destvi.compositions is not None
+    assert destvi.compositions.shape[0] == 2

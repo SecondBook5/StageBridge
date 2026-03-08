@@ -1,4 +1,24 @@
 spatial_mapping:
   method: destvi
-  execution_mode: load_precomputed
+  execution_mode: rebuild_cached
   precomputed_h5ad: null
+  label_col: hlca_label
+  device: cpu
+  show_progress: false
+  batch_size: 64
+  max_reference_cells_per_label: 64
+  max_training_genes: 500
+  min_shared_genes: 200
+  condscvi:
+    max_epochs: 2
+    n_hidden: 64
+    n_latent: 5
+    n_layers: 1
+    dropout_rate: 0.05
+    lr: 0.001
+    prior: mog
+    num_classes_mog: 8
+  destvi:
+    max_epochs: 2
+    lr: 0.003
+    vamp_prior_p: 8

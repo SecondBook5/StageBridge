@@ -20,8 +20,17 @@ from tqdm.auto import tqdm
 from stagebridge import config
 from stagebridge.logging_utils import get_logger
 from stagebridge.data.common.schema import LatentCohort
+from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.data.luad_evo.snrna import load_luad_evo_snrna_latent, load_luad_evo_snrna_pca_latent
-from stagebridge.reference.diagnostics import donor_leakage_diagnostics, stage_preservation_diagnostics, summarize_latent
+from stagebridge.reference.diagnostics import (
+    donor_leakage_diagnostics,
+    gene_overlap_diagnostics,
+    nearest_neighbor_label_agreement,
+    reference_alignment_gate,
+    stage_label_alignment,
+    stage_preservation_diagnostics,
+    summarize_latent,
+)
 from stagebridge.reference.label_transfer import transfer_reference_labels
 from stagebridge.reference.latent_store import LatentStore
 from stagebridge.data.luad_evo.stages import normalize_stage_series
@@ -98,18 +107,32 @@ def run_active_reference_latent(
     else:
         raise ValueError(f"Unsupported reference latent backend '{backend}'.")
 
+    paths = resolve_luad_evo_paths(cfg)
     latent_store = LatentStore(cohort=cohort)
+    label_transfer = transfer_reference_labels(cohort.obs, label_col="hlca_label")
     diagnostics = {
         "latent_summary": summarize_latent(cohort.latent),
         "stage_preservation": stage_preservation_diagnostics(cohort.latent, cohort.obs),
         "donor_leakage": donor_leakage_diagnostics(cohort.latent, cohort.obs),
+        "gene_overlap": gene_overlap_diagnostics(
+            query_h5ad_path=paths.snrna_h5ad,
+            reference_h5ad_path=paths.hlca_h5ad,
+        ),
+        "label_neighborhood": nearest_neighbor_label_agreement(cohort.latent, cohort.obs, label_col="hlca_label"),
+        "stage_label_alignment": stage_label_alignment(cohort.obs, stage_col="stage", label_col="hlca_label"),
     }
-    labels = transfer_reference_labels(cohort.obs, label_col="hlca_label")
+    diagnostics["alignment_gate"] = reference_alignment_gate(
+        stage_preservation=diagnostics["stage_preservation"],
+        donor_leakage=diagnostics["donor_leakage"],
+        label_transfer=label_transfer,
+        gene_overlap=diagnostics["gene_overlap"],
+        label_neighborhood=diagnostics["label_neighborhood"],
+    )
     return ReferenceLatentResult(
         cohort=cohort,
         latent_store=latent_store,
         diagnostics=diagnostics,
-        label_transfer=labels,
+        label_transfer=label_transfer,
         backend_name=backend,
         backend_version="stagebridge_v1",
         feature_set_used=feature_set_used,

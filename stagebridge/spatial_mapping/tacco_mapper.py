@@ -16,6 +16,9 @@ from stagebridge.spatial_mapping.qc import summarize_mapping_qc
 from stagebridge.spatial_mapping.tangram_mapper import (
     _aligned_label_series_from_sources,
     _coerce_csr_float32,
+    _read_h5ad_csr_rows,
+    _read_h5ad_obs_frame,
+    _read_h5ad_var_index,
     _mapping_cache_root,
     _normalize_obs_fields,
     _provider_version,
@@ -36,18 +39,21 @@ def _write_reference_subset_h5ad(
     fallback_labels_parquet_path: Path | None = None,
     fallback_latent_h5ad_path: Path | None = None,
 ) -> dict[str, Any]:
-    adata = anndata.read_h5ad(snrna_h5ad_path, backed="r")
-    obs = _normalize_obs_fields(adata.obs)
-    source_matrix = adata.layers["counts"] if "counts" in adata.layers else adata.X
-    rows = _select_stage_rows(
-        obs,
+    all_obs = _normalize_obs_fields(
+        _read_h5ad_obs_frame(
+            snrna_h5ad_path,
+            columns=["donor_id", "patient_id", "sample_id", "stage"],
+        )
+    )
+    selected_rows = _select_stage_rows(
+        all_obs,
         stages=stages,
         donors=None,
         max_rows_per_stage=None,
         seed=seed,
     )
-    obs = obs.iloc[rows].copy()
-    obs.index = adata.obs_names[rows].astype(str)
+    obs = all_obs.iloc[selected_rows].copy()
+    row_lookup = pd.Series(selected_rows, index=obs.index)
     labels, label_meta = _aligned_label_series_from_sources(
         obs=obs,
         obs_index=obs.index,
@@ -57,7 +63,7 @@ def _write_reference_subset_h5ad(
     )
     obs[label_col] = labels
     obs = obs.loc[obs[label_col].notna()].copy()
-    rows = np.array([adata.obs_names.get_loc(idx) for idx in obs.index], dtype=np.int64)
+    rows = row_lookup.reindex(obs.index).to_numpy(dtype=np.int64)
     if max_cells_per_label > 0:
         rng = np.random.default_rng(int(seed))
         keep_labels: list[str] = []
@@ -69,16 +75,18 @@ def _write_reference_subset_h5ad(
             keep = rng.choice(names, size=int(max_cells_per_label), replace=False)
             keep_labels.extend(keep.tolist())
         obs = obs.loc[keep_labels].copy()
-        rows = np.array([adata.obs_names.get_loc(idx) for idx in obs.index], dtype=np.int64)
+        rows = row_lookup.reindex(obs.index).to_numpy(dtype=np.int64)
 
     subset_h5ad_path.parent.mkdir(parents=True, exist_ok=True)
     subset = anndata.AnnData(
-        X=_coerce_csr_float32(source_matrix[rows, :]),
+        X=_read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="X"),
         obs=obs.copy(),
-        var=adata.var.copy(),
+        var=pd.DataFrame(index=_read_h5ad_var_index(snrna_h5ad_path)),
     )
-    if "counts" in adata.layers:
-        subset.layers["counts"] = _coerce_csr_float32(adata.layers["counts"][rows, :])
+    try:
+        subset.layers["counts"] = _read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="layers/counts")
+    except Exception:
+        pass
     subset.write_h5ad(subset_h5ad_path, compression="lzf")
     return {
         "n_cells": int(subset.n_obs),

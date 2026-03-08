@@ -10,6 +10,11 @@ profiles:
   train: full_v1
   evaluation: baseline
 
+spatial_mapping:
+  selected_provider: tangram
+  selection_status: provisional
+  selection_reason: benchmark_not_run
+
 reference:
   method: hlca
   latent_backend: hlca

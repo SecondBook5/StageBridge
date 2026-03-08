@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 from torch import Tensor, nn
@@ -40,16 +41,26 @@ class SAB(nn.Module):
     def _key_padding_mask(mask: Tensor | None) -> Tensor | None:
         return None if mask is None else ~mask.bool()
 
-    def forward(self, x: Tensor, mask: Tensor | None = None) -> Tensor:
-        attn_out, _ = self.mha(
+    def forward(
+        self,
+        x: Tensor,
+        mask: Tensor | None = None,
+        *,
+        return_attention: bool = False,
+    ) -> Tensor | tuple[Tensor, Tensor]:
+        attn_out, attn_weights = self.mha(
             query=x,
             key=x,
             value=x,
             key_padding_mask=self._key_padding_mask(mask),
-            need_weights=False,
+            need_weights=bool(return_attention),
+            average_attn_weights=False,
         )
         x = self.ln1(x + attn_out)
-        return self.ln2(x + self.ff(x))
+        out = self.ln2(x + self.ff(x))
+        if return_attention:
+            return out, attn_weights
+        return out
 
 
 class SpatialRPE(nn.Module):
@@ -105,7 +116,9 @@ class ISAB(nn.Module):
         mask: Tensor | None = None,
         coords: Tensor | None = None,
         n_src: int = 0,
-    ) -> Tensor:
+        *,
+        return_attention: bool = False,
+    ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
         batch_size = x.shape[0]
         inducing = self.inducing_points.expand(batch_size, -1, -1)
         attn_mask = None
@@ -113,19 +126,32 @@ class ISAB(nn.Module):
             rpe_bias = self.rpe(coords, n_src=n_src)
             attn_mask = rpe_bias.expand(-1, inducing.shape[1], -1).contiguous()
 
-        h, _ = self.mha_1(
+        h, attn_1 = self.mha_1(
             query=inducing,
             key=x,
             value=x,
             key_padding_mask=self._key_padding_mask(mask),
             attn_mask=attn_mask,
-            need_weights=False,
+            need_weights=bool(return_attention),
+            average_attn_weights=False,
         )
         h = self.ln_h1(inducing + h)
         h = self.ln_h2(h + self.ff_h(h))
-        x_attn, _ = self.mha_2(query=x, key=h, value=h, need_weights=False)
+        x_attn, attn_2 = self.mha_2(
+            query=x,
+            key=h,
+            value=h,
+            need_weights=bool(return_attention),
+            average_attn_weights=False,
+        )
         x = self.ln_x1(x + x_attn)
-        return self.ln_x2(x + self.ff_x(x))
+        out = self.ln_x2(x + self.ff_x(x))
+        if return_attention:
+            return out, {
+                "inducing_to_tokens": attn_1,
+                "tokens_to_inducing": attn_2,
+            }
+        return out
 
 
 class PMA(nn.Module):
@@ -143,18 +169,28 @@ class PMA(nn.Module):
     def _key_padding_mask(mask: Tensor | None) -> Tensor | None:
         return None if mask is None else ~mask.bool()
 
-    def forward(self, x: Tensor, mask: Tensor | None = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        mask: Tensor | None = None,
+        *,
+        return_attention: bool = False,
+    ) -> Tensor | tuple[Tensor, Tensor]:
         batch_size = x.shape[0]
         seeds = self.seed_vectors.expand(batch_size, -1, -1)
-        pooled, _ = self.mha(
+        pooled, attn_weights = self.mha(
             query=seeds,
             key=x,
             value=x,
             key_padding_mask=self._key_padding_mask(mask),
-            need_weights=False,
+            need_weights=bool(return_attention),
+            average_attn_weights=False,
         )
         pooled = self.ln1(seeds + pooled)
-        return self.ln2(pooled + self.ff(pooled))
+        out = self.ln2(pooled + self.ff(pooled))
+        if return_attention:
+            return out, attn_weights
+        return out
 
 
 class SinusoidalTimeEmbedding(nn.Module):
@@ -191,6 +227,8 @@ class SetContextSummary:
 
     pooled_context: Tensor
     token_embeddings: Tensor
+    attention_maps: dict[str, Tensor] = field(default_factory=dict)
+    token_type_ids: Tensor | None = None
 
 
 class DeepSetsContextEncoder(nn.Module):
@@ -238,9 +276,16 @@ class TypedSetContextEncoder(nn.Module):
         num_heads: int = 4,
         num_inducing_points: int = 16,
         dropout: float = 0.1,
+        *,
+        num_token_types: int = 4,
+        use_token_type_embeddings: bool = True,
     ) -> None:
         super().__init__()
         self.input_projection = nn.Linear(input_dim, hidden_dim)
+        self.num_token_types = int(num_token_types)
+        self.token_type_embedding = (
+            nn.Embedding(self.num_token_types, hidden_dim) if use_token_type_embeddings else None
+        )
         self.isab = ISAB(
             dim=hidden_dim,
             num_heads=num_heads,
@@ -255,19 +300,62 @@ class TypedSetContextEncoder(nn.Module):
             nn.LayerNorm(hidden_dim),
         )
 
-    def forward(self, tokens: Tensor, mask: Tensor | None = None) -> SetContextSummary:
+    def _infer_token_type_ids(self, tokens: Tensor) -> Tensor:
+        if tokens.shape[-1] >= self.num_token_types:
+            return tokens[..., : self.num_token_types].argmax(dim=-1)
+        return torch.zeros(tokens.shape[:-1], dtype=torch.long, device=tokens.device)
+
+    def forward(
+        self,
+        tokens: Tensor,
+        mask: Tensor | None = None,
+        *,
+        token_type_ids: Tensor | None = None,
+        return_attention: bool = False,
+    ) -> SetContextSummary:
         squeeze = False
         if tokens.ndim == 2:
             tokens = tokens.unsqueeze(0)
             squeeze = True
+        if token_type_ids is None:
+            token_type_ids = self._infer_token_type_ids(tokens)
+        if token_type_ids.ndim == 1:
+            token_type_ids = token_type_ids.unsqueeze(0)
+        token_type_ids = token_type_ids.long()
         h = self.input_projection(tokens)
-        h = self.isab(h, mask=mask)
-        h = self.sab(h, mask=mask)
-        pooled = self.pma(h, mask=mask)[:, 0, :]
+        if self.token_type_embedding is not None:
+            h = h + self.token_type_embedding(token_type_ids)
+
+        attention_maps: dict[str, Tensor] = {}
+        if return_attention:
+            h, isab_attention = self.isab(h, mask=mask, return_attention=True)
+            h, sab_attention = self.sab(h, mask=mask, return_attention=True)
+            pooled_tokens, pma_attention = self.pma(h, mask=mask, return_attention=True)
+            attention_maps = {
+                "isab_inducing_to_tokens": isab_attention["inducing_to_tokens"],
+                "isab_tokens_to_inducing": isab_attention["tokens_to_inducing"],
+                "sab_self_attention": sab_attention,
+                "pma_seed_attention": pma_attention,
+            }
+        else:
+            h = self.isab(h, mask=mask)
+            h = self.sab(h, mask=mask)
+            pooled_tokens = self.pma(h, mask=mask)
+        pooled = pooled_tokens[:, 0, :]
         context = self.context_head(pooled)
         if squeeze:
-            return SetContextSummary(pooled_context=context[0], token_embeddings=h[0])
-        return SetContextSummary(pooled_context=context, token_embeddings=h)
+            return SetContextSummary(
+                pooled_context=context[0],
+                token_embeddings=h[0],
+                attention_maps={key: value[0] for key, value in attention_maps.items()},
+                token_type_ids=token_type_ids[0],
+            )
+        return SetContextSummary(
+            pooled_context=context,
+            token_embeddings=h,
+            attention_maps=attention_maps,
+            token_type_ids=token_type_ids,
+        )
 
 
 class PooledContextEncoder(nn.Module):

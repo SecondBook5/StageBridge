@@ -16,9 +16,11 @@ def transfer_reference_labels(obs: pd.DataFrame, *, label_col: str = "hlca_label
             "coverage": 0.0,
             "top_labels": [],
         }
-    labels = obs[label_col].astype(str)
+    raw = obs[label_col]
+    valid = raw.notna() & raw.astype(str).ne("") & raw.astype(str).ne("nan")
+    labels = raw.loc[valid].astype(str)
     counts = labels.value_counts().head(10)
-    coverage = float(labels.ne("").mean())
+    coverage = float(valid.mean())
     return {
         "ok": True,
         "status": "complete",

@@ -4,6 +4,7 @@ from __future__ import annotations
 import gc
 from dataclasses import dataclass
 import hashlib
+import h5py
 from importlib import metadata
 import json
 from pathlib import Path
@@ -148,6 +149,117 @@ def _aligned_label_series_from_sources(
     )
 
 
+def _decode_h5_array(values: np.ndarray) -> np.ndarray:
+    if values.dtype.kind in {"S", "O", "U"}:
+        return np.asarray(
+            [value.decode() if isinstance(value, bytes) else str(value) for value in values],
+            dtype=object,
+        )
+    return values
+
+
+def _read_h5ad_obs_column(group: h5py.Group, name: str, rows: np.ndarray) -> np.ndarray:
+    obj = group[name]
+    if isinstance(obj, h5py.Dataset):
+        return _decode_h5_array(obj[rows])
+    if "categories" in obj and "codes" in obj:
+        categories = _decode_h5_array(obj["categories"][:])
+        codes = np.asarray(obj["codes"][rows], dtype=np.int64)
+        values = np.empty(rows.shape[0], dtype=object)
+        missing = codes < 0
+        values[missing] = None
+        valid = ~missing
+        values[valid] = categories[codes[valid]]
+        return values
+    raise TypeError(f"Unsupported obs column encoding for '{name}'.")
+
+
+def _read_h5ad_obs_column_or_default(
+    group: h5py.Group,
+    name: str,
+    rows: np.ndarray,
+    *,
+    default: np.ndarray | None = None,
+) -> np.ndarray:
+    if name in group:
+        return _read_h5ad_obs_column(group, name, rows)
+    if default is not None:
+        return default
+    raise KeyError(f"Missing required obs column '{name}'.")
+
+
+def _read_h5ad_csr_rows(h5ad_path: Path, rows: np.ndarray, *, group_name: str = "X") -> sp.csr_matrix:
+    with h5py.File(h5ad_path, "r") as handle:
+        group = handle[group_name]
+        if isinstance(group, h5py.Dataset):
+            return sp.csr_matrix(np.asarray(group[rows, :], dtype=np.float32))
+
+        shape = tuple(int(x) for x in group.attrs["shape"])
+        indptr = np.asarray(group["indptr"], dtype=np.int64)
+        row_starts = indptr[rows]
+        row_ends = indptr[rows + 1]
+        nnz = int(np.sum(row_ends - row_starts))
+        data = np.empty(nnz, dtype=np.float32)
+        indices = np.empty(nnz, dtype=np.int32)
+        new_indptr = np.zeros(rows.shape[0] + 1, dtype=np.int64)
+        cursor = 0
+        data_ds = group["data"]
+        indices_ds = group["indices"]
+        for i, (start, end) in enumerate(zip(row_starts.tolist(), row_ends.tolist(), strict=False)):
+            length = int(end - start)
+            if length:
+                data[cursor : cursor + length] = np.asarray(data_ds[start:end], dtype=np.float32)
+                indices[cursor : cursor + length] = np.asarray(indices_ds[start:end], dtype=np.int32)
+            cursor += length
+            new_indptr[i + 1] = cursor
+    return sp.csr_matrix((data, indices, new_indptr), shape=(rows.shape[0], shape[1]), dtype=np.float32)
+
+
+def _read_h5ad_obs_frame(
+    h5ad_path: Path,
+    *,
+    columns: list[str],
+    rows: np.ndarray | None = None,
+) -> pd.DataFrame:
+    with h5py.File(h5ad_path, "r") as handle:
+        obs_group = handle["obs"]
+        chosen_rows = (
+            np.arange(obs_group["_index"].shape[0], dtype=np.int64)
+            if rows is None
+            else np.asarray(rows, dtype=np.int64)
+        )
+        obs_index = _decode_h5_array(obs_group["_index"][chosen_rows])
+        values: dict[str, np.ndarray] = {}
+        for column in columns:
+            if column == "donor_id":
+                values[column] = (
+                    _read_h5ad_obs_column(obs_group, "donor_id", chosen_rows)
+                    if "donor_id" in obs_group
+                    else _read_h5ad_obs_column(obs_group, "patient_id", chosen_rows)
+                )
+                continue
+            if column == "patient_id":
+                values[column] = (
+                    _read_h5ad_obs_column(obs_group, "patient_id", chosen_rows)
+                    if "patient_id" in obs_group
+                    else _read_h5ad_obs_column(obs_group, "donor_id", chosen_rows)
+                )
+                continue
+            if column in {"spot_id", "barcode", "sample_id"}:
+                values[column] = _read_h5ad_obs_column_or_default(obs_group, column, chosen_rows, default=obs_index)
+                continue
+            values[column] = _read_h5ad_obs_column(obs_group, column, chosen_rows)
+        frame = pd.DataFrame(values, index=pd.Index(obs_index, name=str(obs_group.attrs.get("_index", "_index"))))
+    return frame
+
+
+def _read_h5ad_var_index(h5ad_path: Path) -> pd.Index:
+    with h5py.File(h5ad_path, "r") as handle:
+        var_group = handle["var"]
+        index = _decode_h5_array(var_group["_index"][:])
+        return pd.Index(index, name=str(var_group.attrs.get("_index", "_index")))
+
+
 def _write_label_parquet_from_snrna(
     *,
     snrna_h5ad_path: Path,
@@ -159,8 +271,12 @@ def _write_label_parquet_from_snrna(
     fallback_labels_parquet_path: Path | None = None,
     fallback_latent_h5ad_path: Path | None = None,
 ) -> dict[str, Any]:
-    adata = anndata.read_h5ad(snrna_h5ad_path, backed="r")
-    obs = _normalize_obs_fields(adata.obs)
+    obs = _normalize_obs_fields(
+        _read_h5ad_obs_frame(
+            snrna_h5ad_path,
+            columns=["donor_id", "patient_id", "sample_id", "stage"],
+        )
+    )
     rows = _select_stage_rows(
         obs,
         stages=stages,
@@ -169,7 +285,6 @@ def _write_label_parquet_from_snrna(
         seed=seed,
     )
     obs = obs.iloc[rows].copy()
-    obs.index = adata.obs_names[rows].astype(str)
     labels, label_meta = _aligned_label_series_from_sources(
         obs=obs,
         obs_index=obs.index,
@@ -204,6 +319,50 @@ def _write_label_parquet_from_snrna(
     }
 
 
+def _write_snrna_subset_h5ad_from_labels(
+    *,
+    snrna_h5ad_path: Path,
+    labels_parquet_path: Path,
+    subset_h5ad_path: Path,
+    label_col: str,
+) -> dict[str, Any]:
+    labels_df = pd.read_parquet(labels_parquet_path)
+    labels_df.index = labels_df.index.astype(str)
+    all_obs = _normalize_obs_fields(
+        _read_h5ad_obs_frame(
+            snrna_h5ad_path,
+            columns=["donor_id", "patient_id", "sample_id", "stage"],
+        )
+    )
+    row_lookup = pd.Series(np.arange(all_obs.shape[0], dtype=np.int64), index=all_obs.index.astype(str))
+    matched_rows = row_lookup.reindex(labels_df.index).dropna()
+    if matched_rows.empty:
+        raise RuntimeError(
+            f"No snRNA rows matched labels parquet {labels_parquet_path} for subset creation."
+        )
+    rows = matched_rows.to_numpy(dtype=np.int64)
+    subset_obs = all_obs.loc[matched_rows.index].copy()
+    if label_col in labels_df.columns:
+        subset_obs[label_col] = labels_df.loc[matched_rows.index, label_col].astype(str).to_numpy()
+
+    subset_h5ad_path.parent.mkdir(parents=True, exist_ok=True)
+    subset = anndata.AnnData(
+        X=_read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="X"),
+        obs=subset_obs,
+        var=pd.DataFrame(index=_read_h5ad_var_index(snrna_h5ad_path)),
+    )
+    try:
+        subset.layers["counts"] = _read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="layers/counts")
+    except Exception:
+        pass
+    subset.write_h5ad(subset_h5ad_path, compression="lzf")
+    return {
+        "n_cells": int(subset.n_obs),
+        "n_genes": int(subset.n_vars),
+        "label_col": label_col,
+    }
+
+
 def _write_spatial_subset_h5ad(
     *,
     spatial_h5ad_path: Path,
@@ -213,25 +372,54 @@ def _write_spatial_subset_h5ad(
     max_spots_per_stage: int | None,
     seed: int,
 ) -> dict[str, Any]:
-    adata = anndata.read_h5ad(spatial_h5ad_path, backed="r")
-    obs = _normalize_obs_fields(adata.obs)
-    rows = _select_stage_rows(
-        obs,
-        stages=stages,
-        donors=donors,
-        max_rows_per_stage=max_spots_per_stage,
-        seed=seed,
-    )
     subset_h5ad_path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(spatial_h5ad_path, "r") as handle:
+        obs_group = handle["obs"]
+        all_rows = np.arange(obs_group["_index"].shape[0], dtype=np.int64)
+        obs_index = _decode_h5_array(obs_group["_index"][:])
+        donor_values = (
+            _read_h5ad_obs_column(obs_group, "donor_id", all_rows)
+            if "donor_id" in obs_group
+            else _read_h5ad_obs_column(obs_group, "patient_id", all_rows)
+        )
+        patient_values = (
+            _read_h5ad_obs_column(obs_group, "patient_id", all_rows)
+            if "patient_id" in obs_group
+            else donor_values
+        )
+        obs = pd.DataFrame(
+            {
+                "spot_id": _read_h5ad_obs_column_or_default(obs_group, "spot_id", all_rows, default=obs_index),
+                "barcode": _read_h5ad_obs_column_or_default(obs_group, "barcode", all_rows, default=obs_index),
+                "donor_id": donor_values,
+                "patient_id": patient_values,
+                "stage": _read_h5ad_obs_column(obs_group, "stage", all_rows),
+                "sample_id": _read_h5ad_obs_column_or_default(obs_group, "sample_id", all_rows, default=obs_index),
+            },
+            index=pd.Index(obs_index, name=str(obs_group.attrs.get("_index", "_index"))),
+        )
+        obs = _normalize_obs_fields(obs)
+        rows = _select_stage_rows(
+            obs,
+            stages=stages,
+            donors=donors,
+            max_rows_per_stage=max_spots_per_stage,
+            seed=seed,
+        )
+        subset_obs = obs.iloc[rows].copy()
+        var_index = pd.Index(_decode_h5_array(handle["var"]["_index"][:]), name="gene")
+        spatial_coords = np.asarray(handle["obsm"]["spatial"][rows], dtype=np.float32)
+
     subset = anndata.AnnData(
-        X=_coerce_csr_float32(adata.X[rows, :]),
-        obs=obs.iloc[rows].copy(),
-        var=adata.var.copy(),
+        X=_read_h5ad_csr_rows(spatial_h5ad_path, rows, group_name="X"),
+        obs=subset_obs,
+        var=pd.DataFrame(index=var_index),
     )
-    if "counts" in adata.layers:
-        subset.layers["counts"] = _coerce_csr_float32(adata.layers["counts"][rows, :])
-    if "spatial" in adata.obsm:
-        subset.obsm["spatial"] = np.asarray(adata.obsm["spatial"][rows], dtype=np.float32)
+    try:
+        subset.layers["counts"] = _read_h5ad_csr_rows(spatial_h5ad_path, rows, group_name="layers/counts")
+    except Exception:
+        pass
+    subset.obsm["spatial"] = spatial_coords
     subset.write_h5ad(subset_h5ad_path, compression="lzf")
     return {
         "n_spots": int(subset.n_obs),
@@ -269,6 +457,7 @@ def _tangram_cache_bundle(
     return {
         "cache_dir": cache_dir,
         "labels_parquet": cache_dir / "snrna_labels.parquet",
+        "snrna_subset_h5ad": cache_dir / "snrna_subset.h5ad",
         "spatial_subset_h5ad": cache_dir / "spatial_subset.h5ad",
         "mapping_h5ad": cache_dir / "mapping.h5ad",
         "spatial_h5ad": cache_dir / "spatial_projected.h5ad",
@@ -362,6 +551,7 @@ def run_tangram(
     )
     needs_rebuild = execution_mode == "force_rebuild" or not cache["spatial_h5ad"].exists()
     label_meta: dict[str, Any] | None = None
+    snrna_meta: dict[str, Any] | None = None
     spatial_meta: dict[str, Any] | None = None
     report_path = cache["report_json"]
     if needs_rebuild:
@@ -375,6 +565,12 @@ def run_tangram(
             fallback_labels_parquet_path=paths.hlca_labels_parquet,
             fallback_latent_h5ad_path=paths.snrna_latent_h5ad,
         )
+        snrna_meta = _write_snrna_subset_h5ad_from_labels(
+            snrna_h5ad_path=paths.snrna_h5ad,
+            labels_parquet_path=cache["labels_parquet"],
+            subset_h5ad_path=cache["snrna_subset_h5ad"],
+            label_col=str(provider_cfg.get("label_col", "hlca_label")),
+        )
         spatial_meta = _write_spatial_subset_h5ad(
             spatial_h5ad_path=paths.spatial_h5ad,
             subset_h5ad_path=cache["spatial_subset_h5ad"],
@@ -385,7 +581,7 @@ def run_tangram(
         )
         tangram_result = run_tangram_hlca_projection(
             run_id=cache["cache_dir"].name,
-            snrna_h5ad_path=paths.snrna_h5ad,
+            snrna_h5ad_path=cache["snrna_subset_h5ad"],
             spatial_h5ad_path=cache["spatial_subset_h5ad"],
             labels_parquet_path=cache["labels_parquet"],
             output_mapping_h5ad_path=cache["mapping_h5ad"],
@@ -421,6 +617,7 @@ def run_tangram(
             "report_path": str(report_path),
             "labels_path": str(cache["labels_parquet"]),
             "label_metadata": label_meta,
+            "snrna_subset_metadata": snrna_meta,
             "spatial_subset_metadata": spatial_meta,
         },
         notes=(

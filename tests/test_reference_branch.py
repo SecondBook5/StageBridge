@@ -65,7 +65,12 @@ def test_reference_latent_interface_reports_diagnostics(tmp_path: Path) -> None:
     assert result.summary()["provenance"]["mode"] == "loaded"
     assert result.diagnostics["stage_preservation"]["n_stages"] == 3
     assert "AAH->AIS" in result.diagnostics["stage_preservation"]["centroid_distances"]
+    assert "probe" in result.diagnostics["stage_preservation"]
     assert result.diagnostics["donor_leakage"]["n_donors"] >= 2
+    assert "gene_overlap" in result.diagnostics
+    assert "label_neighborhood" in result.diagnostics
+    assert "stage_label_alignment" in result.diagnostics
+    assert "alignment_gate" in result.diagnostics
     assert result.label_transfer["ok"] is True
     assert result.label_transfer["label_col"] == "hlca_label"
 
@@ -104,3 +109,5 @@ def test_reference_pca_backend_reports_fit_provenance(tmp_path: Path) -> None:
     assert result.summary()["provenance"]["mode"] == "fit"
     assert result.summary()["provenance"]["fit_source"] == str(raw_path)
     assert result.diagnostics["stage_preservation"]["n_stages"] == 3
+    assert "probe" in result.diagnostics["stage_preservation"]
+    assert result.diagnostics["alignment_gate"]["status"] in {"fail", "weak_pass", "pass"}
