@@ -86,7 +86,7 @@ def _write_artifacts(
             else:
                 destination.write_text(value, encoding="utf-8")
             continue
-        if isinstance(value, Mapping):
+        if isinstance(value, (Mapping, list, tuple, set, bool, int, float)) or value is None:
             destination.write_text(json.dumps(value, indent=2), encoding="utf-8")
             continue
         source_path = Path(value)

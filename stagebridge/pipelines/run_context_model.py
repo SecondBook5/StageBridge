@@ -10,8 +10,10 @@ from omegaconf import DictConfig
 from stagebridge.context_model.cell_to_spot_assignment import select_stage_donor_token_context
 from stagebridge.context_model.graph_builder import build_spatial_knn_graph
 from stagebridge.context_model.graph_encoder import GraphOfSetsContextEncoder
+from stagebridge.context_model.hierarchical_transformer import TypedHierarchicalTransformerEncoder, dataset_name_to_id
 from stagebridge.context_model.set_encoder import DeepSetsContextEncoder, PooledContextEncoder, TypedSetContextEncoder
 from stagebridge.context_model.token_builder import build_typed_spot_tokens
+from stagebridge.transition_model.disease_edges import edge_id_map, edge_label, resolve_disease_edge
 from stagebridge.pipelines.run_spatial_mapping import run_spatial_mapping
 
 
@@ -77,8 +79,16 @@ def run_context_model(
     max_context_spots = int(cfg.get("context_model", {}).get("max_context_spots", 128))
     seed = int(cfg.get("seed", 42))
 
-    if mode in {"pooled", "deep_sets", "set_only"}:
-        example_tokens, _ = select_stage_donor_token_context(
+    if mode in {"pooled", "deep_sets", "set_only", "typed_hierarchical_transformer"}:
+        sample_mask = (
+            (typed.obs["donor_id"].astype(str) == str(example_row["donor_id"]))
+            & (typed.obs["stage"].astype(str) == str(example_row["stage"]))
+        )
+        sample_rows = np.flatnonzero(sample_mask.to_numpy())
+        if sample_rows.size > max_context_spots > 0:
+            rng = np.random.default_rng(int(seed))
+            sample_rows = np.sort(rng.choice(sample_rows, size=int(max_context_spots), replace=False))
+        example_tokens, example_coords = select_stage_donor_token_context(
             typed.tokens,
             typed.coords,
             typed.obs,
@@ -87,6 +97,7 @@ def run_context_model(
             max_spots=max_context_spots,
             seed=seed,
         )
+        example_confidence = typed.token_confidence[sample_rows]
         if mode == "pooled":
             encoder = PooledContextEncoder(
                 input_dim=typed.tokens.shape[1],
@@ -98,16 +109,57 @@ def run_context_model(
                 hidden_dim=int(cfg.get("context_model", {}).get("hidden_dim", 128)),
                 dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
             )
-        else:
+        elif mode == "set_only":
             encoder = TypedSetContextEncoder(
                 input_dim=typed.tokens.shape[1],
                 hidden_dim=int(cfg.get("context_model", {}).get("hidden_dim", 128)),
                 num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
                 num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
                 dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                num_token_types=len(typed.schema.typed_feature_names),
+                use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
+                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
+                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
+            )
+        else:
+            active_edge = resolve_disease_edge(cfg.get("transition_model", {}).get("active_edge"))
+            encoder = TypedHierarchicalTransformerEncoder(
+                input_dim=typed.tokens.shape[1],
+                hidden_dim=int(cfg.get("context_model", {}).get("hidden_dim", 128)),
+                num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
+                num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
+                dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                num_token_types=len(typed.schema.typed_feature_names),
+                num_group_summary_tokens=int(cfg.get("context_model", {}).get("num_group_summary_tokens", 2)),
+                num_fusion_queries=int(cfg.get("context_model", {}).get("num_fusion_queries", 7)),
+                dataset_embedding_dim=int(cfg.get("context_model", {}).get("dataset_embedding_dim", 16)),
+                num_datasets=4,
+                num_edges=max(8, len(edge_id_map())),
+                use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
+                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
+                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
+                use_relation_tokens=bool(cfg.get("context_model", {}).get("use_relation_tokens", True)),
+                group_names=list(typed.schema.typed_feature_names),
             )
         with torch.no_grad():
-            summary = encoder(torch.tensor(example_tokens, dtype=torch.float32))
+            if mode == "set_only":
+                summary = encoder(
+                    torch.tensor(example_tokens, dtype=torch.float32),
+                    token_coords=torch.tensor(example_coords, dtype=torch.float32),
+                    token_confidence=torch.tensor(example_confidence, dtype=torch.float32),
+                )
+            elif mode == "typed_hierarchical_transformer":
+                summary = encoder(
+                    torch.tensor(example_tokens, dtype=torch.float32),
+                    token_type_ids=torch.tensor(typed.token_type_ids[sample_rows], dtype=torch.long),
+                    token_coords=torch.tensor(example_coords, dtype=torch.float32),
+                    token_confidence=torch.tensor(example_confidence, dtype=torch.float32),
+                    dataset_ids=torch.tensor([dataset_name_to_id(str(cfg.get("data", {}).get("dataset", "luad_evo")))], dtype=torch.long),
+                    edge_ids=torch.tensor([edge_id_map()[edge_label(active_edge)]], dtype=torch.long),
+                    return_attention=True,
+                )
+            else:
+                summary = encoder(torch.tensor(example_tokens, dtype=torch.float32))
 
         return {
             "ok": True,
@@ -119,6 +171,10 @@ def run_context_model(
                 "spatial_mapping_method": spatial.method,
                 "example_context_norm": float(torch.norm(summary.pooled_context).item()),
                 "example_context_dim": int(np.asarray(summary.pooled_context).shape[0]),
+                "mean_token_confidence": typed.summary().get("mean_token_confidence", 0.0),
+                "example_context_tokens": 0 if getattr(summary, "context_tokens", None) is None else int(summary.context_tokens.shape[-2]),
+                "dataset_name": str(cfg.get("data", {}).get("dataset", "luad_evo")),
+                "dataset_embedding_enabled": bool(mode == "typed_hierarchical_transformer"),
             },
             "typed_tokens": typed,
             "set_encoder": encoder,

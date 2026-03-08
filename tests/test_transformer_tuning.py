@@ -9,7 +9,9 @@ from stagebridge.evaluation.transformer_tuning import (
     TrialMetrics,
     build_optuna_trial_table,
     make_set_only_objective,
+    run_transformer_core_benchmark,
     run_set_only_optuna_study,
+    summarize_transformer_vs_deep_sets,
 )
 
 matplotlib.use("Agg")
@@ -65,13 +67,16 @@ def test_set_only_objective_is_deterministic_for_fixed_trial(monkeypatch) -> Non
             "hidden_dim": 96,
             "num_heads": 4,
             "num_inducing_points": 12,
+            "num_seed_vectors": 2,
             "dropout": 0.1,
+            "token_dropout_rate": 0.05,
+            "auxiliary_context_shuffle_weight": 0.1,
             "learning_rate": 1e-3,
             "weight_decay": 1e-4,
             "max_context_spots": 64,
             "batch_cells": 32,
-            "steps_per_epoch": 4,
-            "max_epochs": 4,
+            "steps_per_epoch": 8,
+            "max_epochs": 6,
         }
     )
 
@@ -140,3 +145,39 @@ def test_run_set_only_optuna_study_emits_trial_table_and_confirmation(monkeypatc
     assert not output["confirmed_table"].empty
     assert output["recommendation"] in {"keep", "keep_as_optional"}
     assert build_optuna_trial_table(output["study"]).shape[0] >= 2
+
+
+def test_summarize_transformer_vs_deep_sets_reports_decision() -> None:
+    benchmark = pd.DataFrame(
+        [
+            {"edge": "AAH->AIS", "mode": "deep_sets", "sinkhorn_mean": 10.0, "calibration_mean": 1.0},
+            {"edge": "AAH->AIS", "mode": "typed_hierarchical_transformer", "sinkhorn_mean": 9.8, "calibration_mean": 1.1},
+            {"edge": "AIS->MIA", "mode": "deep_sets", "sinkhorn_mean": 11.0, "calibration_mean": 1.2},
+            {"edge": "AIS->MIA", "mode": "typed_hierarchical_transformer", "sinkhorn_mean": 10.9, "calibration_mean": 1.3},
+        ]
+    )
+
+    payload = summarize_transformer_vs_deep_sets(benchmark)
+
+    assert payload["status"] == "pass"
+    assert payload["decision"] == "keep"
+    assert len(payload["edge_results"]) == 2
+
+
+def test_run_transformer_core_benchmark_uses_fixed_modes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "stagebridge.evaluation.transformer_tuning.run_mode_baseline_summary",
+        lambda cfg, modes=None, edges=None, seeds=None: pd.DataFrame(
+            [
+                {"edge": "AAH->AIS", "mode": "deep_sets", "sinkhorn_mean": 10.0, "calibration_mean": 1.0},
+                {"edge": "AAH->AIS", "mode": "typed_hierarchical_transformer", "sinkhorn_mean": 10.2, "calibration_mean": 0.9},
+                {"edge": "AIS->MIA", "mode": "deep_sets", "sinkhorn_mean": 11.0, "calibration_mean": 1.2},
+                {"edge": "AIS->MIA", "mode": "typed_hierarchical_transformer", "sinkhorn_mean": 11.3, "calibration_mean": 1.1},
+            ]
+        ),
+    )
+
+    payload = run_transformer_core_benchmark(_cfg())
+
+    assert not payload["benchmark_table"].empty
+    assert payload["transformer_decision"]["status"] in {"pass", "weak_pass", "fail"}

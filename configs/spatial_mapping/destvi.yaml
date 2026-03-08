@@ -3,7 +3,7 @@ spatial_mapping:
   execution_mode: rebuild_cached
   precomputed_h5ad: null
   label_col: hlca_label
-  device: cpu
+  device: auto
   show_progress: false
   batch_size: 64
   max_reference_cells_per_label: 64

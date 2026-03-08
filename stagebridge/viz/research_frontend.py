@@ -38,6 +38,7 @@ MODE_COLORS = {
     "pooled": "#B45309",
     "deep_sets": "#A855F7",
     "set_only": "#0F766E",
+    "typed_hierarchical_transformer": "#0B5FFF",
     "graph_of_sets": "#7C3AED",
 }
 
@@ -1054,9 +1055,18 @@ def plot_transition_frontend(transition_output: dict[str, Any], evaluation_outpu
     x_src = transition_output["x_src_test"]
     x_tgt = transition_output["x_tgt_test"]
     context = transition_output["context"]
+    context_tokens = transition_output.get("context_tokens")
     edge_id = int(transition_output["edge_id"])
     model = transition_output["model"]
-    x_pred = rollout_edge_transition(model, x_src, context=context, edge_id=edge_id, num_steps=8, stochastic=False)
+    x_pred = rollout_edge_transition(
+        model,
+        x_src,
+        context=context,
+        context_tokens=context_tokens,
+        edge_id=edge_id,
+        num_steps=8,
+        stochastic=False,
+    )
 
     src_np = x_src.detach().cpu().numpy()
     pred_np = x_pred.detach().cpu().numpy()
@@ -1098,6 +1108,7 @@ def plot_transition_frontend(transition_output: dict[str, Any], evaluation_outpu
     calibration = evaluation_output["calibration"]
     context_sensitivity = evaluation_output.get("context_sensitivity") or {}
     attention = transition_output.get("attention_summary") or {}
+    auxiliary = transition_output.get("auxiliary_context_shuffle_metrics") or {}
     attention_lines: list[str] = []
     if attention:
         attention_lines.extend(
@@ -1105,6 +1116,16 @@ def plot_transition_frontend(transition_output: dict[str, Any], evaluation_outpu
                 f"encoder delta: {transition_output.get('encoder_parameter_delta', 0.0):.4f}",
                 f"attention maps: {', '.join(attention.get('available_maps', []))}",
                 f"top token types: {', '.join(attention.get('top_token_types', [])) or 'n/a'}",
+                f"attention entropy: {attention.get('pma_attention_entropy', float('nan')):.3f}",
+                f"confidence-weighted entropy: {attention.get('confidence_weighted_attention_entropy', float('nan')):.3f}",
+            ]
+        )
+    if auxiliary:
+        attention_lines.extend(
+            [
+                f"context shuffle loss: {auxiliary.get('loss', float('nan')):.3f}",
+                f"context shuffle accuracy: {auxiliary.get('accuracy', float('nan')):.3f}",
+                f"context separation: {auxiliary.get('separation_score', float('nan')):.3f}",
             ]
         )
     ax_history.text(
@@ -1201,7 +1222,11 @@ def plot_mode_comparison_frontend(mode_table: pd.DataFrame, *, edge: str) -> Fig
     """Render a matched mode-comparison ladder for one edge."""
     configure_research_style()
     table = mode_table.copy()
-    order = [mode for mode in ["rna_only", "pooled", "deep_sets", "set_only", "graph_of_sets"] if mode in table["mode"].tolist()]
+    order = [
+        mode
+        for mode in ["rna_only", "pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "graph_of_sets"]
+        if mode in table["mode"].tolist()
+    ]
     table["mode"] = pd.Categorical(table["mode"], categories=order, ordered=True)
     table = table.sort_values("mode").reset_index(drop=True)
 

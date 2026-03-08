@@ -9,9 +9,11 @@ from torch import Tensor, nn
 from stagebridge.context_model.set_encoder import ISAB, PMA, SAB, SinusoidalTimeEmbedding
 from stagebridge.transition_model.diffusion_network import StateDependentDiffusionNetwork
 from stagebridge.transition_model.drift_network import (
+    BiologicalBaselineDrift,
     CrossAttentionDrift,
     EdgeConditionedDriftMLP,
     FiLMConditioner,
+    UDEGate,
 )
 from stagebridge.utils.types import StageBridgeConfig
 
@@ -507,8 +509,16 @@ class EdgeWiseStochasticDynamics(nn.Module):
         dropout: float = 0.1,
         min_diffusion_scale: float = 1e-3,
         state_dependent_diffusion: bool = True,
+        use_cross_attention_drift: bool = False,
+        use_ude: bool = False,
+        ude_gate_init: float = 0.0,
     ) -> None:
         super().__init__()
+        self.use_ude = bool(use_ude)
+        # UDE mode forces cross-attention drift on (the correction path).
+        self.use_cross_attention_drift = bool(use_cross_attention_drift) or self.use_ude
+        self.time_embedding = SinusoidalTimeEmbedding(time_dim)
+        self.stage_embedding = nn.Embedding(num_edges, edge_dim)
         self.drift = EdgeConditionedDriftMLP(
             input_dim=input_dim,
             context_dim=context_dim,
@@ -517,6 +527,33 @@ class EdgeWiseStochasticDynamics(nn.Module):
             edge_dim=edge_dim,
             num_edges=num_edges,
             dropout=dropout,
+        )
+        self.cross_attention_drift = (
+            CrossAttentionDrift(
+                input_dim=input_dim,
+                context_dim=context_dim,
+                time_dim=time_dim,
+                stage_dim=edge_dim,
+                num_heads=max(1, min(4, hidden_dim // 32)),
+                dropout=dropout,
+            )
+            if self.use_cross_attention_drift
+            else None
+        )
+        # UDE components: baseline drift (no context) + learnable gate.
+        self.baseline_drift = (
+            BiologicalBaselineDrift(
+                input_dim=input_dim,
+                num_edges=num_edges,
+                time_dim=time_dim,
+            )
+            if self.use_ude
+            else None
+        )
+        self.ude_gate = (
+            UDEGate(num_edges=num_edges, init_logit=float(ude_gate_init))
+            if self.use_ude
+            else None
         )
         self.diffusion = StateDependentDiffusionNetwork(
             input_dim=input_dim,
@@ -530,8 +567,59 @@ class EdgeWiseStochasticDynamics(nn.Module):
             state_dependent=state_dependent_diffusion,
         )
 
-    def forward_drift(self, x_t: Tensor, t: Tensor, context: Tensor, edge_ids: Tensor) -> Tensor:
+    def forward_drift(
+        self,
+        x_t: Tensor,
+        t: Tensor,
+        context: Tensor,
+        edge_ids: Tensor,
+        context_tokens: Tensor | None = None,
+    ) -> Tensor:
+        # UDE path: v_total = v_baseline(x_t, t, edge) + gate(edge) * v_correction(x_t, t, ctx, stage)
+        if self.use_ude and self.baseline_drift is not None and self.ude_gate is not None:
+            v_baseline = self.baseline_drift(x_t, t, edge_ids)
+            gate = self.ude_gate(edge_ids)  # (B, 1)
+            # Compute cross-attention correction (requires context tokens from transformer).
+            ctx_tok = self._prepare_context_tokens(context, context_tokens, x_t.shape[0])
+            time_emb = self.time_embedding(t)
+            stage_emb = self.stage_embedding(edge_ids.long())
+            v_correction = self.cross_attention_drift(
+                x_t=x_t,
+                time_emb=time_emb,
+                context_tokens=ctx_tok,
+                stage_emb=stage_emb,
+            )
+            return v_baseline + gate * v_correction
+
+        if self.use_cross_attention_drift and self.cross_attention_drift is not None:
+            ctx_tok = self._prepare_context_tokens(context, context_tokens, x_t.shape[0])
+            time_emb = self.time_embedding(t)
+            stage_emb = self.stage_embedding(edge_ids.long())
+            return self.cross_attention_drift(
+                x_t=x_t,
+                time_emb=time_emb,
+                context_tokens=ctx_tok,
+                stage_emb=stage_emb,
+            )
         return self.drift(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
+
+    @staticmethod
+    def _prepare_context_tokens(
+        context: Tensor, context_tokens: Tensor | None, batch_size: int,
+    ) -> Tensor:
+        """Reshape context into 3-D token tensor for cross-attention drift."""
+        if context_tokens is None:
+            if context.ndim == 1:
+                context_tokens = context.unsqueeze(0).unsqueeze(1)
+            elif context.ndim == 2:
+                context_tokens = context.unsqueeze(1)
+            else:
+                context_tokens = context
+        if context_tokens.ndim == 2:
+            context_tokens = context_tokens.unsqueeze(0)
+        if context_tokens.shape[0] == 1 and batch_size > 1:
+            context_tokens = context_tokens.expand(batch_size, -1, -1)
+        return context_tokens
 
     def forward_diffusion(self, x_t: Tensor, t: Tensor, context: Tensor, edge_ids: Tensor) -> Tensor:
         return self.diffusion(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
@@ -544,10 +632,11 @@ class EdgeWiseStochasticDynamics(nn.Module):
         dt: float,
         context: Tensor,
         edge_ids: Tensor,
+        context_tokens: Tensor | None = None,
         noise: Tensor | None = None,
         stochastic: bool = True,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        drift = self.forward_drift(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
+        drift = self.forward_drift(x_t=x_t, t=t, context=context, edge_ids=edge_ids, context_tokens=context_tokens)
         diffusion = self.forward_diffusion(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
         x_next = x_t + float(dt) * drift
         if stochastic:
@@ -561,6 +650,7 @@ class EdgeWiseStochasticDynamics(nn.Module):
         *,
         context: Tensor,
         edge_ids: Tensor,
+        context_tokens: Tensor | None = None,
         num_steps: int = 8,
         stochastic: bool = True,
     ) -> tuple[Tensor, dict[str, float]]:
@@ -576,6 +666,7 @@ class EdgeWiseStochasticDynamics(nn.Module):
                 dt=dt,
                 context=context,
                 edge_ids=edge_ids,
+                context_tokens=context_tokens,
                 stochastic=stochastic,
             )
             drift_norms.append(float(drift.norm(dim=1).mean().item()))

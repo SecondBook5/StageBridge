@@ -17,4 +17,5 @@ best_set_only: &id001
   - MIA->LUAD
   summary: Mission 2 smoke promotion
   timestamp: '2026-03-08T01:05:53.423162+00:00'
+best_typed_hierarchical_transformer: null
 latest_promoted: *id001

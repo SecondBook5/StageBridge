@@ -39,6 +39,8 @@ def compare_real_vs_shuffled_context(
     *,
     real_context: torch.Tensor,
     shuffled_context: torch.Tensor,
+    real_context_tokens: torch.Tensor | None = None,
+    shuffled_context_tokens: torch.Tensor | None = None,
     edge_id: int,
     num_steps: int = 8,
     stochastic: bool = False,
@@ -51,6 +53,7 @@ def compare_real_vs_shuffled_context(
         pred_real, _ = model.rollout(
             x_src,
             context=real_context,
+            context_tokens=real_context_tokens,
             edge_ids=edge_ids,
             num_steps=int(num_steps),
             stochastic=bool(stochastic),
@@ -58,6 +61,7 @@ def compare_real_vs_shuffled_context(
         pred_shuffled, _ = model.rollout(
             x_src,
             context=shuffled_context,
+            context_tokens=shuffled_context_tokens,
             edge_ids=edge_ids,
             num_steps=int(num_steps),
             stochastic=bool(stochastic),
