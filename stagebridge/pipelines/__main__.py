@@ -1,4 +1,7 @@
-"""Allow ``python -m stagebridge.pipelines.run_smoke``."""
-from stagebridge.pipelines.run_smoke import main
+"""Allow ``python -m stagebridge.pipelines`` to run the package CLI."""
 
-main()
+from stagebridge.cli import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

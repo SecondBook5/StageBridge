@@ -1,0 +1,6 @@
+transition_model:
+  disease_edges:
+    - [Normal, AAH]
+    - [AAH, AIS]
+    - [AIS, MIA]
+    - [MIA, LUAD]

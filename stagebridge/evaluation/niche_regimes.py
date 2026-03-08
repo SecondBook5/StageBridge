@@ -1,0 +1,2 @@
+"""Niche-regime summary placeholders."""
+

@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-03-08T01:05:53.423162+00:00",
+  "git_commit": "9bfe9302106829b7acf3a7961215db976f6a4c25",
+  "git_short_hash": "9bfe930",
+  "git_branch": "main",
+  "experiment_name": "stagebridge_v1",
+  "mode": "smoke_infrastructure",
+  "stage_edges": [
+    "Normal->AAH",
+    "AAH->AIS",
+    "AIS->MIA",
+    "MIA->LUAD"
+  ],
+  "seed": 42,
+  "split_name": "donor_holdout",
+  "wes_regularizer_enabled": true,
+  "spatial_mapping_method": "tangram",
+  "context_model_mode": "set_only",
+  "notebook_source": "StageBridge.ipynb",
+  "status": "complete"
+}

@@ -1,4 +1,4 @@
-"""Unified package CLI for StageBridge workflows."""
+"""Unified package CLI for the rebuilt StageBridge pipeline surface."""
 from __future__ import annotations
 
 import argparse
@@ -9,11 +9,11 @@ from stagebridge.notebook_api import available_steps, compose_config, run_pipeli
 
 
 def _default_entrypoint_for_step(step: str) -> str:
-    if step in {"train", "train_stagebridge"}:
-        return "train"
-    if step in {"evaluate", "eval_stagebridge"}:
-        return "eval"
-    return "config"
+    if step in {"transition_model", "train"}:
+        return "default"
+    if step in {"evaluation", "evaluate"}:
+        return "default"
+    return "default"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -26,8 +26,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_step.add_argument("-o", "--override", action="append", default=[])
 
     p_pipe = sub.add_parser("pipeline", help="Run multiple workflow steps")
-    p_pipe.add_argument("--steps", default="build_snrna,build_spatial,map_hlca,run_tangram,train")
-    p_pipe.add_argument("-c", "--config", dest="entrypoint", default="config")
+    p_pipe.add_argument(
+        "--steps",
+        default="reference,spatial_mapping,context_model,transition_model,evaluation",
+    )
+    p_pipe.add_argument("-c", "--config", dest="entrypoint", default="default")
     p_pipe.add_argument("-o", "--override", action="append", default=[])
 
     p_train = sub.add_parser("train", help="Run training workflow")
@@ -60,13 +63,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "train":
-        cfg = compose_config(entrypoint="train", overrides=args.override)
-        _print(run_step("train", cfg))
+        cfg = compose_config(entrypoint="default", overrides=args.override)
+        _print(run_step("transition_model", cfg))
         return 0
 
     if args.command == "evaluate":
-        cfg = compose_config(entrypoint="eval", overrides=args.override)
-        _print(run_step("evaluate", cfg))
+        cfg = compose_config(entrypoint="default", overrides=args.override)
+        _print(run_step("evaluation", cfg))
         return 0
 
     parser.error(f"Unknown command: {args.command}")

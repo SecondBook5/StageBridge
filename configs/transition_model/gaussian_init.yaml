@@ -1,0 +1,3 @@
+transition_model:
+  gaussian_init:
+    sigma: 0.1

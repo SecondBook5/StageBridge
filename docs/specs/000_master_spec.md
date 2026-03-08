@@ -1,49 +1,74 @@
-# StageBridge TopoFlow — Master Specification
+# 000 Master Spec
 
-## Biological Hypothesis
+StageBridge v1 asks:
 
-Lung adenocarcinoma evolves through a stereotyped morphological progression:
-**Normal alveolar epithelium → AAH → AIS → MIA → invasive LUAD**, with a
-subset metastasising to brain and chest wall. Each transition involves
-coordinated changes in gene expression, spatial tissue architecture, and
-genomic alterations (somatic mutations, copy-number changes).
+**Which within-lung LUAD initiation stage transitions are niche-gated, and how is that gating modulated by evolutionary state?**
 
-## Architecture Summary
+Active v1 ladder:
 
-StageBridge TopoFlow models this progression as **optimal transport flows in
-HLCA latent space**, conditioned on tissue microenvironment context encoded by
-a **Graph-of-Sets Transformer (GoST)**:
+- Normal
+- AAH
+- AIS
+- MIA
+- LUAD
 
-1. **HLCA Latent Alignment** — All single-cell and spatial data are projected
-   into the Human Lung Cell Atlas latent space, eliminating batch effects and
-   enabling cross-dataset comparison.
+Active v1 layers:
 
-2. **Set Transformer (Intra-Set)** — Each (patient, stage) cell population is
-   a *set*. ISAB + SAB + PMA compress it into K summary tokens capturing
-   cell-type composition and transcriptional state.
+1. data ingestion
+2. reference latent mapping
+3. spatial mapping
+4. typed niche context modeling
+5. edge-wise stochastic transition modeling
+6. tissue-level interpretation and evaluation
+7. results tracking
 
-3. **Graph Transformer (Inter-Set)** — Summary tokens from neighboring
-   (patient, stage) nodes exchange information via sparse graph attention,
-   producing context-enriched representations.
+## Method Definition
 
-4. **Conditional Flow Matching** — A vector field network, conditioned on GoST
-   context + stage embedding + optional genomic features, learns to transport
-   cells from stage s to stage s+1 via entropic OT coupling.
+StageBridge is a reference-anchored, spatially grounded, edge-wise stochastic transition framework that models within-lung LUAD initiation as a series of niche-gated drift-diffusion processes across histologically defined disease stages, conditioned on typed tissue microenvironment context and regularized by whole-exome evolutionary state.
 
-5. **Schrodinger Bridge Extension** — For stochastic transitions with
-   biological noise (e.g., metastasis), a Brownian bridge interpolant replaces
-   the deterministic OT-CFM path.
+## Active Modalities
 
-## Two Cohorts
+| Modality | GEO Accession | Role |
+|----------|---------------|------|
+| snRNA-seq | GSE308103 | Cell-level transcriptomes, primary input |
+| 10x Visium | GSE307534 | Spatial tissue architecture, niche definition |
+| WES | GSE307529 | Evolutionary state, transition regularization |
 
-| Cohort | Stages | Modalities |
-|--------|--------|------------|
-| Peng (GSE308103/307534/307529) | Normal→AAH→AIS→MIA→LUAD | snRNA-seq, 10x Visium, WES |
-| Rossi (GSE223499/501/502/500) | LUAD→BrainMet/ChestWallMet | snRNA-seq, Slide-seq V2, lpWGS, TCR-seq |
+## Active Exclusions
 
-## Package Structure
+- No continuous Normal-to-BrainMets progression claim in v1
+- No TCR conditioning
+- No brain metastasis as part of the first complete system
+- No claim of zero batch effects
+- No assumption that graph-of-sets outperforms set-only
+- No unrestricted learned genomics conditioning
 
-- `stagebridge/` — Core models, training, IO (battle-tested, 96 tests)
-- `src/stagebridge_topoflow/` — Pipeline orchestration, configs, artifacts
-- `configs/topoflow/` — Plain YAML configuration
-- `tests/` — All tests (original + topoflow)
+## Disease Edges
+
+| Edge | From | To |
+|------|------|----|
+| 0 | Normal | AAH |
+| 1 | AAH | AIS |
+| 2 | AIS | MIA |
+| 3 | MIA | LUAD |
+
+## Three Execution Modes
+
+| Mode | Spatial | Graph | WES | Purpose |
+|------|---------|-------|-----|---------|
+| RNA-only | No | No | No | Minimal baseline |
+| Set-only | Yes | No | No | First serious spatial baseline |
+| Graph-of-Sets + WES | Yes | Yes | Yes | Full model, must earn place via ablation |
+
+## Evaluation Philosophy
+
+Evaluation is not post-hoc. The evaluation layer assesses whether transitions are calibrated, whether spatial context changes behavior, whether graph attention adds value, whether WES regularization constrains transport, and what the model reveals about tissue dynamics.
+
+## Result-Tracking Philosophy
+
+Every run saves resolved configuration, metrics, and a result card tied to a git commit. Milestones receive git tags. Git history is the archive.
+
+## First Biological Focus
+
+1. **AAH to AIS** — Spatial tissue reorganization expected to be most informative
+2. **AIS to MIA** — Niche composition and invasive potential most directly testable

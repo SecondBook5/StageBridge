@@ -1,0 +1,14 @@
+context_model:
+  mode: graph_of_sets
+  graph_enabled: true
+  token_types:
+    - epithelial
+    - stromal
+    - immune
+    - vascular
+  hidden_dim: 128
+  num_heads: 8
+  num_inducing_points: 16
+  num_seed_vectors: 1
+  graph_num_layers: 2
+  graph_num_heads: 4

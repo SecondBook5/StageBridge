@@ -7,14 +7,14 @@ from .embeddings import (
     plot_umap_with_trajectories,
 )
 from .flows import compute_macroflow_matrix, plot_macroflow_sankey
-from .poster import (
+from .summary_panels import (
     make_full_poster,
     make_panel_a_model_diagram,
     make_panel_b_benchmark,
     make_panel_c_context_sensitivity,
     make_panel_d_gene_context_heatmap,
 )
-from .spatial_plots import (
+from .spatial import (
     plot_method_schematic,
     plot_metric_heatmap,
     plot_spatial_context_score,
