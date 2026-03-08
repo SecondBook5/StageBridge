@@ -78,6 +78,31 @@ def test_set_only_transition_smoke_runs_on_real_data() -> None:
     assert transition["context_diagnostics"]["context_norm"] > 0.0
 
 
+def test_set_only_transition_jointly_trains_context_encoder_and_emits_attention() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model.mode=set_only",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=32",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+
+    assert transition["ok"] is True
+    assert transition["trained_context_encoder"] is not None
+    assert transition["encoder_parameter_delta"] > 0.0
+    assert transition["attention_summary"] is not None
+    assert transition["attention_summary"]["available_maps"]
+    assert transition["attention_summary"]["top_token_attention"]
+
+
 def test_pooled_transition_smoke_runs_on_real_data() -> None:
     cfg = compose_config(
         "default",

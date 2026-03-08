@@ -78,6 +78,31 @@ def test_provider_sensitivity_is_inconclusive_with_one_runnable_provider() -> No
     assert result.recommended_action == "needs_more_data"
 
 
+def test_provider_sensitivity_can_consume_benchmark_output() -> None:
+    result = evaluate_provider_sensitivity(
+        run_label="gate_pass_provider_benchmark",
+        edge="AAH->AIS",
+        config_signature="medium",
+        provider_results={
+            "benchmark": {
+                "selected_provider": "tacco",
+                "selection_status": "weak_pass",
+                "selection_reason": "tacco ranked first but the margin was modest.",
+                "recommended_action": "keep_as_optional",
+                "provider_scores": [
+                    {"method": "tacco", "hybrid_rank_score": 1.2},
+                    {"method": "destvi", "hybrid_rank_score": 1.4},
+                    {"method": "tangram", "hybrid_rank_score": 2.8},
+                ],
+            }
+        },
+    )
+
+    assert result.status == "weak_pass"
+    assert result.recommended_action == "keep_as_optional"
+    assert result.secondary_metrics["provider_scores"][0]["method"] == "tacco"
+
+
 def test_reporting_helpers_emit_machine_readable_context_and_edge_summaries() -> None:
     gate = GateEvaluationResult(
         gate_name="context_ablation",

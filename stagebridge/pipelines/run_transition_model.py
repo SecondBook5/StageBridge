@@ -18,7 +18,11 @@ from stagebridge.pipelines.run_reference import run_reference
 from stagebridge.pipelines.run_spatial_mapping import run_spatial_mapping
 from stagebridge.transition_model.disease_edges import edge_id_map, edge_label, resolve_disease_edge
 from stagebridge.transition_model.stochastic_dynamics import EdgeWiseStochasticDynamics
-from stagebridge.transition_model.train import build_stagewise_edge_split, train_edgewise_transition_model
+from stagebridge.transition_model.train import (
+    build_stagewise_edge_split,
+    train_edgewise_transition_model,
+    train_edgewise_transition_model_with_context_encoder,
+)
 from stagebridge.transition_model.wes_regularizer import lookup_wes_vectors, pairwise_wes_penalty
 
 
@@ -84,6 +88,12 @@ def _build_context_bundle(
         return {
             "context": zero,
             "shuffled_context": zero.clone(),
+            "context_encoder": None,
+            "context_tokens": None,
+            "shuffled_context_tokens": None,
+            "context_graph": None,
+            "token_type_ids": None,
+            "shuffled_token_type_ids": None,
             "diagnostics": {"mode": "rna_only", "context_norm": 0.0},
             "typed_subset_tokens": None,
             "typed_feature_names": None,
@@ -101,6 +111,11 @@ def _build_context_bundle(
     shuffled_tokens = node_tokens.copy()
     rng = np.random.default_rng(int(cfg.get("seed", 42)))
     rng.shuffle(shuffled_tokens, axis=0)
+    token_type_ids = np.argmax(node_tokens[:, : len(typed.schema.typed_feature_names)], axis=1).astype(np.int64)
+    shuffled_token_type_ids = np.argmax(
+        shuffled_tokens[:, : len(typed.schema.typed_feature_names)],
+        axis=1,
+    ).astype(np.int64)
 
     if mode in {"pooled", "deep_sets", "set_only"}:
         if mode == "pooled":
@@ -121,20 +136,25 @@ def _build_context_bundle(
                 num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
                 num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
                 dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                num_token_types=len(typed.schema.typed_feature_names),
             )
-        with torch.no_grad():
-            context = encoder(torch.tensor(node_tokens, dtype=torch.float32)).pooled_context
-            shuffled = encoder(torch.tensor(shuffled_tokens, dtype=torch.float32)).pooled_context
         diagnostics.update(
             {
                 "mode": mode,
-                "context_norm": float(context.norm().item()),
                 "spatial_mapping_method": spatial_method,
+                "trainable_context_encoder": True,
+                "context_training_mode": "joint_transition_optimization",
             }
         )
         return {
-            "context": context,
-            "shuffled_context": shuffled,
+            "context": None,
+            "shuffled_context": None,
+            "context_encoder": encoder,
+            "context_tokens": torch.tensor(node_tokens, dtype=torch.float32),
+            "shuffled_context_tokens": torch.tensor(shuffled_tokens, dtype=torch.float32),
+            "context_graph": None,
+            "token_type_ids": torch.tensor(token_type_ids, dtype=torch.long),
+            "shuffled_token_type_ids": torch.tensor(shuffled_token_type_ids, dtype=torch.long),
             "diagnostics": diagnostics,
             "typed_subset_tokens": node_tokens,
             "typed_feature_names": typed.schema.typed_feature_names,
@@ -159,25 +179,72 @@ def _build_context_bundle(
         num_heads=int(cfg.get("context_model", {}).get("graph_num_heads", 4)),
         dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
     )
-    with torch.no_grad():
-        context_summary = encoder(torch.tensor(node_tokens, dtype=torch.float32), graph)
-        shuffled_summary = encoder(torch.tensor(shuffled_tokens, dtype=torch.float32), graph)
     diagnostics.update(
         {
             "mode": mode,
-            "context_norm": float(context_summary.pooled_context.norm().item()),
-            "graph_num_nodes": int(context_summary.num_nodes),
-            "graph_num_edges": int(context_summary.num_edges),
             "spatial_mapping_method": spatial_method,
+            "graph_num_nodes": int(graph.num_nodes),
+            "graph_num_edges": int(graph.edge_index.shape[1]),
+            "trainable_context_encoder": True,
+            "context_training_mode": "joint_transition_optimization",
         }
     )
     return {
-        "context": context_summary.pooled_context,
-        "shuffled_context": shuffled_summary.pooled_context,
+        "context": None,
+        "shuffled_context": None,
+        "context_encoder": encoder,
+        "context_tokens": torch.tensor(node_tokens, dtype=torch.float32),
+        "shuffled_context_tokens": torch.tensor(shuffled_tokens, dtype=torch.float32),
+        "context_graph": graph,
+        "token_type_ids": torch.tensor(token_type_ids, dtype=torch.long),
+        "shuffled_token_type_ids": torch.tensor(shuffled_token_type_ids, dtype=torch.long),
         "diagnostics": diagnostics,
         "typed_subset_tokens": node_tokens,
         "typed_feature_names": typed.schema.typed_feature_names,
     }
+
+
+def _summarize_attention_maps(
+    attention_maps: dict[str, torch.Tensor] | None,
+    *,
+    token_type_ids: torch.Tensor | None,
+    typed_feature_names: list[str] | tuple[str, ...] | None,
+) -> dict[str, Any] | None:
+    if not attention_maps:
+        return None
+    summary: dict[str, Any] = {"available_maps": sorted(attention_maps.keys())}
+    if token_type_ids is not None and typed_feature_names is not None:
+        token_type_names = list(typed_feature_names)
+        counts: dict[str, int] = {}
+        for token_type in token_type_ids.detach().cpu().tolist():
+            name = token_type_names[int(token_type)] if 0 <= int(token_type) < len(token_type_names) else str(token_type)
+            counts[name] = counts.get(name, 0) + 1
+        summary["token_type_distribution"] = counts
+    pma_attention = attention_maps.get("pma_seed_attention")
+    if pma_attention is not None:
+        weights = pma_attention.detach().float().cpu()
+        while weights.ndim > 1 and weights.shape[0] == 1:
+            weights = weights[0]
+        token_scores = weights.mean(dim=0).mean(dim=0) if weights.ndim == 3 else weights.reshape(-1)
+        top_k = min(5, int(token_scores.shape[-1]))
+        top_values, top_indices = torch.topk(token_scores, k=top_k)
+        summary["top_token_indices"] = [int(idx) for idx in top_indices.tolist()]
+        summary["top_token_attention"] = [float(value) for value in top_values.tolist()]
+        if token_type_ids is not None and typed_feature_names is not None:
+            token_names = []
+            ids_cpu = token_type_ids.detach().cpu()
+            feature_names = list(typed_feature_names)
+            for idx in top_indices.tolist():
+                token_type = int(ids_cpu[int(idx)].item())
+                token_names.append(
+                    feature_names[token_type] if 0 <= token_type < len(feature_names) else str(token_type)
+                )
+            summary["top_token_types"] = token_names
+        normalized = token_scores / token_scores.sum().clamp_min(1e-8)
+        summary["pma_attention_entropy"] = float(
+            (-(normalized * normalized.clamp_min(1e-8).log()).sum()).item()
+        )
+    return summary
 
 
 def _tensor_subset(latent: np.ndarray, obs: Any, donors: list[str], *, device: str) -> tuple[torch.Tensor, Any]:
@@ -358,9 +425,10 @@ def run_transition_model(
 
     sigma = float(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("sigma", 0.1))
     diffusion_weight = 0.2 if sigma > 0.0 else 0.0
+    context_dim = int(cfg.get("context_model", {}).get("hidden_dim", 128))
     model = EdgeWiseStochasticDynamics(
         input_dim=int(x_src_train.shape[1]),
-        context_dim=int(context_bundle["context"].shape[0]),
+        context_dim=context_dim,
         hidden_dim=int(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("hidden_dim", 128)),
         time_dim=int(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("time_embedding_dim", 32)),
         edge_dim=16,
@@ -372,25 +440,91 @@ def run_transition_model(
         ),
     ).to(device)
 
-    history = train_edgewise_transition_model(
-        model=model,
-        x_src_train=x_src_train,
-        x_tgt_train=x_tgt_train,
-        context=context_bundle["context"].to(device),
-        edge_id=edge_id,
-        learning_rate=float(cfg.get("train", {}).get("learning_rate", 1e-3)),
-        weight_decay=float(cfg.get("train", {}).get("weight_decay", 1e-4)),
-        max_epochs=int(cfg.get("train", {}).get("max_epochs", 2)),
-        steps_per_epoch=int(cfg.get("train", {}).get("steps_per_epoch", 2)),
-        batch_cells=int(cfg.get("train", {}).get("batch_cells", 32)),
-        sigma=sigma,
-        diffusion_weight=diffusion_weight,
-        epsilon=float(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("ot_epsilon", 0.05)),
-        sinkhorn_iters=int(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("sinkhorn_iters", 80)),
-        num_ot_pairs=int(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("num_ot_pairs", 128)),
-        seed=int(cfg.get("seed", 42)),
-        extra_cost=extra_cost,
-    )
+    learning_rate = float(cfg.get("train", {}).get("learning_rate", 1e-3))
+    weight_decay = float(cfg.get("train", {}).get("weight_decay", 1e-4))
+    max_epochs = int(cfg.get("train", {}).get("max_epochs", 2))
+    steps_per_epoch = int(cfg.get("train", {}).get("steps_per_epoch", 2))
+    batch_cells = int(cfg.get("train", {}).get("batch_cells", 32))
+    epsilon = float(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("ot_epsilon", 0.05))
+    sinkhorn_iters = int(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("sinkhorn_iters", 80))
+    num_ot_pairs = int(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("num_ot_pairs", 128))
+    seed = int(cfg.get("seed", 42))
+
+    attention_summary = None
+    encoder_parameter_delta = 0.0
+    trained_context_encoder = context_bundle.get("context_encoder")
+    if trained_context_encoder is None:
+        history = train_edgewise_transition_model(
+            model=model,
+            x_src_train=x_src_train,
+            x_tgt_train=x_tgt_train,
+            context=context_bundle["context"].to(device),
+            edge_id=edge_id,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            max_epochs=max_epochs,
+            steps_per_epoch=steps_per_epoch,
+            batch_cells=batch_cells,
+            sigma=sigma,
+            diffusion_weight=diffusion_weight,
+            epsilon=epsilon,
+            sinkhorn_iters=sinkhorn_iters,
+            num_ot_pairs=num_ot_pairs,
+            seed=seed,
+            extra_cost=extra_cost,
+        )
+        trained_context = context_bundle["context"].to(device)
+        shuffled_context = context_bundle["shuffled_context"].to(device)
+    else:
+        context_graph = context_bundle.get("context_graph")
+        if context_graph is not None and hasattr(context_graph, "to"):
+            context_graph = context_graph.to(device)
+        trained_context_encoder = trained_context_encoder.to(device)
+        joint = train_edgewise_transition_model_with_context_encoder(
+            model=model,
+            context_encoder=trained_context_encoder,
+            context_tokens=context_bundle["context_tokens"].to(device),
+            shuffled_context_tokens=context_bundle["shuffled_context_tokens"].to(device),
+            x_src_train=x_src_train,
+            x_tgt_train=x_tgt_train,
+            edge_id=edge_id,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            max_epochs=max_epochs,
+            steps_per_epoch=steps_per_epoch,
+            batch_cells=batch_cells,
+            sigma=sigma,
+            diffusion_weight=diffusion_weight,
+            epsilon=epsilon,
+            sinkhorn_iters=sinkhorn_iters,
+            num_ot_pairs=num_ot_pairs,
+            seed=seed,
+            extra_cost=extra_cost,
+            context_graph=context_graph,
+            token_type_ids=None if context_bundle["token_type_ids"] is None else context_bundle["token_type_ids"].to(device),
+            shuffled_token_type_ids=None
+            if context_bundle["shuffled_token_type_ids"] is None
+            else context_bundle["shuffled_token_type_ids"].to(device),
+            capture_attention=bool(mode == "set_only"),
+        )
+        history = joint["history"]
+        trained_summary = joint["context_summary"]
+        shuffled_summary = joint["shuffled_context_summary"]
+        trained_context = trained_summary.pooled_context.to(device)
+        shuffled_context = shuffled_summary.pooled_context.to(device)
+        encoder_parameter_delta = float(joint["encoder_parameter_delta"])
+        context_bundle["diagnostics"]["context_norm"] = float(trained_context.norm().item())
+        context_bundle["diagnostics"]["encoder_parameter_delta"] = encoder_parameter_delta
+        if mode == "graph_of_sets":
+            context_bundle["diagnostics"]["graph_num_nodes"] = int(getattr(trained_summary, "num_nodes", 0))
+            context_bundle["diagnostics"]["graph_num_edges"] = int(getattr(trained_summary, "num_edges", 0))
+        attention_summary = _summarize_attention_maps(
+            getattr(trained_summary, "attention_maps", None),
+            token_type_ids=getattr(trained_summary, "token_type_ids", None),
+            typed_feature_names=context_bundle["typed_feature_names"],
+        )
+        if attention_summary is not None:
+            context_bundle["diagnostics"]["attention_summary"] = attention_summary
 
     return {
         "ok": True,
@@ -409,8 +543,11 @@ def run_transition_model(
         "training_history": history,
         "evaluation_notes": evaluation_notes,
         "model": model,
-        "context": context_bundle["context"].to(device),
-        "shuffled_context": context_bundle["shuffled_context"].to(device),
+        "context": trained_context,
+        "shuffled_context": shuffled_context,
+        "trained_context_encoder": trained_context_encoder,
+        "attention_summary": attention_summary,
+        "encoder_parameter_delta": encoder_parameter_delta,
         "edge_id": edge_id,
         "x_src_test": x_src_test,
         "x_tgt_test": x_tgt_test,

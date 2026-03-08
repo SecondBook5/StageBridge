@@ -858,6 +858,41 @@ def _sample_rows(x: Tensor, n: int, *, seed: int, step: int) -> tuple[Tensor, Te
     return x[idx], idx
 
 
+def _clone_trainable_parameters(module: nn.Module) -> list[Tensor]:
+    return [param.detach().cpu().clone() for param in module.parameters() if param.requires_grad]
+
+
+def _mean_parameter_delta(before: list[Tensor], module: nn.Module) -> float:
+    after = [param.detach().cpu() for param in module.parameters() if param.requires_grad]
+    if not before or not after:
+        return 0.0
+    deltas = [(after_param - before_param).abs().mean() for before_param, after_param in zip(before, after, strict=False)]
+    if not deltas:
+        return 0.0
+    return float(torch.stack(deltas).mean().item())
+
+
+def _forward_context_encoder(
+    context_encoder: nn.Module,
+    context_tokens: Tensor,
+    *,
+    context_graph: Any | None = None,
+    token_type_ids: Tensor | None = None,
+    return_attention: bool = False,
+) -> Any:
+    if context_graph is not None:
+        return context_encoder(context_tokens, context_graph)
+    kwargs: dict[str, Any] = {}
+    if token_type_ids is not None:
+        kwargs["token_type_ids"] = token_type_ids
+    if return_attention:
+        kwargs["return_attention"] = True
+    try:
+        return context_encoder(context_tokens, **kwargs)
+    except TypeError:
+        return context_encoder(context_tokens)
+
+
 def train_edgewise_transition_model(
     *,
     model: nn.Module,
@@ -942,3 +977,130 @@ def train_edgewise_transition_model(
             }
         )
     return history
+
+
+def train_edgewise_transition_model_with_context_encoder(
+    *,
+    model: nn.Module,
+    context_encoder: nn.Module,
+    context_tokens: Tensor,
+    shuffled_context_tokens: Tensor,
+    x_src_train: Tensor,
+    x_tgt_train: Tensor,
+    edge_id: int,
+    learning_rate: float,
+    weight_decay: float,
+    max_epochs: int,
+    steps_per_epoch: int,
+    batch_cells: int,
+    sigma: float,
+    diffusion_weight: float,
+    epsilon: float,
+    sinkhorn_iters: int,
+    num_ot_pairs: int,
+    seed: int,
+    extra_cost: Tensor | None = None,
+    context_graph: Any | None = None,
+    token_type_ids: Tensor | None = None,
+    shuffled_token_type_ids: Tensor | None = None,
+    capture_attention: bool = False,
+) -> dict[str, Any]:
+    """Train the context encoder jointly with the edge-wise transition model."""
+    from stagebridge.transition_model.schrodinger_bridge import edgewise_schrodinger_bridge_loss
+
+    parameters = list(model.parameters()) + list(context_encoder.parameters())
+    optimizer = torch.optim.Adam(
+        parameters,
+        lr=float(learning_rate),
+        weight_decay=float(weight_decay),
+    )
+    history: list[dict[str, float]] = []
+    edge_ids_full = torch.full((x_src_train.shape[0],), int(edge_id), dtype=torch.long, device=x_src_train.device)
+    before = _clone_trainable_parameters(context_encoder)
+
+    for epoch in range(int(max_epochs)):
+        losses: list[float] = []
+        drift_losses: list[float] = []
+        diffusion_losses: list[float] = []
+        context_norms: list[float] = []
+        for step in range(int(steps_per_epoch)):
+            batch_src, src_idx = _sample_rows(
+                x_src_train,
+                int(batch_cells),
+                seed=seed,
+                step=epoch * steps_per_epoch + step,
+            )
+            batch_tgt, tgt_idx = _sample_rows(
+                x_tgt_train,
+                int(batch_cells),
+                seed=seed + 10_000,
+                step=epoch * steps_per_epoch + step,
+            )
+
+            batch_extra: Tensor | None = None
+            if extra_cost is not None:
+                batch_extra = extra_cost.index_select(0, src_idx).index_select(1, tgt_idx)
+
+            context_summary = _forward_context_encoder(
+                context_encoder,
+                context_tokens,
+                context_graph=context_graph,
+                token_type_ids=token_type_ids,
+                return_attention=False,
+            )
+            context = context_summary.pooled_context
+            loss, diagnostics, _ = edgewise_schrodinger_bridge_loss(
+                model,
+                x_src=batch_src,
+                x_tgt=batch_tgt,
+                context=context,
+                edge_ids=edge_ids_full[: batch_src.shape[0]],
+                epsilon=float(epsilon),
+                sinkhorn_iters=int(sinkhorn_iters),
+                num_ot_pairs=int(num_ot_pairs),
+                sigma=float(sigma),
+                diffusion_weight=float(diffusion_weight),
+                extra_cost=batch_extra,
+            )
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(parameters, 1.0)
+            optimizer.step()
+
+            losses.append(float(loss.detach().item()))
+            drift_losses.append(float(diagnostics["loss_drift"]))
+            diffusion_losses.append(float(diagnostics["loss_diffusion"]))
+            context_norms.append(float(context.detach().norm().item()))
+
+        history.append(
+            {
+                "epoch": float(epoch + 1),
+                "loss_total": float(np.mean(losses)),
+                "loss_drift": float(np.mean(drift_losses)),
+                "loss_diffusion": float(np.mean(diffusion_losses)),
+                "context_norm": float(np.mean(context_norms)),
+            }
+        )
+
+    with torch.no_grad():
+        final_context_summary = _forward_context_encoder(
+            context_encoder,
+            context_tokens,
+            context_graph=context_graph,
+            token_type_ids=token_type_ids,
+            return_attention=bool(capture_attention),
+        )
+        final_shuffled_summary = _forward_context_encoder(
+            context_encoder,
+            shuffled_context_tokens,
+            context_graph=context_graph,
+            token_type_ids=shuffled_token_type_ids,
+            return_attention=False,
+        )
+
+    return {
+        "history": history,
+        "context_summary": final_context_summary,
+        "shuffled_context_summary": final_shuffled_summary,
+        "encoder_parameter_delta": _mean_parameter_delta(before, context_encoder),
+    }

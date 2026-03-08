@@ -248,6 +248,7 @@ def write_pipeline_scratch_run(
     *,
     notebook_source: str = "StageBridge.ipynb",
     experiment_name: str | None = None,
+    extra_artifact_sources: Mapping[str, Any] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Write a biological pipeline run into the scratch workspace with inferred metrics."""
@@ -287,6 +288,8 @@ def write_pipeline_scratch_run(
             "context_diagnostics": transition.get("context_diagnostics"),
             "wes_diagnostics": transition.get("wes_diagnostics"),
         }
+    if extra_artifact_sources:
+        artifact_sources.update(extra_artifact_sources)
     return write_scratch_run(
         cfg,
         pipeline_output,
