@@ -1,19 +1,24 @@
-"""Typed niche context modeling."""
+"""Active context-model exports for the EA-MIST lesion-level architecture."""
 
-from .communication_builder import build_communication_bags
-from .communication_relay import (
-    CommunicationRelayOutput,
-    StageBridgeCommunicationModel,
-    TransportHeadOTCFM,
-    build_communication_model,
-    collate_communication_bags,
-)
+from .baselines_lesion import DeepSetsLesionBaseline, LesionSetTransformerBaseline, PooledLesionBaseline
+from .evolution_branch import EvolutionBranch
+from .heads import EdgeSpecificBinaryHeads
+from .lesion_set_transformer import EAMISTModel, EAMISTOutput, LesionSetTransformerBackbone
+from .local_niche_encoder import LocalNicheMLPEncoder, LocalNicheTokenizer, LocalNicheTransformerEncoder
+from .prototype_bottleneck import PrototypeBottleneck, PrototypeBottleneckOutput
 
 __all__ = [
-    "CommunicationRelayOutput",
-    "StageBridgeCommunicationModel",
-    "TransportHeadOTCFM",
-    "build_communication_bags",
-    "build_communication_model",
-    "collate_communication_bags",
+    "DeepSetsLesionBaseline",
+    "EAMISTModel",
+    "EAMISTOutput",
+    "EdgeSpecificBinaryHeads",
+    "EvolutionBranch",
+    "LesionSetTransformerBackbone",
+    "LesionSetTransformerBaseline",
+    "LocalNicheMLPEncoder",
+    "LocalNicheTokenizer",
+    "LocalNicheTransformerEncoder",
+    "PooledLesionBaseline",
+    "PrototypeBottleneck",
+    "PrototypeBottleneckOutput",
 ]

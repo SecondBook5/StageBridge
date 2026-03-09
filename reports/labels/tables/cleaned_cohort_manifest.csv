@@ -1,0 +1,57 @@
+lesion_id,sample_id,patient_id,donor_id,stage,edge_label,original_label,original_label_weight,original_label_source,original_label_notes,has_spatial,has_wes,num_spots,num_patient_lesions,num_patient_stages,can_support_phylogeny,availability_trace
+GSM9226168_P1_AAH,GSM9226168_P1_AAH,P1,P1,AAH,AAH->AIS,1.0,0.5,heuristic_edge_expansion,"heuristic_expansion(has_later_stage=True, tmb=511.263, driver_risk=1.000)",True,True,10108,2,2,True,spatial;wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226169_P1_LUAD,GSM9226169_P1_LUAD,P1,P1,LUAD,,,,,,True,True,6603,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226170_P2_AAH,GSM9226170_P2_AAH,P2,P2,AAH,AAH->AIS,1.0,0.5,heuristic_edge_expansion,"heuristic_expansion(has_later_stage=True, tmb=62.053, driver_risk=1.000)",True,True,11782,2,2,True,spatial;wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226171_P2_LUAD,GSM9226171_P2_LUAD,P2,P2,LUAD,,,,,,True,True,10995,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226172_P3_AIS,GSM9226172_P3_AIS,P3,P3,AIS,AIS->MIA,1.0,1.0,peng_fig_5e_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,9954,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226173_P3_LUAD,GSM9226173_P3_LUAD,P3,P3,LUAD,,,,,,True,True,14336,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226174_P4_Normal,GSM9226174_P4_Normal,P4,P4,Normal,,,,,,True,False,12453,4,3,True,spatial;no_wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226175_P4_AAH,GSM9226175_P4_AAH,P4,P4,AAH,AAH->AIS,1.0,1.0,peng_fig_s3_pattern1a,Precursor donor assigned to pattern 1a (shared precursor-invasive clones),True,True,12441,4,3,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226176_P4_AAH-1,GSM9226176_P4_AAH-1,P4,P4,AAH,AAH->AIS,1.0,1.0,peng_fig_s3_pattern1a,Precursor donor assigned to pattern 1a (shared precursor-invasive clones),True,True,12295,4,3,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226177_P4_LUAD,GSM9226177_P4_LUAD,P4,P4,LUAD,,,,,,True,True,12978,4,3,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226178_P5_AIS,GSM9226178_P5_AIS,P5,P5,AIS,AIS->MIA,0.0,1.0,peng_fig_s3_pattern2,Precursor donor assigned to pattern 2 (no shared precursor-invasive clones),True,True,10499,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226179_P5_LUAD,GSM9226179_P5_LUAD,P5,P5,LUAD,,,,,,True,True,12084,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226180_P6_AAH,GSM9226180_P6_AAH,P6,P6,AAH,AAH->AIS,1.0,1.0,peng_fig_s3_pattern1a,Precursor donor assigned to pattern 1a (shared precursor-invasive clones),True,False,11229,2,2,True,spatial;no_wes;curated_label;later_stage;phylogeny_ready
+GSM9226181_P6_LUAD,GSM9226181_P6_LUAD,P6,P6,LUAD,,,,,,True,True,11724,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226182_P7_LUAD,GSM9226182_P7_LUAD,P7,P7,LUAD,,,,,,True,True,13616,2,1,False,spatial;wes;non_curated_label;no_later_stage;single_stage_patient
+GSM9226183_P7_LUAD-1,GSM9226183_P7_LUAD-1,P7,P7,LUAD,,,,,,True,True,13074,2,1,False,spatial;wes;non_curated_label;no_later_stage;single_stage_patient
+GSM9226184_P8_AIS,GSM9226184_P8_AIS,P8,P8,AIS,AIS->MIA,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,5108,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226185_P8_LUAD,GSM9226185_P8_LUAD,P8,P8,LUAD,,,,,,True,True,12642,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226186_P9_AAH,GSM9226186_P9_AAH,P9,P9,AAH,AAH->AIS,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,10979,3,3,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226187_P9_AIS,GSM9226187_P9_AIS,P9,P9,AIS,AIS->MIA,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,11029,3,3,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226188_P9_LUAD,GSM9226188_P9_LUAD,P9,P9,LUAD,,,,,,True,True,12127,3,3,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226189_P10_MIA,GSM9226189_P10_MIA,P10,P10,MIA,,,,,,True,True,12180,2,2,True,spatial;wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226190_P10_LUAD,GSM9226190_P10_LUAD,P10,P10,LUAD,,,,,,True,True,13441,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226191_P11_AAH,GSM9226191_P11_AAH,P11,P11,AAH,AAH->AIS,0.0,1.0,peng_fig_s3_pattern2,Precursor donor assigned to pattern 2 (no shared precursor-invasive clones),True,True,10928,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226192_P11_LUAD,GSM9226192_P11_LUAD,P11,P11,LUAD,,,,,,True,True,11794,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226193_P12_AIS,GSM9226193_P12_AIS,P12,P12,AIS,AIS->MIA,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,12427,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226194_P12_LUAD,GSM9226194_P12_LUAD,P12,P12,LUAD,,,,,,True,True,14177,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226195_P13_MIA,GSM9226195_P13_MIA,P13,P13,MIA,,,,,,True,True,13713,2,2,True,spatial;wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226196_P13_LUAD,GSM9226196_P13_LUAD,P13,P13,LUAD,,,,,,True,True,4880,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226197_P14_AIS,GSM9226197_P14_AIS,P14,P14,AIS,AIS->MIA,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,12335,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226198_P14_LUAD,GSM9226198_P14_LUAD,P14,P14,LUAD,,,,,,True,True,11488,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226199_P15_MIA,GSM9226199_P15_MIA,P15,P15,MIA,,,,,,True,True,13250,2,2,True,spatial;wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226200_P15_LUAD,GSM9226200_P15_LUAD,P15,P15,LUAD,,,,,,True,True,14231,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226201_P16_AIS,GSM9226201_P16_AIS,P16,P16,AIS,AIS->MIA,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,13454,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226202_P16_LUAD,GSM9226202_P16_LUAD,P16,P16,LUAD,,,,,,True,True,7736,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226203_P17_AIS,GSM9226203_P17_AIS,P17,P17,AIS,AIS->MIA,0.0,1.0,peng_fig_s3_pattern2,Precursor donor assigned to pattern 2 (no shared precursor-invasive clones),True,True,14336,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226204_P17_LUAD,GSM9226204_P17_LUAD,P17,P17,LUAD,,,,,,True,True,13515,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226205_P18_MIA,GSM9226205_P18_MIA,P18,P18,MIA,,,,,,True,True,13006,2,2,True,spatial;wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226206_P18_LUAD,GSM9226206_P18_LUAD,P18,P18,LUAD,,,,,,True,True,11971,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226207_P19_AIS,GSM9226207_P19_AIS,P19,P19,AIS,AIS->MIA,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,13899,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226208_P19_LUAD,GSM9226208_P19_LUAD,P19,P19,LUAD,,,,,,True,True,12572,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226209_P20_AAH,GSM9226209_P20_AAH,P20,P20,AAH,AAH->AIS,1.0,1.0,peng_fig_2c_pattern1a,Precursor donor assigned to pattern 1a (shared precursor-invasive clones),True,True,12304,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226210_P20_LUAD,GSM9226210_P20_LUAD,P20,P20,LUAD,,,,,,True,True,13604,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226211_P21_AIS,GSM9226211_P21_AIS,P21,P21,AIS,AIS->MIA,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,13372,3,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226212_P21_AIS-1,GSM9226212_P21_AIS-1,P21,P21,AIS,AIS->MIA,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,12926,3,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226213_P21_LUAD,GSM9226213_P21_LUAD,P21,P21,LUAD,,,,,,True,True,13348,3,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226214_P22_AAH,GSM9226214_P22_AAH,P22,P22,AAH,AAH->AIS,1.0,0.5,heuristic_edge_expansion,"heuristic_expansion(has_later_stage=True, tmb=277.816, driver_risk=1.000)",True,True,7943,3,3,True,spatial;wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226215_P22_AIS,GSM9226215_P22_AIS,P22,P22,AIS,,,,,,True,True,12886,3,3,True,spatial;wes;non_curated_label;later_stage;phylogeny_ready
+GSM9226216_P22_LUAD,GSM9226216_P22_LUAD,P22,P22,LUAD,,,,,,True,True,12229,3,3,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226217_P23_AIS,GSM9226217_P23_AIS,P23,P23,AIS,AIS->MIA,0.0,1.0,peng_fig_2c_pattern2,Precursor donor assigned to pattern 2 (no shared precursor-invasive clones),True,True,9996,3,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226218_P23_AIS-1,GSM9226218_P23_AIS-1,P23,P23,AIS,AIS->MIA,0.0,1.0,peng_fig_2c_pattern2,Precursor donor assigned to pattern 2 (no shared precursor-invasive clones),True,True,10826,3,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226219_P23_LUAD,GSM9226219_P23_LUAD,P23,P23,LUAD,,,,,,True,True,10894,3,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226220_P24_AAH,GSM9226220_P24_AAH,P24,P24,AAH,AAH->AIS,1.0,1.0,peng_fig_s3_pattern1a,Precursor donor assigned to pattern 1a (shared precursor-invasive clones),True,True,6738,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226221_P24_LUAD,GSM9226221_P24_LUAD,P24,P24,LUAD,,,,,,True,True,6276,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready
+GSM9226222_P25_AAH,GSM9226222_P25_AAH,P25,P25,AAH,AAH->AIS,1.0,1.0,peng_fig_s3_pattern1b,Precursor donor assigned to pattern 1b (shared precursor-invasive clones with stage-specific branches),True,True,9294,2,2,True,spatial;wes;curated_label;later_stage;phylogeny_ready
+GSM9226223_P25_LUAD,GSM9226223_P25_LUAD,P25,P25,LUAD,,,,,,True,True,3791,2,2,True,spatial;wes;non_curated_label;no_later_stage;phylogeny_ready

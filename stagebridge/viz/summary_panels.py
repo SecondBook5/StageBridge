@@ -176,7 +176,7 @@ def make_panel_b_benchmark(
     std_metric: str = "sinkhorn_std",
     title: str = "Panel B: Donor-Held-Out Benchmark",
 ) -> None:
-    """Grouped bar chart comparing StageBridge against baselines/ablations.
+    """Enhanced grouped bar chart comparing StageBridge against baselines/ablations.
 
     StageBridge bars are highlighted in teal; baselines in slate; ablations in light slate.
     Error bars show cross-fold standard deviation.
@@ -189,6 +189,10 @@ def make_panel_b_benchmark(
     output_path : Path
     primary_metric : str
         Column name for the primary metric (lower = better for Sinkhorn/MMD).
+    std_metric : str
+        Column name for standard deviation
+    title : str
+        Panel title
     """
     from stagebridge.viz.curves import build_metrics_dataframe
 
@@ -200,14 +204,15 @@ def make_panel_b_benchmark(
     if df.empty or primary_metric not in df.columns:
         raise ValueError(f"Cannot plot benchmark: missing '{primary_metric}' in df")
 
-    fig, ax = plt.subplots(figsize=(10, 5.5), facecolor=PALETTE["bg"])
+    # Set up enhanced figure
+    fig, ax = plt.subplots(figsize=(12, 6.5), facecolor=PALETTE["bg"], dpi=150)
     ax.set_facecolor(PALETTE["bg"])
 
     x = np.arange(len(df))
     y = df[primary_metric].astype(float).values
     yerr = df[std_metric].astype(float).values if std_metric in df.columns else None
 
-    # Color by model type
+    # Color by model type with enhanced palette
     colors = []
     for lbl in df["label"].astype(str):
         if "stagebridge" in lbl.lower():
@@ -217,41 +222,68 @@ def make_panel_b_benchmark(
         else:
             colors.append(PALETTE["baseline"])
 
-    ax.bar(
+    # Draw bars with shadow effect
+    bars = ax.bar(
         x,
         y,
         yerr=yerr,
         color=colors,
         alpha=0.92,
-        capsize=4,
-        edgecolor=PALETTE["text"],
-        linewidth=0.8,
-        width=0.65,
+        capsize=5,
+        edgecolor='white',
+        linewidth=2,
+        width=0.7,
+        error_kw={'linewidth': 2, 'elinewidth': 2, 'alpha': 0.7},
+        zorder=3
     )
+
+    # Add gradient effect to bars
+    for bar in bars:
+        bar.set_zorder(3)
+
+    # Highlight best performance
+    best_idx = np.argmin(y)  # Lower is better for distance metrics
+    ax.axhline(y[best_idx], color=PALETTE["accent"], linestyle='--', 
+              linewidth=2, alpha=0.5, zorder=1, label=f'Best: {y[best_idx]:.4f}')
 
     # Annotate StageBridge bar value
     sb_idx = [i for i, lbl in enumerate(df["label"].astype(str)) if "stagebridge" in lbl.lower()]
     for i in sb_idx:
-        ax.text(x[i], y[i] + (yerr[i] if yerr is not None else 0) + 0.002,
-                f"{y[i]:.3f}", ha="center", va="bottom", fontsize=9,
-                color=PALETTE["stagebridge"], fontweight="bold")
+        err_add = (yerr[i] if yerr is not None else 0)
+        ax.text(x[i], y[i] + err_add + 0.005 * (y.max() - y.min()),
+                f"{y[i]:.4f}", ha="center", va="bottom", fontsize=10,
+                color=PALETTE["stagebridge"], fontweight="bold",
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                         edgecolor=PALETTE["stagebridge"], alpha=0.8))
 
+    # Enhanced axis styling
     ax.set_xticks(x)
-    ax.set_xticklabels(df["label"].astype(str).tolist(), rotation=28, ha="right",
-                       **FONT_ANNOT)
-    ax.tick_params(**FONT_TICK)
-    ax.set_ylabel(primary_metric.replace("_", " ").title(), **FONT_LABEL)
-    ax.set_title(title, **FONT_TITLE)
-    ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"])
+    ax.set_xticklabels(df["label"].astype(str).tolist(), rotation=32, ha="right",
+                       fontsize=11, fontweight='normal')
+    ax.tick_params(labelsize=10)
+    ax.set_ylabel(primary_metric.replace("_", " ").title(), 
+                 fontsize=13, fontweight='bold', color=PALETTE["text"])
+    ax.set_title(title, fontsize=16, fontweight='bold', 
+                pad=15, color=PALETTE["text"])
+    ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"], linestyle=':', linewidth=1)
     ax.spines[["top", "right"]].set_visible(False)
+    ax.spines['left'].set_linewidth(2)
+    ax.spines['bottom'].set_linewidth(2)
 
-    # Legend
+    # Enhanced legend with explanatory text
     legend_patches = [
-        mpatches.Patch(color=PALETTE["stagebridge"], label="StageBridge (ours)"),
-        mpatches.Patch(color=PALETTE["baseline"], label="Baselines"),
-        mpatches.Patch(color=PALETTE["ablation"], label="Ablations"),
+        mpatches.Patch(color=PALETTE["stagebridge"], label="StageBridge (ours)", 
+                      edgecolor='white', linewidth=1.5),
+        mpatches.Patch(color=PALETTE["baseline"], label="Baselines", 
+                      edgecolor='white', linewidth=1.5),
+        mpatches.Patch(color=PALETTE["ablation"], label="Ablations", 
+                      edgecolor='white', linewidth=1.5),
     ]
-    ax.legend(handles=legend_patches, fontsize=9, framealpha=0.9)
+    legend = ax.legend(handles=legend_patches, fontsize=11, framealpha=0.95, 
+                      loc='best', fancybox=True, shadow=True)
+    legend.get_frame().set_facecolor('white')
+    legend.get_frame().set_edgecolor('gray')
+    legend.get_frame().set_linewidth(2)
 
     fig.tight_layout()
     _save(fig, output_path)
@@ -266,7 +298,7 @@ def make_panel_c_context_sensitivity(
     output_path: Path,
     title: str = "Panel C: Context Sensitivity by Transition",
 ) -> None:
-    """Bar chart showing context sensitivity scores per transition.
+    """Enhanced bar chart showing context sensitivity scores per transition.
 
     Context sensitivity = Δ Sinkhorn(real context) − Sinkhorn(shuffled context).
     A larger gap means population context matters more for that transition.
@@ -280,42 +312,95 @@ def make_panel_c_context_sensitivity(
     sensitivity_dict : dict
         {transition_label: sensitivity_score}, e.g. {"Normal→AAH": 0.12, ...}
     output_path : Path
+    title : str
+        Panel title
     """
     transitions = list(sensitivity_dict.keys())
     scores = np.array([sensitivity_dict[t] for t in transitions], dtype=float)
 
-    fig, ax = plt.subplots(figsize=(9, 5.5), facecolor=PALETTE["bg"])
+    # Set up enhanced figure
+    fig, ax = plt.subplots(figsize=(11, 6.5), facecolor=PALETTE["bg"], dpi=150)
     ax.set_facecolor(PALETTE["bg"])
 
     x = np.arange(len(transitions))
-    # Color bars by expected biological significance
-    bar_colors = [PALETTE["accent"] if score == scores.max() else PALETTE["stagebridge"]
-                  for score in scores]
+    
+    # Color bars by significance - gradient from low to high
+    max_score = scores.max()
+    min_score = scores.min()
+    normalized_scores = (scores - min_score) / (max_score - min_score + 1e-8)
+    
+    # Use colormap for gradient effect
+    cmap = plt.cm.YlOrRd
+    bar_colors = [cmap(0.3 + 0.7 * norm_score) for norm_score in normalized_scores]
 
-    ax.bar(
+    # Draw bars with enhanced styling
+    bars = ax.bar(
         x,
         scores,
         color=bar_colors,
         alpha=0.92,
-        edgecolor=PALETTE["text"],
-        linewidth=0.8,
-        width=0.6,
+        edgecolor='white',
+        linewidth=2,
+        width=0.7,
+        zorder=3
     )
 
-    # Annotate values above bars
-    for i, (xi, s) in enumerate(zip(x, scores)):
-        ax.text(xi, s + scores.max() * 0.015, f"{s:.3f}", ha="center", va="bottom",
-                fontsize=9, color=PALETTE["text"], fontweight="bold")
+    # Add gradient shading to emphasize
+    for bar, score, norm_score in zip(bars, scores, normalized_scores):
+        bar.set_zorder(3)
+        # Add star to highest bar
+        if score == max_score:
+            bar.set_edgecolor(PALETTE["accent"])
+            bar.set_linewidth(3)
 
+    # Annotate values above bars with significance stars
+    for i, (xi, s, norm_s) in enumerate(zip(x, scores, normalized_scores)):
+        star = "★ " if s == max_score else ""
+        ax.text(xi, s + scores.max() * 0.025, f"{star}{s:.4f}", 
+               ha="center", va="bottom",
+               fontsize=10, color=PALETTE["text"], fontweight="bold",
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                        alpha=0.8, edgecolor='gray'))
+
+    # Enhanced axis styling
     ax.set_xticks(x)
-    ax.set_xticklabels(transitions, rotation=20, ha="right", **FONT_ANNOT)
-    ax.tick_params(**FONT_TICK)
-    ax.set_ylabel("Δ Sinkhorn (real − shuffled context)", **FONT_LABEL)
-    ax.set_title(title, **FONT_TITLE)
-    ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"])
+    ax.set_xticklabels(transitions, rotation=25, ha="right", 
+                      fontsize=11, fontweight='normal')
+    ax.tick_params(labelsize=10)
+    ax.set_ylabel("Δ Sinkhorn (real − shuffled context)", 
+                 fontsize=13, fontweight='bold', color=PALETTE["text"])
+    ax.set_title(title, fontsize=16, fontweight='bold', 
+                pad=15, color=PALETTE["text"])
+    ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"], linestyle=':', linewidth=1)
     ax.spines[["top", "right"]].set_visible(False)
+    ax.spines['left'].set_linewidth(2)
+    ax.spines['bottom'].set_linewidth(2)
 
     # Biological annotation on peak bar
+    peak_idx = np.argmax(scores)
+    peak_transition = transitions[peak_idx]
+    
+    # Add annotation about biological significance
+    annotation_text = (
+        f"Peak sensitivity at {peak_transition}\n"
+        f"indicates strong context dependence"
+    )
+    ax.text(0.98, 0.95, annotation_text, 
+           transform=ax.transAxes,
+           fontsize=10, verticalalignment='top', ha='right',
+           bbox=dict(boxstyle='round', facecolor=PALETTE["accent"], 
+                    alpha=0.2, edgecolor=PALETTE["accent"]))
+    
+    # Add colorbar to show sensitivity scale
+    sm = plt.cm.ScalarMappable(cmap=cmap, 
+                              norm=plt.Normalize(vmin=min_score, vmax=max_score))
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, pad=0.02, aspect=25)
+    cbar.set_label('Sensitivity Score', fontsize=11, fontweight='bold')
+    cbar.ax.tick_params(labelsize=9)
+
+    fig.tight_layout()
+    _save(fig, output_path)
     if len(scores) > 0:
         peak_idx = int(np.argmax(scores))
         ax.annotate(

@@ -1,0 +1,25 @@
+{
+  "cna": {
+    "backend": "none",
+    "status": "skipped"
+  },
+  "clonal": {
+    "backend": "pyclone_vi",
+    "status": "missing_parse_only_input"
+  },
+  "phylogeny": {
+    "backend": "none",
+    "status": "skipped"
+  },
+  "pathology": {
+    "backend": "none",
+    "status": "skipped"
+  },
+  "report_outputs": {
+    "reports_root": "reports/labels",
+    "tables_root": "reports/labels/tables",
+    "figures_root": "reports/labels/figures",
+    "artifacts_root": "reports/labels/artifacts",
+    "recommendation_report": "reports/labels/target_recommendation_report.md"
+  }
+}

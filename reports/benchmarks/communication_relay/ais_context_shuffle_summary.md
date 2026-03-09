@@ -1,9 +1,0 @@
-           model_name  context_shuffle_auroc_delta_mean  context_shuffle_auroc_delta_std  context_shuffle_auprc_delta_mean  context_shuffle_auprc_delta_std
-               pooled                         -0.018519                         0.055556                         -0.006173                         0.018519
-            graphsage                         -0.009259                         0.105775                          0.000617                         0.026417
-            deep_sets                         -0.037037                         0.220916                         -0.013117                         0.102560
-           focal_only                          0.000000                         0.000000                          0.000000                         0.000000
- transformer_no_relay                         -0.027778                         0.150231                         -0.016204                         0.054901
-          stagebridge                         -0.046296                         0.200308                         -0.023148                         0.080985
-transformer_no_priors                         -0.055556                         0.208333                         -0.030093                         0.082753
-    graph_transformer                         -0.287037                         0.423099                         -0.125772                         0.154109

@@ -278,6 +278,161 @@ class CommunicationBatch:
 
 
 @dataclass(slots=True)
+class LocalNicheExample:
+    """Compact receiver-centered neighborhood used as one lesion-bag instance.
+
+    This is the new EA-MIST local instance contract. Each object represents one
+    compact local spatial niche centered on a pseudo-receiver derived from the
+    lesion's epithelial-rich spatial support.
+
+    Args:
+        lesion_id: Stable lesion identifier. Defaults to ``sample_id`` in the
+            current LUAD cohort because no separate lesion identifier is exposed.
+        sample_id: Source spatial sample identifier.
+        donor_id: Donor identifier used for held-out evaluation.
+        patient_id: Patient identifier when distinct from donor_id.
+        stage: Canonical stage label for the lesion.
+        edge_label: Directed edge associated with the lesion's supervision task.
+        receiver_index: Stable within-lesion index for the local niche.
+        receiver_embedding: Receiver/pseudo-receiver latent embedding.
+        receiver_state_id: Integer receiver state identifier.
+        ring_compositions: Ring-wise sender composition tensor with shape
+            ``(num_rings, num_sender_features)``.
+        lr_pathway_summary: Compact ligand-receptor and pathway summary vector.
+        neighborhood_stats: Compact density/diversity/uncertainty summary vector.
+        flat_features: Flattened feature vector for MLP ablations and SSL tasks.
+        center_coord: Spatial center of the neighborhood in tissue coordinates.
+        receiver_confidence: Optional confidence score for the receiver estimate.
+        notes: Optional provenance text.
+    """
+
+    lesion_id: str
+    sample_id: str
+    donor_id: str
+    patient_id: str
+    stage: str
+    edge_label: str
+    receiver_index: int
+    receiver_embedding: np.ndarray
+    receiver_state_id: int
+    ring_compositions: np.ndarray
+    lr_pathway_summary: np.ndarray
+    neighborhood_stats: np.ndarray
+    flat_features: np.ndarray
+    center_coord: np.ndarray
+    receiver_confidence: float | None = None
+    notes: str | None = None
+
+
+@dataclass(slots=True)
+class LesionBag:
+    """Lesion-level bag used by EA-MIST weak supervision.
+
+    Args:
+        lesion_id: Stable lesion identifier.
+        sample_id: Underlying spatial sample identifier.
+        donor_id: Donor identifier.
+        patient_id: Patient identifier.
+        stage: Canonical lesion stage.
+        edge_id: Integer edge identifier.
+        edge_label: Edge label string like ``AIS->MIA``.
+        label: Binary lesion label for the active edge.
+        label_weight: Confidence or supervision weight for the lesion label.
+        label_source: Provenance string describing curated vs heuristic source.
+        neighborhoods: Local niche instances inside the lesion bag.
+        evolution_features: Optional lesion-level evolution/WES feature vector.
+        notes: Optional free-text notes.
+    """
+
+    lesion_id: str
+    sample_id: str
+    donor_id: str
+    patient_id: str
+    stage: str
+    edge_id: int
+    edge_label: str
+    label: float
+    label_weight: float
+    label_source: str
+    neighborhoods: list[LocalNicheExample]
+    evolution_features: np.ndarray | None = None
+    notes: str | None = None
+
+    @property
+    def num_neighborhoods(self) -> int:
+        """Return the number of local niches in the lesion bag."""
+        return len(self.neighborhoods)
+
+
+@dataclass(slots=True)
+class LesionBagBatch:
+    """Padded lesion-bag batch for EA-MIST models.
+
+    Args:
+        receiver_embeddings: ``(B, N, D_r)`` receiver embedding tensor.
+        receiver_state_ids: ``(B, N)`` receiver state ids.
+        ring_compositions: ``(B, N, R, C)`` ring composition tensor.
+        lr_pathway_summary: ``(B, N, L)`` compact LR/pathway summaries.
+        neighborhood_stats: ``(B, N, S)`` compact neighborhood stats.
+        flat_features: ``(B, N, F)`` flattened neighborhood feature tensor.
+        center_coords: ``(B, N, 2)`` spatial centers.
+        neighborhood_mask: ``(B, N)`` valid-instance mask.
+        edge_ids: ``(B,)`` edge identifier for each lesion.
+        labels: ``(B,)`` lesion-level binary labels.
+        label_weights: ``(B,)`` lesion-level confidence weights.
+        sample_ids: Sample identifiers aligned to batch rows.
+        lesion_ids: Lesion identifiers aligned to batch rows.
+        donor_ids: Donor identifiers aligned to batch rows.
+        patient_ids: Patient identifiers aligned to batch rows.
+        stages: Stage labels aligned to batch rows.
+        label_sources: Label provenance aligned to batch rows.
+        evolution_features: Optional ``(B, F_evo)`` lesion-level evolution tensor.
+    """
+
+    receiver_embeddings: "torch.Tensor"
+    receiver_state_ids: "torch.Tensor"
+    ring_compositions: "torch.Tensor"
+    lr_pathway_summary: "torch.Tensor"
+    neighborhood_stats: "torch.Tensor"
+    flat_features: "torch.Tensor"
+    center_coords: "torch.Tensor"
+    neighborhood_mask: "torch.Tensor"
+    edge_ids: "torch.Tensor"
+    labels: "torch.Tensor"
+    label_weights: "torch.Tensor"
+    sample_ids: list[str]
+    lesion_ids: list[str]
+    donor_ids: list[str]
+    patient_ids: list[str]
+    stages: list[str]
+    label_sources: list[str]
+    evolution_features: "torch.Tensor | None" = None
+
+    def to(self, device: str) -> "LesionBagBatch":
+        """Move the tensor payload to ``device`` and return a new batch."""
+        return LesionBagBatch(
+            receiver_embeddings=self.receiver_embeddings.to(device),
+            receiver_state_ids=self.receiver_state_ids.to(device),
+            ring_compositions=self.ring_compositions.to(device),
+            lr_pathway_summary=self.lr_pathway_summary.to(device),
+            neighborhood_stats=self.neighborhood_stats.to(device),
+            flat_features=self.flat_features.to(device),
+            center_coords=self.center_coords.to(device),
+            neighborhood_mask=self.neighborhood_mask.to(device),
+            edge_ids=self.edge_ids.to(device),
+            labels=self.labels.to(device),
+            label_weights=self.label_weights.to(device),
+            sample_ids=list(self.sample_ids),
+            lesion_ids=list(self.lesion_ids),
+            donor_ids=list(self.donor_ids),
+            patient_ids=list(self.patient_ids),
+            stages=list(self.stages),
+            label_sources=list(self.label_sources),
+            evolution_features=None if self.evolution_features is None else self.evolution_features.to(device),
+        )
+
+
+@dataclass(slots=True)
 class DatasetAuditReport:
     """Structured report for data readiness checks."""
 
