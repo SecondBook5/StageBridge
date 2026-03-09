@@ -8,11 +8,10 @@ from torch import Tensor, nn
 
 from stagebridge.context_model.baselines_lesion import LesionModelOutput
 from stagebridge.context_model.evolution_branch import EvolutionBranch
-from stagebridge.context_model.heads import EdgeSpecificBinaryHeads, select_edge_logits
+from stagebridge.context_model.heads import LesionMultitaskHeads
 from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder, LocalNicheTransformerEncoder
 from stagebridge.context_model.prototype_bottleneck import PrototypeBottleneck, PrototypeBottleneckOutput
 from stagebridge.context_model.set_encoder import PMA, ISAB, SAB
-from stagebridge.transition_model.disease_edges import edge_id_map
 from stagebridge.utils.types import LesionBagBatch
 
 
@@ -22,8 +21,9 @@ class EAMISTOutput:
 
     local_embeddings: Tensor
     lesion_embedding: Tensor
-    logits: Tensor
-    selected_logits: Tensor
+    stage_logits: Tensor
+    displacement: Tensor
+    edge_logits: Tensor | None = None
     prototype_output: PrototypeBottleneckOutput | None = None
     lesion_attention: Tensor | None = None
     local_attention: Tensor | None = None
@@ -83,11 +83,13 @@ class EAMISTModel(nn.Module):
         *,
         receiver_dim: int,
         sender_feature_dim: int,
+        hlca_dim: int,
+        luca_dim: int,
         lr_summary_dim: int,
         stats_dim: int,
         flat_feature_dim: int,
         num_receiver_states: int,
-        num_rings: int = 3,
+        num_rings: int = 4,
         hidden_dim: int = 128,
         num_heads: int = 4,
         num_layers: int = 2,
@@ -100,15 +102,23 @@ class EAMISTModel(nn.Module):
         sparse_assignments: bool = False,
         evolution_dim: int | None = None,
         evolution_mode: str = "gated",
+        num_stage_classes: int = 5,
+        num_edge_heads: int = 0,
+        reference_feature_mode: str = "hlca_luca",
     ) -> None:
         super().__init__()
         self.hidden_dim = int(hidden_dim)
         self.local_encoder_type = str(local_encoder_type)
         self.use_prototypes = bool(use_prototypes)
+        self.reference_feature_mode = str(reference_feature_mode)
+        if self.reference_feature_mode not in {"hlca_luca", "hlca_only", "luca_only"}:
+            raise ValueError(f"Unsupported reference_feature_mode '{reference_feature_mode}'.")
         if self.local_encoder_type == "transformer":
             self.local_encoder: nn.Module = LocalNicheTransformerEncoder(
                 receiver_dim=receiver_dim,
                 sender_feature_dim=sender_feature_dim,
+                hlca_dim=hlca_dim,
+                luca_dim=luca_dim,
                 lr_summary_dim=lr_summary_dim,
                 stats_dim=stats_dim,
                 model_dim=self.hidden_dim,
@@ -139,18 +149,33 @@ class EAMISTModel(nn.Module):
             use_isab=True,
         )
         self.evolution_branch = None if evolution_dim is None or evolution_dim <= 0 else EvolutionBranch(evolution_dim, self.hidden_dim, mode=evolution_mode, dropout=dropout)
-        self.heads = EdgeSpecificBinaryHeads(self.hidden_dim, dropout=dropout)
-        self.edge_lookup = edge_id_map()
+        self.heads = LesionMultitaskHeads(self.hidden_dim, num_stage_classes=num_stage_classes, num_edge_heads=num_edge_heads, dropout=dropout)
+
+    def _resolve_reference_features(self, batch: LesionBagBatch) -> tuple[Tensor, Tensor]:
+        hlca = batch.hlca_features
+        luca = batch.luca_features
+        if hlca is None:
+            hlca = torch.zeros((*batch.receiver_embeddings.shape[:2], 0), dtype=batch.receiver_embeddings.dtype, device=batch.receiver_embeddings.device)
+        if luca is None:
+            luca = torch.zeros((*batch.receiver_embeddings.shape[:2], 0), dtype=batch.receiver_embeddings.dtype, device=batch.receiver_embeddings.device)
+        if self.reference_feature_mode == "hlca_only" and luca.shape[-1] > 0:
+            luca = torch.zeros_like(luca)
+        if self.reference_feature_mode == "luca_only" and hlca.shape[-1] > 0:
+            hlca = torch.zeros_like(hlca)
+        return hlca, luca
 
     def encode_local(self, batch: LesionBagBatch, *, return_attention: bool = False) -> tuple[Tensor, Tensor | None]:
         """Encode each local niche in the batch into one embedding."""
         batch_size, num_instances = batch.receiver_embeddings.shape[:2]
         mask = batch.neighborhood_mask.reshape(batch_size * num_instances)
+        hlca_features, luca_features = self._resolve_reference_features(batch)
         if self.local_encoder_type == "transformer":
             output = self.local_encoder(
                 receiver_embeddings=batch.receiver_embeddings.reshape(batch_size * num_instances, -1),
                 receiver_state_ids=batch.receiver_state_ids.reshape(batch_size * num_instances),
                 ring_compositions=batch.ring_compositions.reshape(batch_size * num_instances, batch.ring_compositions.shape[2], batch.ring_compositions.shape[3]),
+                hlca_features=hlca_features.reshape(batch_size * num_instances, -1),
+                luca_features=luca_features.reshape(batch_size * num_instances, -1),
                 lr_pathway_summary=batch.lr_pathway_summary.reshape(batch_size * num_instances, -1),
                 neighborhood_stats=batch.neighborhood_stats.reshape(batch_size * num_instances, -1),
                 return_attention=return_attention,
@@ -181,18 +206,13 @@ class EAMISTModel(nn.Module):
             if self.evolution_branch is None
             else self.evolution_branch(lesion_embedding, batch.evolution_features)
         )
-        logits = self.heads(fused_lesion)
-        selected = select_edge_logits(
-            logits,
-            batch.edge_ids,
-            aah_edge_id=self.edge_lookup["AAH->AIS"],
-            ais_edge_id=self.edge_lookup["AIS->MIA"],
-        )
+        task_output = self.heads(fused_lesion)
         return EAMISTOutput(
             local_embeddings=local_embeddings,
             lesion_embedding=fused_lesion,
-            logits=logits,
-            selected_logits=selected,
+            stage_logits=task_output.stage_logits,
+            displacement=task_output.displacement,
+            edge_logits=task_output.edge_logits,
             prototype_output=prototype_output,
             lesion_attention=lesion_attention,
             local_attention=local_attention,
@@ -204,7 +224,8 @@ def lesion_output_from_eamist(output: EAMISTOutput) -> LesionModelOutput:
     """Convert an EA-MIST output into the common lesion baseline contract."""
     return LesionModelOutput(
         lesion_embedding=output.lesion_embedding,
-        logits=output.logits,
-        selected_logits=output.selected_logits,
+        stage_logits=output.stage_logits,
+        displacement=output.displacement,
+        edge_logits=output.edge_logits,
         attention_weights=output.lesion_attention,
     )

@@ -22,28 +22,32 @@ from stagebridge.context_model.baselines_lesion import (
     PooledLesionBaseline,
 )
 from stagebridge.context_model.lesion_set_transformer import EAMISTModel
-from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder, LocalNicheTransformerEncoder
-from stagebridge.context_model.losses import lesion_subsampling_consistency_loss, weighted_binary_classification_loss
+from stagebridge.context_model.local_niche_encoder import LocalNicheTransformerEncoder
+from stagebridge.context_model.losses import (
+    class_weighted_stage_loss,
+    displacement_regression_loss,
+    masked_edge_loss,
+)
 from stagebridge.data.luad_evo.bag_dataset import LesionBagDataset, NeighborhoodPretrainDataset, collate_lesion_bags
 from stagebridge.data.luad_evo.neighborhood_builder import build_lesion_bags_from_config
 from stagebridge.data.luad_evo.splits import (
     assert_no_split_leakage,
-    build_lesion_folds,
-    summarize_fold_class_balance,
+    build_multitask_lesion_folds,
+    summarize_fold_stage_balance,
 )
 from stagebridge.evaluation.eamist_metrics import (
-    bootstrap_confidence_intervals,
-    build_curve_frames,
-    build_per_donor_metrics,
-    compute_binary_metrics,
-    confusion_matrix_payload,
-    temperature_scale_logits,
-    threshold_from_validation,
+    CANONICAL_STAGE_LABELS,
+    composite_selection_score,
+    compute_displacement_metrics,
+    compute_masked_edge_metrics,
+    compute_stage_metrics,
+    stage_confusion_matrix_payload,
+    stage_support_payload,
 )
 from stagebridge.logging_utils import get_logger
 from stagebridge.pipelines.pretrain_local import LocalFeatureDims, infer_local_feature_dims
 from stagebridge.utils.seeds import seed_everything
-from stagebridge.utils.types import LesionBagBatch
+from stagebridge.utils.types import LesionBag, LesionBagBatch
 
 log = get_logger(__name__)
 
@@ -137,14 +141,8 @@ def _normalize_hpo_search_space(cfg: DictConfig | dict[str, Any], model_family: 
 
 
 def _objective_from_validation_metrics(metrics: dict[str, float]) -> float:
-    """Collapse validation metrics into one Optuna objective."""
-    auroc = float(metrics.get("auroc", float("nan")))
-    auprc = float(metrics.get("auprc", float("nan")))
-    if np.isnan(auroc):
-        auroc = -1.0
-    if np.isnan(auprc):
-        auprc = -1.0
-    return float(auroc + 1e-3 * auprc)
+    """Collapse validation metrics into one guarded checkpoint-selection objective."""
+    return composite_selection_score(metrics)
 
 
 def _suggest_optuna_overrides(
@@ -209,13 +207,21 @@ class LesionAggregatorModel(nn.Module):
         hidden_dim: int = 128,
         num_heads: int = 4,
         num_layers: int = 2,
+        num_stage_classes: int = 5,
+        num_edge_heads: int = 0,
+        reference_feature_mode: str = "hlca_luca",
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
         self.model_family = str(model_family)
+        self.reference_feature_mode = str(reference_feature_mode)
+        if self.reference_feature_mode not in {"hlca_luca", "hlca_only", "luca_only"}:
+            raise ValueError(f"Unsupported reference_feature_mode '{reference_feature_mode}'.")
         self.local_encoder = LocalNicheTransformerEncoder(
             receiver_dim=dims.receiver_dim,
             sender_feature_dim=dims.sender_feature_dim,
+            hlca_dim=dims.hlca_dim,
+            luca_dim=dims.luca_dim,
             lr_summary_dim=dims.lr_summary_dim,
             stats_dim=dims.stats_dim,
             model_dim=hidden_dim,
@@ -226,21 +232,57 @@ class LesionAggregatorModel(nn.Module):
             dropout=dropout,
         )
         if self.model_family == "pooled":
-            self.aggregator: nn.Module = PooledLesionBaseline(hidden_dim, hidden_dim=hidden_dim, dropout=dropout)
+            self.aggregator: nn.Module = PooledLesionBaseline(
+                hidden_dim,
+                hidden_dim=hidden_dim,
+                num_stage_classes=num_stage_classes,
+                num_edge_heads=num_edge_heads,
+                dropout=dropout,
+            )
         elif self.model_family == "deep_sets":
-            self.aggregator = DeepSetsLesionBaseline(hidden_dim, hidden_dim=hidden_dim, dropout=dropout)
+            self.aggregator = DeepSetsLesionBaseline(
+                hidden_dim,
+                hidden_dim=hidden_dim,
+                num_stage_classes=num_stage_classes,
+                num_edge_heads=num_edge_heads,
+                dropout=dropout,
+            )
         elif self.model_family == "lesion_set_transformer":
-            self.aggregator = LesionSetTransformerBaseline(hidden_dim, hidden_dim=hidden_dim, num_heads=num_heads, num_layers=num_layers, dropout=dropout)
+            self.aggregator = LesionSetTransformerBaseline(
+                hidden_dim,
+                hidden_dim=hidden_dim,
+                num_heads=num_heads,
+                num_layers=num_layers,
+                num_stage_classes=num_stage_classes,
+                num_edge_heads=num_edge_heads,
+                dropout=dropout,
+            )
         else:
             raise ValueError(f"Unsupported lesion aggregator family '{model_family}'.")
+
+    def _resolve_reference_features(self, batch: LesionBagBatch) -> tuple[Tensor, Tensor]:
+        hlca = batch.hlca_features
+        luca = batch.luca_features
+        if hlca is None:
+            hlca = torch.zeros((*batch.receiver_embeddings.shape[:2], 0), dtype=batch.receiver_embeddings.dtype, device=batch.receiver_embeddings.device)
+        if luca is None:
+            luca = torch.zeros((*batch.receiver_embeddings.shape[:2], 0), dtype=batch.receiver_embeddings.dtype, device=batch.receiver_embeddings.device)
+        if self.reference_feature_mode == "hlca_only" and luca.shape[-1] > 0:
+            luca = torch.zeros_like(luca)
+        if self.reference_feature_mode == "luca_only" and hlca.shape[-1] > 0:
+            hlca = torch.zeros_like(hlca)
+        return hlca, luca
 
     def encode_local(self, batch: LesionBagBatch) -> Tensor:
         """Encode local neighborhoods before lesion-level aggregation."""
         bsz, num_instances = batch.receiver_embeddings.shape[:2]
+        hlca_features, luca_features = self._resolve_reference_features(batch)
         output = self.local_encoder(
             receiver_embeddings=batch.receiver_embeddings.reshape(bsz * num_instances, -1),
             receiver_state_ids=batch.receiver_state_ids.reshape(bsz * num_instances),
             ring_compositions=batch.ring_compositions.reshape(bsz * num_instances, batch.ring_compositions.shape[2], batch.ring_compositions.shape[3]),
+            hlca_features=hlca_features.reshape(bsz * num_instances, -1),
+            luca_features=luca_features.reshape(bsz * num_instances, -1),
             lr_pathway_summary=batch.lr_pathway_summary.reshape(bsz * num_instances, -1),
             neighborhood_stats=batch.neighborhood_stats.reshape(bsz * num_instances, -1),
             return_attention=False,
@@ -251,7 +293,7 @@ class LesionAggregatorModel(nn.Module):
     def forward(self, batch: LesionBagBatch) -> LesionModelOutput:
         """Run the lesion baseline."""
         embeddings = self.encode_local(batch)
-        return self.aggregator(embeddings, batch.neighborhood_mask, batch.edge_ids)
+        return self.aggregator(embeddings, batch.neighborhood_mask)
 
 
 def set_local_encoder_trainability(module: nn.Module, mode: str) -> None:
@@ -310,12 +352,15 @@ def build_model_family(
     *,
     cfg: DictConfig | dict[str, Any],
     evolution_dim: int | None,
+    num_edge_heads: int = 0,
+    reference_feature_mode: str = "hlca_luca",
 ) -> nn.Module:
     """Instantiate one lesion-level model family."""
     hidden_dim = int(_cfg_select(cfg, "context_model.eamist.hidden_dim", 128))
     num_heads = int(_cfg_select(cfg, "context_model.eamist.num_heads", 4))
     num_layers = int(_cfg_select(cfg, "context_model.eamist.num_layers", 2))
     dropout = float(_cfg_select(cfg, "context_model.eamist.dropout", 0.1))
+    num_stage_classes = len(CANONICAL_STAGE_LABELS)
     if model_family in {"pooled", "deep_sets", "lesion_set_transformer"}:
         return LesionAggregatorModel(
             dims,
@@ -323,12 +368,20 @@ def build_model_family(
             hidden_dim=hidden_dim,
             num_heads=num_heads,
             num_layers=num_layers,
+            num_stage_classes=num_stage_classes,
+            num_edge_heads=num_edge_heads,
+            reference_feature_mode=reference_feature_mode,
             dropout=dropout,
         )
-    if model_family == "eamist":
+    if model_family in {"eamist", "eamist_no_prototypes"}:
+        use_prototypes = bool(_cfg_select(cfg, "context_model.eamist.use_prototypes", True))
+        if model_family == "eamist_no_prototypes":
+            use_prototypes = False
         return EAMISTModel(
             receiver_dim=dims.receiver_dim,
             sender_feature_dim=dims.sender_feature_dim,
+            hlca_dim=dims.hlca_dim,
+            luca_dim=dims.luca_dim,
             lr_summary_dim=dims.lr_summary_dim,
             stats_dim=dims.stats_dim,
             flat_feature_dim=dims.flat_feature_dim,
@@ -341,204 +394,39 @@ def build_model_family(
             num_pma_seeds=int(_cfg_select(cfg, "context_model.eamist.num_pma_seeds", 1)),
             dropout=dropout,
             local_encoder_type=str(_cfg_select(cfg, "context_model.eamist.local_encoder_type", "transformer")),
-            use_prototypes=bool(_cfg_select(cfg, "context_model.eamist.use_prototypes", True)),
+            use_prototypes=use_prototypes,
             num_prototypes=int(_cfg_select(cfg, "context_model.eamist.num_prototypes", 16)),
             sparse_assignments=bool(_cfg_select(cfg, "context_model.eamist.sparse_assignments", False)),
             evolution_dim=evolution_dim if bool(_cfg_select(cfg, "context_model.eamist.use_evolution_branch", True)) else None,
             evolution_mode=str(_cfg_select(cfg, "context_model.eamist.evolution_mode", "gated")),
+            num_stage_classes=num_stage_classes,
+            num_edge_heads=num_edge_heads,
+            reference_feature_mode=reference_feature_mode,
         )
     raise ValueError(f"Unsupported model_family '{model_family}'.")
 
 
-def _fit_trial(
-    *,
-    cfg: DictConfig | dict[str, Any],
-    model_family: str,
-    dims: LocalFeatureDims,
-    evolution_dim: int | None,
-    device: str,
-    train_loader: DataLoader[LesionBagBatch],
-    val_loader: DataLoader[LesionBagBatch],
-    trial_root: Path,
-    local_mode: str,
-    pretrained_checkpoint: str | Path | None,
-    optuna_trial: optuna.trial.Trial | None = None,
-) -> dict[str, Any]:
-    """Train one validation-scored trial and persist its artifacts."""
-    model = build_model_family(model_family, dims, cfg=cfg, evolution_dim=evolution_dim).to(device)
-    if hasattr(model, "local_encoder"):
-        load_pretrained_local_encoder(model, pretrained_checkpoint)
-        set_local_encoder_trainability(getattr(model, "local_encoder"), local_mode)
-
-    optimizer = torch.optim.AdamW(
-        [parameter for parameter in model.parameters() if parameter.requires_grad],
-        lr=float(_cfg_select(cfg, "context_model.eamist.learning_rate", 1e-3)),
-        weight_decay=float(_cfg_select(cfg, "context_model.eamist.weight_decay", 1e-4)),
-    )
-
-    max_epochs = int(_cfg_select(cfg, "context_model.eamist.max_epochs", 150))
-    patience = int(_cfg_select(cfg, "context_model.eamist.patience", 20))
-    train_history: list[dict[str, float | int]] = []
-    val_history: list[dict[str, float | int]] = []
-    best_payload: dict[str, float] | None = None
-    best_score = (-np.inf, -np.inf)
-    best_checkpoint = trial_root / "best_checkpoint.pt"
-    wait = 0
-
-    for epoch in range(max_epochs):
-        train_epoch = _run_epoch(model, train_loader, device=device, optimizer=optimizer, cfg=cfg)
-        val_epoch = _run_epoch(model, val_loader, device=device, optimizer=None, cfg=cfg)
-        if val_epoch["labels"].shape[0] == 0:
-            raise ValueError("Validation split is empty for this lesion-level training trial.")
-        val_temp = temperature_scale_logits(val_epoch["logits"], val_epoch["labels"])
-        val_probs = 1.0 / (1.0 + np.exp(-val_epoch["logits"] / val_temp))
-        val_threshold = threshold_from_validation(val_epoch["labels"], val_probs)
-        val_metrics = compute_binary_metrics(val_epoch["labels"], val_probs, threshold=val_threshold)
-
-        train_history.append({"epoch": epoch, "loss": float(train_epoch["loss"])})
-        val_history.append({"epoch": epoch, "loss": float(val_epoch["loss"]), **val_metrics})
-
-        primary_score = float(val_metrics["auroc"]) if not np.isnan(val_metrics["auroc"]) else -float(val_epoch["loss"])
-        secondary_score = float(val_metrics["auprc"]) if not np.isnan(val_metrics["auprc"]) else -float(val_epoch["loss"])
-        score = (primary_score, secondary_score)
-        if optuna_trial is not None:
-            optuna_trial.report(_objective_from_validation_metrics(val_metrics), step=int(epoch))
-            if optuna_trial.should_prune():
-                raise optuna.TrialPruned()
-        if score > best_score:
-            best_score = score
-            best_payload = {
-                "temperature": float(val_temp),
-                "threshold": float(val_threshold),
-                "best_epoch": float(epoch),
-                **val_metrics,
-            }
-            _save_checkpoint(
-                best_checkpoint,
-                model,
-                cfg,
-                epoch=epoch,
-                val_metrics=best_payload,
-                model_family=model_family,
-                dims=dims,
-                evolution_dim=evolution_dim,
-            )
-            wait = 0
-        else:
-            wait += 1
-        if wait >= patience:
-            break
-
-    if best_payload is None:
-        raise RuntimeError(f"No valid checkpoint was selected for lesion trial in {trial_root}.")
-
-    val_history_path = trial_root / "val_history.csv"
-    train_history_path = trial_root / "train_history.csv"
-    pd.DataFrame(train_history).to_csv(train_history_path, index=False)
-    pd.DataFrame(val_history).to_csv(val_history_path, index=False)
-    (trial_root / "trial_metrics.json").write_text(
-        json.dumps(
-            {
-                "best_validation": best_payload,
-                "selection_score": {
-                    "primary": best_score[0],
-                    "secondary": best_score[1],
-                },
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    return {
-        "best_checkpoint": best_checkpoint,
-        "best_payload": best_payload,
-        "best_score": best_score,
-        "train_history_path": train_history_path,
-        "val_history_path": val_history_path,
-    }
+def _compute_stage_class_weights(train_bags: list[LesionBag], *, num_stage_classes: int) -> Tensor:
+    counts = np.zeros((num_stage_classes,), dtype=np.float32)
+    for bag in train_bags:
+        if bag.stage_index is None or int(bag.stage_index) < 0 or int(bag.stage_index) >= num_stage_classes:
+            continue
+        counts[int(bag.stage_index)] += 1.0
+    nonzero = counts > 0
+    if not np.any(nonzero):
+        return torch.ones((num_stage_classes,), dtype=torch.float32)
+    weights = np.zeros_like(counts)
+    weights[nonzero] = counts[nonzero].sum() / (counts[nonzero] * float(np.sum(nonzero)))
+    weights[~nonzero] = 0.0
+    return torch.as_tensor(weights, dtype=torch.float32)
 
 
-def _run_optuna_hpo(
-    *,
-    cfg: DictConfig | dict[str, Any],
-    model_family: str,
-    fold_index: int,
-    dims: LocalFeatureDims,
-    evolution_dim: int | None,
-    device: str,
-    train_loader: DataLoader[LesionBagBatch],
-    val_loader: DataLoader[LesionBagBatch],
-    fold_root: Path,
-    local_mode: str,
-    pretrained_checkpoint: str | Path | None,
-) -> tuple[dict[str, Any], pd.DataFrame]:
-    """Run Optuna HPO for one model family and fold and return best overrides plus trial table."""
-    hpo_cfg = _resolve_hpo_config(cfg)
-    backend = str(hpo_cfg.get("backend", "optuna")).lower()
-    if backend != "optuna":
-        raise ValueError(f"Unsupported EA-MIST HPO backend '{backend}'. Only 'optuna' is supported.")
-    enabled = bool(hpo_cfg.get("enabled", False))
-    num_trials = max(1, int(hpo_cfg.get("num_trials", 1)))
-    if not enabled or num_trials == 1:
-        return {}, pd.DataFrame([{"trial_index": 0, "state": "COMPLETE", "objective": None, "overrides": "{}"}])
-
-    search_space = _normalize_hpo_search_space(cfg, model_family)
-    if not search_space:
-        return {}, pd.DataFrame([{"trial_index": 0, "state": "COMPLETE", "objective": None, "overrides": "{}"}])
-
-    sampler_name = str(hpo_cfg.get("sampler", "tpe")).lower()
-    if sampler_name != "tpe":
-        raise ValueError(f"Unsupported Optuna sampler '{sampler_name}'. Only 'tpe' is currently supported.")
-    sampler = optuna.samplers.TPESampler(seed=int(hpo_cfg.get("seed", 17)) + 1009 * int(fold_index))
-    pruner = optuna.pruners.MedianPruner(
-        n_startup_trials=int(hpo_cfg.get("n_startup_trials", min(3, num_trials))),
-        n_warmup_steps=int(hpo_cfg.get("n_warmup_steps", 3)),
-    )
-    study = optuna.create_study(
-        study_name=f"eamist_{model_family}_fold_{fold_index:02d}",
-        direction="maximize",
-        sampler=sampler,
-        pruner=pruner,
-    )
-
-    def objective(trial: optuna.trial.Trial) -> float:
-        overrides = _suggest_optuna_overrides(trial, search_space=search_space)
-        trial_cfg = _cfg_with_eamist_overrides(cfg, overrides)
-        trial_root = _ensure_dir(fold_root / "hpo_trials" / f"trial_{trial.number:03d}")
-        fit_result = _fit_trial(
-            cfg=trial_cfg,
-            model_family=model_family,
-            dims=dims,
-            evolution_dim=evolution_dim,
-            device=device,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            trial_root=trial_root,
-            local_mode=str(_cfg_select(trial_cfg, "context_model.eamist.local_encoder_training_mode", local_mode)),
-            pretrained_checkpoint=pretrained_checkpoint,
-            optuna_trial=trial,
-        )
-        trial.set_user_attr("overrides", overrides)
-        trial.set_user_attr("best_payload", fit_result["best_payload"])
-        trial.set_user_attr("artifact_dir", str(trial_root))
-        return _objective_from_validation_metrics(fit_result["best_payload"])
-
-    study.optimize(objective, n_trials=num_trials, gc_after_trial=True)
-    trial_table = _build_optuna_trial_table(study)
-    complete_trials = [trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE]
-    if not complete_trials:
-        log.warning(
-            "Optuna produced no completed trials for model=%s fold=%d. Falling back to base config.",
-            model_family,
-            fold_index,
-        )
-        return {}, trial_table
-    best_overrides = dict(study.best_trial.user_attrs.get("overrides", {}) or {})
-    return best_overrides, trial_table
+def _stage_probabilities(logits: Tensor) -> Tensor:
+    return torch.softmax(logits, dim=-1)
 
 
-def _model_forward(model: nn.Module, batch: LesionBagBatch) -> tuple[Tensor, Tensor | None]:
-    """Run one lesion model and return selected logits plus optional regularizers."""
+def _run_model(model: nn.Module, batch: LesionBagBatch) -> tuple[LesionModelOutput, Tensor | None]:
+    """Run one lesion model and return predictions plus optional prototype regularization."""
     if isinstance(model, EAMISTModel):
         output = model(batch, return_attention=False)
         reg = None
@@ -549,9 +437,18 @@ def _model_forward(model: nn.Module, batch: LesionBagBatch) -> tuple[Tensor, Ten
                 float(0.01) * prototype_diversity_loss(model.prototype_bottleneck.prototypes)
                 + float(0.001) * assignment_entropy_loss(output.prototype_output.assignment_weights)
             )
-        return output.selected_logits, reg
+        return (
+            LesionModelOutput(
+                lesion_embedding=output.lesion_embedding,
+                stage_logits=output.stage_logits,
+                displacement=output.displacement,
+                edge_logits=output.edge_logits,
+                attention_weights=output.lesion_attention,
+            ),
+            reg,
+        )
     output = model(batch)
-    return output.selected_logits, None
+    return output, None
 
 
 def _run_epoch(
@@ -561,77 +458,155 @@ def _run_epoch(
     device: str,
     optimizer: torch.optim.Optimizer | None,
     cfg: DictConfig | dict[str, Any],
+    stage_class_weights: Tensor,
 ) -> dict[str, Any]:
     """Run one train or eval epoch and collect lesion-level outputs."""
     train_mode = optimizer is not None
     model.train(train_mode)
-    all_logits: list[np.ndarray] = []
+    stage_weight = float(_cfg_select(cfg, "context_model.eamist.stage_loss_weight", 1.0))
+    displacement_weight = float(_cfg_select(cfg, "context_model.eamist.displacement_loss_weight", 0.5))
+    edge_weight = float(_cfg_select(cfg, "context_model.eamist.edge_loss_weight", 0.25))
+    all_stage_logits: list[np.ndarray] = []
+    all_stage_preds: list[np.ndarray] = []
+    all_stage_targets: list[np.ndarray] = []
+    all_displacement_preds: list[np.ndarray] = []
+    all_displacement_targets: list[np.ndarray] = []
+    all_edge_logits: list[np.ndarray] = []
+    all_edge_targets: list[np.ndarray] = []
+    all_edge_masks: list[np.ndarray] = []
     all_probs: list[np.ndarray] = []
-    all_labels: list[np.ndarray] = []
     all_donors: list[str] = []
-    losses: list[float] = []
+    all_stages: list[str] = []
+    all_lesions: list[str] = []
+    loss_rows: list[dict[str, float]] = []
     for batch in loader:
         batch = batch.to(device)
-        logits, reg = _model_forward(model, batch)
-        loss = weighted_binary_classification_loss(
-            logits,
-            batch.labels,
-            weights=batch.label_weights,
-            loss_name=str(_cfg_select(cfg, "context_model.eamist.loss_name", "weighted_bce")),
-            focal_gamma=float(_cfg_select(cfg, "context_model.eamist.focal_gamma", 2.0)),
-            label_smoothing=float(_cfg_select(cfg, "context_model.eamist.label_smoothing", 0.0)),
+        output, reg = _run_model(model, batch)
+        stage_loss = class_weighted_stage_loss(
+            output.stage_logits,
+            batch.stage_indices if batch.stage_indices is not None else torch.full((output.stage_logits.shape[0],), -1, dtype=torch.long, device=output.stage_logits.device),
+            class_weights=stage_class_weights.to(device),
         )
+        displacement_loss = displacement_regression_loss(
+            output.displacement,
+            batch.displacement_targets if batch.displacement_targets is not None else torch.full((output.displacement.shape[0],), float("nan"), dtype=output.displacement.dtype, device=output.displacement.device),
+        )
+        edge_loss = masked_edge_loss(output.edge_logits, batch.edge_targets, batch.edge_target_mask)
+        if not isinstance(edge_loss, Tensor):
+            edge_loss = torch.as_tensor(edge_loss, dtype=output.stage_logits.dtype, device=output.stage_logits.device)
+        else:
+            edge_loss = edge_loss.to(device=output.stage_logits.device, dtype=output.stage_logits.dtype)
+        total_loss = stage_weight * stage_loss + displacement_weight * displacement_loss + edge_weight * edge_loss
         if reg is not None:
-            loss = loss + reg
+            total_loss = total_loss + reg
         if train_mode:
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            total_loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(_cfg_select(cfg, "context_model.eamist.grad_clip_norm", 1.0)))
             optimizer.step()
-        losses.append(float(loss.item()))
-        probs = torch.sigmoid(logits).detach().cpu().numpy()
-        all_logits.append(logits.detach().cpu().numpy())
-        all_probs.append(probs)
-        all_labels.append(batch.labels.detach().cpu().numpy())
+
+        loss_rows.append(
+            {
+                "loss": float(total_loss.item()),
+                "stage_loss": float(stage_loss.item()),
+                "displacement_loss": float(displacement_loss.item()),
+                "edge_loss": float(edge_loss.item()),
+                "regularization_loss": float(0.0 if reg is None else reg.item()),
+            }
+        )
+        stage_probs = _stage_probabilities(output.stage_logits).detach().cpu().numpy()
+        all_stage_logits.append(output.stage_logits.detach().cpu().numpy())
+        all_stage_preds.append(stage_probs.argmax(axis=1).astype(np.int64, copy=False))
+        all_probs.append(stage_probs.astype(np.float32, copy=False))
+        if batch.stage_indices is None:
+            all_stage_targets.append(np.full((stage_probs.shape[0],), -1, dtype=np.int64))
+        else:
+            all_stage_targets.append(batch.stage_indices.detach().cpu().numpy().astype(np.int64, copy=False))
+        if batch.displacement_targets is None:
+            all_displacement_targets.append(np.full((stage_probs.shape[0],), np.nan, dtype=np.float32))
+        else:
+            all_displacement_targets.append(batch.displacement_targets.detach().cpu().numpy().astype(np.float32, copy=False))
+        all_displacement_preds.append(output.displacement.detach().cpu().numpy().astype(np.float32, copy=False))
+        if output.edge_logits is not None:
+            all_edge_logits.append(output.edge_logits.detach().cpu().numpy().astype(np.float32, copy=False))
+        if batch.edge_targets is not None:
+            all_edge_targets.append(batch.edge_targets.detach().cpu().numpy().astype(np.float32, copy=False))
+        if batch.edge_target_mask is not None:
+            all_edge_masks.append(batch.edge_target_mask.detach().cpu().numpy().astype(bool, copy=False))
         all_donors.extend(list(batch.donor_ids))
-    logits_np = np.concatenate(all_logits, axis=0) if all_logits else np.zeros((0,), dtype=np.float32)
-    probs_np = np.concatenate(all_probs, axis=0) if all_probs else np.zeros((0,), dtype=np.float32)
-    labels_np = np.concatenate(all_labels, axis=0) if all_labels else np.zeros((0,), dtype=np.float32)
+        all_stages.extend(list(batch.stages))
+        all_lesions.extend(list(batch.lesion_ids))
     return {
-        "loss": float(np.mean(losses)) if losses else float("nan"),
-        "logits": logits_np,
-        "probabilities": probs_np,
-        "labels": labels_np,
+        "loss": float(np.mean([row["loss"] for row in loss_rows])) if loss_rows else float("nan"),
+        "stage_loss": float(np.mean([row["stage_loss"] for row in loss_rows])) if loss_rows else float("nan"),
+        "displacement_loss": float(np.mean([row["displacement_loss"] for row in loss_rows])) if loss_rows else float("nan"),
+        "edge_loss": float(np.mean([row["edge_loss"] for row in loss_rows])) if loss_rows else float("nan"),
+        "regularization_loss": float(np.mean([row["regularization_loss"] for row in loss_rows])) if loss_rows else float("nan"),
+        "stage_logits": np.concatenate(all_stage_logits, axis=0) if all_stage_logits else np.zeros((0, len(CANONICAL_STAGE_LABELS)), dtype=np.float32),
+        "stage_probabilities": np.concatenate(all_probs, axis=0) if all_probs else np.zeros((0, len(CANONICAL_STAGE_LABELS)), dtype=np.float32),
+        "stage_predictions": np.concatenate(all_stage_preds, axis=0) if all_stage_preds else np.zeros((0,), dtype=np.int64),
+        "stage_targets": np.concatenate(all_stage_targets, axis=0) if all_stage_targets else np.zeros((0,), dtype=np.int64),
+        "displacement_predictions": np.concatenate(all_displacement_preds, axis=0) if all_displacement_preds else np.zeros((0,), dtype=np.float32),
+        "displacement_targets": np.concatenate(all_displacement_targets, axis=0) if all_displacement_targets else np.zeros((0,), dtype=np.float32),
+        "edge_logits": np.concatenate(all_edge_logits, axis=0) if all_edge_logits else None,
+        "edge_targets": np.concatenate(all_edge_targets, axis=0) if all_edge_targets else None,
+        "edge_masks": np.concatenate(all_edge_masks, axis=0) if all_edge_masks else None,
         "donor_ids": all_donors,
+        "stages": all_stages,
+        "lesion_ids": all_lesions,
+    }
+
+
+def _epoch_metrics(epoch_result: dict[str, Any], *, edge_target_labels: tuple[str, ...]) -> dict[str, float]:
+    stage_metrics = compute_stage_metrics(epoch_result["stage_targets"], epoch_result["stage_predictions"])
+    displacement_metrics = compute_displacement_metrics(
+        epoch_result["displacement_targets"],
+        epoch_result["displacement_predictions"],
+        stage_indices=epoch_result["stage_targets"],
+    )
+    edge_metrics = compute_masked_edge_metrics(
+        epoch_result["edge_logits"],
+        epoch_result["edge_targets"],
+        epoch_result["edge_masks"],
+        edge_labels=edge_target_labels,
+    )
+    return {
+        **stage_metrics,
+        **displacement_metrics,
+        **edge_metrics,
     }
 
 
 def _prediction_frame(
-    bags: list[Any],
+    bags: list[LesionBag],
     indices: list[int] | tuple[int, ...],
-    probabilities: np.ndarray,
-    labels: np.ndarray,
-    *,
-    edge_label: str,
+    epoch_result: dict[str, Any],
 ) -> pd.DataFrame:
-    """Build a lesion-level prediction table."""
+    """Build a lesion-level stage/displacement prediction table."""
     rows: list[dict[str, object]] = []
+    probabilities = epoch_result["stage_probabilities"]
+    predictions = epoch_result["stage_predictions"]
+    displacement = epoch_result["displacement_predictions"]
+    targets = epoch_result["stage_targets"]
+    displacement_targets = epoch_result["displacement_targets"]
     for local_idx, bag_index in enumerate(indices):
         bag = bags[int(bag_index)]
-        rows.append(
-            {
-                "lesion_id": bag.lesion_id,
-                "sample_id": bag.sample_id,
-                "donor_id": bag.donor_id,
-                "patient_id": bag.patient_id,
-                "stage": bag.stage,
-                "edge_label": edge_label,
-                "label": float(labels[local_idx]),
-                "probability": float(probabilities[local_idx]),
-                "label_source": bag.label_source,
-                "label_weight": float(bag.label_weight),
-            }
-        )
+        row = {
+            "lesion_id": bag.lesion_id,
+            "sample_id": bag.sample_id,
+            "donor_id": bag.donor_id,
+            "patient_id": bag.patient_id,
+            "stage_label": bag.stage,
+            "stage_index": int(targets[local_idx]),
+            "pred_stage_index": int(predictions[local_idx]),
+            "pred_stage_label": CANONICAL_STAGE_LABELS[int(predictions[local_idx])],
+            "displacement_target": float(displacement_targets[local_idx]),
+            "pred_displacement": float(displacement[local_idx]),
+            "label_source": bag.label_source,
+        }
+        for class_idx, class_label in enumerate(CANONICAL_STAGE_LABELS):
+            row[f"prob_{class_label}"] = float(probabilities[local_idx, class_idx])
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -645,6 +620,8 @@ def _save_checkpoint(
     model_family: str,
     dims: LocalFeatureDims,
     evolution_dim: int | None,
+    num_edge_heads: int,
+    reference_feature_mode: str,
 ) -> None:
     """Persist a best-checkpoint payload."""
     torch.save(
@@ -655,6 +632,8 @@ def _save_checkpoint(
             "model_family": str(model_family),
             "dims": asdict(dims),
             "evolution_dim": None if evolution_dim is None else int(evolution_dim),
+            "num_edge_heads": int(num_edge_heads),
+            "reference_feature_mode": str(reference_feature_mode),
             "config": cfg if isinstance(cfg, dict) else OmegaConf.to_container(cfg, resolve=True),
         },
         path,
@@ -707,6 +686,224 @@ def _export_eamist_interpretability(
     return pd.DataFrame(prototype_rows), pd.DataFrame(attention_rows)
 
 
+def _fit_trial(
+    *,
+    cfg: DictConfig | dict[str, Any],
+    model_family: str,
+    reference_feature_mode: str,
+    dims: LocalFeatureDims,
+    evolution_dim: int | None,
+    num_edge_heads: int,
+    edge_target_labels: tuple[str, ...],
+    train_bags: list[LesionBag],
+    device: str,
+    train_loader: DataLoader[LesionBagBatch],
+    val_loader: DataLoader[LesionBagBatch],
+    trial_root: Path,
+    local_mode: str,
+    pretrained_checkpoint: str | Path | None,
+    optuna_trial: optuna.trial.Trial | None = None,
+) -> dict[str, Any]:
+    """Train one validation-scored trial and persist its artifacts."""
+    model = build_model_family(
+        model_family,
+        dims,
+        cfg=cfg,
+        evolution_dim=evolution_dim,
+        num_edge_heads=num_edge_heads,
+        reference_feature_mode=reference_feature_mode,
+    ).to(device)
+    if hasattr(model, "local_encoder"):
+        load_pretrained_local_encoder(model, pretrained_checkpoint)
+        set_local_encoder_trainability(getattr(model, "local_encoder"), local_mode)
+    optimizer = torch.optim.AdamW(
+        [parameter for parameter in model.parameters() if parameter.requires_grad],
+        lr=float(_cfg_select(cfg, "context_model.eamist.learning_rate", 1e-3)),
+        weight_decay=float(_cfg_select(cfg, "context_model.eamist.weight_decay", 1e-4)),
+    )
+
+    stage_class_weights = _compute_stage_class_weights(train_bags, num_stage_classes=len(CANONICAL_STAGE_LABELS)).to(device)
+    max_epochs = int(_cfg_select(cfg, "context_model.eamist.max_epochs", 150))
+    patience = int(_cfg_select(cfg, "context_model.eamist.patience", 20))
+    train_history: list[dict[str, float | int]] = []
+    val_history: list[dict[str, float | int]] = []
+    best_payload: dict[str, float] | None = None
+    best_score = -np.inf
+    best_checkpoint = trial_root / "best_checkpoint.pt"
+    wait = 0
+
+    for epoch in range(max_epochs):
+        train_epoch = _run_epoch(model, train_loader, device=device, optimizer=optimizer, cfg=cfg, stage_class_weights=stage_class_weights)
+        val_epoch = _run_epoch(model, val_loader, device=device, optimizer=None, cfg=cfg, stage_class_weights=stage_class_weights)
+        if val_epoch["stage_targets"].shape[0] == 0:
+            raise ValueError("Validation split is empty for this lesion-level training trial.")
+        val_metrics = _epoch_metrics(val_epoch, edge_target_labels=edge_target_labels)
+        train_metrics = _epoch_metrics(train_epoch, edge_target_labels=edge_target_labels)
+        val_score = _objective_from_validation_metrics(val_metrics)
+
+        train_history.append(
+            {
+                "epoch": epoch,
+                "loss": float(train_epoch["loss"]),
+                "stage_loss": float(train_epoch["stage_loss"]),
+                "displacement_loss": float(train_epoch["displacement_loss"]),
+                "edge_loss": float(train_epoch["edge_loss"]),
+                "regularization_loss": float(train_epoch["regularization_loss"]),
+                **train_metrics,
+            }
+        )
+        val_history.append(
+            {
+                "epoch": epoch,
+                "loss": float(val_epoch["loss"]),
+                "stage_loss": float(val_epoch["stage_loss"]),
+                "displacement_loss": float(val_epoch["displacement_loss"]),
+                "edge_loss": float(val_epoch["edge_loss"]),
+                "regularization_loss": float(val_epoch["regularization_loss"]),
+                **val_metrics,
+            }
+        )
+
+        if optuna_trial is not None:
+            optuna_trial.report(val_score, step=int(epoch))
+            if optuna_trial.should_prune():
+                raise optuna.TrialPruned()
+        if val_score > best_score:
+            best_score = float(val_score)
+            best_payload = {
+                "best_epoch": float(epoch),
+                "selection_score": float(val_score),
+                **val_metrics,
+            }
+            _save_checkpoint(
+                best_checkpoint,
+                model,
+                cfg,
+                epoch=epoch,
+                val_metrics=best_payload,
+                model_family=model_family,
+                dims=dims,
+                evolution_dim=evolution_dim,
+                num_edge_heads=num_edge_heads,
+                reference_feature_mode=reference_feature_mode,
+            )
+            wait = 0
+        else:
+            wait += 1
+        if wait >= patience:
+            break
+
+    if best_payload is None:
+        raise RuntimeError(f"No valid checkpoint was selected for lesion trial in {trial_root}.")
+    pd.DataFrame(train_history).to_csv(trial_root / "train_history.csv", index=False)
+    pd.DataFrame(val_history).to_csv(trial_root / "val_history.csv", index=False)
+    (trial_root / "trial_metrics.json").write_text(
+        json.dumps(
+            {
+                "best_validation": best_payload,
+                "selection_score": float(best_score),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "best_checkpoint": best_checkpoint,
+        "best_payload": best_payload,
+        "best_score": float(best_score),
+        "train_history_path": trial_root / "train_history.csv",
+        "val_history_path": trial_root / "val_history.csv",
+    }
+
+
+def _run_optuna_hpo(
+    *,
+    cfg: DictConfig | dict[str, Any],
+    model_family: str,
+    reference_feature_mode: str,
+    fold_index: int,
+    dims: LocalFeatureDims,
+    evolution_dim: int | None,
+    num_edge_heads: int,
+    edge_target_labels: tuple[str, ...],
+    train_bags: list[LesionBag],
+    device: str,
+    train_loader: DataLoader[LesionBagBatch],
+    val_loader: DataLoader[LesionBagBatch],
+    fold_root: Path,
+    local_mode: str,
+    pretrained_checkpoint: str | Path | None,
+) -> tuple[dict[str, Any], pd.DataFrame]:
+    """Run Optuna HPO for one model family and fold and return best overrides plus trial table."""
+    hpo_cfg = _resolve_hpo_config(cfg)
+    backend = str(hpo_cfg.get("backend", "optuna")).lower()
+    if backend != "optuna":
+        raise ValueError(f"Unsupported EA-MIST HPO backend '{backend}'. Only 'optuna' is supported.")
+    enabled = bool(hpo_cfg.get("enabled", False))
+    num_trials = max(1, int(hpo_cfg.get("num_trials", 1)))
+    if not enabled or num_trials == 1:
+        return {}, pd.DataFrame([{"trial_index": 0, "state": "COMPLETE", "objective": None, "overrides": "{}"}])
+
+    search_space = _normalize_hpo_search_space(cfg, model_family)
+    if not search_space:
+        return {}, pd.DataFrame([{"trial_index": 0, "state": "COMPLETE", "objective": None, "overrides": "{}"}])
+
+    sampler_name = str(hpo_cfg.get("sampler", "tpe")).lower()
+    if sampler_name != "tpe":
+        raise ValueError(f"Unsupported Optuna sampler '{sampler_name}'. Only 'tpe' is currently supported.")
+    sampler = optuna.samplers.TPESampler(seed=int(hpo_cfg.get("seed", 17)) + 1009 * int(fold_index))
+    pruner = optuna.pruners.MedianPruner(
+        n_startup_trials=int(hpo_cfg.get("n_startup_trials", min(3, num_trials))),
+        n_warmup_steps=int(hpo_cfg.get("n_warmup_steps", 3)),
+    )
+    study = optuna.create_study(
+        study_name=f"eamist_{model_family}_{reference_feature_mode}_fold_{fold_index:02d}",
+        direction="maximize",
+        sampler=sampler,
+        pruner=pruner,
+    )
+
+    def objective(trial: optuna.trial.Trial) -> float:
+        overrides = _suggest_optuna_overrides(trial, search_space=search_space)
+        trial_cfg = _cfg_with_eamist_overrides(cfg, overrides)
+        trial_root = _ensure_dir(fold_root / "hpo_trials" / f"trial_{trial.number:03d}")
+        fit_result = _fit_trial(
+            cfg=trial_cfg,
+            model_family=model_family,
+            reference_feature_mode=reference_feature_mode,
+            dims=dims,
+            evolution_dim=evolution_dim,
+            num_edge_heads=num_edge_heads,
+            edge_target_labels=edge_target_labels,
+            train_bags=train_bags,
+            device=device,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            trial_root=trial_root,
+            local_mode=str(_cfg_select(trial_cfg, "context_model.eamist.local_encoder_training_mode", local_mode)),
+            pretrained_checkpoint=pretrained_checkpoint,
+            optuna_trial=trial,
+        )
+        trial.set_user_attr("overrides", overrides)
+        trial.set_user_attr("best_payload", fit_result["best_payload"])
+        trial.set_user_attr("artifact_dir", str(trial_root))
+        return _objective_from_validation_metrics(fit_result["best_payload"])
+
+    study.optimize(objective, n_trials=num_trials, gc_after_trial=True)
+    trial_table = _build_optuna_trial_table(study)
+    complete_trials = [trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE]
+    if not complete_trials:
+        log.warning(
+            "Optuna produced no completed trials for model=%s reference_mode=%s fold=%d. Falling back to base config.",
+            model_family,
+            reference_feature_mode,
+            fold_index,
+        )
+        return {}, trial_table
+    best_overrides = dict(study.best_trial.user_attrs.get("overrides", {}) or {})
+    return best_overrides, trial_table
+
+
 def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     """Run lesion-level benchmarking for pooled, Deep Sets, Set Transformer, and EA-MIST."""
     seed = int(_cfg_select(cfg, "seed", 42))
@@ -718,69 +915,63 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
         / "eamist_benchmark"
     )
     summary_rows: list[dict[str, object]] = []
-    active_edges = [str(edge) for edge in _cfg_select(cfg, "context_model.eamist.active_edges", ["AAH->AIS", "AIS->MIA"])]
-    model_families = [str(name) for name in _cfg_select(cfg, "context_model.eamist.model_families", ["pooled", "deep_sets", "lesion_set_transformer", "eamist"])]
+    model_families = [str(name) for name in _cfg_select(cfg, "context_model.eamist.model_families", ["pooled", "deep_sets", "lesion_set_transformer", "eamist_no_prototypes", "eamist"])]
+    reference_feature_modes = [
+        str(name)
+        for name in _cfg_select(cfg, "context_model.eamist.reference_feature_modes", ["hlca_luca"])
+    ]
     seeds = [int(value) for value in _cfg_select(cfg, "context_model.eamist.seeds", [seed])]
     outer_folds = int(_cfg_select(cfg, "context_model.eamist.outer_folds", 3))
     batch_size = int(_cfg_select(cfg, "context_model.eamist.batch_size_bags", 8))
     local_mode = str(_cfg_select(cfg, "context_model.eamist.local_encoder_training_mode", "full"))
     pretrained_checkpoint = _cfg_select(cfg, "context_model.eamist.pretrained_local_checkpoint", None)
     device = _resolve_device(cfg)
+
+    if not build_result.bags:
+        raise RuntimeError("EA-MIST lesion training received no lesion bags.")
+    dataset = LesionBagDataset(build_result.bags)
+    dims = infer_local_feature_dims(NeighborhoodPretrainDataset(build_result.bags))
+    evolution_dim = 0
+    if any(bag.evolution_features is not None for bag in build_result.bags):
+        evolution_dim = max(int(np.asarray(bag.evolution_features, dtype=np.float32).shape[0]) for bag in build_result.bags if bag.evolution_features is not None)
+    edge_target_labels = tuple(build_result.bags[0].edge_target_labels or ())
+    num_edge_heads = len(edge_target_labels)
+    folds = build_multitask_lesion_folds(
+        build_result.bags,
+        holdout_key=str(_cfg_select(cfg, "context_model.eamist.holdout_key", "donor_id")),
+        num_folds=outer_folds,
+        seed=seed,
+    )
     log.info(
-        "Starting EA-MIST lesion training on device=%s with edges=%s, models=%s, folds=%d, seeds=%s",
+        "Starting EA-MIST lesion training on device=%s with models=%s, reference_modes=%s, folds=%d, seeds=%s, lesions=%d",
         device,
-        active_edges,
         model_families,
+        reference_feature_modes,
         outer_folds,
         seeds,
+        len(build_result.bags),
     )
 
-    for edge_label in active_edges:
-        edge_bags = [bag for bag in build_result.bags if bag.edge_label == edge_label]
-        if len(edge_bags) < 3:
-            log.warning("Skipping edge %s because only %d lesion bags are available.", edge_label, len(edge_bags))
-            continue
-        dataset = LesionBagDataset(edge_bags)
-        dims = infer_local_feature_dims(NeighborhoodPretrainDataset(edge_bags))
-        evolution_dim = 0
-        if any(bag.evolution_features is not None for bag in edge_bags):
-            evolution_dim = max(int(np.asarray(bag.evolution_features, dtype=np.float32).shape[0]) for bag in edge_bags if bag.evolution_features is not None)
-        try:
-            folds = build_lesion_folds(
-                edge_bags,
-                holdout_key=str(_cfg_select(cfg, "context_model.eamist.holdout_key", "donor_id")),
-                num_folds=outer_folds,
-                seed=seed,
-                min_lesions_per_class=int(_cfg_select(cfg, "context_model.eamist.min_lesions_per_class", 1)),
-            )
-        except ValueError as exc:
-            log.warning(
-                "Skipping edge %s because donor-held-out folds are not statistically valid: %s",
-                edge_label,
-                exc,
-            )
-            continue
-
-        for model_family in model_families:
+    for model_family in model_families:
+        for reference_feature_mode in reference_feature_modes:
             for fold in folds:
-                assert_no_split_leakage(edge_bags, fold)
-                fold_root = _ensure_dir(output_root / edge_label.replace("->", "_") / model_family / f"fold_{fold.fold_index:02d}")
+                assert_no_split_leakage(build_result.bags, fold)
+                fold_root = _ensure_dir(output_root / reference_feature_mode / model_family / f"fold_{fold.fold_index:02d}")
+                train_bags = [build_result.bags[idx] for idx in fold.train_indices]
                 train_loader = DataLoader(Subset(dataset, list(fold.train_indices)), batch_size=batch_size, shuffle=True, collate_fn=collate_lesion_bags)
                 val_loader = DataLoader(Subset(dataset, list(fold.val_indices)), batch_size=batch_size, shuffle=False, collate_fn=collate_lesion_bags)
                 test_loader = DataLoader(Subset(dataset, list(fold.test_indices)), batch_size=batch_size, shuffle=False, collate_fn=collate_lesion_bags)
 
-                log.info(
-                    "Optuna HPO selection for edge=%s model=%s fold=%d.",
-                    edge_label,
-                    model_family,
-                    fold.fold_index,
-                )
                 best_trial_overrides, hpo_trial_table = _run_optuna_hpo(
                     cfg=cfg,
                     model_family=model_family,
+                    reference_feature_mode=reference_feature_mode,
                     fold_index=fold.fold_index,
                     dims=dims,
                     evolution_dim=evolution_dim if evolution_dim > 0 else None,
+                    num_edge_heads=num_edge_heads,
+                    edge_target_labels=edge_target_labels,
+                    train_bags=train_bags,
                     device=device,
                     train_loader=train_loader,
                     val_loader=val_loader,
@@ -789,18 +980,14 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                     pretrained_checkpoint=pretrained_checkpoint,
                 )
                 hpo_trial_table.to_csv(fold_root / "hpo_trial_summary.csv", index=False)
-                if not hpo_trial_table.empty and "trial_index" in hpo_trial_table.columns and "objective" in hpo_trial_table.columns:
-                    complete_rows = hpo_trial_table.loc[hpo_trial_table["state"] == "COMPLETE"] if "state" in hpo_trial_table.columns else hpo_trial_table
-                    if complete_rows.empty:
-                        best_trial_idx = 0
-                        best_trial_objective = None
-                    else:
-                        best_row = complete_rows.sort_values("objective", ascending=False, na_position="last").iloc[0]
-                        best_trial_idx = int(best_row["trial_index"])
-                        best_trial_objective = None if pd.isna(best_row["objective"]) else float(best_row["objective"])
-                else:
+                complete_rows = hpo_trial_table.loc[hpo_trial_table["state"] == "COMPLETE"] if "state" in hpo_trial_table.columns else hpo_trial_table
+                if complete_rows.empty or "objective" not in complete_rows.columns:
                     best_trial_idx = 0
                     best_trial_objective = None
+                else:
+                    best_row = complete_rows.sort_values("objective", ascending=False, na_position="last").iloc[0]
+                    best_trial_idx = int(best_row["trial_index"])
+                    best_trial_objective = None if pd.isna(best_row["objective"]) else float(best_row["objective"])
                 (fold_root / "best_hpo_config.json").write_text(
                     json.dumps(
                         {
@@ -820,8 +1007,12 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                     fit_result = _fit_trial(
                         cfg=run_cfg,
                         model_family=model_family,
+                        reference_feature_mode=reference_feature_mode,
                         dims=dims,
                         evolution_dim=evolution_dim if evolution_dim > 0 else None,
+                        num_edge_heads=num_edge_heads,
+                        edge_target_labels=edge_target_labels,
+                        train_bags=train_bags,
                         device=device,
                         train_loader=train_loader,
                         val_loader=val_loader,
@@ -831,41 +1022,57 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                     )
 
                     checkpoint = torch.load(fit_result["best_checkpoint"], map_location=device)
-                    model = build_model_family(model_family, dims, cfg=run_cfg, evolution_dim=evolution_dim if evolution_dim > 0 else None).to(device)
+                    model = build_model_family(
+                        model_family,
+                        dims,
+                        cfg=run_cfg,
+                        evolution_dim=evolution_dim if evolution_dim > 0 else None,
+                        num_edge_heads=num_edge_heads,
+                        reference_feature_mode=reference_feature_mode,
+                    ).to(device)
                     model.load_state_dict(checkpoint["state_dict"], strict=False)
                     model.eval()
+                    stage_class_weights = _compute_stage_class_weights(train_bags, num_stage_classes=len(CANONICAL_STAGE_LABELS)).to(device)
 
-                    val_epoch = _run_epoch(model, val_loader, device=device, optimizer=None, cfg=run_cfg)
-                    test_epoch = _run_epoch(model, test_loader, device=device, optimizer=None, cfg=run_cfg)
-                    val_probs = 1.0 / (1.0 + np.exp(-val_epoch["logits"] / float(fit_result["best_payload"]["temperature"])))
-                    test_probs = 1.0 / (1.0 + np.exp(-test_epoch["logits"] / float(fit_result["best_payload"]["temperature"])))
-                    test_metrics = compute_binary_metrics(test_epoch["labels"], test_probs, threshold=float(fit_result["best_payload"]["threshold"]))
-                    intervals = bootstrap_confidence_intervals(test_epoch["labels"], test_probs, seed=run_seed)
+                    val_epoch = _run_epoch(model, val_loader, device=device, optimizer=None, cfg=run_cfg, stage_class_weights=stage_class_weights)
+                    test_epoch = _run_epoch(model, test_loader, device=device, optimizer=None, cfg=run_cfg, stage_class_weights=stage_class_weights)
+                    val_metrics = _epoch_metrics(val_epoch, edge_target_labels=edge_target_labels)
+                    test_metrics = _epoch_metrics(test_epoch, edge_target_labels=edge_target_labels)
 
-                    test_frame = _prediction_frame(edge_bags, fold.test_indices, test_probs, test_epoch["labels"], edge_label=edge_label)
-                    val_frame = _prediction_frame(edge_bags, fold.val_indices, val_probs, val_epoch["labels"], edge_label=edge_label)
-                    per_donor = build_per_donor_metrics(test_frame, threshold=float(fit_result["best_payload"]["threshold"]))
-                    roc_df, pr_df, cal_df = build_curve_frames(test_epoch["labels"], test_probs)
-                    confusion = confusion_matrix_payload(test_epoch["labels"], test_probs, threshold=float(fit_result["best_payload"]["threshold"]))
+                    test_frame = _prediction_frame(build_result.bags, fold.test_indices, test_epoch)
+                    val_frame = _prediction_frame(build_result.bags, fold.val_indices, val_epoch)
+                    auxiliary_edge_metrics = compute_masked_edge_metrics(
+                        test_epoch["edge_logits"],
+                        test_epoch["edge_targets"],
+                        test_epoch["edge_masks"],
+                        edge_labels=edge_target_labels,
+                    )
                     split_summary = {
                         "fold": fold.summary(),
-                        "class_balance": summarize_fold_class_balance(edge_bags, fold),
-                        "edge_label": edge_label,
+                        "stage_balance": summarize_fold_stage_balance(build_result.bags, fold),
+                        "task_name": "stage_displacement",
                         "model_family": model_family,
+                        "reference_feature_mode": reference_feature_mode,
                         "selected_hpo_trial": best_trial_idx,
                     }
+                    confusion = stage_confusion_matrix_payload(test_epoch["stage_targets"], test_epoch["stage_predictions"])
+                    support = stage_support_payload(test_epoch["stage_targets"])
 
                     test_frame.to_parquet(run_root / "test_predictions.parquet", index=False)
                     val_frame.to_parquet(run_root / "val_predictions.parquet", index=False)
-                    roc_df.to_csv(run_root / "roc_curve.csv", index=False)
-                    pr_df.to_csv(run_root / "pr_curve.csv", index=False)
-                    cal_df.to_csv(run_root / "calibration_curve.csv", index=False)
-                    per_donor.to_csv(run_root / "per_donor_metrics.csv", index=False)
                     (run_root / "confusion_matrix.json").write_text(json.dumps(confusion, indent=2), encoding="utf-8")
                     (run_root / "metrics.json").write_text(
-                        json.dumps({**test_metrics, **fit_result["best_payload"], **intervals}, indent=2),
+                        json.dumps(
+                            {
+                                **test_metrics,
+                                "weak_displacement_supervision": True,
+                                "support": support,
+                            },
+                            indent=2,
+                        ),
                         encoding="utf-8",
                     )
+                    (run_root / "auxiliary_edge_metrics.json").write_text(json.dumps(auxiliary_edge_metrics, indent=2), encoding="utf-8")
                     (run_root / "split_summary.json").write_text(json.dumps(split_summary, indent=2), encoding="utf-8")
                     (run_root / "selected_hyperparameters.json").write_text(
                         json.dumps(best_trial_overrides, indent=2),
@@ -875,9 +1082,12 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                         json.dumps(
                             {
                                 "model_family": model_family,
-                                "edge_label": edge_label,
+                                "task_name": "stage_displacement",
+                                "reference_feature_mode": reference_feature_mode,
                                 "dims": asdict(dims),
                                 "evolution_dim": None if evolution_dim <= 0 else int(evolution_dim),
+                                "num_edge_heads": int(num_edge_heads),
+                                "edge_target_labels": list(edge_target_labels),
                             },
                             indent=2,
                         ),
@@ -892,17 +1102,14 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
 
                     summary_rows.append(
                         {
-                            "edge_label": edge_label,
+                            "task_name": "stage_displacement",
                             "model_family": model_family,
+                            "reference_feature_mode": reference_feature_mode,
                             "fold": int(fold.fold_index),
                             "seed": int(run_seed),
                             "selected_hpo_trial": int(best_trial_idx),
                             "selected_hpo_overrides": json.dumps(best_trial_overrides, sort_keys=True),
                             **test_metrics,
-                            "auroc_ci_low": intervals["auroc_ci"][0],
-                            "auroc_ci_high": intervals["auroc_ci"][1],
-                            "auprc_ci_low": intervals["auprc_ci"][0],
-                            "auprc_ci_high": intervals["auprc_ci"][1],
                             "artifact_dir": str(run_root),
                         }
                     )
@@ -912,7 +1119,9 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     summary = pd.DataFrame(summary_rows)
     summary.to_csv(output_root / "benchmark_summary.csv", index=False)
     model_family_summary = (
-        summary.groupby(["edge_label", "model_family"], as_index=False)[["auroc", "auprc", "balanced_accuracy", "f1", "brier", "ece"]]
+        summary.groupby(["task_name", "reference_feature_mode", "model_family"], as_index=False)[
+            ["stage_macro_f1", "stage_balanced_accuracy", "displacement_mae", "displacement_spearman"]
+        ]
         .agg(["mean", "std"])
     )
     model_family_summary.columns = [
@@ -931,4 +1140,4 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     }
 
 
-__all__ = ["run_train_lesion", "build_model_family", "load_pretrained_local_encoder"]
+__all__ = ["run_train_lesion", "build_model_family", "load_pretrained_local_encoder", "_cfg_select"]

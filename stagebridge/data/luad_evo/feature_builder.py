@@ -374,17 +374,28 @@ def build_neighborhood_stats(
 def flatten_neighborhood_features(
     receiver_embedding: np.ndarray,
     ring_compositions: np.ndarray,
+    hlca_features: np.ndarray | None,
+    luca_features: np.ndarray | None,
     lr_pathway_summary: np.ndarray,
     neighborhood_stats: np.ndarray,
 ) -> np.ndarray:
     """Flatten the structured neighborhood representation for MLP/SSL usage."""
-    return np.concatenate(
+    pieces = [
+        np.asarray(receiver_embedding, dtype=np.float32).reshape(-1),
+        np.asarray(ring_compositions, dtype=np.float32).reshape(-1),
+    ]
+    if hlca_features is not None:
+        pieces.append(np.asarray(hlca_features, dtype=np.float32).reshape(-1))
+    if luca_features is not None:
+        pieces.append(np.asarray(luca_features, dtype=np.float32).reshape(-1))
+    pieces.extend(
         [
-            np.asarray(receiver_embedding, dtype=np.float32).reshape(-1),
-            np.asarray(ring_compositions, dtype=np.float32).reshape(-1),
             np.asarray(lr_pathway_summary, dtype=np.float32).reshape(-1),
             np.asarray(neighborhood_stats, dtype=np.float32).reshape(-1),
-        ],
+        ]
+    )
+    return np.concatenate(
+        pieces,
         axis=0,
     ).astype(np.float32, copy=False)
 

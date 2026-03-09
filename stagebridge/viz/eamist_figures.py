@@ -28,7 +28,7 @@ def save_method_overview_figure(path: str | Path) -> str:
         (0.46, 0.55, 0.16, 0.22, "Local niche\nencoder"),
         (0.68, 0.55, 0.12, 0.22, "Prototype\nbank"),
         (0.84, 0.55, 0.12, 0.22, "Lesion Set\nTransformer"),
-        (0.84, 0.18, 0.12, 0.18, "Edge head\n+ evolution"),
+        (0.84, 0.18, 0.12, 0.18, "Stage + weak\n displacement\n + aux edges"),
     ]
     for x, y, w, h, text in boxes:
         ax.add_patch(plt.Rectangle((x, y), w, h, facecolor="#eef3f8", edgecolor="#12344d", linewidth=1.8))
@@ -90,30 +90,30 @@ def save_embedding_diagnostics_figure(
 
 
 def save_benchmark_comparison_figure(summary: pd.DataFrame, path: str | Path) -> str:
-    """Create a side-by-side AUROC/AUPRC benchmark figure by edge and model."""
+    """Create a stage/displacement benchmark figure by reference mode and model."""
     path = _ensure_parent(path)
     agg = (
-        summary.groupby(["edge_label", "model_family"], as_index=False)
+        summary.groupby(["reference_feature_mode", "model_family"], as_index=False)
         .agg(
-            auroc_mean=("auroc", "mean"),
-            auroc_std=("auroc", "std"),
-            auprc_mean=("auprc", "mean"),
-            auprc_std=("auprc", "std"),
+            stage_macro_f1_mean=("stage_macro_f1", "mean"),
+            stage_macro_f1_std=("stage_macro_f1", "std"),
+            displacement_spearman_mean=("displacement_spearman", "mean"),
+            displacement_spearman_std=("displacement_spearman", "std"),
         )
         .reset_index(drop=True)
     )
-    edges = agg["edge_label"].astype(str).unique().tolist()
-    fig, axes = plt.subplots(len(edges), 2, figsize=(12, 4 * max(len(edges), 1)))
-    if len(edges) == 1:
+    reference_modes = agg["reference_feature_mode"].astype(str).unique().tolist()
+    fig, axes = plt.subplots(len(reference_modes), 2, figsize=(12, 4 * max(len(reference_modes), 1)))
+    if len(reference_modes) == 1:
         axes = np.asarray([axes])
-    for row_idx, edge_label in enumerate(edges):
-        edge_frame = agg[agg["edge_label"] == edge_label].sort_values("auroc_mean", ascending=False)
-        for col_idx, metric in enumerate(("auroc", "auprc")):
+    for row_idx, reference_mode in enumerate(reference_modes):
+        edge_frame = agg[agg["reference_feature_mode"] == reference_mode].sort_values("stage_macro_f1_mean", ascending=False)
+        for col_idx, metric in enumerate(("stage_macro_f1", "displacement_spearman")):
             ax = axes[row_idx, col_idx]
             ax.bar(edge_frame["model_family"], edge_frame[f"{metric}_mean"], yerr=edge_frame[f"{metric}_std"].fillna(0.0), color="#4c78a8")
-            ax.set_title(f"{edge_label} {metric.upper()}")
+            ax.set_title(f"{reference_mode} {metric.replace('_', ' ').title()}")
             ax.tick_params(axis="x", rotation=30)
-            ax.set_ylim(0.0, 1.05)
+            ax.set_ylim(-0.05, 1.05)
     fig.tight_layout()
     fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -146,9 +146,9 @@ def save_ablation_figure(ablation_frame: pd.DataFrame, path: str | Path) -> str:
     """Create a simple ablation comparison panel."""
     path = _ensure_parent(path)
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.bar(ablation_frame["ablation"], ablation_frame["delta_auroc"], color="#72b7b2")
+    ax.bar(ablation_frame["ablation"], ablation_frame["delta_stage_macro_f1"], color="#72b7b2")
     ax.axhline(0.0, color="black", linewidth=1.0)
-    ax.set_ylabel("Delta AUROC")
+    ax.set_ylabel("Delta Stage Macro-F1")
     ax.set_title("Figure 5. Ablation effects")
     ax.tick_params(axis="x", rotation=30)
     fig.tight_layout()

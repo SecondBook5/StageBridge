@@ -14,6 +14,8 @@ from stagebridge.logging_utils import get_logger
 
 from .eamist_common import (
     DEFAULT_RING_EDGES,
+    EAMIST_BAG_SCHEMA_VERSION,
+    WEAK_STAGE_ORDINAL_SUPERVISION,
     align_feature_rows,
     choose_niche_token_columns,
     default_reports_tables_dir,
@@ -34,6 +36,8 @@ from .feature_builder import (
 )
 from .neighborhood_builder import _resolve_local_neighborhood_geometry, infer_edge_label
 from .snrna import load_luad_evo_snrna_latent
+from .stages import stage_to_progression_score
+from stagebridge.transition_model.disease_edges import edge_id_map
 
 log = get_logger(__name__)
 
@@ -63,6 +67,19 @@ def _load_optional_labels(path: Path | None) -> pd.DataFrame | None:
     if path is None or not path.exists():
         return None
     return pd.read_csv(path)
+
+
+def _sidecar_audit_path(path: Path) -> Path:
+    return path.parent / f"{path.stem}.audit.json"
+
+
+def _resolve_viable_edge_labels(viability: dict[str, Any]) -> tuple[str, ...]:
+    edges = viability.get("edges", {}) if isinstance(viability, dict) else {}
+    if not isinstance(edges, dict):
+        return ()
+    ordered = edge_id_map()
+    viable = [str(label) for label, payload in edges.items() if isinstance(payload, dict) and bool(payload.get("binary_viable", False))]
+    return tuple(sorted(viable, key=lambda label: (ordered.get(str(label), 10_000), str(label))))
 
 
 def _validate_zarr_against_niches(zarr_path: Path | None, niche_df: pd.DataFrame) -> dict[str, Any]:
@@ -165,6 +182,10 @@ def run(
     refined_lookup = {} if refined is None else refined.set_index("lesion_id").to_dict(orient="index")
     viability_path = viability_report.resolve() if viability_report is not None else default_viability_report_path().resolve()
     viability = load_json_if_exists(viability_path) or {"edges": {}}
+    active_edge_labels = _resolve_viable_edge_labels(viability)
+    active_edge_lookup = {label: idx for idx, label in enumerate(active_edge_labels)}
+    hlca_audit = load_json_if_exists(_sidecar_audit_path(hlca_features)) or {}
+    luca_audit = load_json_if_exists(_sidecar_audit_path(luca_features)) or {}
 
     cfg: dict[str, Any] = {}
     if snrna_latent is not None:
@@ -201,6 +222,7 @@ def run(
         patient_id = patient_ids[0]
         stage = stages[0]
         stage_index = stage_index_or_error(stage)
+        displacement_target = float(stage_to_progression_score(stage))
         edge_label = infer_edge_label(stage)
         log.info(
             "Processing lesion %d/%d: lesion_id=%s donor_id=%s patient_id=%s stage=%s niches=%d",
@@ -216,6 +238,9 @@ def run(
         coords = lesion_df.loc[:, ["x", "y"]].to_numpy(dtype=np.float32, copy=False)
         compositions = lesion_df[token_columns].to_numpy(dtype=np.float32, copy=False)
         receiver_features: list[list[float]] = []
+        receiver_state_ids: list[int] = []
+        receiver_state_labels: list[str] = []
+        receiver_confidences: list[float] = []
         ring_features: list[list[list[float]]] = []
         pathway_features_values: list[list[float]] = []
         niche_stats_features: list[list[float]] = []
@@ -236,6 +261,7 @@ def run(
                 token_labels,
                 templates,
             )
+            receiver_state_id = token_labels.index(receiver_label) if receiver_label in token_labels else -1
             ring_compositions = summarize_ring_compositions(
                 compositions,
                 coords,
@@ -257,6 +283,9 @@ def run(
                 local_density=float(density),
             )
             receiver_features.append(receiver_embedding.astype(np.float32, copy=False).tolist())
+            receiver_state_ids.append(int(receiver_state_id))
+            receiver_state_labels.append(str(receiver_label))
+            receiver_confidences.append(float(receiver_confidence))
             ring_features.append(ring_compositions.astype(np.float32, copy=False).tolist())
             pathway_features_values.append(pathway_summary.astype(np.float32, copy=False).tolist())
             niche_stats_features.append(niche_stats.astype(np.float32, copy=False).tolist())
@@ -284,10 +313,17 @@ def run(
             target_binary = 1.0
         elif label_text == "negative":
             target_binary = 0.0
+        target_excluded = bool(refined_row.get("exclusion_flag", False))
 
         edge_meta = {}
         if edge_label and "edges" in viability:
             edge_meta = dict(viability["edges"].get(edge_label, {}))
+        edge_targets = np.zeros((len(active_edge_labels),), dtype=np.float32)
+        edge_target_mask = np.zeros((len(active_edge_labels),), dtype=bool)
+        if edge_label in active_edge_lookup and target_binary is not None and not target_excluded:
+            edge_idx = active_edge_lookup[str(edge_label)]
+            edge_targets[edge_idx] = float(target_binary)
+            edge_target_mask[edge_idx] = True
 
         bag_rows.append(
             {
@@ -297,8 +333,15 @@ def run(
                 "patient_id": patient_id,
                 "stage_index": int(stage_index),
                 "stage_label": stage,
+                "displacement_target": displacement_target,
                 "edge_label": edge_label,
+                "edge_target_labels": list(active_edge_labels),
+                "edge_targets": edge_targets.astype(np.float32, copy=False).tolist(),
+                "edge_target_mask": edge_target_mask.astype(bool, copy=False).tolist(),
                 "niche_ids": lesion_df["niche_id"].astype(str).tolist(),
+                "receiver_state_ids": receiver_state_ids,
+                "receiver_state_labels": receiver_state_labels,
+                "receiver_confidences": receiver_confidences,
                 "receiver_features": receiver_features,
                 "ring_features": ring_features,
                 "hlca_features": hlca_matrix.astype(np.float32, copy=False).tolist(),
@@ -340,11 +383,17 @@ def run(
 
     audit = {
         "created_at_utc": utc_now_iso(),
+        "schema_version": EAMIST_BAG_SCHEMA_VERSION,
+        "displacement_supervision": WEAK_STAGE_ORDINAL_SUPERVISION,
         "niche_parquet": str(niche_parquet),
         "hlca_features": str(hlca_features),
         "luca_features": str(luca_features),
         "evo_features": str(evo_features),
         "out_path": str(out_path),
+        "num_rings": int(len(ring_edges) - 1),
+        "ring_edges": [float(edge) for edge in ring_edges],
+        "receiver_state_vocabulary": token_labels,
+        "active_edge_labels": list(active_edge_labels),
         "num_lesions": int(output.shape[0]),
         "num_niches": int(total_niches),
         "max_niches_per_lesion": int(max_niches),
@@ -362,6 +411,9 @@ def run(
         "viability_report_used": str(viability_path) if viability else None,
         "evo_nan_values_filled_with_zero": int(evo_nan_fill_count),
         "zarr_validation": zarr_audit,
+        "hlca_state_column": hlca_audit.get("chosen_hlca_state_column") or hlca_audit.get("chosen_state_column"),
+        "luca_state_column": luca_audit.get("chosen_luca_state_column"),
+        "luca_scoring_space": luca_audit.get("chosen_scoring_space"),
     }
     write_json(out_path.parent / f"{out_path.stem}.audit.json", audit)
     log.info("EA-MIST bag assembly completed in %.1fs", perf_counter() - run_started)

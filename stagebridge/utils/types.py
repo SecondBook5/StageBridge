@@ -320,6 +320,9 @@ class LocalNicheExample:
     neighborhood_stats: np.ndarray
     flat_features: np.ndarray
     center_coord: np.ndarray
+    hlca_features: np.ndarray | None = None
+    luca_features: np.ndarray | None = None
+    receiver_state_label: str | None = None
     receiver_confidence: float | None = None
     notes: str | None = None
 
@@ -356,6 +359,11 @@ class LesionBag:
     label_source: str
     neighborhoods: list[LocalNicheExample]
     evolution_features: np.ndarray | None = None
+    stage_index: int | None = None
+    displacement_target: float | None = None
+    edge_targets: np.ndarray | None = None
+    edge_target_mask: np.ndarray | None = None
+    edge_target_labels: tuple[str, ...] | None = None
     notes: str | None = None
 
     @property
@@ -396,16 +404,23 @@ class LesionBagBatch:
     neighborhood_stats: "torch.Tensor"
     flat_features: "torch.Tensor"
     center_coords: "torch.Tensor"
+    hlca_features: "torch.Tensor | None"
+    luca_features: "torch.Tensor | None"
     neighborhood_mask: "torch.Tensor"
     edge_ids: "torch.Tensor"
     labels: "torch.Tensor"
     label_weights: "torch.Tensor"
+    stage_indices: "torch.Tensor | None"
+    displacement_targets: "torch.Tensor | None"
+    edge_targets: "torch.Tensor | None"
+    edge_target_mask: "torch.Tensor | None"
     sample_ids: list[str]
     lesion_ids: list[str]
     donor_ids: list[str]
     patient_ids: list[str]
     stages: list[str]
     label_sources: list[str]
+    edge_target_labels: tuple[str, ...] = ()
     evolution_features: "torch.Tensor | None" = None
 
     def to(self, device: str) -> "LesionBagBatch":
@@ -418,16 +433,23 @@ class LesionBagBatch:
             neighborhood_stats=self.neighborhood_stats.to(device),
             flat_features=self.flat_features.to(device),
             center_coords=self.center_coords.to(device),
+            hlca_features=None if self.hlca_features is None else self.hlca_features.to(device),
+            luca_features=None if self.luca_features is None else self.luca_features.to(device),
             neighborhood_mask=self.neighborhood_mask.to(device),
             edge_ids=self.edge_ids.to(device),
             labels=self.labels.to(device),
             label_weights=self.label_weights.to(device),
+            stage_indices=None if self.stage_indices is None else self.stage_indices.to(device),
+            displacement_targets=None if self.displacement_targets is None else self.displacement_targets.to(device),
+            edge_targets=None if self.edge_targets is None else self.edge_targets.to(device),
+            edge_target_mask=None if self.edge_target_mask is None else self.edge_target_mask.to(device),
             sample_ids=list(self.sample_ids),
             lesion_ids=list(self.lesion_ids),
             donor_ids=list(self.donor_ids),
             patient_ids=list(self.patient_ids),
             stages=list(self.stages),
             label_sources=list(self.label_sources),
+            edge_target_labels=tuple(self.edge_target_labels),
             evolution_features=None if self.evolution_features is None else self.evolution_features.to(device),
         )
 

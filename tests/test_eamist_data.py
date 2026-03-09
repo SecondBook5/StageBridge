@@ -17,9 +17,12 @@ def _make_bag(sample_id: str, donor_id: str, edge_label: str, label: float, shif
                 [0.6 + 0.1 * label, 0.2, 0.2],
                 [0.3, 0.5 + shift, 0.2],
                 [0.2, 0.2, 0.6 + shift],
+                [0.1 + shift, 0.3, 0.6],
             ],
             dtype=np.float32,
         )
+        hlca = np.asarray([0.8 - 0.1 * label, 0.2 + shift], dtype=np.float32)
+        luca = np.asarray([0.1 + 0.5 * label, 0.3 + shift, 0.4], dtype=np.float32)
         lr = np.asarray([0.8 * label + 0.1, 0.4 + shift, 0.3, 0.2], dtype=np.float32)
         stats = np.asarray([3.0 + idx, 0.2, 0.3, 0.5, 0.9, 1.0], dtype=np.float32)
         neighborhoods.append(
@@ -36,18 +39,22 @@ def _make_bag(sample_id: str, donor_id: str, edge_label: str, label: float, shif
                 ring_compositions=rings,
                 lr_pathway_summary=lr,
                 neighborhood_stats=stats,
-                flat_features=np.concatenate([receiver, rings.reshape(-1), lr, stats]).astype(np.float32),
+                flat_features=np.concatenate([receiver, rings.reshape(-1), hlca, luca, lr, stats]).astype(np.float32),
                 center_coord=np.asarray([float(idx), float(idx + 1)], dtype=np.float32),
+                hlca_features=hlca,
+                luca_features=luca,
                 receiver_confidence=0.9,
             )
         )
     edge_id = 0 if edge_label == "AAH->AIS" else 1
+    stage = edge_label.split("->", 1)[0]
+    stage_index = {"Normal": 0, "AAH": 1, "AIS": 2, "MIA": 3, "LUAD": 4}[stage]
     return LesionBag(
         lesion_id=sample_id,
         sample_id=sample_id,
         donor_id=donor_id,
         patient_id=donor_id,
-        stage=edge_label.split("->", 1)[0],
+        stage=stage,
         edge_id=edge_id,
         edge_label=edge_label,
         label=float(label),
@@ -55,6 +62,11 @@ def _make_bag(sample_id: str, donor_id: str, edge_label: str, label: float, shif
         label_source="synthetic",
         neighborhoods=neighborhoods,
         evolution_features=np.asarray([0.1 + shift, label], dtype=np.float32),
+        stage_index=stage_index,
+        displacement_target=float(stage_index) / 4.0,
+        edge_targets=np.asarray([1.0 if edge_label == "AAH->AIS" else 0.0, float(label) if edge_label == "AIS->MIA" else 0.0], dtype=np.float32),
+        edge_target_mask=np.asarray([edge_label == "AAH->AIS", edge_label == "AIS->MIA"], dtype=bool),
+        edge_target_labels=("AAH->AIS", "AIS->MIA"),
     )
 
 
@@ -66,7 +78,12 @@ def test_collate_lesion_bags_and_pretrain_dataset() -> None:
     dataset = LesionBagDataset(bags)
     batch = collate_lesion_bags([dataset[0], dataset[1]])
     assert batch.receiver_embeddings.shape == (2, 3, 3)
-    assert batch.ring_compositions.shape == (2, 3, 3, 3)
+    assert batch.ring_compositions.shape == (2, 3, 4, 3)
+    assert batch.hlca_features is not None
+    assert batch.luca_features is not None
+    assert batch.stage_indices is not None
+    assert batch.displacement_targets is not None
+    assert batch.edge_targets is not None
     assert batch.evolution_features is not None
 
     pretrain = NeighborhoodPretrainDataset(bags)
@@ -129,8 +146,8 @@ def test_resolve_local_neighborhood_geometry_falls_back_to_adaptive_knn() -> Non
         neighborhood_radius=150.0,
         min_instances=3,
         adaptive_neighbor_k=3,
-        num_rings=3,
+        num_rings=4,
     )
-    assert len(ring_edges) == 4
+    assert len(ring_edges) == 5
     assert density >= 3.0
     assert ring_edges[-1] >= 2000.0
