@@ -150,7 +150,7 @@ If you use StageBridge in your research, please cite:
   title={StageBridge: Niche-Conditioned Optimal Transport for Early Lung Cancer Progression},
   author={Book, AJ},
   year={2026},
-  url={https://github.com/<user>/StageBridge}
+  url={https://github.com/SecondBook5/StageBridge}
 }
 ```
 
