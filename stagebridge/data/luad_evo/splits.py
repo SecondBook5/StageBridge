@@ -232,6 +232,71 @@ def build_lesion_folds(
     return folds
 
 
+def build_multitask_lesion_folds(
+    bags: list[LesionBag],
+    *,
+    holdout_key: str = "donor_id",
+    num_folds: int = 3,
+    seed: int = 42,
+) -> list[LesionFold]:
+    """Build donor-held-out lesion folds for cohort-wide stage/displacement training."""
+    if not bags:
+        raise ValueError("Cannot build lesion folds from an empty bag list.")
+    if num_folds < 2:
+        raise ValueError(f"num_folds must be >= 2, got {num_folds}.")
+
+    groups = [(_group_key_for_bag(bag, holdout_key), idx) for idx, bag in enumerate(bags)]
+    unique_groups = sorted({group for group, _idx in groups})
+    if len(unique_groups) < num_folds:
+        raise ValueError(
+            f"Need at least {num_folds} unique {holdout_key} groups, found {len(unique_groups)}."
+        )
+
+    rng = np.random.default_rng(int(seed))
+    rotation = int(rng.integers(0, len(unique_groups))) if len(unique_groups) > 1 else 0
+    rotated_groups = unique_groups[rotation:] + unique_groups[:rotation]
+    donor_slices = [rotated_groups[i::num_folds] for i in range(num_folds)]
+
+    folds: list[LesionFold] = []
+    for fold_idx in range(num_folds):
+        test_groups = tuple(sorted(donor_slices[fold_idx]))
+        if num_folds == 2:
+            remaining_groups = tuple(sorted(donor_slices[(fold_idx + 1) % num_folds]))
+            midpoint = max(1, len(remaining_groups) // 2)
+            val_groups = tuple(sorted(remaining_groups[:midpoint]))
+            train_groups = tuple(sorted(remaining_groups[midpoint:]))
+            if not train_groups:
+                train_groups = val_groups
+                val_groups = ()
+        else:
+            val_groups = tuple(sorted(donor_slices[(fold_idx + 1) % num_folds]))
+            train_groups = tuple(
+                sorted(
+                    group
+                    for i, groups_i in enumerate(donor_slices)
+                    if i not in {fold_idx, (fold_idx + 1) % num_folds}
+                    for group in groups_i
+                )
+            )
+        train_indices = tuple(idx for group, idx in groups if group in train_groups)
+        val_indices = tuple(idx for group, idx in groups if group in val_groups)
+        test_indices = tuple(idx for group, idx in groups if group in test_groups)
+        if not train_indices or not test_indices:
+            raise ValueError(f"Fold {fold_idx} produced an empty train or test split.")
+        folds.append(
+            LesionFold(
+                fold_index=fold_idx,
+                train_indices=train_indices,
+                val_indices=val_indices,
+                test_indices=test_indices,
+                train_donors=train_groups,
+                val_donors=val_groups,
+                test_donors=test_groups,
+            )
+        )
+    return folds
+
+
 def assert_no_split_leakage(bags: list[LesionBag], fold: LesionFold) -> None:
     """Hard-fail if train/val/test leakage is detected."""
     subsets = {
@@ -264,3 +329,20 @@ def summarize_fold_class_balance(bags: list[LesionBag], fold: LesionFold) -> dic
         "val": {str(k): int(v) for k, v in _check_class_balance(fold.val_indices, bags).items()},
         "test": {str(k): int(v) for k, v in _check_class_balance(fold.test_indices, bags).items()},
     }
+
+
+def summarize_fold_stage_balance(bags: list[LesionBag], fold: LesionFold) -> dict[str, dict[str, int]]:
+    """Return per-split stage balance for one cohort-wide multitask fold."""
+    summary: dict[str, dict[str, int]] = {}
+    subsets = {
+        "train": fold.train_indices,
+        "val": fold.val_indices,
+        "test": fold.test_indices,
+    }
+    for subset_name, indices in subsets.items():
+        counts: dict[str, int] = {}
+        for index in indices:
+            stage = str(bags[int(index)].stage)
+            counts[stage] = counts.get(stage, 0) + 1
+        summary[subset_name] = dict(sorted(counts.items()))
+    return summary

@@ -339,3 +339,7 @@ def test_hlca_luca_evo_and_bag_builders(tmp_path: Path) -> None:
     assert set(["receiver_features", "ring_features", "hlca_features", "luca_features", "pathway_features", "niche_stats_features", "evo_features"]).issubset(bags.columns)
     assert len(bags.loc[0, "niche_ids"]) == 2
     assert len(bags.loc[0, "receiver_features"]) == 2
+    assert len(bags.loc[0, "ring_features"][0]) == 4
+    assert "displacement_target" in bags.columns
+    assert "edge_targets" in bags.columns
+    assert "edge_target_mask" in bags.columns

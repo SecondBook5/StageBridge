@@ -1,14 +1,15 @@
 mode: eamist
 
 eamist:
-  active_edges:
-    - AAH->AIS
-    - AIS->MIA
+  use_prebuilt_bags: true
   model_families:
     - pooled
     - deep_sets
     - lesion_set_transformer
+    - eamist_no_prototypes
     - eamist
+  reference_feature_modes:
+    - hlca_luca
   outer_folds: 3
   seeds: [42, 43, 44]
   hidden_dim: 128
@@ -23,8 +24,12 @@ eamist:
   local_encoder_type: transformer
   use_evolution_branch: true
   evolution_mode: gated
+  stage_loss_weight: 1.0
+  displacement_loss_weight: 0.5
+  edge_loss_weight: 0.25
   neighborhood_radius: 150.0
   adaptive_neighbor_k: 32
+  num_rings: 4
   ring_edges: null
   template_max_cells_per_group: 512
   max_neighborhoods_per_lesion: 64
@@ -40,9 +45,6 @@ eamist:
   learning_rate: 0.0005
   weight_decay: 0.0001
   grad_clip_norm: 1.0
-  loss_name: weighted_bce
-  focal_gamma: 2.0
-  label_smoothing: 0.0
   local_encoder_training_mode: full
   pretrained_local_checkpoint: null
   hpo:

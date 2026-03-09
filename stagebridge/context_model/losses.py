@@ -66,3 +66,59 @@ def lesion_subsampling_consistency_loss(
     if reduction != "mean":
         raise ValueError(f"Unsupported consistency reduction '{reduction}'.")
     return loss.mean()
+
+
+def class_weighted_stage_loss(
+    logits: Tensor,
+    labels: Tensor,
+    *,
+    class_weights: Tensor | None = None,
+) -> Tensor:
+    """Compute class-weighted multiclass stage loss."""
+    if logits.ndim != 2:
+        raise ValueError(f"class_weighted_stage_loss expects 2D logits, got shape={tuple(logits.shape)}")
+    if labels.ndim != 1:
+        raise ValueError(f"class_weighted_stage_loss expects 1D labels, got shape={tuple(labels.shape)}")
+    if logits.shape[0] != labels.shape[0]:
+        raise ValueError("Stage logits and labels must share the same batch length.")
+    valid_mask = labels >= 0
+    if not torch.any(valid_mask):
+        return torch.zeros((), dtype=logits.dtype, device=logits.device)
+    valid_logits = logits[valid_mask]
+    valid_labels = labels[valid_mask].to(dtype=torch.long)
+    weight = None if class_weights is None else class_weights.to(device=logits.device, dtype=logits.dtype)
+    return F.cross_entropy(valid_logits, valid_labels, weight=weight)
+
+
+def displacement_regression_loss(prediction: Tensor, target: Tensor) -> Tensor:
+    """Compute SmoothL1 loss for weak stage-ordered displacement supervision."""
+    if prediction.ndim != 1 or target.ndim != 1:
+        raise ValueError("displacement_regression_loss expects 1D prediction and target tensors.")
+    if prediction.shape[0] != target.shape[0]:
+        raise ValueError("Displacement prediction and target must share the same batch length.")
+    valid_mask = torch.isfinite(target)
+    if not torch.any(valid_mask):
+        return torch.zeros((), dtype=prediction.dtype, device=prediction.device)
+    return F.smooth_l1_loss(prediction[valid_mask], target[valid_mask].to(dtype=prediction.dtype))
+
+
+def masked_edge_loss(
+    logits: Tensor | None,
+    targets: Tensor | None,
+    mask: Tensor | None,
+) -> Tensor:
+    """Compute masked BCE over optional auxiliary edge heads."""
+    if logits is None or targets is None or mask is None:
+        if logits is not None or targets is not None or mask is not None:
+            raise ValueError("masked_edge_loss expects logits, targets, and mask to be provided together.")
+        return torch.zeros((), dtype=torch.float32)
+    if logits.shape != targets.shape or logits.shape != mask.shape:
+        raise ValueError(
+            "masked_edge_loss expects logits, targets, and mask to share the same shape; "
+            f"got logits={tuple(logits.shape)}, targets={tuple(targets.shape)}, mask={tuple(mask.shape)}."
+        )
+    valid_mask = mask.to(dtype=torch.bool)
+    if not torch.any(valid_mask):
+        return torch.zeros((), dtype=logits.dtype, device=logits.device)
+    losses = F.binary_cross_entropy_with_logits(logits[valid_mask], targets[valid_mask].to(dtype=logits.dtype), reduction="none")
+    return losses.mean()

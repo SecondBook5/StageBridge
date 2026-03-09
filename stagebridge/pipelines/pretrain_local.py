@@ -33,6 +33,8 @@ class LocalFeatureDims:
 
     receiver_dim: int
     sender_feature_dim: int
+    hlca_dim: int
+    luca_dim: int
     lr_summary_dim: int
     stats_dim: int
     flat_feature_dim: int
@@ -46,6 +48,8 @@ def infer_local_feature_dims(dataset: NeighborhoodPretrainDataset) -> LocalFeatu
     return LocalFeatureDims(
         receiver_dim=int(first.receiver_embedding.shape[0]),
         sender_feature_dim=int(first.ring_compositions.shape[1]),
+        hlca_dim=int(first.hlca_features.shape[0]),
+        luca_dim=int(first.luca_features.shape[0]),
         lr_summary_dim=int(first.lr_pathway_summary.shape[0]),
         stats_dim=int(first.neighborhood_stats.shape[0]),
         flat_feature_dim=int(first.flat_features.shape[0]),
@@ -74,6 +78,8 @@ class LocalSSLPretrainer(nn.Module):
             self.encoder: nn.Module = LocalNicheTransformerEncoder(
                 receiver_dim=dims.receiver_dim,
                 sender_feature_dim=dims.sender_feature_dim,
+                hlca_dim=dims.hlca_dim,
+                luca_dim=dims.luca_dim,
                 lr_summary_dim=dims.lr_summary_dim,
                 stats_dim=dims.stats_dim,
                 model_dim=hidden_dim,
@@ -103,6 +109,8 @@ class LocalSSLPretrainer(nn.Module):
                 receiver_embeddings=batch["receiver_embeddings"],  # type: ignore[index]
                 receiver_state_ids=batch["receiver_state_ids"],  # type: ignore[index]
                 ring_compositions=batch["ring_compositions"],  # type: ignore[index]
+                hlca_features=batch["hlca_features"],  # type: ignore[index]
+                luca_features=batch["luca_features"],  # type: ignore[index]
                 lr_pathway_summary=batch["lr_pathway_summary"],  # type: ignore[index]
                 neighborhood_stats=batch["neighborhood_stats"],  # type: ignore[index]
                 return_attention=False,
@@ -125,18 +133,26 @@ class LocalSSLPretrainer(nn.Module):
 
         if self.encoder_type == "transformer":
             ring_compositions = batch["ring_compositions"].clone()  # type: ignore[index]
+            hlca_features = batch["hlca_features"].clone()  # type: ignore[index]
+            luca_features = batch["luca_features"].clone()  # type: ignore[index]
             lr_summary = batch["lr_pathway_summary"].clone()  # type: ignore[index]
             stats = batch["neighborhood_stats"].clone()  # type: ignore[index]
             ring_mask = torch.rand_like(ring_compositions) < float(mask_probability)
+            hlca_mask = torch.rand_like(hlca_features) < float(mask_probability)
+            luca_mask = torch.rand_like(luca_features) < float(mask_probability)
             lr_mask = torch.rand_like(lr_summary) < float(mask_probability)
             stats_mask = torch.rand_like(stats) < float(mask_probability)
             ring_compositions[ring_mask] = 0.0
+            hlca_features[hlca_mask] = 0.0
+            luca_features[luca_mask] = 0.0
             lr_summary[lr_mask] = 0.0
             stats[stats_mask] = 0.0
             recon_output = self.encoder(
                 receiver_embeddings=batch["receiver_embeddings"],  # type: ignore[index]
                 receiver_state_ids=batch["receiver_state_ids"],  # type: ignore[index]
                 ring_compositions=ring_compositions,
+                hlca_features=hlca_features,
+                luca_features=luca_features,
                 lr_pathway_summary=lr_summary,
                 neighborhood_stats=stats,
                 return_attention=False,
@@ -159,6 +175,8 @@ class LocalSSLPretrainer(nn.Module):
         shuffled_batch = dict(batch)
         permutation = torch.randperm(flat_features.shape[0], device=flat_features.device)
         shuffled_batch["ring_compositions"] = batch["ring_compositions"][permutation]  # type: ignore[index]
+        shuffled_batch["hlca_features"] = batch["hlca_features"][permutation]  # type: ignore[index]
+        shuffled_batch["luca_features"] = batch["luca_features"][permutation]  # type: ignore[index]
         shuffled_batch["lr_pathway_summary"] = batch["lr_pathway_summary"][permutation]  # type: ignore[index]
         shuffled_embeddings, _ = self.encode(shuffled_batch)
         discrimination_logits = self.shuffle_head(torch.cat([real_embeddings, shuffled_embeddings], dim=0)).squeeze(-1)

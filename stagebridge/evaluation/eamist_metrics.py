@@ -1,7 +1,6 @@
 """Classification metrics and statistics for EA-MIST lesion benchmarks."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Iterable
 
 import numpy as np
@@ -18,6 +17,171 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
+
+
+CANONICAL_STAGE_LABELS: tuple[str, ...] = ("Normal", "AAH", "AIS", "MIA", "LUAD")
+
+
+def _safe_spearman(x: np.ndarray, y: np.ndarray) -> float:
+    """Compute a small-dependency Spearman correlation."""
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    valid = np.isfinite(x) & np.isfinite(y)
+    if valid.sum() < 2:
+        return float("nan")
+    xr = pd.Series(x[valid]).rank(method="average").to_numpy(dtype=np.float64)
+    yr = pd.Series(y[valid]).rank(method="average").to_numpy(dtype=np.float64)
+    if np.std(xr) <= 0.0 or np.std(yr) <= 0.0:
+        return float("nan")
+    return float(np.corrcoef(xr, yr)[0, 1])
+
+
+def compute_stage_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    labels: Iterable[int] | None = None,
+) -> dict[str, float]:
+    """Compute multiclass stage metrics."""
+    y_true = np.asarray(y_true, dtype=np.int64)
+    y_pred = np.asarray(y_pred, dtype=np.int64)
+    label_list = list(range(len(CANONICAL_STAGE_LABELS))) if labels is None else [int(value) for value in labels]
+    if y_true.shape[0] == 0:
+        return {
+            "stage_accuracy": float("nan"),
+            "stage_macro_f1": float("nan"),
+            "stage_balanced_accuracy": float("nan"),
+            "stage_central_recall_mean": float("nan"),
+        }
+    recalls = recall_score(y_true, y_pred, labels=label_list, average=None, zero_division=0)
+    recall_by_label = {int(label): float(recalls[idx]) for idx, label in enumerate(label_list)}
+    central_labels = [label for label in label_list if label in {1, 2, 3}]
+    central_recall = [recall_by_label[label] for label in central_labels if label in recall_by_label]
+    return {
+        "stage_accuracy": float(np.mean(y_true == y_pred)),
+        "stage_macro_f1": float(f1_score(y_true, y_pred, labels=label_list, average="macro", zero_division=0)),
+        "stage_balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
+        "stage_central_recall_mean": float(np.mean(central_recall)) if central_recall else float("nan"),
+        "stage_nonzero_central_recalls": float(np.sum(np.asarray(central_recall) > 0.0)),
+    }
+
+
+def stage_confusion_matrix_payload(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    labels: Iterable[int] | None = None,
+    label_names: Iterable[str] | None = None,
+) -> dict[str, object]:
+    """Return a JSON-friendly stage confusion matrix payload."""
+    label_list = list(range(len(CANONICAL_STAGE_LABELS))) if labels is None else [int(value) for value in labels]
+    names = list(CANONICAL_STAGE_LABELS if label_names is None else label_names)
+    matrix = confusion_matrix(np.asarray(y_true, dtype=np.int64), np.asarray(y_pred, dtype=np.int64), labels=label_list)
+    return {"labels": label_list, "label_names": names, "matrix": matrix.astype(int).tolist()}
+
+
+def stage_support_payload(
+    y_true: np.ndarray,
+    *,
+    labels: Iterable[int] | None = None,
+    label_names: Iterable[str] | None = None,
+) -> dict[str, int]:
+    """Return observed support per stage."""
+    label_list = list(range(len(CANONICAL_STAGE_LABELS))) if labels is None else [int(value) for value in labels]
+    names = list(CANONICAL_STAGE_LABELS if label_names is None else label_names)
+    y_true = np.asarray(y_true, dtype=np.int64)
+    return {
+        str(names[idx]): int(np.sum(y_true == int(label)))
+        for idx, label in enumerate(label_list)
+    }
+
+
+def compute_displacement_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    stage_indices: np.ndarray | None = None,
+) -> dict[str, float]:
+    """Compute weak stage-ordered displacement regression metrics."""
+    y_true = np.asarray(y_true, dtype=np.float32)
+    y_pred = np.asarray(y_pred, dtype=np.float32)
+    valid = np.isfinite(y_true) & np.isfinite(y_pred)
+    if valid.sum() == 0:
+        return {
+            "displacement_mae": float("nan"),
+            "displacement_spearman": float("nan"),
+            "displacement_stage_monotonicity": float("nan"),
+        }
+    metrics = {
+        "displacement_mae": float(np.mean(np.abs(y_true[valid] - y_pred[valid]))),
+        "displacement_spearman": _safe_spearman(y_true[valid], y_pred[valid]),
+        "displacement_stage_monotonicity": float("nan"),
+    }
+    if stage_indices is not None:
+        stage_indices = np.asarray(stage_indices, dtype=np.int64)
+        stage_valid = valid & np.isfinite(stage_indices)
+        if stage_valid.sum() > 0:
+            stage_means = []
+            for stage_idx in sorted(np.unique(stage_indices[stage_valid]).tolist()):
+                mask = stage_valid & (stage_indices == int(stage_idx))
+                if np.any(mask):
+                    stage_means.append((int(stage_idx), float(np.mean(y_pred[mask]))))
+            if len(stage_means) >= 2:
+                diffs = np.diff(np.asarray([value for _stage, value in stage_means], dtype=np.float32))
+                metrics["displacement_stage_monotonicity"] = float(np.mean(diffs >= -1e-6))
+    return metrics
+
+
+def compute_masked_edge_metrics(
+    logits: np.ndarray | None,
+    targets: np.ndarray | None,
+    mask: np.ndarray | None,
+    *,
+    edge_labels: Iterable[str] | None = None,
+) -> dict[str, float]:
+    """Compute auxiliary edge metrics only for valid masked lesions."""
+    if logits is None or targets is None or mask is None:
+        return {}
+    logits = np.asarray(logits, dtype=np.float32)
+    targets = np.asarray(targets, dtype=np.float32)
+    mask = np.asarray(mask, dtype=bool)
+    labels = list(edge_labels or [f"edge_{idx}" for idx in range(logits.shape[1])])
+    metrics: dict[str, float] = {}
+    probabilities = 1.0 / (1.0 + np.exp(-logits))
+    for idx, edge_label in enumerate(labels):
+        valid = mask[:, idx]
+        if valid.sum() == 0:
+            metrics[f"{edge_label}_auroc"] = float("nan")
+            metrics[f"{edge_label}_auprc"] = float("nan")
+            continue
+        y_true = targets[valid, idx].astype(np.int64)
+        y_prob = probabilities[valid, idx]
+        metrics[f"{edge_label}_auroc"] = float(roc_auc_score(y_true, y_prob)) if len(np.unique(y_true)) > 1 else float("nan")
+        metrics[f"{edge_label}_auprc"] = float(average_precision_score(y_true, y_prob)) if len(np.unique(y_true)) > 1 else float("nan")
+    return metrics
+
+
+def composite_selection_score(metrics: dict[str, float]) -> float:
+    """Compute the checkpoint-selection score with balanced-accuracy guardrails."""
+    macro_f1 = float(metrics.get("stage_macro_f1", float("nan")))
+    balanced = float(metrics.get("stage_balanced_accuracy", float("nan")))
+    spearman = float(metrics.get("displacement_spearman", float("nan")))
+    central_recall = float(metrics.get("stage_central_recall_mean", float("nan")))
+    nonzero_central = float(metrics.get("stage_nonzero_central_recalls", float("nan")))
+    if np.isnan(macro_f1):
+        return -float("inf")
+    score = macro_f1
+    if not np.isnan(balanced):
+        score += 0.25 * balanced
+        if balanced < 0.20:
+            score -= 0.50
+    if not np.isnan(spearman):
+        score += 0.10 * max(spearman, 0.0)
+    if not np.isnan(central_recall):
+        score += 0.05 * central_recall
+    if not np.isnan(nonzero_central) and nonzero_central < 2.0:
+        score -= 0.25
+    return float(score)
 
 
 def expected_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, *, n_bins: int = 10) -> float:

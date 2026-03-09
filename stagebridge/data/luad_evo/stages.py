@@ -107,6 +107,14 @@ def index_to_stage(index: int, *, extended: bool = False) -> str:
     return order[index]
 
 
+def stage_to_progression_score(stage: str, *, extended: bool = False) -> float:
+    """Map a stage label to a normalized ordinal progression score."""
+    order = EXTENDED_STAGE_ORDER if extended else CANONICAL_STAGE_ORDER
+    if len(order) <= 1:
+        return 0.0
+    return float(stage_to_index(stage, extended=extended)) / float(len(order) - 1)
+
+
 def ordered_transitions(order: tuple[str, ...] | None = None) -> list[tuple[str, str]]:
     """Return ordered stage-to-stage transitions."""
     seq = order or CANONICAL_STAGE_ORDER

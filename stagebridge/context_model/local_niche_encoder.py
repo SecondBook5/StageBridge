@@ -24,6 +24,8 @@ class LocalNicheTokenizer(nn.Module):
     Args:
         receiver_dim: Dimension of the receiver embedding.
         sender_feature_dim: Number of composition features per ring token.
+        hlca_dim: Dimension of the HLCA similarity feature vector.
+        luca_dim: Dimension of the LuCA similarity feature vector.
         lr_summary_dim: Dimension of the compact LR/pathway summary vector.
         stats_dim: Dimension of the compact neighborhood stats vector.
         model_dim: Token embedding dimension.
@@ -37,24 +39,42 @@ class LocalNicheTokenizer(nn.Module):
         *,
         receiver_dim: int,
         sender_feature_dim: int,
+        hlca_dim: int,
+        luca_dim: int,
         lr_summary_dim: int,
         stats_dim: int,
         model_dim: int = 128,
         num_receiver_states: int = 32,
-        num_rings: int = 3,
+        num_rings: int = 4,
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
         if receiver_dim <= 0 or sender_feature_dim <= 0 or lr_summary_dim <= 0 or stats_dim <= 0:
-            raise ValueError("All local niche tokenizer input dimensions must be positive.")
+            raise ValueError("Receiver, ring, pathway, and stats dimensions must be positive.")
         self.receiver_proj = nn.Linear(int(receiver_dim), int(model_dim))
         self.ring_proj = nn.Linear(int(sender_feature_dim), int(model_dim))
+        self.hlca_proj = None if int(hlca_dim) <= 0 else nn.Linear(int(hlca_dim), int(model_dim))
+        self.luca_proj = None if int(luca_dim) <= 0 else nn.Linear(int(luca_dim), int(model_dim))
         self.lr_proj = nn.Linear(int(lr_summary_dim), int(model_dim))
         self.stats_proj = nn.Linear(int(stats_dim), int(model_dim))
         self.receiver_state_embedding = nn.Embedding(int(num_receiver_states), int(model_dim))
-        self.token_type_embedding = nn.Embedding(4, int(model_dim))
+        self.token_type_embedding = nn.Embedding(6, int(model_dim))
         self.ring_embedding = nn.Embedding(int(num_rings), int(model_dim))
         self.dropout = nn.Dropout(float(dropout))
+        self.model_dim = int(model_dim)
+
+    def _project_optional_token(
+        self,
+        features: Tensor,
+        projection: nn.Linear | None,
+        *,
+        batch_size: int,
+    ) -> Tensor:
+        if projection is None:
+            return torch.zeros((batch_size, self.model_dim), dtype=features.dtype, device=features.device)
+        if features.ndim != 2:
+            raise ValueError(f"Optional token features must be 2D, got shape={tuple(features.shape)}")
+        return projection(features)
 
     def forward(
         self,
@@ -62,6 +82,8 @@ class LocalNicheTokenizer(nn.Module):
         receiver_embeddings: Tensor,
         receiver_state_ids: Tensor,
         ring_compositions: Tensor,
+        hlca_features: Tensor,
+        luca_features: Tensor,
         lr_pathway_summary: Tensor,
         neighborhood_stats: Tensor,
     ) -> Tensor:
@@ -72,11 +94,16 @@ class LocalNicheTokenizer(nn.Module):
             raise ValueError(f"receiver_state_ids must be 1D, got shape={tuple(receiver_state_ids.shape)}")
         if ring_compositions.ndim != 3:
             raise ValueError(f"ring_compositions must be 3D, got shape={tuple(ring_compositions.shape)}")
-        if lr_pathway_summary.ndim != 2 or neighborhood_stats.ndim != 2:
-            raise ValueError("lr_pathway_summary and neighborhood_stats must be 2D tensors.")
+        if hlca_features.ndim != 2 or luca_features.ndim != 2 or lr_pathway_summary.ndim != 2 or neighborhood_stats.ndim != 2:
+            raise ValueError("HLCA, LuCA, LR/pathway summary, and neighborhood stats must all be 2D tensors.")
 
         batch_size = receiver_embeddings.shape[0]
-        if receiver_state_ids.shape[0] != batch_size or ring_compositions.shape[0] != batch_size:
+        if (
+            receiver_state_ids.shape[0] != batch_size
+            or ring_compositions.shape[0] != batch_size
+            or hlca_features.shape[0] != batch_size
+            or luca_features.shape[0] != batch_size
+        ):
             raise ValueError("All local niche tokenizer inputs must share the same batch dimension.")
 
         receiver_token = self.receiver_proj(receiver_embeddings)
@@ -89,16 +116,24 @@ class LocalNicheTokenizer(nn.Module):
         ring_ids = torch.arange(num_rings, device=ring_compositions.device, dtype=torch.long).unsqueeze(0).expand(batch_size, -1)
         ring_tokens = ring_tokens + self.token_type_embedding(ring_type_ids) + self.ring_embedding(ring_ids)
 
+        hlca_token = self._project_optional_token(hlca_features, self.hlca_proj, batch_size=batch_size)
+        hlca_token = hlca_token + self.token_type_embedding(torch.full((batch_size,), 2, dtype=torch.long, device=hlca_features.device))
+
+        luca_token = self._project_optional_token(luca_features, self.luca_proj, batch_size=batch_size)
+        luca_token = luca_token + self.token_type_embedding(torch.full((batch_size,), 3, dtype=torch.long, device=luca_features.device))
+
         lr_token = self.lr_proj(lr_pathway_summary)
-        lr_token = lr_token + self.token_type_embedding(torch.full((batch_size,), 2, dtype=torch.long, device=lr_pathway_summary.device))
+        lr_token = lr_token + self.token_type_embedding(torch.full((batch_size,), 4, dtype=torch.long, device=lr_pathway_summary.device))
 
         stats_token = self.stats_proj(neighborhood_stats)
-        stats_token = stats_token + self.token_type_embedding(torch.full((batch_size,), 3, dtype=torch.long, device=neighborhood_stats.device))
+        stats_token = stats_token + self.token_type_embedding(torch.full((batch_size,), 5, dtype=torch.long, device=neighborhood_stats.device))
 
         tokens = torch.cat(
             [
                 receiver_token.unsqueeze(1),
                 ring_tokens,
+                hlca_token.unsqueeze(1),
+                luca_token.unsqueeze(1),
                 lr_token.unsqueeze(1),
                 stats_token.unsqueeze(1),
             ],
@@ -115,19 +150,23 @@ class LocalNicheTransformerEncoder(nn.Module):
         *,
         receiver_dim: int,
         sender_feature_dim: int,
+        hlca_dim: int,
+        luca_dim: int,
         lr_summary_dim: int,
         stats_dim: int,
         model_dim: int = 128,
         num_heads: int = 4,
         num_layers: int = 2,
         num_receiver_states: int = 32,
-        num_rings: int = 3,
+        num_rings: int = 4,
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
         self.tokenizer = LocalNicheTokenizer(
             receiver_dim=receiver_dim,
             sender_feature_dim=sender_feature_dim,
+            hlca_dim=hlca_dim,
+            luca_dim=luca_dim,
             lr_summary_dim=lr_summary_dim,
             stats_dim=stats_dim,
             model_dim=model_dim,
@@ -147,6 +186,8 @@ class LocalNicheTransformerEncoder(nn.Module):
         receiver_embeddings: Tensor,
         receiver_state_ids: Tensor,
         ring_compositions: Tensor,
+        hlca_features: Tensor,
+        luca_features: Tensor,
         lr_pathway_summary: Tensor,
         neighborhood_stats: Tensor,
         return_attention: bool = False,
@@ -156,6 +197,8 @@ class LocalNicheTransformerEncoder(nn.Module):
             receiver_embeddings=receiver_embeddings,
             receiver_state_ids=receiver_state_ids,
             ring_compositions=ring_compositions,
+            hlca_features=hlca_features,
+            luca_features=luca_features,
             lr_pathway_summary=lr_pathway_summary,
             neighborhood_stats=neighborhood_stats,
         )
