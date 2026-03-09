@@ -1,0 +1,17 @@
+context_model:
+  mode: deep_sets_transformer_hybrid
+  graph_enabled: false
+  token_types:
+    - epithelial
+    - stromal
+    - immune
+    - vascular
+  hidden_dim: 144
+  num_heads: 4
+  num_inducing_points: 16
+  num_seed_vectors: 3
+  use_cross_attention_drift: true
+  use_spatial_rpe: true
+  use_confidence_gate: true
+  token_dropout_rate: 0.03
+  auxiliary_context_shuffle_weight: 0.1
