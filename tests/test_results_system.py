@@ -8,6 +8,7 @@ import yaml
 
 from stagebridge.notebook_api import compose_config
 from stagebridge.results import (
+    archive_current_scratch_run,
     find_results_registry_row,
     promote_current_scratch_run,
     read_milestone_index,
@@ -183,3 +184,44 @@ def test_milestone_promotion_from_scratch_updates_durable_registry(tmp_path: Pat
         (tmp_path / "results" / "registry" / "promoted_results.yaml").read_text(encoding="utf-8")
     )
     assert promoted_yaml["best_set_only"]["milestone_id"] == "mission2_smoke_keep"
+
+
+def test_archive_current_scratch_run_keeps_winner_registry_untouched(tmp_path: Path) -> None:
+    scratch_result = run_smoke_execution(_smoke_cfg(), base_dir=tmp_path)
+
+    archive = archive_current_scratch_run(
+        milestone_id="transformer_attempt_v1",
+        summary="Archived first transformer attempt for later manuscript analysis.",
+        importance_level="negative_result",
+        interpretation_notes="The transformer branch did not yet beat Deep Sets on the fixed benchmark.",
+        next_step_recommendation="Preserve for paper methods/results discussion and continue with a transition-operator transformer pivot.",
+        base_dir=tmp_path,
+    )
+
+    milestone_dir = Path(archive.milestone_path)
+    assert milestone_dir == tmp_path / "results" / "milestones" / "transformer_attempt_v1"
+    summary_text = (milestone_dir / "milestone_summary.md").read_text(encoding="utf-8")
+    assert "- Archive only: yes" in summary_text
+    assert "negative_result" in summary_text
+
+    registry_row = find_results_registry_row(
+        scratch_result["run_metadata"]["timestamp"],
+        base_dir=tmp_path,
+    )
+    assert registry_row is not None
+    assert registry_row["promoted"] == "no"
+    assert registry_row["status"] == "complete"
+    assert registry_row["milestone_id"] == "transformer_attempt_v1"
+
+    scratch_metadata = json.loads(
+        (tmp_path / "outputs" / "scratch" / "current" / "run_metadata.json").read_text(encoding="utf-8")
+    )
+    assert scratch_metadata["status"] == "complete"
+
+    promoted_results = read_promoted_results(base_dir=tmp_path)
+    assert promoted_results["latest_promoted"] is None
+
+    milestone_rows = read_milestone_index(base_dir=tmp_path)
+    assert len(milestone_rows) == 1
+    assert milestone_rows[0]["milestone_id"] == "transformer_attempt_v1"
+    assert milestone_rows[0]["importance_level"] == "negative_result"

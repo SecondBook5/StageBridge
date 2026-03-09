@@ -214,6 +214,34 @@ def test_typed_hierarchical_transformer_transition_smoke_runs_on_real_data() -> 
     assert evaluation["ok"] is True
 
 
+def test_deep_sets_transformer_hybrid_transition_smoke_runs_on_real_data() -> None:
+    cfg = compose_config(
+        "default",
+        overrides=[
+            "data=local",
+            "train=smoke",
+            "evaluation=baseline",
+            "context_model=deep_sets_transformer_hybrid",
+            "transition_model.active_edge=[AAH,AIS]",
+            "transition_model.max_cells_per_stage=24",
+            "transition_model.schrodinger_bridge.sigma=0.0",
+            "transition_model.wes_regularizer.enabled=false",
+        ],
+    )
+
+    transition = run_transition_model(cfg)
+    evaluation = run_evaluation(cfg, transition_output=transition)
+
+    assert transition["ok"] is True
+    assert transition["mode"] == "deep_sets_transformer_hybrid"
+    assert transition["trained_context_encoder"] is not None
+    assert transition["context_tokens"] is not None
+    assert transition["attention_summary"] is not None
+    assert transition["attention_summary"]["hybrid_gate_mean"] >= 0.0
+    assert transition["encoder_parameter_delta"] > 0.0
+    assert evaluation["ok"] is True
+
+
 def test_set_only_transition_smoke_runs_on_ais_to_mia_real_data() -> None:
     cfg = compose_config(
         "default",

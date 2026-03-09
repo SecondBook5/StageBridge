@@ -466,6 +466,251 @@ class TypedSetContextEncoder(nn.Module):
         )
 
 
+class DeepSetsTransformerHybridEncoder(nn.Module):
+    """Deep Sets backbone with gated transformer refinement.
+
+    The baseline permutation-invariant path is always available. The transformer
+    only adds a residual refinement and exposes a token bank for downstream
+    cross-attention drift.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int = 128,
+        num_heads: int = 4,
+        num_inducing_points: int = 16,
+        num_seed_vectors: int = 2,
+        dropout: float = 0.1,
+        *,
+        num_token_types: int = 4,
+        use_token_type_embeddings: bool = True,
+        use_spatial_rpe: bool = True,
+        token_dropout_rate: float = 0.05,
+        use_confidence_gate: bool = True,
+    ) -> None:
+        super().__init__()
+        self.num_token_types = int(num_token_types)
+        self.token_dropout_rate = float(token_dropout_rate)
+
+        self.input_projection = nn.Linear(int(input_dim), int(hidden_dim))
+        self.token_type_embedding = (
+            nn.Embedding(self.num_token_types, int(hidden_dim)) if use_token_type_embeddings else None
+        )
+        self.coord_projection = nn.Sequential(
+            nn.Linear(2, int(hidden_dim)),
+            nn.GELU(),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+        )
+        self.confidence_gate = (
+            nn.Sequential(
+                nn.Linear(1, int(hidden_dim)),
+                nn.GELU(),
+                nn.Linear(int(hidden_dim), int(hidden_dim)),
+                nn.Sigmoid(),
+            )
+            if use_confidence_gate
+            else None
+        )
+        self.phi = nn.Sequential(
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+            nn.Dropout(float(dropout)),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+        self.rho = nn.Sequential(
+            nn.Linear(int(hidden_dim) * 2, int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+            nn.Dropout(float(dropout)),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+        self.isab = ISAB(
+            dim=int(hidden_dim),
+            num_heads=int(num_heads),
+            num_inducing_points=int(num_inducing_points),
+            dropout=float(dropout),
+            use_spatial_rpe=bool(use_spatial_rpe),
+        )
+        self.sab = SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
+        self.pma = PMA(
+            dim=int(hidden_dim),
+            num_heads=int(num_heads),
+            num_seed_vectors=int(num_seed_vectors),
+            dropout=float(dropout),
+        )
+        self.transformer_head = nn.Sequential(
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+        self.hybrid_gate = nn.Sequential(
+            nn.Linear(int(hidden_dim) * 2, int(hidden_dim)),
+            nn.GELU(),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.Sigmoid(),
+        )
+
+    def _infer_token_type_ids(self, tokens: Tensor) -> Tensor:
+        usable = min(int(tokens.shape[-1]), self.num_token_types)
+        return tokens[..., :usable].argmax(dim=-1).long()
+
+    def _normalize_by_group(self, tokens: Tensor, token_type_ids: Tensor) -> Tensor:
+        normalized = tokens.clone()
+        for group_idx in range(self.num_token_types):
+            group_mask = token_type_ids == group_idx
+            if not torch.any(group_mask):
+                continue
+            group_values = normalized[group_mask]
+            group_mean = group_values.mean(dim=0, keepdim=True)
+            group_std = group_values.std(dim=0, unbiased=False, keepdim=True).clamp_min(1e-4)
+            normalized[group_mask] = (group_values - group_mean) / group_std
+        return normalized
+
+    @staticmethod
+    def _normalize_coords(coords: Tensor | None) -> Tensor | None:
+        if coords is None:
+            return None
+        centered = coords - coords.mean(dim=-2, keepdim=True)
+        scale = centered.norm(dim=-1).quantile(0.95).clamp_min(1e-4)
+        return centered / scale
+
+    def _apply_training_dropout(
+        self,
+        tokens: Tensor,
+        token_type_ids: Tensor,
+        token_confidence: Tensor | None,
+        token_coords: Tensor | None,
+    ) -> tuple[Tensor, Tensor, Tensor | None, Tensor | None]:
+        if not self.training or self.token_dropout_rate <= 0.0 or tokens.shape[-2] <= 1:
+            return tokens, token_type_ids, token_confidence, token_coords
+        keep_prob = 1.0 - self.token_dropout_rate
+        keep_mask = torch.rand(tokens.shape[:-1], device=tokens.device) < keep_prob
+        keep_mask[..., 0] = True
+        dropped_tokens = tokens * keep_mask.unsqueeze(-1).to(tokens.dtype)
+        dropped_confidence = None if token_confidence is None else token_confidence * keep_mask.to(token_confidence.dtype)
+        dropped_coords = None if token_coords is None else token_coords * keep_mask.unsqueeze(-1).to(token_coords.dtype)
+        return dropped_tokens, token_type_ids, dropped_confidence, dropped_coords
+
+    def forward(
+        self,
+        tokens: Tensor,
+        mask: Tensor | None = None,
+        *,
+        token_type_ids: Tensor | None = None,
+        token_coords: Tensor | None = None,
+        token_confidence: Tensor | None = None,
+        return_attention: bool = False,
+    ) -> SetContextSummary:
+        squeeze = False
+        if tokens.ndim == 2:
+            tokens = tokens.unsqueeze(0)
+            squeeze = True
+        if token_type_ids is None:
+            token_type_ids = self._infer_token_type_ids(tokens)
+        if token_type_ids.ndim == 1:
+            token_type_ids = token_type_ids.unsqueeze(0)
+        token_type_ids = token_type_ids.long()
+        if token_confidence is not None and token_confidence.ndim == 1:
+            token_confidence = token_confidence.unsqueeze(0)
+        if token_coords is not None and token_coords.ndim == 2:
+            token_coords = token_coords.unsqueeze(0)
+
+        tokens, token_type_ids, token_confidence, token_coords = self._apply_training_dropout(
+            tokens,
+            token_type_ids,
+            token_confidence,
+            token_coords,
+        )
+        normalized_tokens = torch.stack(
+            [
+                self._normalize_by_group(batch_tokens, batch_type_ids)
+                for batch_tokens, batch_type_ids in zip(tokens, token_type_ids, strict=False)
+            ],
+            dim=0,
+        )
+        normalized_coords = self._normalize_coords(token_coords)
+        h = self.input_projection(normalized_tokens)
+        if self.token_type_embedding is not None:
+            h = h + self.token_type_embedding(token_type_ids)
+        if normalized_coords is not None:
+            h = h + self.coord_projection(normalized_coords)
+
+        confidence_gate_mean = 1.0
+        if token_confidence is not None and self.confidence_gate is not None:
+            gate = self.confidence_gate(token_confidence.unsqueeze(-1))
+            confidence_gate_mean = float(gate.detach().mean().item())
+            h = h * gate
+
+        deep_embeddings = self.phi(h)
+        pooled_mean = deep_embeddings.mean(dim=1)
+        pooled_max = deep_embeddings.max(dim=1).values
+        deep_context = self.rho(torch.cat([pooled_mean, pooled_max], dim=-1))
+
+        attention_maps: dict[str, Tensor] = {}
+        if return_attention:
+            transformer_h, isab_attention = self.isab(
+                deep_embeddings,
+                mask=mask,
+                coords=normalized_coords,
+                n_src=0,
+                return_attention=True,
+            )
+            transformer_h, sab_attention = self.sab(transformer_h, mask=mask, return_attention=True)
+            pooled_tokens, pma_attention = self.pma(transformer_h, mask=mask, return_attention=True)
+            attention_maps = {
+                "hybrid_isab_inducing_to_tokens": isab_attention["inducing_to_tokens"],
+                "hybrid_isab_tokens_to_inducing": isab_attention["tokens_to_inducing"],
+                "hybrid_sab_attention": sab_attention,
+                "hybrid_pma_seed_attention": pma_attention,
+                "pma_seed_attention": pma_attention,
+            }
+        else:
+            transformer_h = self.isab(deep_embeddings, mask=mask, coords=normalized_coords, n_src=0)
+            transformer_h = self.sab(transformer_h, mask=mask)
+            pooled_tokens = self.pma(transformer_h, mask=mask)
+
+        transformer_summary = self.transformer_head(pooled_tokens.mean(dim=1))
+        gate = self.hybrid_gate(torch.cat([deep_context, transformer_summary], dim=-1))
+        fused_context = deep_context + gate * transformer_summary
+        baseline_token = deep_context.unsqueeze(1)
+        drift_tokens = torch.cat([baseline_token, pooled_tokens], dim=1)
+        diagnostics = {
+            "confidence_gate_mean": confidence_gate_mean,
+            "mean_token_confidence": float(token_confidence.detach().mean().item()) if token_confidence is not None else 1.0,
+            "mean_token_radius": float(normalized_coords.detach().norm(dim=-1).mean().item()) if normalized_coords is not None else 0.0,
+            "hybrid_gate_mean": float(gate.detach().mean().item()),
+            "deep_sets_context_norm": float(deep_context.detach().norm(dim=-1).mean().item()),
+            "transformer_refinement_norm": float(transformer_summary.detach().norm(dim=-1).mean().item()),
+        }
+        if squeeze:
+            return SetContextSummary(
+                pooled_context=fused_context[0],
+                token_embeddings=deep_embeddings[0],
+                context_tokens=drift_tokens[0],
+                attention_maps={key: value[0] for key, value in attention_maps.items()},
+                token_type_ids=token_type_ids[0],
+                token_confidence=None if token_confidence is None else token_confidence[0],
+                token_coords=None if normalized_coords is None else normalized_coords[0],
+                diagnostics=diagnostics,
+            )
+        return SetContextSummary(
+            pooled_context=fused_context,
+            token_embeddings=deep_embeddings,
+            context_tokens=drift_tokens,
+            attention_maps=attention_maps,
+            token_type_ids=token_type_ids,
+            token_confidence=token_confidence,
+            token_coords=normalized_coords,
+            diagnostics=diagnostics,
+        )
+
+
 class PooledContextEncoder(nn.Module):
     """Simple pooled baseline over typed token sets."""
 

@@ -39,6 +39,7 @@ MODE_COLORS = {
     "deep_sets": "#A855F7",
     "set_only": "#0F766E",
     "typed_hierarchical_transformer": "#0B5FFF",
+    "deep_sets_transformer_hybrid": "#D97706",
     "graph_of_sets": "#7C3AED",
 }
 
@@ -1224,7 +1225,15 @@ def plot_mode_comparison_frontend(mode_table: pd.DataFrame, *, edge: str) -> Fig
     table = mode_table.copy()
     order = [
         mode
-        for mode in ["rna_only", "pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "graph_of_sets"]
+        for mode in [
+            "rna_only",
+            "pooled",
+            "deep_sets",
+            "set_only",
+            "typed_hierarchical_transformer",
+            "deep_sets_transformer_hybrid",
+            "graph_of_sets",
+        ]
         if mode in table["mode"].tolist()
     ]
     table["mode"] = pd.Categorical(table["mode"], categories=order, ordered=True)

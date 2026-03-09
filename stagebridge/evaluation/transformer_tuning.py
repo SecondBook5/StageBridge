@@ -18,7 +18,13 @@ from stagebridge.pipelines.run_transition_model import run_transition_model
 
 EDGE_LIST = ["AAH->AIS", "AIS->MIA"]
 BASELINE_MODES = ["rna_only", "pooled", "deep_sets", "graph_of_sets"]
-TRANSFORMER_CORE_MODES = ["deep_sets", "set_only", "graph_of_sets", "typed_hierarchical_transformer"]
+TRANSFORMER_CORE_MODES = [
+    "deep_sets",
+    "set_only",
+    "graph_of_sets",
+    "typed_hierarchical_transformer",
+    "deep_sets_transformer_hybrid",
+]
 
 
 @dataclass(slots=True, frozen=True)

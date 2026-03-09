@@ -11,7 +11,12 @@ from stagebridge.context_model.cell_to_spot_assignment import select_stage_donor
 from stagebridge.context_model.graph_builder import build_spatial_knn_graph
 from stagebridge.context_model.graph_encoder import GraphOfSetsContextEncoder
 from stagebridge.context_model.hierarchical_transformer import TypedHierarchicalTransformerEncoder, dataset_name_to_id
-from stagebridge.context_model.set_encoder import DeepSetsContextEncoder, PooledContextEncoder, TypedSetContextEncoder
+from stagebridge.context_model.set_encoder import (
+    DeepSetsContextEncoder,
+    DeepSetsTransformerHybridEncoder,
+    PooledContextEncoder,
+    TypedSetContextEncoder,
+)
 from stagebridge.context_model.token_builder import build_typed_spot_tokens
 from stagebridge.transition_model.disease_edges import edge_id_map, edge_label, resolve_disease_edge
 from stagebridge.pipelines.run_spatial_mapping import run_spatial_mapping
@@ -79,7 +84,7 @@ def run_context_model(
     max_context_spots = int(cfg.get("context_model", {}).get("max_context_spots", 128))
     seed = int(cfg.get("seed", 42))
 
-    if mode in {"pooled", "deep_sets", "set_only", "typed_hierarchical_transformer"}:
+    if mode in {"pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "deep_sets_transformer_hybrid"}:
         sample_mask = (
             (typed.obs["donor_id"].astype(str) == str(example_row["donor_id"]))
             & (typed.obs["stage"].astype(str) == str(example_row["stage"]))
@@ -121,6 +126,19 @@ def run_context_model(
                 token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
                 use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
             )
+        elif mode == "deep_sets_transformer_hybrid":
+            encoder = DeepSetsTransformerHybridEncoder(
+                input_dim=typed.tokens.shape[1],
+                hidden_dim=int(cfg.get("context_model", {}).get("hidden_dim", 128)),
+                num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
+                num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
+                num_seed_vectors=int(cfg.get("context_model", {}).get("num_seed_vectors", 2)),
+                dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                num_token_types=len(typed.schema.typed_feature_names),
+                use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
+                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
+                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
+            )
         else:
             active_edge = resolve_disease_edge(cfg.get("transition_model", {}).get("active_edge"))
             encoder = TypedHierarchicalTransformerEncoder(
@@ -142,9 +160,10 @@ def run_context_model(
                 group_names=list(typed.schema.typed_feature_names),
             )
         with torch.no_grad():
-            if mode == "set_only":
+            if mode in {"set_only", "deep_sets_transformer_hybrid"}:
                 summary = encoder(
                     torch.tensor(example_tokens, dtype=torch.float32),
+                    token_type_ids=torch.tensor(typed.token_type_ids[sample_rows], dtype=torch.long),
                     token_coords=torch.tensor(example_coords, dtype=torch.float32),
                     token_confidence=torch.tensor(example_confidence, dtype=torch.float32),
                 )

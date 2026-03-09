@@ -10,7 +10,12 @@ from omegaconf import DictConfig, OmegaConf
 from stagebridge.context_model.graph_builder import build_spatial_knn_graph
 from stagebridge.context_model.graph_encoder import GraphOfSetsContextEncoder
 from stagebridge.context_model.hierarchical_transformer import TypedHierarchicalTransformerEncoder, dataset_name_to_id
-from stagebridge.context_model.set_encoder import DeepSetsContextEncoder, PooledContextEncoder, TypedSetContextEncoder
+from stagebridge.context_model.set_encoder import (
+    DeepSetsContextEncoder,
+    DeepSetsTransformerHybridEncoder,
+    PooledContextEncoder,
+    TypedSetContextEncoder,
+)
 from stagebridge.context_model.token_builder import build_typed_spot_tokens
 from stagebridge.data.common.schema import LatentCohort
 from stagebridge.data.luad_evo.wes import build_wes_feature_lookup, load_luad_evo_wes_features
@@ -335,7 +340,7 @@ def _build_context_bundle(
             }
         )
 
-    if mode in {"pooled", "deep_sets", "set_only", "typed_hierarchical_transformer"}:
+    if mode in {"pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "deep_sets_transformer_hybrid"}:
         if mode == "pooled":
             encoder = PooledContextEncoder(
                 input_dim=node_tokens.shape[1],
@@ -353,6 +358,19 @@ def _build_context_bundle(
                 hidden_dim=hidden_dim,
                 num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
                 num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
+                dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                num_token_types=len(typed.schema.typed_feature_names),
+                use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
+                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
+                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
+            )
+        elif mode == "deep_sets_transformer_hybrid":
+            encoder = DeepSetsTransformerHybridEncoder(
+                input_dim=node_tokens.shape[1],
+                hidden_dim=hidden_dim,
+                num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
+                num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
+                num_seed_vectors=int(cfg.get("context_model", {}).get("num_seed_vectors", 2)),
                 dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
                 num_token_types=len(typed.schema.typed_feature_names),
                 use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
@@ -729,7 +747,7 @@ def run_transition_model(
             cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("state_dependent_diffusion", True)
         ),
         use_cross_attention_drift=bool(
-            mode in {"set_only", "typed_hierarchical_transformer"}
+            mode in {"set_only", "typed_hierarchical_transformer", "deep_sets_transformer_hybrid"}
             and cfg.get("context_model", {}).get("use_cross_attention_drift", True)
         ),
         use_ude=bool(
@@ -900,7 +918,7 @@ def run_transition_model(
                 }
                 for view in context_bundle.get("provider_views", [])
             ],
-            capture_attention=bool(mode in {"set_only", "typed_hierarchical_transformer"}),
+            capture_attention=bool(mode in {"set_only", "typed_hierarchical_transformer", "deep_sets_transformer_hybrid"}),
             auxiliary_loss_weight=float(cfg.get("context_model", {}).get("auxiliary_context_shuffle_weight", 0.1)),
             pretraining_config=None
             if pretraining_config is None
@@ -974,6 +992,18 @@ def run_transition_model(
                     "relation_attention_scores": {str(key): float(value) for key, value in relation_scores.items()},
                     "query_attention_by_group": query_scores,
                 }
+        elif mode == "deep_sets_transformer_hybrid" and attention_summary is not None:
+            attention_summary.update(
+                {
+                    "hybrid_gate_mean": float(getattr(trained_summary, "diagnostics", {}).get("hybrid_gate_mean", 0.0)),
+                    "deep_sets_context_norm": float(
+                        getattr(trained_summary, "diagnostics", {}).get("deep_sets_context_norm", 0.0)
+                    ),
+                    "transformer_refinement_norm": float(
+                        getattr(trained_summary, "diagnostics", {}).get("transformer_refinement_norm", 0.0)
+                    ),
+                }
+            )
         if attention_summary is not None:
             context_bundle["diagnostics"]["attention_summary"] = attention_summary
 

@@ -187,6 +187,22 @@ def mark_run_promoted(
     raise KeyError(f"No results registry row found for timestamp '{timestamp}'.")
 
 
+def attach_milestone_id(
+    *,
+    timestamp: str,
+    milestone_id: str,
+    base_dir: str | Path | None = None,
+) -> None:
+    """Attach a durable milestone id to an existing run without promoting it."""
+    rows = read_results_registry(base_dir)
+    for row in rows:
+        if row.get("timestamp") == timestamp:
+            row["milestone_id"] = milestone_id
+            _write_csv_rows(_results_registry_path(base_dir), RESULTS_REGISTRY_COLUMNS, rows)
+            return
+    raise KeyError(f"No results registry row found for timestamp '{timestamp}'.")
+
+
 def upsert_milestone_index_row(
     row: Mapping[str, Any],
     *,

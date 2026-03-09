@@ -77,6 +77,8 @@ def load_luad_evo_snrna_latent(
     latent_path = resolve_snrna_latent_path(cfg)
     adata = anndata.read_h5ad(latent_path)
     obs = adata.obs.copy()
+    if "cell_id" not in obs.columns:
+        obs["cell_id"] = adata.obs_names.astype(str)
     if "stage" not in obs.columns:
         raise KeyError(f"Missing 'stage' column in {latent_path}.")
 
@@ -146,6 +148,8 @@ def load_luad_evo_snrna_pca_latent(
 
     adata = anndata.read_h5ad(raw_path, backed="r")
     obs = adata.obs.copy()
+    if "cell_id" not in obs.columns:
+        obs["cell_id"] = adata.obs_names.astype(str)
     if "stage" not in obs.columns:
         raise KeyError(f"Missing 'stage' column in {raw_path}.")
     if "donor_id" not in obs.columns and "patient_id" in obs.columns:
