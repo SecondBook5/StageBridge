@@ -1,0 +1,68 @@
+labels:
+  mode: repair
+  output_root: reports/labels
+  artifacts_root: reports/labels/artifacts
+  parse_only: true
+  dry_run: false
+  resume: true
+  selected_cna_backend: none
+  selected_phylogeny_backend: none
+  selected_pathology_backend: none
+  minimum_stages_for_phylogeny: 2
+  thresholds:
+    positive_score: 0.75
+    negative_score: 0.25
+    uncertainty_margin: 0.10
+    require_non_proxy_for_heuristic_positive: true
+  scoring:
+    mode: rule_based
+    weights:
+      curated_positive: 0.30
+      curated_negative: -0.45
+      later_stage_presence: 0.15
+      tmb: 0.10
+      driver_burden: 0.10
+      cna_burden: 0.10
+      clone_sharing: 0.12
+      descendant_sharing: 0.08
+      pathology_risk: 0.05
+      heuristic_label: 0.05
+  viability:
+    num_folds: 3
+    split_seeds: [42, 43, 44]
+    holdout_key: donor_id
+    min_lesions_per_class: 1
+    min_donors_per_class_binary: 2
+  inputs:
+    cna:
+      facets_summary_path: null
+      cnvkit_summary_path: null
+      sequenza_summary_path: null
+    clonal:
+      pyclone_summary_path: null
+    phylogeny:
+      phylogicndt_summary_path: null
+      pairtree_summary_path: null
+      treeomics_summary_path: null
+    pathology:
+      qupath_summary_path: null
+      qust_summary_path: null
+  external_tools:
+    timeout_seconds: 3600
+    retries: 0
+    facets_executable: facets
+    cnvkit_executable: cnvkit.py
+    sequenza_executable: sequenza-utils
+    pyclone_vi_executable: pyclone-vi
+    phylogicndt_executable: PhylogicNDT
+    pairtree_executable: pairtree
+    treeomics_executable: treeomics
+    qupath_executable: QuPath
+    qust_executable: qust
+    facets_command_template: null
+    cnvkit_command_template: null
+    sequenza_command_template: null
+    pyclone_vi_command_template: null
+    phylogicndt_command_template: null
+    pairtree_command_template: null
+    treeomics_command_template: null

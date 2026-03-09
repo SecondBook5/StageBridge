@@ -6,12 +6,12 @@ context_model:
     - stromal
     - immune
     - vascular
-  hidden_dim: 160
-  num_heads: 4
-  num_inducing_points: 16
-  num_group_summary_tokens: 3
-  num_fusion_queries: 7
-  dataset_embedding_dim: 16
+  hidden_dim: 192
+  num_heads: 8
+  num_inducing_points: 24
+  num_group_summary_tokens: 4
+  num_fusion_queries: 8
+  dataset_embedding_dim: 24
   use_cross_attention_drift: true
   use_spatial_rpe: true
   use_confidence_gate: true
@@ -52,8 +52,8 @@ context_model:
     max_sender_spots: 24
     max_lr_tokens: 12
     num_distance_rings: 3
-    hidden_dim: 128
-    num_heads: 4
+    hidden_dim: 160
+    num_heads: 8
     dropout: 0.1
     learning_rate: 0.0005
     weight_decay: 0.0001

@@ -1,17 +1,26 @@
 """Visualisation utilities for StageBridge."""
 
-from .curves import build_metrics_dataframe, plot_benchmark_bars, plot_training_curves
+from .curves import build_metrics_dataframe, plot_benchmark_bars, plot_training_curves, plot_metric_violin
 from .embeddings import (
     plot_context_vector_umap,
     plot_umap_by_stage,
     plot_umap_with_trajectories,
 )
+from .eamist_figures import (
+    save_ablation_figure,
+    save_benchmark_comparison_figure,
+    save_embedding_diagnostics_figure,
+    save_method_overview_figure,
+    save_prototype_interpretation_figure,
+)
 from .flows import compute_macroflow_matrix, plot_macroflow_sankey
 from .research_frontend import (
     configure_research_style,
     plot_context_frontend,
+    plot_multi_embedding_frontend,
     plot_reference_frontend,
     plot_spatial_mapping_frontend,
+    plot_transformer_attention_frontend,
     plot_transition_frontend,
 )
 from .summary_panels import (
@@ -36,12 +45,24 @@ from .story_figures import (
     plot_label_balance,
     plot_transition_vs_communication,
 )
+from .advanced_plots import (
+    plot_radar_chart,
+    plot_parallel_coordinates,
+    plot_correlation_matrix,
+    plot_3d_embedding,
+    plot_ridge_distributions,
+)
 
 __all__ = [
     # curves
     "build_metrics_dataframe",
     "plot_benchmark_bars",
     "plot_training_curves",
+    "save_ablation_figure",
+    "save_benchmark_comparison_figure",
+    "save_embedding_diagnostics_figure",
+    "save_method_overview_figure",
+    "save_prototype_interpretation_figure",
     # embeddings
     "plot_umap_by_stage",
     "plot_umap_with_trajectories",
@@ -53,6 +74,8 @@ __all__ = [
     "plot_reference_frontend",
     "plot_spatial_mapping_frontend",
     "plot_context_frontend",
+    "plot_multi_embedding_frontend",
+    "plot_transformer_attention_frontend",
     "plot_transition_frontend",
     # spatial plots (Visium)
     "plot_spatial_stage_map",

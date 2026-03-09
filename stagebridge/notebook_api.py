@@ -22,6 +22,19 @@ from stagebridge.data.luad_evo.stages import normalize_stage_label
 from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS, load_luad_evo_wes_features
 from stagebridge.evaluation.provider_benchmark import render_provider_benchmark_md, summarize_provider_benchmark
 from stagebridge.pipelines.run_context_model import run_context_model
+from stagebridge.pipelines.pretrain_local import run_pretrain_local
+from stagebridge.pipelines.train_lesion import run_train_lesion
+from stagebridge.pipelines.evaluate_lesion import run_evaluate_lesion
+from stagebridge.pipelines.run_eamist_reporting import run_eamist_reporting
+from stagebridge.pipelines.run_label_repair import (
+    run_label_cna,
+    run_label_clonal,
+    run_label_manifest,
+    run_label_phylogeny,
+    run_label_refinement,
+    run_label_repair,
+    run_label_support,
+)
 from stagebridge.pipelines.run_evaluation import run_evaluation
 from stagebridge.pipelines.run_full import run_full
 from stagebridge.pipelines.run_reference import run_reference
@@ -33,6 +46,7 @@ _CONFIG_DIR = (Path(__file__).resolve().parent.parent / "configs").resolve()
 _DEFAULT_CONFIG = _CONFIG_DIR / "default.yaml"
 _COMPONENT_DIRS = {
     "data": _CONFIG_DIR / "data",
+    "labels": _CONFIG_DIR / "labels",
     "spatial_mapping": _CONFIG_DIR / "spatial_mapping",
     "context_model": _CONFIG_DIR / "context_model",
     "splits": _CONFIG_DIR / "splits",
@@ -64,6 +78,7 @@ def _load_component(path: Path) -> DictConfig:
 def _selected_profiles(base_cfg: DictConfig) -> dict[str, str]:
     defaults = {
         "data": "luad_evo",
+        "labels": "repair",
         "spatial_mapping": "tangram",
         "context_model": "set_only",
         "splits": "donor_holdout",
@@ -130,6 +145,11 @@ def _progress_iter(iterable: list[str], *, desc: str, enabled: bool) -> Any:
 
 
 _STEP_REGISTRY: dict[str, StepFn] = {
+    "label_repair": run_label_repair,
+    "pretrain_local": run_pretrain_local,
+    "train_lesion": run_train_lesion,
+    "evaluate_lesion": run_evaluate_lesion,
+    "eamist_report": run_eamist_reporting,
     "reference": run_reference,
     "spatial_mapping": run_spatial_mapping,
     "context_model": run_context_model,

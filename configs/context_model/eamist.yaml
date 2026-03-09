@@ -1,0 +1,83 @@
+mode: eamist
+
+eamist:
+  active_edges:
+    - AAH->AIS
+    - AIS->MIA
+  model_families:
+    - pooled
+    - deep_sets
+    - lesion_set_transformer
+    - eamist
+  outer_folds: 3
+  seeds: [42, 43, 44]
+  hidden_dim: 128
+  num_heads: 4
+  num_layers: 2
+  num_inducing_points: 16
+  num_pma_seeds: 1
+  dropout: 0.1
+  use_prototypes: true
+  num_prototypes: 16
+  sparse_assignments: false
+  local_encoder_type: transformer
+  use_evolution_branch: true
+  evolution_mode: gated
+  neighborhood_radius: 150.0
+  adaptive_neighbor_k: 32
+  ring_edges: null
+  template_max_cells_per_group: 512
+  max_neighborhoods_per_lesion: 64
+  min_cells_per_neighborhood: 3
+  neighborhood_sampling_strategy: uniform
+  holdout_key: donor_id
+  min_lesions_per_class: 1
+  batch_size_bags: 8
+  device: auto
+  require_cuda: false
+  max_epochs: 150
+  patience: 20
+  learning_rate: 0.0005
+  weight_decay: 0.0001
+  grad_clip_norm: 1.0
+  loss_name: weighted_bce
+  focal_gamma: 2.0
+  label_smoothing: 0.0
+  local_encoder_training_mode: full
+  pretrained_local_checkpoint: null
+  hpo:
+    enabled: true
+    backend: optuna
+    num_trials: 20
+    seed: 17
+    sampler: tpe
+    n_startup_trials: 3
+    n_warmup_steps: 3
+    search_space:
+      shared:
+        hidden_dim: [128, 192]
+        dropout: [0.1, 0.2, 0.3]
+        learning_rate: [0.0003, 0.0005, 0.001]
+        weight_decay: [1.0e-05, 1.0e-04, 5.0e-04]
+      lesion_set_transformer:
+        num_layers: [2, 3]
+      eamist:
+        num_layers: [2, 3]
+        num_prototypes: [8, 16, 24, 32]
+        local_encoder_training_mode: [partial, full]
+        evolution_mode: [gated, film]
+  local_pretraining:
+    encoder_type: transformer
+    hidden_dim: 128
+    num_heads: 4
+    dropout: 0.1
+    use_prototypes: false
+    num_prototypes: 16
+    batch_size: 128
+    max_epochs: 50
+    learning_rate: 0.0005
+    weight_decay: 0.0001
+    grad_clip_norm: 1.0
+    mask_probability: 0.15
+    prototype_diversity_weight: 0.01
+    prototype_entropy_weight: 0.001

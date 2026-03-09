@@ -78,6 +78,26 @@ class _GroupSetEncoder(nn.Module):
         return pooled, {}
 
 
+class _ResidualContextHead(nn.Module):
+    """Deeper context head with residual connection for richer final representation."""
+
+    def __init__(self, dim: int, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(dim, dim)
+        self.act1 = nn.GELU()
+        self.ln1 = nn.LayerNorm(dim)
+        self.fc2 = nn.Linear(dim, dim)
+        self.act2 = nn.GELU()
+        self.ln2 = nn.LayerNorm(dim)
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, x: Tensor) -> Tensor:
+        h = self.drop(self.act1(self.fc1(x)))
+        h = self.ln1(h + x)
+        h2 = self.drop(self.act2(self.fc2(h)))
+        return self.ln2(h2 + h)
+
+
 class TypedHierarchicalTransformerEncoder(nn.Module):
     """Hierarchical typed transformer with per-group encoders and fusion queries."""
 
@@ -182,17 +202,14 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
         self.fusion_ff = FeedForwardBlock(dim=int(hidden_dim), dropout=float(dropout))
         self.fusion_ln2 = nn.LayerNorm(int(hidden_dim))
         self.fusion_sab = SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
+        self.fusion_sab2 = SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
         self.relation_mlp = nn.Sequential(
-            nn.Linear(int(hidden_dim) * 4, int(hidden_dim)),
+            nn.Linear(int(hidden_dim) * 4, int(hidden_dim) * 2),
             nn.GELU(),
-            nn.LayerNorm(int(hidden_dim)),
-            nn.Linear(int(hidden_dim), int(hidden_dim)),
-        )
-        self.context_head = nn.Sequential(
-            nn.Linear(int(hidden_dim), int(hidden_dim)),
-            nn.GELU(),
+            nn.Linear(int(hidden_dim) * 2, int(hidden_dim)),
             nn.LayerNorm(int(hidden_dim)),
         )
+        self.context_head = _ResidualContextHead(int(hidden_dim), dropout=float(dropout))
 
     def _infer_token_type_ids(self, tokens: Tensor) -> Tensor:
         usable = min(int(tokens.shape[-1]), self.num_token_types)
@@ -427,6 +444,7 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
             fused = self.fusion_ln1(queries + fused)
             fused = self.fusion_ln2(fused + self.fusion_ff(fused))
             fused = self.fusion_sab(fused)
+            fused = self.fusion_sab2(fused)
             pooled_context = self.context_head(fused[:, -1, :])
             pooled_contexts.append(pooled_context[0])
             fused_tokens_list.append(fused[0])
