@@ -178,6 +178,106 @@ class StageBatch:
 
 
 @dataclass(slots=True)
+class CommunicationNeighborhoodExample:
+    """One focal receiver example with its local communication neighborhood."""
+
+    receiver_embedding: np.ndarray
+    receiver_programs: np.ndarray
+    sender_embeddings: np.ndarray
+    sender_types: np.ndarray
+    sender_offsets: np.ndarray
+    ring_ids: np.ndarray
+    lr_token_features: np.ndarray
+    response_token_features: np.ndarray
+    relay_token_features: np.ndarray
+    edge_id: int
+    sample_id: str
+    donor_id: str
+    weak_label: float
+    receiver_cell_id: str | None = None
+    stage: str | None = None
+    lr_token_names: list[str] | None = None
+    response_token_names: list[str] | None = None
+    relay_token_names: list[str] | None = None
+    wes_features: np.ndarray | None = None
+    target_latent: np.ndarray | None = None
+
+
+@dataclass(slots=True)
+class CommunicationBag:
+    """Sample-edge bag of focal receiver examples for MIL-style supervision."""
+
+    sample_id: str
+    donor_id: str
+    edge_id: int
+    edge_label: str
+    weak_label: float
+    examples: list[CommunicationNeighborhoodExample]
+    label_source: str = "unknown"
+    notes: str | None = None
+
+    @property
+    def num_examples(self) -> int:
+        return len(self.examples)
+
+
+@dataclass(slots=True)
+class CommunicationBatch:
+    """Padded bag batch for communication-relay classification."""
+
+    receiver_embedding: "torch.Tensor"
+    receiver_programs: "torch.Tensor"
+    sender_embeddings: "torch.Tensor"
+    sender_types: "torch.Tensor"
+    sender_offsets: "torch.Tensor"
+    ring_ids: "torch.Tensor"
+    lr_token_features: "torch.Tensor"
+    response_token_features: "torch.Tensor"
+    relay_token_features: "torch.Tensor"
+    query_mask: "torch.Tensor"
+    sender_mask: "torch.Tensor"
+    lr_mask: "torch.Tensor"
+    response_mask: "torch.Tensor"
+    relay_mask: "torch.Tensor"
+    edge_ids: "torch.Tensor"
+    weak_labels: "torch.Tensor"
+    bag_index: "torch.Tensor"
+    sample_ids: list[str]
+    donor_ids: list[str]
+    label_sources: list[str]
+    receiver_cell_ids: list[str | None]
+    wes_features: "torch.Tensor | None" = None
+    target_latent: "torch.Tensor | None" = None
+
+    def to(self, device: str) -> "CommunicationBatch":
+        return CommunicationBatch(
+            receiver_embedding=self.receiver_embedding.to(device),
+            receiver_programs=self.receiver_programs.to(device),
+            sender_embeddings=self.sender_embeddings.to(device),
+            sender_types=self.sender_types.to(device),
+            sender_offsets=self.sender_offsets.to(device),
+            ring_ids=self.ring_ids.to(device),
+            lr_token_features=self.lr_token_features.to(device),
+            response_token_features=self.response_token_features.to(device),
+            relay_token_features=self.relay_token_features.to(device),
+            query_mask=self.query_mask.to(device),
+            sender_mask=self.sender_mask.to(device),
+            lr_mask=self.lr_mask.to(device),
+            response_mask=self.response_mask.to(device),
+            relay_mask=self.relay_mask.to(device),
+            edge_ids=self.edge_ids.to(device),
+            weak_labels=self.weak_labels.to(device),
+            bag_index=self.bag_index.to(device),
+            sample_ids=list(self.sample_ids),
+            donor_ids=list(self.donor_ids),
+            label_sources=list(self.label_sources),
+            receiver_cell_ids=list(self.receiver_cell_ids),
+            wes_features=None if self.wes_features is None else self.wes_features.to(device),
+            target_latent=None if self.target_latent is None else self.target_latent.to(device),
+        )
+
+
+@dataclass(slots=True)
 class DatasetAuditReport:
     """Structured report for data readiness checks."""
 

@@ -40,3 +40,40 @@ context_model:
     masked_token_weight: 0.05
     ranking_weight: 0.15
     provider_consistency_weight: 0.05
+  communication_relay:
+    enabled: true
+    active_edges:
+      - AAH->AIS
+      - AIS->MIA
+    max_cells_per_stage: 4096
+    max_spots_per_stage: 4096
+    max_receiver_cells_per_sample: 16
+    max_anchor_spots: 4
+    max_sender_spots: 24
+    max_lr_tokens: 12
+    num_distance_rings: 3
+    hidden_dim: 128
+    num_heads: 4
+    dropout: 0.1
+    learning_rate: 0.0005
+    weight_decay: 0.0001
+    grad_clip_norm: 1.0
+    batch_size_bags: 4
+    max_epochs: 8
+    patience: 3
+    prior_loss_weight: 0.05
+    response_loss_weight: 0.05
+    outer_folds: 3
+    num_trials: 1
+    seeds:
+      - 42
+    output_subdir: communication_relay
+    curated_manifest_path: stagebridge/data/luad_evo/curated_progression_labels.csv
+    model_families:
+      - focal_only
+      - pooled
+      - deep_sets
+      - graphsage
+      - transformer_no_priors
+      - transformer_no_relay
+      - stagebridge

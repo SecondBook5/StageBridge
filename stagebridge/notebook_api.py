@@ -1139,7 +1139,15 @@ def run_mode_ladder(
     edge: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run matched context-mode comparisons while reusing upstream steps."""
-    modes = modes or ["rna_only", "pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "graph_of_sets"]
+    modes = modes or [
+        "rna_only",
+        "pooled",
+        "deep_sets",
+        "set_only",
+        "typed_hierarchical_transformer",
+        "deep_sets_transformer_hybrid",
+        "graph_of_sets",
+    ]
     cfg_base = clone_config(cfg)
     if edge is not None:
         src, tgt = [part.strip() for part in str(edge).split("->", 1)]

@@ -74,7 +74,15 @@ def build_context_comparison_payload(
     mode_results: dict[str, dict[str, Any]],
     gate_result: GateEvaluationResult,
 ) -> dict[str, Any]:
-    ordered_modes = ["rna_only", "pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "graph_of_sets"]
+    ordered_modes = [
+        "rna_only",
+        "pooled",
+        "deep_sets",
+        "set_only",
+        "typed_hierarchical_transformer",
+        "deep_sets_transformer_hybrid",
+        "graph_of_sets",
+    ]
     comparison: dict[str, Any] = {
         "edge": edge,
         "gate": gate_result.to_dict(),
@@ -112,7 +120,15 @@ def render_context_comparison_md(
         f"- Interpretation: {gate_result.interpretation}",
         "",
     ]
-    for mode in ["rna_only", "pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "graph_of_sets"]:
+    for mode in [
+        "rna_only",
+        "pooled",
+        "deep_sets",
+        "set_only",
+        "typed_hierarchical_transformer",
+        "deep_sets_transformer_hybrid",
+        "graph_of_sets",
+    ]:
         if mode not in mode_results:
             continue
         payload = mode_results[mode]
