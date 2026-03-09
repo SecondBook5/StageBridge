@@ -17,8 +17,6 @@ from stagebridge.spatial_mapping.tangram_mapper import (
     _aligned_label_series_from_sources,
     _coerce_csr_float32,
     _read_h5ad_csr_rows,
-    _read_h5ad_obs_frame,
-    _read_h5ad_var_index,
     _mapping_cache_root,
     _normalize_obs_fields,
     _provider_version,
@@ -26,6 +24,7 @@ from stagebridge.spatial_mapping.tangram_mapper import (
     _stable_hash,
     _write_spatial_subset_h5ad,
 )
+from stagebridge.utils.h5ad_io import read_h5ad_obs_frame, read_h5ad_var_index
 
 
 def _write_reference_subset_h5ad(
@@ -40,7 +39,7 @@ def _write_reference_subset_h5ad(
     fallback_latent_h5ad_path: Path | None = None,
 ) -> dict[str, Any]:
     all_obs = _normalize_obs_fields(
-        _read_h5ad_obs_frame(
+        read_h5ad_obs_frame(
             snrna_h5ad_path,
             columns=["donor_id", "patient_id", "sample_id", "stage"],
         )
@@ -81,7 +80,7 @@ def _write_reference_subset_h5ad(
     subset = anndata.AnnData(
         X=_read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="X"),
         obs=obs.copy(),
-        var=pd.DataFrame(index=_read_h5ad_var_index(snrna_h5ad_path)),
+        var=pd.DataFrame(index=read_h5ad_var_index(snrna_h5ad_path)),
     )
     try:
         subset.layers["counts"] = _read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="layers/counts")

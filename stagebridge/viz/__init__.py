@@ -30,6 +30,12 @@ from .spatial import (
     plot_tangram_winner_map,
     plot_transition_trajectory,
 )
+from .story_figures import (
+    plot_communication_metric_panels,
+    plot_context_shuffle_deltas,
+    plot_label_balance,
+    plot_transition_vs_communication,
+)
 
 __all__ = [
     # curves
@@ -53,6 +59,10 @@ __all__ = [
     "plot_spatial_context_score",
     "plot_tangram_celltype_maps",
     "plot_tangram_winner_map",
+    "plot_transition_vs_communication",
+    "plot_communication_metric_panels",
+    "plot_context_shuffle_deltas",
+    "plot_label_balance",
     # poster panels (backward-compat re-exports)
     "plot_method_schematic",
     "plot_transition_trajectory",

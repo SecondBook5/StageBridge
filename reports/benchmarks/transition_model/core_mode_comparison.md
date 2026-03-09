@@ -1,0 +1,9 @@
+    edge          mode transformer_used local_context_used graph_context_used wes_enabled diffusion_enabled  primary_metric   status                          course_interpretation
+AAH->AIS      rna_only               no                 no                 no          no                no          17.252 complete                                       baseline
+AAH->AIS        pooled               no                yes                 no          no                no          18.097 complete               non-transformer context baseline
+AAH->AIS      set_only              yes                yes                 no          no                no          17.817 complete                          main transformer mode
+AAH->AIS graph_of_sets              yes                yes                yes          no                no          18.683 complete optional extension - not justified as flagship
+AIS->MIA      rna_only               no                 no                 no          no                no          16.297 complete                                       baseline
+AIS->MIA        pooled               no                yes                 no          no                no          15.909 complete               non-transformer context baseline
+AIS->MIA      set_only              yes                yes                 no          no                no          15.758 complete                   best active transformer mode
+AIS->MIA graph_of_sets              yes                yes                yes          no                no          16.002 complete optional extension - not justified as flagship

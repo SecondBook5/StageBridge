@@ -1,6 +1,7 @@
 best_aah_to_ais: null
 best_ais_to_mia: null
 best_deep_sets: null
+best_deep_sets_transformer_hybrid: null
 best_full_v1_candidate: null
 best_graph_of_sets: null
 best_graph_of_sets_wes: null

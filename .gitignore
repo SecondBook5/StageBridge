@@ -9,7 +9,6 @@ dist/
 build/
 .eggs/
 *.egg
-pip-wheel-metadata/
 
 # Virtual environments
 .venv/
@@ -19,9 +18,8 @@ env/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb_checkpoints
 
-# Data — NEVER commit data files
+# Data files (never commit)
 *.h5ad
 *.h5
 *.hdf5
@@ -37,22 +35,22 @@ env/
 *.fastq*
 *.fq*
 
-# Outputs (generated artifacts are local only)
-outputs/**
-!outputs/
-!outputs/README.md
-!outputs/figures/
-!outputs/figures/.gitkeep
-!outputs/tables/
-!outputs/tables/.gitkeep
+# Large binary files
+*.pdf
+*.png
+*.jpg
+*.jpeg
 
-# Training run artefacts (Hydra outputs/ and runs/ dirs)
+# Generated outputs (local only)
+outputs/
+!outputs/.gitkeep
+
+# Training artifacts
 runs/
 
-# Local data configs — machine-specific, never commit
+# Local data and configs
 configs/data/local.yaml
-
-# Local dependency snapshots / lock files generated at install time
+.local_data/
 .deps/
 
 # IDE
@@ -65,15 +63,11 @@ configs/data/local.yaml
 .DS_Store
 Thumbs.db
 
-# Coverage / test artefacts
+# Coverage and tooling
 .coverage
 htmlcov/
 .pytest_cache/
 .ruff_cache/
 
+# Claude Code
 .claude/
-*.pdf
-.local_data/
-
-
-GEO_Molecular_Datasets_v2.csv

@@ -1,28 +1,32 @@
 [build-system]
-# Use the modern setuptools backend (avoid legacy build backend).
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "stagebridge"
 version = "0.1.0"
-description = "Transformer-first HLCA-aligned benchmark for stage-to-stage lung progression modeling"
+description = "Niche-conditioned optimal transport for early lung adenocarcinoma progression modeling"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [
+  {name = "AJ Book"},
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 
-# Core runtime deps (kept tight; GPU/CPU Torch is user-controlled via the env)
 dependencies = [
-  # Core numerics
   "numpy>=1.24",
   "scipy>=1.10",
   "pandas>=2.0",
-
-  # Single-cell core
   "anndata>=0.10",
   "scanpy>=1.10",
   "squidpy>=1.4",
-
-  # ML + utilities
   "scikit-learn>=1.3",
   "torch>=2.2",
   "tqdm>=4.65",
@@ -30,126 +34,38 @@ dependencies = [
   "pyyaml>=6.0",
   "hydra-core>=1.3",
   "omegaconf>=2.3",
-
-  # IO (common in scverse workflows)
   "h5py>=3.9",
 ]
 
 [project.optional-dependencies]
-# Developer tools + notebook entrypoint support
 dev = [
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "pre-commit",
   "jupyterlab>=4.0",
   "ipykernel",
   "ipywidgets",
-  "nbconvert",
-  "black",
-  "ruff",
-  "pytest",
-  "pytest-cov",
-  "pre-commit",
 ]
-
-# HLCA mapping / foundation single-cell deep learning
-#   pip install -e ".[dl]"
-dl = [
+reference = [
   "scvi-tools>=1.1.0",
   "huggingface_hub>=0.20",
 ]
-
-# scRNA/snRNA → spatial mapping (Tangram)
-#   pip install -e ".[mapping]"
 mapping = [
   "tangram-sc>=1.0.4",
 ]
-
-# Heavy Bayesian deconvolution (optional on purpose)
-#   pip install -e ".[deconv]"
-deconv = [
-  "cell2location>=0.1.3",
-]
-
-# SpatialData ecosystem (new scverse spatial format, Xenium/MERSCOPE support)
-#   pip install -e ".[spatialdata]"
-spatialdata = [
-  "spatialdata>=0.1.0",
-  "spatialdata-io>=0.1.0",
-  "zarr>=2.16",
-  "numcodecs>=0.12",
-  "pyarrow>=14.0",
-]
-
-# OT utilities (if you want to use pip instead of conda)
-#   pip install -e ".[ot]"
 ot = [
   "POT>=0.9.3",
   "geomloss>=0.2.6",
 ]
-
-# Dimensionality reduction utilities (if you want pip control)
-#   pip install -e ".[embed]"
-embed = [
-  "umap-learn>=0.5",
-  "pynndescent>=0.5.10",
-  "numba>=0.57",
-]
-
-# Poster/figure export helpers (Plotly + Kaleido)
-#   pip install -e ".[viz]"
 viz = [
-  "plotly>=5.18",
-  "kaleido>=0.2.1",
-  "seaborn>=0.13",
   "matplotlib>=3.7",
-]
-
-# Image tooling often needed for spatial QC plots (Squidpy image workflows)
-#   pip install -e ".[image]"
-image = [
-  "scikit-image>=0.22",
-  "pillow>=10.0",
-]
-
-# Trajectory analysis and RNA velocity
-#   pip install -e ".[trajectory]"
-trajectory = [
-  "scvelo>=0.3.1",
-  "cellrank>=2.0",
-]
-
-# Doublet detection
-#   pip install -e ".[qc]"
-qc = [
-  "scrublet>=0.2.3",
-  "doubletdetection>=4.2",
-]
-
-# Everything commonly used (excludes the heaviest deconvolution by default)
-#   pip install -e ".[all]"
-all = [
-  "scvi-tools>=1.1.0",
-  "huggingface_hub>=0.20",
-  "tangram-sc>=1.0.4",
-  "spatialdata>=0.1.0",
-  "spatialdata-io>=0.1.0",
-  "zarr>=2.16",
-  "numcodecs>=0.12",
-  "pyarrow>=14.0",
-  "POT>=0.9.3",
-  "geomloss>=0.2.6",
-  "umap-learn>=0.5",
-  "pynndescent>=0.5.10",
-  "numba>=0.57",
+  "seaborn>=0.13",
   "plotly>=5.18",
   "kaleido>=0.2.1",
-  "scikit-image>=0.22",
-  "pillow>=10.0",
-  "scvelo>=0.3.1",
-  "cellrank>=2.0",
-  "scrublet>=0.2.3",
-  "doubletdetection>=4.2",
-  "jupyterlab>=4.0",
-  "ipykernel",
-  "ipywidgets",
+]
+all = [
+  "stagebridge[dev,reference,mapping,ot,viz]",
 ]
 
 [project.scripts]
@@ -163,6 +79,5 @@ include = ["stagebridge*"]
 line-length = 99
 target-version = "py311"
 
-[tool.black]
-line-length = 99
-target-version = ["py311"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]

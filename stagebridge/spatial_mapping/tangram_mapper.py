@@ -23,6 +23,13 @@ from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.data.luad_evo.visium import load_luad_evo_spatial_mapping
 from stagebridge.spatial_mapping.base import SpatialMappingResult
 from stagebridge.spatial_mapping.qc import summarize_mapping_qc
+from stagebridge.utils.h5ad_io import (
+    decode_h5_array,
+    read_h5ad_obs_column,
+    read_h5ad_obs_column_or_default,
+    read_h5ad_obs_frame,
+    read_h5ad_var_index,
+)
 
 log = get_logger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -149,43 +156,6 @@ def _aligned_label_series_from_sources(
     )
 
 
-def _decode_h5_array(values: np.ndarray) -> np.ndarray:
-    if values.dtype.kind in {"S", "O", "U"}:
-        return np.asarray(
-            [value.decode() if isinstance(value, bytes) else str(value) for value in values],
-            dtype=object,
-        )
-    return values
-
-
-def _read_h5ad_obs_column(group: h5py.Group, name: str, rows: np.ndarray) -> np.ndarray:
-    obj = group[name]
-    if isinstance(obj, h5py.Dataset):
-        return _decode_h5_array(obj[rows])
-    if "categories" in obj and "codes" in obj:
-        categories = _decode_h5_array(obj["categories"][:])
-        codes = np.asarray(obj["codes"][rows], dtype=np.int64)
-        values = np.empty(rows.shape[0], dtype=object)
-        missing = codes < 0
-        values[missing] = None
-        valid = ~missing
-        values[valid] = categories[codes[valid]]
-        return values
-    raise TypeError(f"Unsupported obs column encoding for '{name}'.")
-
-
-def _read_h5ad_obs_column_or_default(
-    group: h5py.Group,
-    name: str,
-    rows: np.ndarray,
-    *,
-    default: np.ndarray | None = None,
-) -> np.ndarray:
-    if name in group:
-        return _read_h5ad_obs_column(group, name, rows)
-    if default is not None:
-        return default
-    raise KeyError(f"Missing required obs column '{name}'.")
 
 
 def _read_h5ad_csr_rows(h5ad_path: Path, rows: np.ndarray, *, group_name: str = "X") -> sp.csr_matrix:
@@ -215,49 +185,6 @@ def _read_h5ad_csr_rows(h5ad_path: Path, rows: np.ndarray, *, group_name: str = 
     return sp.csr_matrix((data, indices, new_indptr), shape=(rows.shape[0], shape[1]), dtype=np.float32)
 
 
-def _read_h5ad_obs_frame(
-    h5ad_path: Path,
-    *,
-    columns: list[str],
-    rows: np.ndarray | None = None,
-) -> pd.DataFrame:
-    with h5py.File(h5ad_path, "r") as handle:
-        obs_group = handle["obs"]
-        chosen_rows = (
-            np.arange(obs_group["_index"].shape[0], dtype=np.int64)
-            if rows is None
-            else np.asarray(rows, dtype=np.int64)
-        )
-        obs_index = _decode_h5_array(obs_group["_index"][chosen_rows])
-        values: dict[str, np.ndarray] = {}
-        for column in columns:
-            if column == "donor_id":
-                values[column] = (
-                    _read_h5ad_obs_column(obs_group, "donor_id", chosen_rows)
-                    if "donor_id" in obs_group
-                    else _read_h5ad_obs_column(obs_group, "patient_id", chosen_rows)
-                )
-                continue
-            if column == "patient_id":
-                values[column] = (
-                    _read_h5ad_obs_column(obs_group, "patient_id", chosen_rows)
-                    if "patient_id" in obs_group
-                    else _read_h5ad_obs_column(obs_group, "donor_id", chosen_rows)
-                )
-                continue
-            if column in {"spot_id", "barcode", "sample_id"}:
-                values[column] = _read_h5ad_obs_column_or_default(obs_group, column, chosen_rows, default=obs_index)
-                continue
-            values[column] = _read_h5ad_obs_column(obs_group, column, chosen_rows)
-        frame = pd.DataFrame(values, index=pd.Index(obs_index, name=str(obs_group.attrs.get("_index", "_index"))))
-    return frame
-
-
-def _read_h5ad_var_index(h5ad_path: Path) -> pd.Index:
-    with h5py.File(h5ad_path, "r") as handle:
-        var_group = handle["var"]
-        index = _decode_h5_array(var_group["_index"][:])
-        return pd.Index(index, name=str(var_group.attrs.get("_index", "_index")))
 
 
 def _write_label_parquet_from_snrna(
@@ -272,7 +199,7 @@ def _write_label_parquet_from_snrna(
     fallback_latent_h5ad_path: Path | None = None,
 ) -> dict[str, Any]:
     obs = _normalize_obs_fields(
-        _read_h5ad_obs_frame(
+        read_h5ad_obs_frame(
             snrna_h5ad_path,
             columns=["donor_id", "patient_id", "sample_id", "stage"],
         )
@@ -329,7 +256,7 @@ def _write_snrna_subset_h5ad_from_labels(
     labels_df = pd.read_parquet(labels_parquet_path)
     labels_df.index = labels_df.index.astype(str)
     all_obs = _normalize_obs_fields(
-        _read_h5ad_obs_frame(
+        read_h5ad_obs_frame(
             snrna_h5ad_path,
             columns=["donor_id", "patient_id", "sample_id", "stage"],
         )
@@ -349,7 +276,7 @@ def _write_snrna_subset_h5ad_from_labels(
     subset = anndata.AnnData(
         X=_read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="X"),
         obs=subset_obs,
-        var=pd.DataFrame(index=_read_h5ad_var_index(snrna_h5ad_path)),
+        var=pd.DataFrame(index=read_h5ad_var_index(snrna_h5ad_path)),
     )
     try:
         subset.layers["counts"] = _read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="layers/counts")
@@ -376,25 +303,25 @@ def _write_spatial_subset_h5ad(
     with h5py.File(spatial_h5ad_path, "r") as handle:
         obs_group = handle["obs"]
         all_rows = np.arange(obs_group["_index"].shape[0], dtype=np.int64)
-        obs_index = _decode_h5_array(obs_group["_index"][:])
+        obs_index = decode_h5_array(obs_group["_index"][:])
         donor_values = (
-            _read_h5ad_obs_column(obs_group, "donor_id", all_rows)
+            read_h5ad_obs_column(obs_group, "donor_id", all_rows)
             if "donor_id" in obs_group
-            else _read_h5ad_obs_column(obs_group, "patient_id", all_rows)
+            else read_h5ad_obs_column(obs_group, "patient_id", all_rows)
         )
         patient_values = (
-            _read_h5ad_obs_column(obs_group, "patient_id", all_rows)
+            read_h5ad_obs_column(obs_group, "patient_id", all_rows)
             if "patient_id" in obs_group
             else donor_values
         )
         obs = pd.DataFrame(
             {
-                "spot_id": _read_h5ad_obs_column_or_default(obs_group, "spot_id", all_rows, default=obs_index),
-                "barcode": _read_h5ad_obs_column_or_default(obs_group, "barcode", all_rows, default=obs_index),
+                "spot_id": read_h5ad_obs_column_or_default(obs_group, "spot_id", all_rows, default=obs_index),
+                "barcode": read_h5ad_obs_column_or_default(obs_group, "barcode", all_rows, default=obs_index),
                 "donor_id": donor_values,
                 "patient_id": patient_values,
-                "stage": _read_h5ad_obs_column(obs_group, "stage", all_rows),
-                "sample_id": _read_h5ad_obs_column_or_default(obs_group, "sample_id", all_rows, default=obs_index),
+                "stage": read_h5ad_obs_column(obs_group, "stage", all_rows),
+                "sample_id": read_h5ad_obs_column_or_default(obs_group, "sample_id", all_rows, default=obs_index),
             },
             index=pd.Index(obs_index, name=str(obs_group.attrs.get("_index", "_index"))),
         )
@@ -407,7 +334,7 @@ def _write_spatial_subset_h5ad(
             seed=seed,
         )
         subset_obs = obs.iloc[rows].copy()
-        var_index = pd.Index(_decode_h5_array(handle["var"]["_index"][:]), name="gene")
+        var_index = pd.Index(decode_h5_array(handle["var"]["_index"][:]), name="gene")
         spatial_coords = np.asarray(handle["obsm"]["spatial"][rows], dtype=np.float32)
 
     subset = anndata.AnnData(

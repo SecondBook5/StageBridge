@@ -83,7 +83,16 @@ def test_stagebridge_communication_model_emits_bag_and_query_logits() -> None:
 
 def test_build_communication_model_supports_baselines() -> None:
     batch = collate_communication_bags(_make_bags())
-    for model_name in ["focal_only", "pooled", "deep_sets", "graphsage", "transformer_no_priors", "transformer_no_relay", "stagebridge"]:
+    for model_name in [
+        "focal_only",
+        "pooled",
+        "deep_sets",
+        "graphsage",
+        "graph_transformer",
+        "transformer_no_priors",
+        "transformer_no_relay",
+        "stagebridge",
+    ]:
         model = build_communication_model(
             model_name,
             receiver_dim=batch.receiver_embedding.shape[1],

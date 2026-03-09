@@ -1,150 +1,159 @@
 # StageBridge
 
-A reference-anchored, spatially grounded, edge-wise stochastic transition framework for modeling lung adenocarcinoma initiation.
+**Niche-conditioned optimal transport for early lung adenocarcinoma progression**
 
-## The v1 Problem
+StageBridge learns cell-state transition maps across the LUAD initiation ladder (Normal → AAH → AIS → MIA → LUAD) conditioned on local tissue microenvironment context from matched spatial transcriptomics. The framework benchmarks whether transformer-based niche encoding improves transition prediction over simpler aggregation baselines.
 
-StageBridge models within-lung LUAD initiation as a sequence of niche-gated stochastic transitions across five histologically defined stages:
+## Key results
 
-**Normal → AAH → AIS → MIA → LUAD**
+| Task | Best method | Finding |
+|------|------------|---------|
+| AIS → MIA transition | Set Transformer context | Spatial niche context improves transition prediction |
+| AAH → AIS transition | RNA-only baseline | Context does not help on this edge |
+| Communication relay (clonal-proxy) | Pooled summary | Richer transformer architectures do not beat pooling with current supervision |
 
-The core biological question: **which stage transitions are gated by local tissue microenvironment composition, and how is that gating modulated by the evolutionary (genomic) state of the tumor?**
+These task-dependent results define the boundary conditions for transformer-based spatial modeling in pre-malignant tissue.
 
-The first analytical focus is the AAH→AIS and AIS→MIA transitions, where spatial tissue architecture is most likely to change transition dynamics.
-
-## Scope
-
-### In scope (v1)
-
-- Within-lung progression: Normal through invasive LUAD
-- Three data modalities: snRNA-seq (GSE308103), 10x Visium spatial (GSE307534), WES (GSE307529)
-- Reference latent alignment via HLCA (Human Lung Cell Atlas)
-- Spatial mapping via Tangram (primary), with TACCO and DestVI as alternatives
-- Typed niche context modeling via Set Transformer (baseline) and Graph-of-Sets Transformer (ablation candidate)
-- Edge-wise stochastic transition modeling with drift-diffusion dynamics and Schrodinger bridge objective
-- WES features as a regularizer on admissible transport
-- Formal evaluation including ablations, calibration, context sensitivity, and tissue-level interpretation
-
-### Out of scope (v1)
-
-- Continuous Normal→BrainMets progression claim
-- TCR conditioning
-- Brain metastasis as part of the primary system (reserved for future extension)
-- Claims of zero batch effects
-- Assumption that graph-of-sets automatically outperforms set-only
-- Unrestricted learned genomics conditioning
-
-## Scientific Architecture
-
-StageBridge is organized into seven scientific layers:
-
-1. **Data Ingestion** — Parse GEO deposits into standardized AnnData with canonical stage labels, donor identity, and quality metadata.
-
-2. **Reference Latent Mapping** — Project all cells into HLCA latent space via scArches surgery. This provides a shared coordinate system across datasets. Integration quality is diagnosed, not assumed.
-
-3. **Spatial Mapping** — Map snRNA-seq profiles onto Visium spots using Tangram. Produces spot-level cell-type composition scores that define the local tissue neighborhood.
-
-4. **Typed Niche Context Modeling** — Encode each (patient, stage) cell population as a biological set with typed tokens (epithelial, stromal, immune, vascular/program). The Set Transformer compresses these into summary representations. The Graph Transformer (optional) exchanges information across stage-adjacent and cross-patient sets.
-
-5. **Edge-Wise Stochastic Transition Modeling** — Learn a conditional drift-diffusion process for each disease edge (e.g., AAH→AIS), initialized from Gaussian Schrodinger bridge priors and optionally coupled via entropic OT. The drift network is conditioned on niche context; WES features regularize admissible transport paths.
-
-6. **Tissue-Level Interpretation and Evaluation** — Evaluate not just held-out metrics but also calibration, ablations, context sensitivity (niche shuffling), trajectory structure, fixed points, niche regimes, and gene/program attribution. Tissue-level dynamical interpretation is part of the scientific contribution.
-
-7. **Results Tracking** — Every run produces a structured result card tied to a git commit. Important results are promoted to milestones with git tags.
-
-## Repo Layout
+## Architecture
 
 ```
-StageBridge/
-├── StageBridge.ipynb          # Single notebook front-end (orchestration only)
-├── stagebridge/               # Python package
-│   ├── data/                  # Data ingestion and loading
-│   ├── reference/             # HLCA latent mapping
-│   ├── spatial_mapping/       # Tangram / TACCO / DestVI
-│   ├── context_model/         # Set Transformer + Graph-of-Sets Transformer
-│   ├── transition_model/      # Drift-diffusion, Schrodinger bridge, OT coupling
-│   ├── evaluation/            # Metrics, ablations, interpretation
-│   ├── results/               # Run tracking, result cards, promotion
-│   ├── pipelines/             # Pipeline entry points
-│   ├── viz/                   # Visualization
-│   └── utils/                 # Shared utilities
-├── configs/                   # Hydra configuration tree
-├── tests/                     # Test suite
-├── docs/                      # Specs, decisions, biology, architecture
-├── outputs/                   # Transient scratch artifacts only
-└── results/                   # Formal results registry and run tree
+┌─────────────────────────────────────────────────────────────┐
+│  Data Layer                                                 │
+│  GSE308103 (snRNA-seq) + GSE307534 (Visium) + GSE307529    │
+│  (WES)                                                      │
+├─────────────────────────────────────────────────────────────┤
+│  Reference Mapping         → HLCA-aligned latent space      │
+│  Spatial Mapping           → Tangram / TACCO / DestVI       │
+├─────────────────────────────────────────────────────────────┤
+│  Context Encoding                                           │
+│  Set Transformer · DeepSets · Graph-of-Sets · Hierarchical  │
+│  Communication Relay (sender → LR → relay → receiver)       │
+├─────────────────────────────────────────────────────────────┤
+│  Transition Model                                           │
+│  Schrödinger bridge interpolant · OT coupling (Sinkhorn)    │
+│  Drift + diffusion networks · WES regularization            │
+├─────────────────────────────────────────────────────────────┤
+│  Evaluation                                                 │
+│  Donor-held-out CV · Context ablation · Edge comparison     │
+│  Gene attribution · Trajectory analysis                     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-Every concept has one home in the package. The notebook calls into `stagebridge/pipelines/`; it does not define model internals.
-
-## Execution Modes
-
-StageBridge supports three execution modes of increasing complexity:
-
-### 1. RNA-only
-Uses snRNA-seq data alone. Cells are embedded in HLCA latent space. The transition model operates without spatial context. This is the minimal viable configuration.
-
-### 2. Set-only (spatial baseline)
-Adds spatial mapping (Tangram). Each (patient, stage) population becomes a typed biological set with niche tokens derived from spatial composition. The Set Transformer encodes context. This is the first serious spatially-informed baseline.
-
-### 3. Graph-of-Sets + WES
-Adds inter-set graph attention and WES regularization. The Graph-of-Sets Transformer exchanges information across stage-adjacent and cross-patient nodes. WES features constrain which transport paths are genomically plausible. This mode must earn its place through ablation — it is not assumed to be superior.
-
-## The Notebook
-
-`StageBridge.ipynb` is the single user-facing front-end. It:
-- Loads configuration
-- Calls pipeline functions from `stagebridge/pipelines/`
-- Displays diagnostics and outputs
-- Writes structured results
-- Promotes milestones
-
-It does **not** define model architectures, training loops, or core logic inline.
-
-## Results
-
-Every run writes a structured result directory containing:
-- Resolved configuration
-- Metrics and evaluation outputs
-- Ablation comparisons (when applicable)
-- A result card summarizing the run
-
-Milestone-worthy results are promoted with git tags and registry entries. Git history is the archive — there is no `legacy/` folder.
-
-## Documentation
-
-- [Master Spec](docs/specs/000_master_spec.md) — Central method specification
-- [Repo Contract](docs/specs/001_repo_contract.md) — What belongs where
-- [Data Contract](docs/specs/002_data_contract.md) — Dataset expectations
-- Spec files `003`–`009` cover reference, spatial mapping, context model, transition model, evaluation, results, and notebook contracts
-- [Architecture Decision Records](docs/decisions/) — Key design decisions
-- [Biology docs](docs/biology/) — Scientific context and hypotheses
-- [Architecture docs](docs/architecture/) — Layer-by-layer technical descriptions
-- [Citation Map](docs/papers/citation_map.md) — Paper-to-component mapping
-
-## Setup
+## Installation
 
 ```bash
+# Clone and create environment
+git clone https://github.com/<user>/StageBridge.git
+cd StageBridge
 micromamba create -f environment.yml
 micromamba activate stagebridge
-pip install -e .
+
+# Install package in development mode
+pip install -e ".[dev]"
 ```
 
-Set the external data root:
-```bash
-export STAGEBRIDGE_DATA_ROOT=/mnt/e/StageBridge_data
+**Requirements:** Python 3.11+, CUDA-capable GPU (tested on NVIDIA RTX 4000 Ada, 20 GB VRAM).
+
+## Quick start
+
+```python
+import stagebridge
+
+# Compose a configuration and run the full pipeline
+cfg = stagebridge.compose_config(
+    overrides=["data=local", "context_model=set_only", "train=full_v1"]
+)
+outputs = stagebridge.run_pipeline(cfg)
 ```
 
-Run tests:
-```bash
-pytest -q
+Or run individual pipeline steps:
+
+```python
+from stagebridge.pipelines import run_transition_model, run_evaluation
+
+transition = run_transition_model(cfg)
+evaluation = run_evaluation(cfg, transition_output=transition)
 ```
 
 ## Data
 
-External data lives outside the repo at `$STAGEBRIDGE_DATA_ROOT`. The three primary GEO deposits are:
-- **GSE308103** — snRNA-seq (custom dense format)
-- **GSE307534** — 10x Visium spatial transcriptomics
-- **GSE307529** — Whole-exome sequencing
+The framework uses three matched GEO datasets from the Markov et al. early LUAD cohort:
 
-The HLCA full reference atlas (~20 GB) is required for latent alignment.
+| Accession | Modality | Description |
+|-----------|----------|-------------|
+| GSE308103 | snRNA-seq | Single-nucleus transcriptomes across 5 stages |
+| GSE307534 | 10x Visium | Spatial transcriptomics (matched tissue sections) |
+| GSE307529 | WES | Whole-exome sequencing (per-lesion mutation profiles) |
+
+Data is stored externally and referenced via the `STAGEBRIDGE_DATA_ROOT` environment variable. See `configs/data/luad_evo.yaml` for the expected directory layout.
+
+## Repository structure
+
+```
+stagebridge/
+├── context_model/       # Niche context encoders (Set Transformer, GoST, etc.)
+├── transition_model/    # OT coupling, Schrödinger bridge, drift/diffusion networks
+├── evaluation/          # Metrics, ablations, gene attribution, trajectory analysis
+├── reference/           # HLCA latent mapping and label transfer
+├── spatial_mapping/     # Tangram, TACCO, DestVI spatial mapping backends
+├── pipelines/           # Orchestration scripts for each pipeline stage
+├── results/             # Result tracking and milestone system
+├── data/                # Data loaders and stage ontology
+├── viz/                 # Figure generation
+└── utils/               # Configuration, seeds, type helpers
+configs/                 # YAML configs (data, model, training, evaluation)
+docs/
+├── architecture/        # Module-level design docs
+└── biology/             # Scientific rationale and hypotheses
+reports/benchmarks/      # Reproducible benchmark tables
+tests/                   # Test suite (87 tests)
+```
+
+## Configuration
+
+StageBridge uses [OmegaConf](https://omegaconf.readthedocs.io/) with composable YAML configs:
+
+```
+configs/
+├── default.yaml                    # Base configuration
+├── context_model/
+│   ├── set_only.yaml               # Set Transformer (default)
+│   ├── deep_sets.yaml              # DeepSets baseline
+│   ├── graph_of_sets.yaml          # Graph-of-Sets Transformer
+│   └── typed_hierarchical_transformer.yaml
+├── transition_model/
+│   ├── schrodinger_bridge.yaml     # SB loss parameters
+│   ├── stochastic_dynamics.yaml    # Drift/diffusion network config
+│   └── wes_regularizer.yaml        # WES-conditioned OT regularization
+├── train/
+│   ├── full_v1.yaml                # Production training (150 epochs, GPU)
+│   ├── medium.yaml                 # Medium runs (4 epochs, CPU)
+│   └── smoke.yaml                  # CI smoke tests (2 epochs, CPU)
+└── splits/
+    └── donor_holdout.yaml          # Donor-held-out cross-validation
+```
+
+## Testing
+
+```bash
+pytest tests/ -v
+```
+
+The test suite validates OT coupling properties, model forward passes across all context encoder variants, Schrödinger bridge loss gradients, and end-to-end pipeline integration on real data subsets.
+
+## Citation
+
+If you use StageBridge in your research, please cite:
+
+```bibtex
+@software{stagebridge2026,
+  title={StageBridge: Niche-Conditioned Optimal Transport for Early Lung Cancer Progression},
+  author={Book, AJ},
+  year={2026},
+  url={https://github.com/<user>/StageBridge}
+}
+```
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
