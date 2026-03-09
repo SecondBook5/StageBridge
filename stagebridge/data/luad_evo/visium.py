@@ -260,17 +260,7 @@ def expand_spatial_tarballs(extracted_dir: Path, samples_dir: Path) -> None:
 
 def _find_matrix_dir_name(sample_dir: Path) -> str:
     """Return the relative name of the matrix sub-directory."""
-    for name in ("filtered_feature_bc_matrix", "raw_feature_bc_matrix"):
-        if (sample_dir / name).is_dir():
-            return name
-        for sub in sample_dir.iterdir():
-            if sub.is_dir() and (sub / name).is_dir():
-                return name
-    raise FileNotFoundError(
-        f"No filtered_feature_bc_matrix/ or raw_feature_bc_matrix/ found in:\n"
-        f"  {sample_dir}\n"
-        f"Contents: {[p.name for p in sample_dir.iterdir()]}"
-    )
+    return _find_matrix_dir(sample_dir).name
 
 
 def _load_with_squidpy(sample_dir: Path) -> anndata.AnnData:
@@ -348,28 +338,11 @@ def _read_features(matrix_dir: Path) -> list[str]:
 
 
 def _read_mtx_sparse(path: Path) -> tuple[sp.csr_matrix, int, int]:
-    """Read an MTX file; return (genes×cells CSR, n_genes, n_cells)."""
-    opener = gzip.open if path.suffix == ".gz" else open
-    rows, cols, data = [], [], []
-    header_done = False
-    n_genes = n_cells = 0
-    with opener(path, "rt") as fh:
-        for line in fh:
-            s = line.strip()
-            if not s or s.startswith("%"):
-                continue
-            parts = s.split()
-            if not header_done:
-                n_genes, n_cells = int(parts[0]), int(parts[1])
-                header_done = True
-                continue
-            rows.append(int(parts[0]) - 1)
-            cols.append(int(parts[1]) - 1)
-            data.append(float(parts[2]))
-    mat = sp.csr_matrix(
-        (data, (rows, cols)), shape=(n_genes, n_cells), dtype=np.float32
-    )
-    return mat, n_genes, n_cells
+    """Read an MTX file; return (genes x cells CSR, n_genes, n_cells)."""
+    from scipy.io import mmread
+
+    mat = mmread(str(path)).astype(np.float32).tocsr()
+    return mat, mat.shape[0], mat.shape[1]
 
 
 def _load_spatial_coords_manual(sample_dir: Path, barcodes: list[str]) -> np.ndarray | None:

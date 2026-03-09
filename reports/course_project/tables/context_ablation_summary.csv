@@ -1,3 +1,0 @@
-edge,best_mode,set_only_beats_pooled,set_only_beats_rna_only,graph_of_sets_earned,evidence_grade
-AAH->AIS,rna_only,yes,no,no,weak_pass
-AIS->MIA,set_only,yes,yes,no,pass

@@ -1,9 +1,0 @@
-Edge,Mode,Sinkhorn,Transformer,Context
-AAH → AIS,RNA-only,17.252,No,None
-AAH → AIS,Pooled,18.097,No,Pooled
-AAH → AIS,Set Transformer,17.817,Yes,Set Attention
-AAH → AIS,Graph-of-Sets,18.683,Yes,Set + Graph
-AIS → MIA,RNA-only,16.297,No,None
-AIS → MIA,Pooled,15.909,No,Pooled
-AIS → MIA,Set Transformer,15.758,Yes,Set Attention
-AIS → MIA,Graph-of-Sets,16.002,Yes,Set + Graph

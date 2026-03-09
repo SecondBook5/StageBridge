@@ -7,10 +7,15 @@ from typing import Any, Callable
 from collections import Counter
 
 import anndata
-import h5py
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
+
+from stagebridge.utils.h5ad_io import (
+    read_h5ad_obs_frame as _read_h5ad_obs_frame_shared,
+    read_h5ad_spatial_coords,
+    read_h5ad_n_vars,
+)
 
 from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.data.luad_evo.stages import normalize_stage_label
@@ -216,63 +221,12 @@ def _normalize_dataset_obs(obs: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _decode_h5_values(values: np.ndarray) -> np.ndarray:
-    if values.dtype.kind in {"S", "O", "U"}:
-        return np.asarray(
-            [value.decode() if isinstance(value, bytes) else str(value) for value in values],
-            dtype=object,
-        )
-    return values
-
-
-def _read_h5ad_obs_column(group: h5py.Group, name: str, rows: np.ndarray) -> np.ndarray:
-    obj = group[name]
-    if isinstance(obj, h5py.Dataset):
-        return _decode_h5_values(obj[rows])
-    if "categories" in obj and "codes" in obj:
-        categories = _decode_h5_values(obj["categories"][:])
-        codes = np.asarray(obj["codes"][rows], dtype=np.int64)
-        values = np.empty(rows.shape[0], dtype=object)
-        missing = codes < 0
-        values[missing] = None
-        valid = ~missing
-        values[valid] = categories[codes[valid]]
-        return values
-    raise TypeError(f"Unsupported obs column encoding for '{name}'.")
-
-
 def _read_h5ad_obs_frame(path: Path, *, columns: list[str]) -> pd.DataFrame:
-    with h5py.File(path, "r") as handle:
-        obs_group = handle["obs"]
-        index = _decode_h5_values(obs_group["_index"][:])
-        values: dict[str, np.ndarray] = {}
-        for column in columns:
-            if column in {"spot_id", "barcode", "sample_id"} and column not in obs_group:
-                values[column] = index
-                continue
-            if column == "donor_id" and column not in obs_group and "patient_id" in obs_group:
-                values[column] = _read_h5ad_obs_column(obs_group, "patient_id", np.arange(index.shape[0], dtype=np.int64))
-                continue
-            if column == "patient_id" and column not in obs_group and "donor_id" in obs_group:
-                values[column] = _read_h5ad_obs_column(obs_group, "donor_id", np.arange(index.shape[0], dtype=np.int64))
-                continue
-            values[column] = _read_h5ad_obs_column(obs_group, column, np.arange(index.shape[0], dtype=np.int64))
-    return pd.DataFrame(values, index=pd.Index(index.astype(str)))
+    return _read_h5ad_obs_frame_shared(path, columns=columns)
 
 
-def _read_h5ad_spatial_coords(path: Path, rows: np.ndarray) -> np.ndarray:
-    with h5py.File(path, "r") as handle:
-        spatial = handle["obsm"]["spatial"]
-        return np.asarray(spatial[rows], dtype=np.float32)
-
-
-def _read_h5ad_n_vars(path: Path) -> int:
-    with h5py.File(path, "r") as handle:
-        X = handle["X"]
-        if isinstance(X, h5py.Dataset):
-            return int(X.shape[1])
-        shape = X.attrs.get("shape")
-        return int(shape[1])
+_read_h5ad_spatial_coords = read_h5ad_spatial_coords
+_read_h5ad_n_vars = read_h5ad_n_vars
 
 
 def _sample_rows_by_stage(

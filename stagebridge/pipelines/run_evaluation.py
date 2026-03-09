@@ -9,20 +9,13 @@ import torch
 from stagebridge.evaluation.ablations import summarize_ablation
 from stagebridge.evaluation.biological_insight import summarize_edge_biology
 from stagebridge.evaluation.calibration import summarize_transition_calibration
-from stagebridge.evaluation.context_ablation import evaluate_context_ablation
 from stagebridge.evaluation.context_sensitivity import compare_real_vs_shuffled_context
-from stagebridge.evaluation.diffusion_ablation import evaluate_diffusion_ablation
-from stagebridge.evaluation.edge_comparison import evaluate_edge_comparison
 from stagebridge.evaluation.fixed_points import summarize_fixed_points
-from stagebridge.evaluation.latent_sensitivity import evaluate_latent_sensitivity
 from stagebridge.evaluation.metrics import heldout_transition_metrics, rollout_edge_transition
 from stagebridge.evaluation.niche_regimes import summarize_niche_regimes
 from stagebridge.evaluation.pseudotime_structure import summarize_pseudotime_structure
-from stagebridge.evaluation.provider_sensitivity import evaluate_provider_sensitivity
 from stagebridge.evaluation.reports import build_evaluation_report
-from stagebridge.evaluation.reporting import render_scientific_gate_summary_md, scientific_gate_summary_payload
 from stagebridge.evaluation.trajectory_analysis import summarize_edge_trajectory
-from stagebridge.evaluation.wes_ablation import evaluate_wes_ablation
 from stagebridge.pipelines.run_transition_model import run_transition_model
 
 
@@ -178,66 +171,4 @@ def run_evaluation(
         "report": report,
         "dataset_transfer_diagnostics": transition.get("dataset_transfer_diagnostics", {}),
         "artifact_sources": artifact_sources,
-    }
-
-
-def run_scientific_gate_pass(
-    *,
-    run_label: str,
-    config_signature: str,
-    latent_results: dict[str, dict[str, Any]] | None = None,
-    provider_results: dict[str, dict[str, Any]] | None = None,
-    context_mode_results: dict[str, dict[str, Any]] | None = None,
-    fixed_diffusion_result: dict[str, Any] | None = None,
-    state_dependent_result: dict[str, Any] | None = None,
-    wes_off_result: dict[str, Any] | None = None,
-    wes_on_result: dict[str, Any] | None = None,
-    edge_results: dict[str, dict[str, Any]] | None = None,
-    edge: str = "AAH->AIS",
-    mode: str = "set_only",
-) -> dict[str, Any]:
-    gate_results = [
-        evaluate_latent_sensitivity(
-            run_label=run_label,
-            edge=edge,
-            config_signature=config_signature,
-            backend_results=latent_results or {},
-        ),
-        evaluate_provider_sensitivity(
-            run_label=run_label,
-            edge=edge,
-            config_signature=config_signature,
-            provider_results=provider_results or {},
-        ),
-        evaluate_context_ablation(
-            run_label=run_label,
-            edge=edge,
-            config_signature=config_signature,
-            mode_results=context_mode_results or {},
-        ),
-        evaluate_diffusion_ablation(
-            run_label=run_label,
-            edge=edge,
-            config_signature=config_signature,
-            fixed_result=fixed_diffusion_result,
-            state_dependent_result=state_dependent_result,
-        ),
-        evaluate_wes_ablation(
-            run_label=run_label,
-            edge=edge,
-            config_signature=config_signature,
-            wes_off_result=wes_off_result,
-            wes_on_result=wes_on_result,
-        ),
-        evaluate_edge_comparison(
-            run_label=run_label,
-            mode=mode,
-            config_signature=config_signature,
-            edge_results=edge_results or {},
-        ),
-    ]
-    return {
-        "gate_results": [result.to_dict() for result in gate_results],
-        "scientific_gate_summary": scientific_gate_summary_payload(gate_results),
-        "scientific_gate_summary_md": render_scientific_gate_summary_md(gate_results),
     }

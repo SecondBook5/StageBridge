@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "transition_source": "reports/archive/course_project/tables/core_mode_comparison.csv",
+  "communication_ais_sources": [
+    "outputs/scratch/communication_relay_ais_progression_benchmark/communication_relay/benchmark_summary.csv",
+    "outputs/scratch/communication_relay_ais_graph_transformer_benchmark/communication_relay/benchmark_summary.csv"
+  ],
+  "communication_combined_sources": [
+    "outputs/scratch/communication_relay_combined_progression_benchmark/communication_relay/benchmark_summary.csv"
+  ],
+  "reports_root": "reports",
+  "poster_root": "reports/poster/hca_general_meeting"
+}

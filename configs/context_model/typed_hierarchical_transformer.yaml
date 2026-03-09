@@ -74,6 +74,7 @@ context_model:
       - pooled
       - deep_sets
       - graphsage
+      - graph_transformer
       - transformer_no_priors
       - transformer_no_relay
       - stagebridge
