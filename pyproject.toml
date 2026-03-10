@@ -49,6 +49,7 @@ dev = [
   "pytest",
   "pytest-cov",
   "ruff",
+  "optuna>=3.5",
   "pre-commit",
   "jupyterlab>=4.0",
   "ipykernel",

@@ -32,6 +32,6 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,ot,viz]"
+          pip install -e ".[dev,reference,ot,viz]"
       - name: Run tests
         run: pytest tests/ -q --tb=short -x
