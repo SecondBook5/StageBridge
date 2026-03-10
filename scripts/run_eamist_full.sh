@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
+# End-to-end EA-MIST pipeline: pretrain local encoder, train, report.
+#
+# Usage:
+#   bash scripts/run_eamist_full.sh [RUN_NAME]
+#
+# Requires STAGEBRIDGE_DATA_ROOT to be set.
+
 set -euo pipefail
 
-RUN_NAME="${1:-eamist_full_20260309}"
+RUN_NAME="${1:-eamist_$(date +%Y%m%d_%H%M%S)}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_ROOT="$ROOT/outputs/scratch/$RUN_NAME"
 LOG_PATH="$OUTPUT_ROOT/workflow.log"
@@ -26,6 +33,7 @@ mkdir -p "$OUTPUT_ROOT"
     -o run_name="$RUN_NAME" \
     -o context_model.eamist.device=cuda \
     -o context_model.eamist.require_cuda=true \
+    -o context_model.eamist.batch_size_bags=2 \
     -o context_model.eamist.pretrained_local_checkpoint="$CHECKPOINT"
 
   echo "[$(date --iso-8601=seconds)] TRAIN complete"

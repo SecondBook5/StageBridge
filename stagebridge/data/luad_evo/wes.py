@@ -15,10 +15,8 @@ per-(patient, stage) genomic features:
 Usage::
 
     from stagebridge.data.luad_evo.wes import parse_wes_features_from_tar
-    df = parse_wes_features_from_tar(
-        "/mnt/e/StageBridge_data/raw/geo/GSE307529_wes/downloads/GSE307529_RAW.tar"
-    )
-    df.to_parquet("processed/features/wes_features.parquet", index=False)
+    df = parse_wes_features_from_tar("$STAGEBRIDGE_DATA_ROOT/raw/geo/GSE307529_RAW.tar")
+    df.to_parquet("wes_features.parquet", index=False)
 """
 from __future__ import annotations
 
@@ -293,7 +291,8 @@ def resolve_wes_features_path(cfg: object | None = None) -> Path:
     """Resolve the active LUAD WES parquet path."""
     if cfg is not None:
         return resolve_luad_evo_paths(cfg).wes_features_path
-    return Path("/mnt/e/StageBridge_data/processed/features/wes_features.parquet")
+    from stagebridge.config import get_data_root
+    return get_data_root() / "processed" / "features" / "wes_features.parquet"
 
 
 def load_luad_evo_wes_features(

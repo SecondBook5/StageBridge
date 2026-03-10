@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "stagebridge"
 version = "0.1.0"
-description = "Niche-conditioned optimal transport for early lung adenocarcinoma progression modeling"
+description = "Transformer-based modeling of lung adenocarcinoma stage progression from spatial transcriptomics, single-cell RNA-seq, and whole-exome sequencing"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -13,12 +13,19 @@ authors = [
   {name = "AJ Book"},
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+[project.urls]
+Homepage = "https://github.com/SecondBook5/StageBridge"
+Repository = "https://github.com/SecondBook5/StageBridge"
+Issues = "https://github.com/SecondBook5/StageBridge/issues"
 
 dependencies = [
   "numpy>=1.24",
@@ -79,5 +86,15 @@ include = ["stagebridge*"]
 line-length = 99
 target-version = "py311"
 
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["stagebridge"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

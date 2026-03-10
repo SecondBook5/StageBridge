@@ -34,6 +34,7 @@ env/
 *.bai
 *.fastq*
 *.fq*
+*.zarr/
 
 # Large binary files
 *.pdf
@@ -43,10 +44,19 @@ env/
 
 # Generated outputs (local only)
 outputs/
-!outputs/.gitkeep
-
-# Training artifacts
 runs/
+
+# Reports and results (generated per-run)
+reports/benchmarks/
+reports/labels/
+reports/tables/
+reports/figures/
+reports/*.json
+results/registry/
+results/milestones/
+results/runs/
+results/summaries/
+results/figures/
 
 # Local data and configs
 configs/data/local.yaml

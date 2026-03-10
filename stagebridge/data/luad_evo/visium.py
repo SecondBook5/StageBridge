@@ -60,9 +60,11 @@ def resolve_spatial_tangram_path(cfg: Any | None = None) -> Path:
         paths = resolve_luad_evo_paths(cfg)
         candidates = [paths.spatial_tangram_h5ad, paths.spatial_h5ad]
     else:
+        from stagebridge.config import get_data_root
+        root = get_data_root()
         candidates = [
-            Path("/mnt/e/StageBridge_data/processed/tangram/spatial_tangram_full.h5ad"),
-            Path("/mnt/e/StageBridge_data/interim/anndata/spatial/spatial_full.h5ad"),
+            root / "processed" / "tangram" / "spatial_tangram_full.h5ad",
+            root / "interim" / "anndata" / "spatial" / "spatial_full.h5ad",
         ]
     for candidate in candidates:
         if candidate.exists():

@@ -117,7 +117,7 @@ def run(root: Path, *, download_model: bool) -> dict[str, object]:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True, help="StageBridge data root, e.g. /mnt/e/StageBridge_data")
+    parser.add_argument("--root", type=Path, required=True, help="StageBridge data root ($STAGEBRIDGE_DATA_ROOT)")
     parser.add_argument(
         "--download-model",
         type=parse_bool,
