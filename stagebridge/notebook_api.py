@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable
 from collections import Counter
@@ -21,25 +22,6 @@ from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.data.luad_evo.stages import normalize_stage_label
 from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS, load_luad_evo_wes_features
 from stagebridge.evaluation.provider_benchmark import render_provider_benchmark_md, summarize_provider_benchmark
-from stagebridge.pipelines.run_context_model import run_context_model
-from stagebridge.pipelines.pretrain_local import run_pretrain_local
-from stagebridge.pipelines.train_lesion import run_train_lesion
-from stagebridge.pipelines.evaluate_lesion import run_evaluate_lesion
-from stagebridge.pipelines.run_eamist_reporting import run_eamist_reporting
-from stagebridge.pipelines.run_label_repair import (
-    run_label_cna,
-    run_label_clonal,
-    run_label_manifest,
-    run_label_phylogeny,
-    run_label_refinement,
-    run_label_repair,
-    run_label_support,
-)
-from stagebridge.pipelines.run_evaluation import run_evaluation
-from stagebridge.pipelines.run_full import run_full
-from stagebridge.pipelines.run_reference import run_reference
-from stagebridge.pipelines.run_spatial_mapping import run_spatial_mapping
-from stagebridge.pipelines.run_transition_model import run_transition_model
 from stagebridge.utils.config_loader import load_yaml_config
 
 _CONFIG_DIR = (Path(__file__).resolve().parent.parent / "configs").resolve()
@@ -67,6 +49,7 @@ _ENTRYPOINT_ALIASES = {
 }
 
 StepFn = Callable[..., dict[str, Any]]
+StepSpec = tuple[str, str]
 
 
 def _load_component(path: Path) -> DictConfig:
@@ -144,34 +127,86 @@ def _progress_iter(iterable: list[str], *, desc: str, enabled: bool) -> Any:
         return iterable
 
 
-_STEP_REGISTRY: dict[str, StepFn] = {
-    "label_repair": run_label_repair,
-    "pretrain_local": run_pretrain_local,
-    "train_lesion": run_train_lesion,
-    "evaluate_lesion": run_evaluate_lesion,
-    "eamist_report": run_eamist_reporting,
-    "reference": run_reference,
-    "spatial_mapping": run_spatial_mapping,
-    "context_model": run_context_model,
-    "transition_model": run_transition_model,
-    "evaluation": run_evaluation,
-    "full": run_full,
+_STEP_REGISTRY: dict[str, StepSpec] = {
+    "label_repair": ("stagebridge.pipelines.run_label_repair", "run_label_repair"),
+    "pretrain_local": ("stagebridge.pipelines.pretrain_local", "run_pretrain_local"),
+    "train_lesion": ("stagebridge.pipelines.train_lesion", "run_train_lesion"),
+    "evaluate_lesion": ("stagebridge.pipelines.evaluate_lesion", "run_evaluate_lesion"),
+    "eamist_report": ("stagebridge.pipelines.run_eamist_reporting", "run_eamist_reporting"),
+    "reference": ("stagebridge.pipelines.run_reference", "run_reference"),
+    "spatial_mapping": ("stagebridge.pipelines.run_spatial_mapping", "run_spatial_mapping"),
+    "context_model": ("stagebridge.pipelines.run_context_model", "run_context_model"),
+    "transition_model": ("stagebridge.pipelines.run_transition_model", "run_transition_model"),
+    "evaluation": ("stagebridge.pipelines.run_evaluation", "run_evaluation"),
+    "full": ("stagebridge.pipelines.run_full", "run_full"),
     # compatibility aliases retained at the API boundary only
-    "build_snrna": run_reference,
-    "build_spatial": run_reference,
-    "map_hlca": run_reference,
-    "run_tangram": run_spatial_mapping,
-    "train": run_transition_model,
-    "evaluate": run_evaluation,
+    "build_snrna": ("stagebridge.pipelines.run_reference", "run_reference"),
+    "build_spatial": ("stagebridge.pipelines.run_reference", "run_reference"),
+    "map_hlca": ("stagebridge.pipelines.run_reference", "run_reference"),
+    "run_tangram": ("stagebridge.pipelines.run_spatial_mapping", "run_spatial_mapping"),
+    "train": ("stagebridge.pipelines.run_transition_model", "run_transition_model"),
+    "evaluate": ("stagebridge.pipelines.run_evaluation", "run_evaluation"),
 }
+
+
+def _resolve_step_fn(step: str) -> StepFn:
+    spec = _STEP_REGISTRY.get(step)
+    if spec is None:
+        valid = ", ".join(sorted(_STEP_REGISTRY))
+        raise ValueError(f"Unknown step '{step}'. Valid steps: {valid}")
+    module_name, fn_name = spec
+    module = import_module(module_name)
+    fn = getattr(module, fn_name)
+    return fn
+
+
+def run_label_repair(*args, **kwargs):
+    return _resolve_step_fn("label_repair")(*args, **kwargs)
+
+
+def run_pretrain_local(*args, **kwargs):
+    return _resolve_step_fn("pretrain_local")(*args, **kwargs)
+
+
+def run_train_lesion(*args, **kwargs):
+    return _resolve_step_fn("train_lesion")(*args, **kwargs)
+
+
+def run_evaluate_lesion(*args, **kwargs):
+    return _resolve_step_fn("evaluate_lesion")(*args, **kwargs)
+
+
+def run_eamist_reporting(*args, **kwargs):
+    return _resolve_step_fn("eamist_report")(*args, **kwargs)
+
+
+def run_reference(*args, **kwargs):
+    return _resolve_step_fn("reference")(*args, **kwargs)
+
+
+def run_spatial_mapping(*args, **kwargs):
+    return _resolve_step_fn("spatial_mapping")(*args, **kwargs)
+
+
+def run_context_model(*args, **kwargs):
+    return _resolve_step_fn("context_model")(*args, **kwargs)
+
+
+def run_transition_model(*args, **kwargs):
+    return _resolve_step_fn("transition_model")(*args, **kwargs)
+
+
+def run_evaluation(*args, **kwargs):
+    return _resolve_step_fn("evaluation")(*args, **kwargs)
+
+
+def run_full(*args, **kwargs):
+    return _resolve_step_fn("full")(*args, **kwargs)
 
 
 def run_step(step: str, cfg: DictConfig) -> dict[str, Any]:
     """Run one pipeline step from the rebuilt pipeline namespace."""
-    fn = _STEP_REGISTRY.get(step)
-    if fn is None:
-        valid = ", ".join(sorted(_STEP_REGISTRY))
-        raise ValueError(f"Unknown step '{step}'. Valid steps: {valid}")
+    fn = _resolve_step_fn(step)
     return fn(cfg)
 
 
@@ -187,20 +222,20 @@ def run_pipeline(cfg: DictConfig, steps: list[str] | None = None) -> dict[str, d
     outputs: dict[str, dict[str, Any]] = {}
     for step in ordered_steps:
         if step == "reference":
-            outputs[step] = run_reference(cfg)
+            outputs[step] = _resolve_step_fn("reference")(cfg)
         elif step == "spatial_mapping":
-            outputs[step] = run_spatial_mapping(cfg, reference_output=outputs.get("reference"))
+            outputs[step] = _resolve_step_fn("spatial_mapping")(cfg, reference_output=outputs.get("reference"))
         elif step == "context_model":
-            outputs[step] = run_context_model(cfg, spatial_output=outputs.get("spatial_mapping"))
+            outputs[step] = _resolve_step_fn("context_model")(cfg, spatial_output=outputs.get("spatial_mapping"))
         elif step == "transition_model":
-            outputs[step] = run_transition_model(
+            outputs[step] = _resolve_step_fn("transition_model")(
                 cfg,
                 reference_output=outputs.get("reference"),
                 spatial_output=outputs.get("spatial_mapping"),
                 context_output=outputs.get("context_model"),
             )
         elif step == "evaluation":
-            outputs[step] = run_evaluation(
+            outputs[step] = _resolve_step_fn("evaluation")(
                 cfg,
                 transition_output=outputs.get("transition_model"),
                 context_output=outputs.get("context_model"),
