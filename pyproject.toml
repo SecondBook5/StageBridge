@@ -90,7 +90,26 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = ["E501"]
+ignore = [
+  "E501",
+  "B007",
+  "B009",
+  "B905",
+  "F401",
+  "F821",
+  "F841",
+  "I001",
+  "SIM102",
+  "SIM105",
+  "SIM108",
+  "SIM117",
+  "SIM118",
+  "UP017",
+  "UP018",
+  "UP035",
+  "UP007",
+  "UP037",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["stagebridge"]

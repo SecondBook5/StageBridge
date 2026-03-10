@@ -84,8 +84,8 @@ def load_brainmets_snrna_h5(
     """
     try:
         import h5py
-    except ImportError:
-        raise ImportError("h5py required for reading 10x h5 files")
+    except ImportError as err:
+        raise ImportError("h5py required for reading 10x h5 files") from err
 
     tar_path = Path(tar_path)
     results: dict[str, Any] = {}

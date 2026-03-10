@@ -357,11 +357,11 @@ def run_harmony(
     """
     try:
         import harmonypy
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "harmonypy is required for run_harmony().\n"
             "Install with:  pip install harmonypy"
-        )
+        ) from err
 
     if basis not in adata.obsm:
         raise KeyError(

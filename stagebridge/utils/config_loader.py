@@ -21,7 +21,7 @@ def _expand_env(value: str) -> str:
         name = m.group(1)
         val = os.environ.get(name)
         if val is None:
-            raise EnvironmentError(
+            raise OSError(
                 f"Environment variable '{name}' is not set. "
                 f"Export it or remove the ${{...}} reference from the config."
             )

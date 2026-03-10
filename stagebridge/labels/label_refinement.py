@@ -104,12 +104,10 @@ def refine_lesion_labels(
         is_curated = original_source.startswith("peng_")
         is_heuristic = original_source == "heuristic_edge_expansion"
         non_proxy_evidence = int(
-            (
-                pd.notna(row.get("cna_burden"))
-                or pd.notna(row.get("num_clonal_clusters"))
-                or bool(row.get("tree_available", False))
-                or pd.notna(row.get("pathology_risk_score"))
-            )
+            pd.notna(row.get("cna_burden"))
+            or pd.notna(row.get("num_clonal_clusters"))
+            or bool(row.get("tree_available", False))
+            or pd.notna(row.get("pathology_risk_score"))
         )
 
         refined = "uncertain"
@@ -126,9 +124,7 @@ def refine_lesion_labels(
                 refined = "uncertain"
         elif is_curated and float(original_label) == 0.0:
             refined = "negative"
-        elif is_curated and float(original_label) == 1.0 and score >= max(0.5, positive_threshold - margin):
-            refined = "positive"
-        elif score >= positive_threshold:
+        elif (is_curated and float(original_label) == 1.0 and score >= max(0.5, positive_threshold - margin)) or score >= positive_threshold:
             refined = "positive"
         elif score <= negative_threshold:
             refined = "negative"

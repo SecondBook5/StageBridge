@@ -27,7 +27,7 @@ from typing import Optional
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _resolve_data_root(cfg_data_root: Optional[str] = None) -> Path:
+def _resolve_data_root(cfg_data_root: str | None = None) -> Path:
     """
     Determine the data root with a clear precedence chain:
     1. cfg_data_root argument (from Hydra cfg.data.data_root)
@@ -246,7 +246,7 @@ class StageBridgePaths:
         ``cfg.data.data_root`` is not set.
         """
         data_cfg = getattr(cfg, "data", None)
-        raw_data_root: Optional[str] = None
+        raw_data_root: str | None = None
         if data_cfg is not None:
             raw_data_root = str(getattr(data_cfg, "data_root", None) or "").strip() or None
 
