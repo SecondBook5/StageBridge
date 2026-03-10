@@ -1,13 +1,37 @@
 from __future__ import annotations
 
-import pandas as pd
+from functools import lru_cache
 
+import pandas as pd
+import pytest
+
+from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.notebook_api import compose_config
 from stagebridge.pipelines.run_evaluation import run_evaluation
 from stagebridge.pipelines.run_full import run_full
 from stagebridge.pipelines.run_transition_model import run_transition_model
 from stagebridge.results.run_writer import write_pipeline_scratch_run
 from stagebridge.transition_model.train import build_stagewise_edge_split
+
+
+@lru_cache(maxsize=1)
+def _real_data_assets_available() -> bool:
+    cfg = compose_config(
+        "default",
+        overrides=["data=local", "train=smoke", "evaluation=baseline"],
+    )
+    paths = resolve_luad_evo_paths(cfg)
+    has_snrna = paths.snrna_latent_h5ad.exists() or paths.snrna_h5ad.exists()
+    has_spatial = paths.spatial_h5ad.exists() or paths.spatial_tangram_h5ad.exists()
+    return has_snrna and has_spatial
+
+
+@pytest.fixture(autouse=True)
+def _skip_real_data_smokes_when_assets_missing(request) -> None:
+    if request.function.__name__ == "test_stagewise_edge_split_reports_missing_same_donor_overlap":
+        return
+    if not _real_data_assets_available():
+        pytest.skip("Real-data transition smoke tests require local LUAD assets (snRNA + spatial).")
 
 
 def test_stagewise_edge_split_reports_missing_same_donor_overlap() -> None:
