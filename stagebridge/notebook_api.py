@@ -81,6 +81,7 @@ def compose_config(entrypoint: str = "default", overrides: list[str] | None = No
     overrides = list(overrides or [])
     cfg = _load_component(_DEFAULT_CONFIG)
     selected = _selected_profiles(cfg)
+    default_selected = dict(selected)
 
     if entrypoint == "default":
         pass
@@ -103,7 +104,17 @@ def compose_config(entrypoint: str = "default", overrides: list[str] | None = No
         dotlist_overrides.append(override)
 
     for group, profile in selected.items():
-        cfg = OmegaConf.merge(cfg, _load_component(_COMPONENT_DIRS[group] / f"{profile}.yaml"))
+        requested_path = _COMPONENT_DIRS[group] / f"{profile}.yaml"
+        component_path = requested_path
+        if not requested_path.exists():
+            fallback_profile = default_selected[group]
+            fallback_path = _COMPONENT_DIRS[group] / f"{fallback_profile}.yaml"
+            if not fallback_path.exists():
+                raise FileNotFoundError(
+                    f"Missing config component: {requested_path} (fallback also missing: {fallback_path})"
+                )
+            component_path = fallback_path
+        cfg = OmegaConf.merge(cfg, _load_component(component_path))
     for component_path in _TRANSITION_COMPONENTS:
         cfg = OmegaConf.merge(cfg, _load_component(component_path))
     if dotlist_overrides:
