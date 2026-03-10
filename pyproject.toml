@@ -61,7 +61,7 @@ reference = [
 ]
 mapping = [
   "tangram-sc>=1.0.4",
-  "tacco>=0.4.2",
+  "tacco>=0.4.0.post1",
 ]
 ot = [
   "POT>=0.9.3",
