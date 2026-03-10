@@ -1,7 +1,0 @@
-stage,edge_label,n_lesions,n_donors,n_wes_supported
-AAH,AAH->AIS,11,10,10
-AIS,,1,1,1
-AIS,AIS->MIA,13,11,13
-LUAD,,26,25,26
-MIA,,4,4,4
-Normal,,1,1,0
