@@ -2,39 +2,42 @@
 StageBridge configuration: data root resolution and path utilities.
 
 The external data root is controlled by the environment variable
-STAGEBRIDGE_DATA_ROOT.  If unset, falls back to /mnt/e/StageBridge_data.
+``STAGEBRIDGE_DATA_ROOT``.  This variable must be set before running
+any data-dependent pipeline.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-_FALLBACK_DATA_ROOT = Path("/mnt/e/StageBridge_data")
 _ENV_VAR = "STAGEBRIDGE_DATA_ROOT"
 
 
 def get_data_root() -> Path:
-    """Return the external data root Path.
+    """Return the external data root directory.
+
+    Reads from the ``STAGEBRIDGE_DATA_ROOT`` environment variable.
 
     Raises
     ------
+    EnvironmentError
+        If the environment variable is not set.
     ValueError
-        If the resolved path does not exist on disk, with instructions on how
-        to fix it.
+        If the resolved path does not exist on disk.
     """
     raw = os.environ.get(_ENV_VAR)
-    if raw:
-        root = Path(raw)
-    else:
-        root = _FALLBACK_DATA_ROOT
+    if not raw:
+        raise EnvironmentError(
+            f"Environment variable {_ENV_VAR} is not set.\n"
+            f"Set it to the root of your StageBridge data directory:\n"
+            f"    export {_ENV_VAR}=/path/to/StageBridge_data"
+        )
+    root = Path(raw)
 
     if not root.exists():
         raise ValueError(
             f"Data root does not exist: {root}\n"
-            f"Either:\n"
-            f"  1) Mount the drive so that {root} exists, OR\n"
-            f"  2) Set the environment variable {_ENV_VAR} to the correct path.\n"
-            f"     export {_ENV_VAR}=/path/to/StageBridge_data"
+            f"Check that {_ENV_VAR} points to a valid directory."
         )
     if not root.is_dir():
         raise ValueError(

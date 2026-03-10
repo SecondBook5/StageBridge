@@ -47,7 +47,9 @@ class NeighborhoodBuildResult:
 
 def resolve_eamist_bag_parquet_path(cfg: Any | None = None) -> Path:
     """Resolve the canonical prebuilt EA-MIST bag parquet path."""
-    data_root = Path(str(_cfg_get(cfg or {}, "data.data_root", "/mnt/e/StageBridge_data"))).resolve()
+    import os
+    _env_root = os.environ.get("STAGEBRIDGE_DATA_ROOT", "")
+    data_root = Path(str(_cfg_get(cfg or {}, "data.data_root", _env_root))).resolve()
     configured = _cfg_get(cfg or {}, "data.eamist_bags_parquet", data_root / "processed/features/eamist_bags.parquet")
     return Path(str(configured)).resolve()
 
@@ -70,7 +72,12 @@ def _coerce_matrix(value: object, *, label: str, dtype: np.dtype = np.float32) -
 
 
 def _coerce_ring_tensor(value: object, *, label: str, expected_num_rings: int) -> np.ndarray:
-    arr = np.asarray(value, dtype=np.float32)
+    raw = np.asarray(value)
+    # Handle object-dtype arrays (e.g. array of arrays from parquet deserialization)
+    if raw.dtype == object:
+        arr = np.stack([np.asarray(row, dtype=np.float32) for row in raw]).astype(np.float32)
+    else:
+        arr = raw.astype(np.float32)
     if arr.ndim != 2:
         raise ValueError(f"{label} must be a 2D ring matrix, got shape={arr.shape}.")
     if int(arr.shape[0]) != int(expected_num_rings):

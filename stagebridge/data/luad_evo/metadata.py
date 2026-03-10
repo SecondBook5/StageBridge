@@ -37,7 +37,9 @@ def _cfg_get(cfg: DictConfig | dict[str, Any], key: str, default: Any = None) ->
 
 def resolve_luad_evo_paths(cfg: DictConfig | dict[str, Any]) -> LuadEvoPaths:
     """Resolve the active LUAD evolution assets with real-file fallbacks."""
-    data_root = Path(str(_cfg_get(cfg, "data.data_root", "/mnt/e/StageBridge_data"))).resolve()
+    import os
+    _env_root = os.environ.get("STAGEBRIDGE_DATA_ROOT", "")
+    data_root = Path(str(_cfg_get(cfg, "data.data_root", _env_root))).resolve()
     data_cfg = {
         "snrna_h5ad": Path(str(_cfg_get(cfg, "data.snrna_h5ad", data_root / "interim/anndata/snrna/snrna_full.h5ad"))),
         "snrna_latent_h5ad": Path(str(_cfg_get(cfg, "data.snrna_latent_h5ad", data_root / "processed/anndata/snrna_hlca_latent_full.h5ad"))),

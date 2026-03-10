@@ -1,10 +1,10 @@
 data:
   dataset: brainmets
-  data_root: /mnt/e/StageBridge_data
-  snrna_h5ad: /mnt/e/StageBridge_data/processed/anndata/brainmets_snrna.h5ad
-  spatial_h5ad: /mnt/e/StageBridge_data/processed/anndata/brainmets_spatial.h5ad
-  hlca_h5ad: /mnt/e/StageBridge_data/data/reference/hlca/hlca_full_v1.h5ad
-  lpwgs_features_path: /mnt/e/StageBridge_data/processed/features/lpwgs_features.parquet
+  data_root: ${oc.env:STAGEBRIDGE_DATA_ROOT,./data}
+  snrna_h5ad: ${data.data_root}/processed/anndata/brainmets_snrna.h5ad
+  spatial_h5ad: ${data.data_root}/processed/anndata/brainmets_spatial.h5ad
+  hlca_h5ad: ${data.data_root}/data/reference/hlca/hlca_full_v1.h5ad
+  lpwgs_features_path: ${data.data_root}/processed/features/lpwgs_features.parquet
   stage_col: stage
   donor_col: patient_id
   sample_col: sample_id

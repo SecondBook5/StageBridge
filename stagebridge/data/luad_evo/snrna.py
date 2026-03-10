@@ -52,9 +52,11 @@ def resolve_snrna_latent_path(cfg: Any | None = None) -> Path:
             paths.snrna_h5ad,
         ]
     else:
+        from stagebridge.config import get_data_root
+        root = get_data_root()
         candidates = [
-            Path("/mnt/e/StageBridge_data/processed/anndata/snrna_hlca_latent_full.h5ad"),
-            Path("/mnt/e/StageBridge_data/interim/anndata/snrna/snrna_full.h5ad"),
+            root / "processed" / "anndata" / "snrna_hlca_latent_full.h5ad",
+            root / "interim" / "anndata" / "snrna" / "snrna_full.h5ad",
         ]
     for candidate in candidates:
         if candidate.exists():

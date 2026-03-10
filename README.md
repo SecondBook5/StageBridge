@@ -1,163 +1,142 @@
-# StageBridge
+<p align="center">
+  <h1 align="center">StageBridge</h1>
+  <p align="center">
+    <strong>Transformer-based modeling of lung adenocarcinoma stage progression<br>from spatial transcriptomics, single-cell RNA-seq, and whole-exome sequencing</strong>
+  </p>
+  <p align="center">
+    <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11+"></a>
+    <a href="https://pytorch.org"><img src="https://img.shields.io/badge/PyTorch-2.2+-EE4C2C.svg?logo=pytorch&logoColor=white" alt="PyTorch 2.2+"></a>
+    <a href="https://github.com/SecondBook5/StageBridge/actions"><img src="https://img.shields.io/github/actions/workflow/status/SecondBook5/StageBridge/ci.yml?label=CI&logo=github" alt="CI"></a>
+  </p>
+</p>
 
-**Dual-reference lesion-level modeling of early LUAD progression from spatial, single-cell, and evolution features**
+---
 
-StageBridge contains several research pipelines, but the current primary lesion model is **EA-MIST**:
+## Overview
 
-**Evolution-Aware Multiple-Instance Set Transformer**
+StageBridge models the full progression cascade of lung adenocarcinoma (LUAD) from pre-malignant lesions to invasive carcinoma:
 
-In its current form, EA-MIST is best described as:
+```
+Normal  ──>  AAH  ──>  AIS  ──>  MIA  ──>  LUAD
+                                              ├──>  Brain Metastasis
+                                              └──>  Chest Wall Metastasis
+```
 
-**a dual-reference lesion-level Set Transformer for healthy-to-tumor niche displacement**
+The framework integrates three data modalities -- 10x Visium spatial transcriptomics, snRNA-seq, and whole-exome sequencing -- into a unified transformer architecture that learns **lesion-level stage representations** from local tissue microenvironments (niches).
 
-The prediction unit is a **lesion**, represented as a **set of local niche instances** derived from spatial neighborhoods and enriched with:
+### Key contributions
 
-- receiver-centered niche summaries
-- local ring composition features
-- HLCA healthy-reference similarity features
-- LuCA tumor-aware reference similarity features
-- pathway/program summaries
-- lesion-level evolution features from WES-derived tables
-
-The primary supervised task is **5-stage lesion placement** across:
-
-- `Normal`
-- `AAH`
-- `AIS`
-- `MIA`
-- `LUAD`
-
-The secondary scalar head is a **weak stage-ordered displacement target**, not independent biological progression truth. Optional edge heads remain auxiliary and are only used where viability metadata supports them.
+- **EA-MIST** (Evolution-Aware Multiple-Instance Set Transformer) -- a lesion-level model that encodes spatial niches as structured token sequences and aggregates them with a permutation-invariant Set Transformer
+- **Dual reference alignment** against the Human Lung Cell Atlas (HLCA) and LuCA tumor atlas for healthy-to-malignant context
+- **Graph-of-Sets Transformer (GoST)** for inter-patient message passing via typed sparse graph attention
+- **Schr&ouml;dinger bridge transition model** with OT flow matching for cell-state trajectory prediction across disease stages
+- **Label repair system** with multi-evidence refinement (WES, CNA, clonal architecture, pathology) for rigorous stage annotation
 
 ---
 
 ## Architecture
 
-The repository contains multiple transformer systems. The active EA-MIST path is the lesion-level MIL pipeline below.
+```
+                         ┌─────────────────────────────────────────────────────────┐
+                         │                    EA-MIST Pipeline                      │
+                         │                                                         │
+  Spatial Niche ────>    │   9-Token Local        Prototype        Set Transformer  │
+  (receiver +            │   Niche Encoder   ──>  Bottleneck  ──>  (ISAB→SAB→PMA)  │
+   4 rings +             │   (per niche)          (optional)       (per lesion)     │
+   HLCA/LuCA +           │                                              │           │
+   pathway + stats)      │                                              v           │
+                         │                                    Evolution Branch      │
+  WES Features ────────> │                                    (gated fusion)        │
+                         │                                              │           │
+                         │                                     ┌────────┴────────┐  │
+                         │                                     │  Multitask Heads │  │
+                         │                                     │  - Stage (5-way) │  │
+                         │                                     │  - Displacement  │  │
+                         │                                     │  - Edges (aux)   │  │
+                         │                                     └─────────────────┘  │
+                         └─────────────────────────────────────────────────────────┘
 
-### EA-MIST V1
+  ┌──────────────────────────────────────────────────────────────────────────────────┐
+  │  Supporting Components                                                          │
+  │                                                                                 │
+  │  Graph-of-Sets Transformer (GoST)          OT Transition Model                  │
+  │  - Stage-adjacent edges                    - Sinkhorn OT coupling               │
+  │  - Same-patient cross-stage edges          - FiLM-conditioned drift/diffusion    │
+  │  - Same-stage cross-patient edges          - Euler trajectory integration        │
+  │  - Scatter-softmax sparse attention        - Schrödinger bridge objective        │
+  └──────────────────────────────────────────────────────────────────────────────────┘
+```
 
-EA-MIST is a **multiple-instance learning** model over lesion bags:
+### Local niche encoding
 
-1. **Parquet-first lesion bags**
-   Each lesion is loaded from a prebuilt `eamist_bags.parquet` row rather than rebuilt implicitly during training.
+Each spatial niche is encoded as a **9-token sequence**:
 
-2. **9-token local niche encoder**
-   Every niche is encoded as:
-   1. receiver token
-   2. ring 1
-   3. ring 2
-   4. ring 3
-   5. ring 4
-   6. HLCA token
-   7. LuCA token
-   8. pathway token
-   9. niche-stats token
+| Token | Source | Description |
+|-------|--------|-------------|
+| Receiver | Cell identity | Target cell expression + learned state embedding |
+| Ring 1--4 | Spatial neighborhood | Cell-type composition at increasing radii |
+| HLCA | Reference atlas | Similarity to healthy lung cell types |
+| LuCA | Tumor atlas | Similarity to tumor-aware cell states |
+| Pathway | Gene programs | Ligand-receptor and pathway activity summary |
+| Stats | Neighborhood | Local density, entropy, and composition statistics |
 
-3. **Optional prototype bottleneck**
-   Compresses recurrent niche motifs into interpretable prototype structure.
+### Model variants
 
-4. **Lesion-level Set Transformer**
-   Aggregates local niche embeddings across the lesion in a permutation-invariant way.
-
-5. **Evolution branch**
-   Fuses lesion-level evolution features into the lesion embedding when available.
-
-6. **Multitask heads**
-   - 5-way stage head
-   - scalar weak displacement head
-   - optional masked auxiliary edge heads
-
-Supported lesion-level model families share the same bag contract:
-
-- `pooled`
-- `deep_sets`
-- `lesion_set_transformer`
-- `eamist_no_prototypes`
-- `eamist`
-
-### Dual Reference Design
-
-EA-MIST uses two reference systems:
-
-- **HLCA**: healthy lung anchor
-- **LuCA extended atlas**: tumor-aware reference
-
-Current LuCA usage is in a **shared token-composition space**, not direct latent-space lesion-to-atlas projection. After the `cell_type_tumor` fix, LuCA now provides finer malignant epithelial context than the previous broad `ann_fine` setup, but the README should be read honestly: this is **tumor-aware context**, not direct malignant-state ground truth.
-
-### Other StageBridge Components
-
-### Hierarchical Context Encoder
-
-A separate three-level typed transformer that learns population context from spatial niches:
-
-| Level | Component | Purpose |
-|-------|-----------|---------|
-| **L1** | Per-group Set Encoders (ISAB &rarr; SAB &rarr; PMA) | Summarize epithelial, stromal, immune, and vascular tokens independently |
-| **L2** | Relation Token MLP | Encode pairwise inter-group interactions (6 relation tokens) |
-| **L3** | Fusion Query Attention + dual SAB refinement | Cross-attend 8 learned queries over group summaries + relation tokens |
-
-Key features:
-- **Spatial relative position encoding** within ISAB for coordinate-aware attention
-- **Confidence gating** via learned sigmoid gate on per-token mapping confidence
-- **FiLM conditioning** on dataset and edge embeddings for multi-task flexibility
-- **Residual context head** with two-layer MLP + skip connections
-- **Token dropout** (3%) for regularization during training
-
-Current config: `hidden_dim=192`, `num_heads=8`, `num_inducing_points=24`, `num_group_summary_tokens=4`, `num_fusion_queries=8`
-
-### Transition Model (OT Flow Matching)
-
-Population-context-conditioned Schr&ouml;dinger bridge for continuous cell-state trajectory prediction:
-- Sinkhorn OT coupling for pseudo-pair construction
-- FiLM-conditioned drift/diffusion networks `v_φ(x, t, c_s, s)`
-- Euler integration for trajectory rollout
-
-### Graph-of-Sets Transformer (GoST)
-
-Optional inter-patient message passing via sparse graph attention:
-- Edge types: stage-adjacent, same-patient cross-stage, same-stage cross-patient
-- Per-edge-type learned bias with scatter-softmax
+| Model | Description | Use case |
+|-------|-------------|----------|
+| `eamist` | Full EA-MIST with prototypes + evolution branch | Primary benchmark |
+| `eamist_no_prototypes` | EA-MIST without prototype bottleneck | Ablation |
+| `lesion_set_transformer` | Set Transformer only (no local encoder) | Ablation |
+| `deep_sets` | DeepSets baseline | Baseline |
+| `pooled` | Mean-pooling baseline | Baseline |
 
 ---
 
 ## Data
 
-| Dataset | Modality | GEO Accession |
-|---------|----------|---------------|
-| snRNA-seq (early LUAD cohort) | Single-cell transcriptomics | GSE308103 |
-| Visium spatial transcriptomics | 10x Visium | GSE307534 |
-| Whole-exome sequencing | WES mutations | GSE307529 |
-| Brain metastasis snRNA-seq | Single-cell (extension) | GSE223499 |
+StageBridge integrates multi-modal data from public GEO repositories:
 
-Spatial mapping via three providers (Tangram, TACCO, DestVI) with automated hybrid benchmark selection.
+| Dataset | Modality | GEO Accession | Role |
+|---------|----------|---------------|------|
+| Early LUAD snRNA-seq | Single-cell transcriptomics | GSE308103 | Cell-level expression |
+| 10x Visium | Spatial transcriptomics | GSE307534 | Tissue architecture |
+| Whole-exome sequencing | WES | GSE307529 | Evolutionary features |
+| Brain metastasis snRNA-seq | Single-cell (extension) | GSE223499 | Metastatic progression |
 
-Reference assets used by the active EA-MIST pipeline:
+**Reference atlases:**
+- [Human Lung Cell Atlas (HLCA)](https://doi.org/10.1038/s41591-023-02327-2) -- healthy reference anchor
+- [LuCA extended atlas](https://www.cell.com/cancer-cell/fulltext/S1535-6108(22)00499-8) -- tumor-aware cell state reference
 
-- **HLCA** for healthy latent/reference summaries
-- **LuCA extended atlas** for tumor-aware static reference summaries
-- **WES-derived lesion evolution features** for lesion-level conditioning
-
-Canonical real-data EA-MIST feature outputs live under the existing StageBridge data tree rooted at `STAGEBRIDGE_DATA_ROOT` or `/mnt/e/StageBridge_data`.
+**Spatial mapping providers:** Tangram, TACCO, DestVI (with automated benchmark selection)
 
 ---
 
-## Quick Start
+## Installation
 
-### Canonical EA-MIST Flow
+```bash
+# Clone the repository
+git clone https://github.com/SecondBook5/StageBridge.git
+cd StageBridge
 
-1. Build or refresh the canonical lesion bags
-2. Train the lesion-level benchmark from those bags
-3. Evaluate and report stage/displacement results
+# Create conda environment
+micromamba env create -f environment.yml
+micromamba activate stagebridge
 
-The trainer is **parquet-first** and expects a valid `eamist_bags.parquet` plus audit sidecar. It will reject stale bags with:
+# Install in development mode
+pip install -e ".[all]"
 
-- the wrong ring schema
-- stale LuCA selector metadata
-- missing HLCA/LuCA typed tokens
-- missing weak displacement target
+# Set data root (external data directory)
+export STAGEBRIDGE_DATA_ROOT=/path/to/your/data
+```
 
-### Python
+**Requirements:** Python 3.11+, PyTorch 2.2+, CUDA 12.x
+
+---
+
+## Quick start
+
+### Python API
 
 ```python
 from stagebridge.notebook_api import compose_config
@@ -167,151 +146,146 @@ from stagebridge.pipelines import (
     run_eamist_reporting,
 )
 
+# Configure and train
 cfg = compose_config(overrides=["context_model=eamist"])
-train = run_train_lesion(cfg)
+results = run_train_lesion(cfg)
+
+# Evaluate and generate publication figures
+eval_results = run_evaluate_lesion(cfg)
 report = run_eamist_reporting(cfg)
 ```
 
-### Build Bags
+### Command line
 
 ```bash
-python -m stagebridge.data.luad_evo.build_eamist_bags \
-  --niche-bank /mnt/e/StageBridge_data/processed/features/niche_token_bank.zarr \
-  --niche-parquet /mnt/e/StageBridge_data/processed/features/niche_tokens_full.parquet \
-  --hlca-features /mnt/e/StageBridge_data/processed/features/niche_hlca_features.parquet \
-  --luca-features /mnt/e/StageBridge_data/processed/features/niche_luca_features.parquet \
-  --evo-features /mnt/e/StageBridge_data/processed/features/lesion_evo_features.parquet \
-  --out /mnt/e/StageBridge_data/processed/features/eamist_bags.parquet
-```
-
-### Train / Evaluate / Report
-
-```bash
+# Train EA-MIST
 python -m stagebridge.pipelines step train_lesion -o context_model=eamist
+
+# Evaluate
 python -m stagebridge.pipelines step evaluate_lesion -o context_model=eamist
+
+# Generate figures and tables
 python -m stagebridge.pipelines step eamist_report -o context_model=eamist
 ```
 
-### Canonical Bag Contract
-
-Each lesion row in `eamist_bags.parquet` contains:
-
-- lesion metadata: `lesion_id`, `sample_id`, `donor_id`, `patient_id`, `stage_label`, `stage_index`
-- niche structure: `niche_ids`, `receiver_features`, `ring_features`, `hlca_features`, `luca_features`, `pathway_features`, `niche_stats_features`
-- lesion features: `evo_features`
-- multitask targets: `displacement_target`, optional `edge_targets`, optional `edge_target_mask`
-
-### Label Repair
-
-Use the label-repair workflow before forcing a weak edge into donor-held-out benchmarking.
+### Full pipeline (build bags, train, evaluate, report)
 
 ```bash
-python -m stagebridge.pipelines step label_repair -o labels=repair
+bash scripts/run_eamist_full.sh
 ```
-
-Current outputs are written under `reports/labels/` and include:
-
-- refined lesion labels
-- continuous progression-risk scores
-- donor-held-out viability diagnostics
-- target recommendation report
-- figures and tables for label support
-
----
-
-## Repository Structure
-
-```text
-stagebridge/
-├── context_model/             # lesion MIL heads, set encoders, prototypes, legacy context models
-│   ├── hierarchical_transformer.py   # TypedHierarchicalTransformerEncoder
-│   ├── set_encoder.py                # ISAB, SAB, PMA, FeedForwardBlock
-│   ├── graph_of_sets.py              # GraphOfSetsTransformer
-│   ├── prototype_bottleneck.py       # prototype compression layer
-│   └── local_niche_encoder.py        # receiver-centered niche transformer
-├── models/                    # StageBridgeModel, drift/diffusion networks
-├── data/luad_evo/             # lesion bags, neighborhood features, LuCA/HLCA/WES preprocessing
-├── pipelines/                 # train_lesion, evaluate_lesion, reporting, label repair
-├── evaluation/                # stage/displacement metrics, calibration, legacy metrics
-├── transition_model/          # OT coupling, Schrödinger bridge, flow matching
-├── reference/                 # HLCA alignment, latent construction
-├── spatial_mapping/           # Tangram / TACCO / DestVI wrappers
-├── viz/                       # research frontend, embedding, spatial, poster figures
-│   ├── research_frontend.py          # notebook-facing multi-panel figures
-│   ├── eamist_figures.py             # EA-MIST publication figures
-│   └── summary_panels.py            # poster assembly
-└── utils/                     # config, h5ad I/O, seeds, types
-configs/
-├── context_model/             # typed_hierarchical_transformer.yaml, eamist.yaml
-├── train/                     # training profiles
-└── evaluation/                # evaluation configs
-StageBridge.ipynb              # research notebook (12-step protocol)
-tests/                         # architecture and pipeline tests
-```
-
----
-
-## Visualization
-
-The research frontend generates publication-quality multi-panel figures:
-
-- **Multi-embedding views**: PCA (with explained variance %), UMAP, t-SNE, PHATE
-- **Spatial transcriptomics**: Visium spot maps colored by stage, cell-type composition, gene expression
-- **Transformer diagnostics**: fusion attention heatmaps, per-group token profiles, relation scores
-- **WES landscape**: TMB by stage, oncoprint, mutation frequency, stage-stratified mutation profiles
-- **Transition dynamics**: source/predicted/target PCA, training curves, macroflow heatmaps
-- **Provider comparison**: side-by-side Tangram/TACCO/DestVI winner maps and QC profiles
 
 ---
 
 ## Evaluation
 
-### EA-MIST
+EA-MIST is evaluated under **donor-held-out cross-validation** on lesion-level prediction:
 
-- Donor-held-out lesion folds
-- Primary metrics:
-  - stage macro-F1
-  - stage balanced accuracy
-  - confusion matrices and per-stage support
-  - displacement MAE
-  - displacement Spearman correlation
-  - stage-wise displacement monotonicity
-- Optional auxiliary edge AUROC/AUPRC only where viability masks allow them
+| Metric | Task |
+|--------|------|
+| Macro-F1 | 5-way stage classification |
+| Balanced accuracy | Stage classification |
+| Confusion matrix | Per-stage support analysis |
+| MAE | Displacement regression |
+| Spearman correlation | Displacement ordering |
+| Monotonicity | Stage-wise displacement trend |
 
-### Important Interpretation Note
+Additional evaluation modules:
+- Sinkhorn distance, MMD-RBF, classifier AUC (transition model)
+- Context sensitivity analysis (real vs. shuffled context)
+- Gene-context correlations and niche shift profiling
+- Calibration error analysis
 
-EA-MIST is currently a disciplined lesion-level stage/displacement model. It should **not** be described as proof of true biological progression mechanics.
+---
 
-- The stage head is the primary supervised task.
-- The displacement target is **weak stage-ordered supervision** derived from stage order.
-- `Normal` and `MIA` are low-support tail classes and should be interpreted cautiously.
+## Repository structure
 
-### Other StageBridge Pipelines
+```
+stagebridge/
+├── context_model/          # EA-MIST, Set Transformer, GoST, hierarchical encoder
+│   ├── lesion_set_transformer.py    # EAMISTModel
+│   ├── local_niche_encoder.py       # 9-token niche transformer
+│   ├── set_encoder.py               # ISAB, SAB, PMA
+│   ├── graph_of_sets.py             # Graph-of-Sets Transformer
+│   └── prototype_bottleneck.py      # Prototype compression
+├── transition_model/       # OT flow matching, Schrödinger bridge
+│   ├── stochastic_dynamics.py       # StageBridgeModel
+│   ├── schrodinger_bridge.py        # Sinkhorn OT coupling
+│   └── drift_network.py            # FiLM-conditioned drift
+├── data/                   # Data loading and preprocessing
+│   ├── luad_evo/                    # LUAD progression datasets
+│   └── brainmets/                   # Brain metastasis extension
+├── evaluation/             # Metrics, calibration, ablations
+├── pipelines/              # End-to-end workflow orchestration
+├── reference/              # HLCA/LuCA atlas alignment
+├── spatial_mapping/        # Tangram, TACCO, DestVI providers
+├── labels/                 # Multi-evidence label refinement
+├── viz/                    # Publication-quality figures
+├── results/                # Run tracking and milestone management
+└── utils/                  # Configuration, I/O, seeds, types
 
-- Sinkhorn distance, MMD-RBF, classifier AUC, direction cosine, calibration error
-- Context sensitivity analysis (real vs. shuffled context delta)
-- Biological readout: gene-context correlations, typed niche shift profiles
+configs/                    # Hydra YAML configuration system
+├── context_model/          # Model architecture configs
+├── train/                  # Training profiles (full, medium, smoke)
+├── evaluation/             # Evaluation and ablation configs
+└── transition_model/       # Flow matching settings
+
+tests/                      # 33 test files, ~4,400 lines
+docs/                       # Architecture and biology documentation
+```
 
 ---
 
 ## Testing
 
 ```bash
-# Full suite
-pytest -q tests/
+# Full test suite
+pytest tests/
 
-# EA-MIST focused
-pytest -q tests/test_eamist_data.py tests/test_eamist_model.py tests/test_eamist_pipelines.py
+# EA-MIST model tests
+pytest tests/test_eamist_model.py tests/test_eamist_pipelines.py
+
+# Context model ablations
+pytest tests/test_set_only_context.py tests/test_deep_sets_context.py
+
+# Graph-of-Sets Transformer
+pytest tests/test_graph_of_sets_context.py
 ```
 
 ---
 
-## Environment
+## Configuration
 
-- Python 3.11, PyTorch, CUDA 12.x
-- `micromamba env create -f environment.yml`
-- External data: set `STAGEBRIDGE_DATA_ROOT` environment variable
+StageBridge uses [Hydra](https://hydra.cc/) for composable YAML configuration:
+
+```bash
+# Train with specific model variant
+python -m stagebridge.pipelines step train_lesion \
+    -o context_model=eamist train=full_v1
+
+# Run evaluation with ablation config
+python -m stagebridge.pipelines step evaluate_lesion \
+    -o context_model=eamist evaluation=ablation
+
+# Smoke test (fast iteration)
+python -m stagebridge.pipelines step train_lesion \
+    -o context_model=eamist train=smoke
+```
+
+---
+
+## Citation
+
+If you use StageBridge in your research, please cite:
+
+```bibtex
+@software{book2026stagebridge,
+  author = {Book, AJ},
+  title = {StageBridge: Transformer-based modeling of lung adenocarcinoma stage progression},
+  year = {2026},
+  url = {https://github.com/SecondBook5/StageBridge}
+}
+```
 
 ## License
 
-MIT
+[MIT](LICENSE)

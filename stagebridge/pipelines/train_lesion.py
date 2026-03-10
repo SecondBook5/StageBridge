@@ -277,17 +277,45 @@ class LesionAggregatorModel(nn.Module):
         """Encode local neighborhoods before lesion-level aggregation."""
         bsz, num_instances = batch.receiver_embeddings.shape[:2]
         hlca_features, luca_features = self._resolve_reference_features(batch)
-        output = self.local_encoder(
-            receiver_embeddings=batch.receiver_embeddings.reshape(bsz * num_instances, -1),
-            receiver_state_ids=batch.receiver_state_ids.reshape(bsz * num_instances),
-            ring_compositions=batch.ring_compositions.reshape(bsz * num_instances, batch.ring_compositions.shape[2], batch.ring_compositions.shape[3]),
-            hlca_features=hlca_features.reshape(bsz * num_instances, -1),
-            luca_features=luca_features.reshape(bsz * num_instances, -1),
-            lr_pathway_summary=batch.lr_pathway_summary.reshape(bsz * num_instances, -1),
-            neighborhood_stats=batch.neighborhood_stats.reshape(bsz * num_instances, -1),
-            return_attention=False,
-        )
-        embeddings = output.neighborhood_embedding.reshape(bsz, num_instances, -1)
+        total = bsz * num_instances
+        flat_receiver = batch.receiver_embeddings.reshape(total, -1)
+        flat_state_ids = batch.receiver_state_ids.reshape(total)
+        flat_rings = batch.ring_compositions.reshape(total, batch.ring_compositions.shape[2], batch.ring_compositions.shape[3])
+        flat_hlca = hlca_features.reshape(total, -1)
+        flat_luca = luca_features.reshape(total, -1)
+        flat_lr = batch.lr_pathway_summary.reshape(total, -1)
+        flat_stats = batch.neighborhood_stats.reshape(total, -1)
+        # Chunk to avoid exceeding PyTorch SDPA batch limit (65535)
+        max_chunk = 32768
+        if total <= max_chunk:
+            output = self.local_encoder(
+                receiver_embeddings=flat_receiver,
+                receiver_state_ids=flat_state_ids,
+                ring_compositions=flat_rings,
+                hlca_features=flat_hlca,
+                luca_features=flat_luca,
+                lr_pathway_summary=flat_lr,
+                neighborhood_stats=flat_stats,
+                return_attention=False,
+            )
+            all_embeddings = output.neighborhood_embedding
+        else:
+            chunks = []
+            for start in range(0, total, max_chunk):
+                end = min(start + max_chunk, total)
+                chunk_output = self.local_encoder(
+                    receiver_embeddings=flat_receiver[start:end],
+                    receiver_state_ids=flat_state_ids[start:end],
+                    ring_compositions=flat_rings[start:end],
+                    hlca_features=flat_hlca[start:end],
+                    luca_features=flat_luca[start:end],
+                    lr_pathway_summary=flat_lr[start:end],
+                    neighborhood_stats=flat_stats[start:end],
+                    return_attention=False,
+                )
+                chunks.append(chunk_output.neighborhood_embedding)
+            all_embeddings = torch.cat(chunks, dim=0)
+        embeddings = all_embeddings.reshape(bsz, num_instances, -1)
         return embeddings * batch.neighborhood_mask.unsqueeze(-1).to(embeddings.dtype)
 
     def forward(self, batch: LesionBagBatch) -> LesionModelOutput:
