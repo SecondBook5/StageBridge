@@ -27,11 +27,11 @@ The framework integrates three data modalities -- 10x Visium spatial transcripto
 
 ### Key contributions
 
-- **EA-MIST** (Evolution-Aware Multiple-Instance Set Transformer) -- a lesion-level model that encodes spatial niches as structured token sequences and aggregates them with a permutation-invariant Set Transformer
+- **EA-MIST** (Evolution-Aware Multiple-Instance Set Transformer) -- the primary benchmarked lesion-level model that encodes spatial niches as structured token sequences and aggregates them with a permutation-invariant Set Transformer
+- **Benchmark model family** centered on EA-MIST variants (`eamist`, `eamist_no_prototypes`, `lesion_set_transformer`, `deep_sets`, `pooled`) under donor-held-out evaluation
 - **Dual reference alignment** against the Human Lung Cell Atlas (HLCA) and LuCA tumor atlas for healthy-to-malignant context
-- **Graph-of-Sets Transformer (GoST)** for inter-patient message passing via typed sparse graph attention
-- **Schr&ouml;dinger bridge transition model** with OT flow matching for cell-state trajectory prediction across disease stages
 - **Label repair system** with multi-evidence refinement (WES, CNA, clonal architecture, pathology) for rigorous stage annotation
+- **Experimental research extensions** including Graph-of-Sets Transformer (GoST) and Schr&ouml;dinger bridge / OT transition modeling (not part of the default EA-MIST benchmark path)
 
 ---
 
@@ -58,7 +58,7 @@ The framework integrates three data modalities -- 10x Visium spatial transcripto
                          └─────────────────────────────────────────────────────────┘
 
   ┌──────────────────────────────────────────────────────────────────────────────────┐
-  │  Supporting Components                                                          │
+  │  Experimental Research Extensions (not default EA-MIST benchmark path)         │
   │                                                                                 │
   │  Graph-of-Sets Transformer (GoST)          OT Transition Model                  │
   │  - Stage-adjacent edges                    - Sinkhorn OT coupling               │
@@ -90,6 +90,15 @@ Each spatial niche is encoded as a **9-token sequence**:
 | `lesion_set_transformer` | Set Transformer only (no local encoder) | Ablation |
 | `deep_sets` | DeepSets baseline | Baseline |
 | `pooled` | Mean-pooling baseline | Baseline |
+
+### Experimental extensions
+
+The repository also includes exploratory modules that are valuable for future work but are not part of the canonical V1 benchmark narrative:
+
+- **Graph-of-Sets Transformer (GoST)** -- inter-lesion / inter-patient graph-context extension
+- **Schr&ouml;dinger bridge / OT transition model** -- probabilistic trajectory modeling extension
+
+These modules remain in-repo with configs and tests, but the default quick-start and benchmark workflow are centered on EA-MIST.
 
 ---
 
@@ -135,6 +144,8 @@ export STAGEBRIDGE_DATA_ROOT=/path/to/your/data
 ---
 
 ## Quick start
+
+The default workflow below is the canonical EA-MIST benchmark path.
 
 ### Python API
 
@@ -190,7 +201,7 @@ EA-MIST is evaluated under **donor-held-out cross-validation** on lesion-level p
 | Monotonicity | Stage-wise displacement trend |
 
 Additional evaluation modules:
-- Sinkhorn distance, MMD-RBF, classifier AUC (transition model)
+- Sinkhorn distance, MMD-RBF, classifier AUC (transition-model extension)
 - Context sensitivity analysis (real vs. shuffled context)
 - Gene-context correlations and niche shift profiling
 - Calibration error analysis
@@ -201,13 +212,13 @@ Additional evaluation modules:
 
 ```
 stagebridge/
-├── context_model/          # EA-MIST, Set Transformer, GoST, hierarchical encoder
+├── context_model/          # EA-MIST core + experimental context encoders (e.g., GoST)
 │   ├── lesion_set_transformer.py    # EAMISTModel
 │   ├── local_niche_encoder.py       # 9-token niche transformer
 │   ├── set_encoder.py               # ISAB, SAB, PMA
 │   ├── graph_of_sets.py             # Graph-of-Sets Transformer
 │   └── prototype_bottleneck.py      # Prototype compression
-├── transition_model/       # OT flow matching, Schrödinger bridge
+├── transition_model/       # Experimental OT / Schrödinger bridge trajectory modules
 │   ├── stochastic_dynamics.py       # StageBridgeModel
 │   ├── schrodinger_bridge.py        # Sinkhorn OT coupling
 │   └── drift_network.py            # FiLM-conditioned drift
@@ -247,7 +258,7 @@ pytest tests/test_eamist_model.py tests/test_eamist_pipelines.py
 # Context model ablations
 pytest tests/test_set_only_context.py tests/test_deep_sets_context.py
 
-# Graph-of-Sets Transformer
+# Experimental Graph-of-Sets extension
 pytest tests/test_graph_of_sets_context.py
 ```
 
