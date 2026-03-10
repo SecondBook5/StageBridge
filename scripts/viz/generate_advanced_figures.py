@@ -563,7 +563,7 @@ def plot_ring_composition_heatmap(out: Path) -> None:
 
 
 def plot_reference_feature_heatmap(out: Path) -> None:
-    """Panel K: HLCA/LuCA mean feature profiles by stage."""
+    """Panel K: HLCA/LuCA stage relationships with progression-aware summaries."""
     if not BAG_PATH.exists():
         return
 
@@ -578,28 +578,105 @@ def plot_reference_feature_heatmap(out: Path) -> None:
         stage_hlca.setdefault(stage, []).append(hlca.mean(axis=0))
         stage_luca.setdefault(stage, []).append(luca.mean(axis=0))
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
-
-    # HLCA
     stages_present = [s for s in STAGE_ORDER if s in stage_hlca]
+    if len(stages_present) < 2:
+        print("  Skipping reference feature heatmap: not enough stage diversity")
+        return
+
+    stage_to_idx = {stage: idx for idx, stage in enumerate(STAGE_ORDER)}
+    stage_numeric = np.array([stage_to_idx[s] for s in stages_present], dtype=np.float32)
+
     hlca_matrix = np.stack([np.mean(stage_hlca[s], axis=0) for s in stages_present])
-    im1 = ax1.imshow(hlca_matrix, cmap="RdBu_r", aspect="auto")
-    ax1.set_yticks(range(len(stages_present)))
-    ax1.set_yticklabels(stages_present, fontsize=10)
-    ax1.set_xlabel("HLCA Latent Dimension", fontsize=10)
-    ax1.set_title("HLCA Reference Features by Stage", fontsize=13, fontweight="bold")
-    plt.colorbar(im1, ax=ax1, shrink=0.8, label="Mean Activation")
-
-    # LuCA
     luca_matrix = np.stack([np.mean(stage_luca[s], axis=0) for s in stages_present])
-    im2 = ax2.imshow(luca_matrix, cmap="RdBu_r", aspect="auto")
-    ax2.set_yticks(range(len(stages_present)))
-    ax2.set_yticklabels(stages_present, fontsize=10)
-    ax2.set_xlabel("LuCA Latent Dimension", fontsize=10)
-    ax2.set_title("LuCA Reference Features by Stage", fontsize=13, fontweight="bold")
-    plt.colorbar(im2, ax=ax2, shrink=0.8, label="Mean Activation")
 
-    fig.suptitle("Reference Atlas Feature Profiles Across Progression Stages", fontsize=15, fontweight="bold")
+    def _select_progression_features(matrix: np.ndarray, top_k: int = 12) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        # Correlate each feature with stage order to expose progression-linked atlas signals.
+        corrs = np.array(
+            [
+                np.corrcoef(stage_numeric, matrix[:, feat_idx])[0, 1]
+                if np.std(matrix[:, feat_idx]) > 1e-8
+                else 0.0
+                for feat_idx in range(matrix.shape[1])
+            ],
+            dtype=np.float32,
+        )
+        corrs = np.nan_to_num(corrs, nan=0.0, posinf=0.0, neginf=0.0)
+        order = np.argsort(np.abs(corrs))[::-1]
+        picked = order[: min(top_k, matrix.shape[1])]
+        picked_corrs = corrs[picked]
+        selected = matrix[:, picked]
+        mu = selected.mean(axis=0, keepdims=True)
+        sigma = selected.std(axis=0, keepdims=True)
+        sigma[sigma < 1e-8] = 1.0
+        selected_z = (selected - mu) / sigma
+        return selected_z, picked, picked_corrs
+
+    hlca_z, hlca_feats, hlca_corrs = _select_progression_features(hlca_matrix, top_k=12)
+    luca_z, luca_feats, luca_corrs = _select_progression_features(luca_matrix, top_k=12)
+
+    fig = plt.figure(figsize=(18, 10))
+    grid = gridspec.GridSpec(2, 2, figure=fig, hspace=0.35, wspace=0.28)
+
+    ax1 = fig.add_subplot(grid[0, 0])
+    ax2 = fig.add_subplot(grid[0, 1])
+    ax3 = fig.add_subplot(grid[1, 0])
+    ax4 = fig.add_subplot(grid[1, 1])
+
+    im1 = ax1.imshow(hlca_z, cmap="RdBu_r", aspect="auto", vmin=-2.5, vmax=2.5)
+    ax1.set_yticks(range(len(stages_present)))
+    ax1.set_yticklabels(stages_present, fontsize=9)
+    ax1.set_xticks(range(len(hlca_feats)))
+    ax1.set_xticklabels([f"H{int(i)}" for i in hlca_feats], rotation=45, ha="right", fontsize=8)
+    ax1.set_title("HLCA progression-linked features (z-scored by stage)", fontsize=12, fontweight="bold")
+    ax1.set_xlabel("Feature index")
+    ax1.set_ylabel("Stage")
+    plt.colorbar(im1, ax=ax1, shrink=0.8, label="Stage-wise z-score")
+
+    im2 = ax2.imshow(luca_z, cmap="RdBu_r", aspect="auto", vmin=-2.5, vmax=2.5)
+    ax2.set_yticks(range(len(stages_present)))
+    ax2.set_yticklabels(stages_present, fontsize=9)
+    ax2.set_xticks(range(len(luca_feats)))
+    ax2.set_xticklabels([f"L{int(i)}" for i in luca_feats], rotation=45, ha="right", fontsize=8)
+    ax2.set_title("LuCA progression-linked features (z-scored by stage)", fontsize=12, fontweight="bold")
+    ax2.set_xlabel("Feature index")
+    ax2.set_ylabel("Stage")
+    plt.colorbar(im2, ax=ax2, shrink=0.8, label="Stage-wise z-score")
+
+    # Trajectory summary: aggregate top positively progression-linked features.
+    hlca_pos = hlca_feats[hlca_corrs > 0]
+    luca_pos = luca_feats[luca_corrs > 0]
+    if len(hlca_pos) == 0:
+        hlca_pos = hlca_feats[: min(3, len(hlca_feats))]
+    if len(luca_pos) == 0:
+        luca_pos = luca_feats[: min(3, len(luca_feats))]
+    hlca_traj = hlca_matrix[:, hlca_pos].mean(axis=1)
+    luca_traj = luca_matrix[:, luca_pos].mean(axis=1)
+
+    x = np.arange(len(stages_present))
+    ax3.plot(x, hlca_traj, marker="o", linewidth=2.0, color="#1f77b4", label="HLCA progression score")
+    ax3.plot(x, luca_traj, marker="o", linewidth=2.0, color="#d62728", label="LuCA progression score")
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(stages_present, rotation=20, ha="right")
+    ax3.set_title("Stage trajectory of atlas-derived progression scores", fontsize=12, fontweight="bold")
+    ax3.set_xlabel("Stage")
+    ax3.set_ylabel("Mean activation (selected features)")
+    ax3.grid(alpha=0.3)
+    ax3.legend(fontsize=9)
+
+    # Correlation strength overview for selected features.
+    width = 0.4
+    hx = np.arange(len(hlca_corrs))
+    lx = np.arange(len(luca_corrs))
+    ax4.bar(hx - width / 2, hlca_corrs, width=width, color="#1f77b4", alpha=0.8, label="HLCA")
+    ax4.bar(lx + width / 2, luca_corrs, width=width, color="#d62728", alpha=0.8, label="LuCA")
+    ax4.axhline(0.0, color="black", linewidth=0.8, alpha=0.6)
+    ax4.set_title("Stage-order correlation for selected atlas features", fontsize=12, fontweight="bold")
+    ax4.set_xlabel("Ranked selected feature")
+    ax4.set_ylabel("corr(feature, stage index)")
+    ax4.grid(alpha=0.3)
+    ax4.legend(fontsize=9)
+
+    fig.suptitle("Dual-Atlas Stage Relationships: HLCA and LuCA progression alignment", fontsize=15, fontweight="bold")
     fig.tight_layout()
     fig.savefig(out, dpi=200, bbox_inches="tight")
     plt.close(fig)
