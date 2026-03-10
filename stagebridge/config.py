@@ -27,7 +27,7 @@ def get_data_root() -> Path:
     """
     raw = os.environ.get(_ENV_VAR)
     if not raw:
-        raise EnvironmentError(
+        raise OSError(
             f"Environment variable {_ENV_VAR} is not set.\n"
             f"Set it to the root of your StageBridge data directory:\n"
             f"    export {_ENV_VAR}=/path/to/StageBridge_data"

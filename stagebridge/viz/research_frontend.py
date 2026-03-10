@@ -706,8 +706,9 @@ def plot_wes_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
 
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     fig.suptitle(
-        f"StageBridge v1 research frontend: WES preprocessing preview",
-        fontsize=15, fontweight="bold",
+        "StageBridge v1 research frontend: WES preprocessing preview",
+        fontsize=15,
+        fontweight="bold",
     )
     fig.text(
         0.5, 0.935,
