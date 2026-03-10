@@ -22,6 +22,7 @@ dependencies:
 
   # OT + utilities
   - pot
+  - tacco
   - geomloss
   - tqdm
   - rich
@@ -70,5 +71,4 @@ dependencies:
   - pip:
       - scvi-tools
       - tangram-sc
-      - tacco==0.4.0.post1
       - huggingface_hub
