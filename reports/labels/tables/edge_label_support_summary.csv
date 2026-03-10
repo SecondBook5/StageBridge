@@ -1,3 +1,0 @@
-edge_label,target_kind,n_lesions,n_donors,positive_lesions,negative_lesions,uncertain_lesions,excluded_lesions,positive_donors,negative_donors,continuous_unique_scores,binary_viable,continuous_viable,recommended_target,reason
-AAH->AIS,refined,11,10,7,1,3,0,6,1,10,False,True,continuous_risk,"Continuous risk target is supported by lesion count, donor count, and score diversity."
-AIS->MIA,refined,13,11,9,4,0,0,8,3,11,True,True,binary_classification,Both classes have enough donor support for donor-held-out binary evaluation.

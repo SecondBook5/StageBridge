@@ -1,7 +1,0 @@
-{
-  "benchmark_root": "outputs/scratch/eamist_full_20260309_fixed/eamist_benchmark",
-  "tables_root": "reports/tables/eamist",
-  "figures_root": "reports/figures/eamist",
-  "dataset_rows": 24,
-  "benchmark_rows": 24
-}

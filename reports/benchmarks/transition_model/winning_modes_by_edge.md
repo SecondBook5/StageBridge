@@ -1,3 +1,0 @@
-    edge winning_mode  winning_metric        course_interpretation
-AAH->AIS     rna_only          17.252                     baseline
-AIS->MIA     set_only          15.758 best active transformer mode

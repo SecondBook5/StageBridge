@@ -1,2 +1,0 @@
-milestone_id,timestamp,source_timestamp,git_commit,git_short_hash,git_tag,summary,importance_level,milestone_path
-mission2_smoke_keep,2026-03-08T01:05:58.758332+00:00,2026-03-08T01:05:53.423162+00:00,9bfe9302106829b7acf3a7961215db976f6a4c25,9bfe930,,Mission 2 smoke promotion,smoke,results/milestones/mission2_smoke_keep

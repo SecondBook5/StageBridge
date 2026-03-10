@@ -1,3 +1,0 @@
-source_timestamp: 2026-03-08T01:05:53.423162+00:00
-scratch_path: /home/ajbook/projects/StageBridge/outputs/scratch/current
-registry_path: /home/ajbook/projects/StageBridge/results/registry/results_registry.csv
