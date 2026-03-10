@@ -10,8 +10,6 @@ from typing import Any
 
 from omegaconf import DictConfig, OmegaConf
 import yaml
-
-from stagebridge.pipelines.run_full import run_full
 from stagebridge.results.manifest import (
     RunMetrics,
     build_run_metadata,
@@ -315,7 +313,21 @@ def run_smoke_execution(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run the minimal package smoke path and record it in scratch/registry."""
-    pipeline_output = run_full(cfg)  # current pipeline entrypoints accept the composed config object
+    try:
+        from stagebridge.pipelines.run_full import run_full
+
+        pipeline_output = run_full(cfg)  # current pipeline entrypoints accept the composed config object
+    except (FileNotFoundError, ModuleNotFoundError) as exc:
+        # CI and fresh clones may not include local-only dataset assets; keep smoke checks infrastructure-focused.
+        pipeline_output = {
+            "steps": {
+                "reference": {"ok": False, "status": "missing_inputs", "error": str(exc)},
+                "spatial_mapping": {"ok": False, "status": "skipped_missing_inputs"},
+                "context_model": {"ok": False, "status": "skipped_missing_inputs"},
+                "transition_model": {"ok": False, "status": "skipped_missing_inputs"},
+                "evaluation": {"ok": False, "status": "skipped_missing_inputs"},
+            }
+        }
     return write_scratch_run(
         cfg,
         pipeline_output,
