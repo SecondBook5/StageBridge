@@ -9,6 +9,49 @@ import pandas as pd
 
 CANONICAL_STAGE_ORDER: tuple[str, ...] = ("Normal", "AAH", "AIS", "MIA", "LUAD")
 
+# ── Grouped ordinal labels for rescue study ──────────────────────────────────
+# Biologically-motivated grouping for ordinal lesion positioning.
+# early_like: pre-invasive (Normal + AAH)
+# intermediate_like: mixed invasive potential (AIS + MIA)
+# invasive_like: established invasive adenocarcinoma (LUAD)
+GROUPED_STAGE_ORDER: tuple[str, ...] = ("early_like", "intermediate_like", "invasive_like")
+
+STAGE_TO_GROUP: dict[str, str] = {
+    "Normal": "early_like",
+    "AAH": "early_like",
+    "AIS": "intermediate_like",
+    "MIA": "intermediate_like",
+    "LUAD": "invasive_like",
+}
+
+GROUPED_STAGE_INDEX: dict[str, int] = {
+    "early_like": 0,
+    "intermediate_like": 1,
+    "invasive_like": 2,
+}
+
+
+def stage_to_grouped_index(stage: str) -> int:
+    """Map a canonical 5-class stage label to its grouped ordinal index (0–2)."""
+    normalized = normalize_stage_label(stage)
+    group = STAGE_TO_GROUP.get(normalized)
+    if group is None:
+        raise ValueError(
+            f"Unknown stage '{stage}' (normalized='{normalized}'). "
+            f"Cannot map to grouped ordinal label."
+        )
+    return GROUPED_STAGE_INDEX[group]
+
+
+def stage_to_group_label(stage: str) -> str:
+    """Map a canonical 5-class stage label to its grouped label string."""
+    normalized = normalize_stage_label(stage)
+    group = STAGE_TO_GROUP.get(normalized)
+    if group is None:
+        raise ValueError(f"Unknown stage '{stage}' for grouping.")
+    return group
+
+
 # Extended ontology for cross-dataset modeling (Normal → ... → metastasis).
 # LUAD/PRIMARY are treated as the same biological stage (primary NSCLC tumor)
 # bridging the early-progression (GSE308103) and brain-mets (GSE223499) datasets.

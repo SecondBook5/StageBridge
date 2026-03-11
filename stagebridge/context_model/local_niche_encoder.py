@@ -47,6 +47,7 @@ class LocalNicheTokenizer(nn.Module):
         num_receiver_states: int = 32,
         num_rings: int = 4,
         dropout: float = 0.1,
+        use_atlas_contrast_token: bool = False,
     ) -> None:
         super().__init__()
         if receiver_dim <= 0 or sender_feature_dim <= 0 or lr_summary_dim <= 0 or stats_dim <= 0:
@@ -58,10 +59,24 @@ class LocalNicheTokenizer(nn.Module):
         self.lr_proj = nn.Linear(int(lr_summary_dim), int(model_dim))
         self.stats_proj = nn.Linear(int(stats_dim), int(model_dim))
         self.receiver_state_embedding = nn.Embedding(int(num_receiver_states), int(model_dim))
-        self.token_type_embedding = nn.Embedding(6, int(model_dim))
+        self.use_atlas_contrast_token = bool(use_atlas_contrast_token)
+        # 7 token types: 0=receiver, 1=ring, 2=hlca, 3=luca, 4=lr, 5=stats, 6=atlas_contrast
+        self.token_type_embedding = nn.Embedding(7, int(model_dim))
         self.ring_embedding = nn.Embedding(int(num_rings), int(model_dim))
         self.dropout = nn.Dropout(float(dropout))
         self.model_dim = int(model_dim)
+        # Atlas contrast token: [h, l, l-h, h*l, abs(l-h)] → MLP → model_dim
+        if self.use_atlas_contrast_token and int(hlca_dim) > 0 and int(luca_dim) > 0:
+            contrast_input_dim = int(hlca_dim) + int(luca_dim) + min(int(hlca_dim), int(luca_dim)) * 3
+            self.atlas_contrast_proj = nn.Sequential(
+                nn.Linear(contrast_input_dim, int(model_dim)),
+                nn.GELU(),
+                nn.Linear(int(model_dim), int(model_dim)),
+            )
+            self._hlca_dim = int(hlca_dim)
+            self._luca_dim = int(luca_dim)
+        else:
+            self.atlas_contrast_proj = None
 
     def _project_optional_token(
         self,
@@ -139,6 +154,17 @@ class LocalNicheTokenizer(nn.Module):
             ],
             dim=1,
         )
+        # Optionally append atlas contrast token (internal only — bag contract stays 9 tokens)
+        if self.atlas_contrast_proj is not None:
+            min_dim = min(self._hlca_dim, self._luca_dim)
+            h = hlca_features[:, :min_dim]
+            l = luca_features[:, :min_dim]
+            contrast_input = torch.cat([hlca_features, luca_features, l - h, h * l, (l - h).abs()], dim=-1)
+            contrast_token = self.atlas_contrast_proj(contrast_input)
+            contrast_token = contrast_token + self.token_type_embedding(
+                torch.full((batch_size,), 6, dtype=torch.long, device=hlca_features.device)
+            )
+            tokens = torch.cat([tokens, contrast_token.unsqueeze(1)], dim=1)
         return self.dropout(tokens)
 
 
@@ -160,6 +186,7 @@ class LocalNicheTransformerEncoder(nn.Module):
         num_receiver_states: int = 32,
         num_rings: int = 4,
         dropout: float = 0.1,
+        use_atlas_contrast_token: bool = False,
     ) -> None:
         super().__init__()
         self.tokenizer = LocalNicheTokenizer(
@@ -173,6 +200,7 @@ class LocalNicheTransformerEncoder(nn.Module):
             num_receiver_states=num_receiver_states,
             num_rings=num_rings,
             dropout=dropout,
+            use_atlas_contrast_token=use_atlas_contrast_token,
         )
         self.blocks = nn.ModuleList(
             [SAB(dim=int(model_dim), num_heads=int(num_heads), dropout=float(dropout)) for _ in range(int(num_layers))]

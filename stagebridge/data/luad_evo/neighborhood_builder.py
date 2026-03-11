@@ -28,11 +28,26 @@ from stagebridge.data.luad_evo.feature_builder import (
     summarize_ring_compositions,
 )
 from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
-from stagebridge.data.luad_evo.stages import stage_to_progression_score
+from stagebridge.data.luad_evo.stages import stage_to_progression_score, stage_to_index
 from stagebridge.transition_model.disease_edges import edge_id_map
 from stagebridge.utils.types import LesionBag, LocalNicheExample
 
 VALID_SOURCE_STAGES: frozenset[str] = frozenset({"AAH", "AIS"})
+
+
+def _migrate_legacy_bags(bags: list[LesionBag]) -> None:
+    """Patch bags loaded from old caches that are missing newer optional fields."""
+    for bag in bags:
+        if bag.stage_index is None:
+            try:
+                idx = stage_to_index(bag.stage)
+            except ValueError:
+                idx = -1
+            object.__setattr__(bag, "stage_index", idx)
+        if bag.displacement_target is None:
+            object.__setattr__(bag, "displacement_target", stage_to_progression_score(bag.stage))
+        if bag.edge_target_labels is None:
+            object.__setattr__(bag, "edge_target_labels", ())
 
 
 @dataclass(slots=True, frozen=True)
@@ -430,11 +445,20 @@ def _canonical_sample_key(sample_id: str) -> str:
 
 
 def infer_edge_label(stage: str) -> str | None:
-    """Resolve the active edge for a lesion stage."""
-    if str(stage) == "AAH":
+    """Resolve the active transition edge for a lesion stage.
+
+    Returns the canonical edge label for stages that sit on a monitored
+    transition boundary.  Stages that are *not* on an active edge (Normal,
+    MIA, LUAD) return ``None`` — they still participate in stage
+    classification and displacement regression but have no binary edge
+    target.
+    """
+    _stage = str(stage)
+    if _stage == "AAH":
         return "AAH->AIS"
-    if str(stage) == "AIS":
+    if _stage == "AIS":
         return "AIS->MIA"
+    # Normal, MIA, LUAD have no active transition edge.
     return None
 
 
@@ -713,12 +737,12 @@ def build_lesion_bags(
     for sample_id, indices in grouped.items():
         sample_obs = spatial.obs.iloc[np.asarray(indices, dtype=np.int64)].reset_index(drop=True)
         stage = str(sample_obs["stage"].iloc[0])
-        edge_label = infer_edge_label(stage)
-        if edge_label is None:
-            continue
-        label_row = label_lookup.get((str(sample_id), edge_label))
-        if label_row is None:
-            continue
+        edge_label = infer_edge_label(stage)  # None for Normal/MIA/LUAD
+        # Look up curated label; stages without an active edge still
+        # participate via stage classification + displacement regression.
+        label_row = None
+        if edge_label is not None:
+            label_row = label_lookup.get((str(sample_id), edge_label))
 
         donor_id = str(sample_obs["donor_id"].iloc[0])
         patient_id = str(sample_obs.get("patient_id", sample_obs["donor_id"]).iloc[0])
@@ -789,7 +813,7 @@ def build_lesion_bags(
                     donor_id=donor_id,
                     patient_id=patient_id,
                     stage=stage,
-                    edge_label=edge_label,
+                    edge_label=edge_label or "",
                     receiver_index=local_idx,
                     receiver_embedding=receiver_embedding,
                     receiver_state_id=int(receiver_state_id),
@@ -811,14 +835,16 @@ def build_lesion_bags(
             donor_id=donor_id,
             patient_id=patient_id,
             stage=stage,
-            edge_id=int(edge_lookup[edge_label]),
-            edge_label=edge_label,
-            label=float(label_row.label),
-            label_weight=float(label_row.label_weight),
-            label_source=str(label_row.label_source),
+            edge_id=int(edge_lookup.get(edge_label or "", -1)),
+            edge_label=edge_label or "",
+            label=float(label_row.label) if label_row is not None else 0.0,
+            label_weight=float(label_row.label_weight) if label_row is not None else 0.0,
+            label_source=str(label_row.label_source) if label_row is not None else "no_active_edge",
             neighborhoods=neighborhoods,
             evolution_features=None if evolution_features is None else evolution_features.astype(np.float32, copy=False),
-            notes=str(label_row.notes),
+            stage_index=stage_to_index(stage),
+            displacement_target=stage_to_progression_score(stage),
+            notes=str(label_row.notes) if label_row is not None else f"stage={stage}",
         )
         bags.append(bag)
         summary_rows.append(
@@ -864,6 +890,7 @@ def build_lesion_bags_from_config(cfg: Any) -> NeighborhoodBuildResult:
             cached = pickle.load(handle)
         if not isinstance(cached, NeighborhoodBuildResult):
             raise TypeError(f"Lesion-bag cache at {cache_path} did not contain a NeighborhoodBuildResult.")
+        _migrate_legacy_bags(cached.bags)
         return cached
 
     from stagebridge.data.luad_evo.snrna import load_luad_evo_snrna_latent

@@ -1,80 +1,129 @@
-# Architecture: Tissue-Level Interpretation
+# Architecture: Evaluation and Interpretation
 
-**Scientific layer:** 6 — Tissue-level interpretation and evaluation
+**Scientific layer:** 6 — Lesion-level evaluation, ablation, and negative controls
 **Package location:** `stagebridge/evaluation/`
 
 ## Role in the System
 
-This layer bridges model outputs (trajectories in latent space, velocity fields, loss values) and biological claims (niche gating, evolutionary constraint, tissue dynamics). It transforms the transition model from a machine learning benchmark into a scientific tool.
+This layer evaluates trained EA-MIST models: computing classification and ordinal metrics, running permutation-based negative controls, and assembling ablation tables that compare model families and atlas configurations. It converts raw predictions into the evidence needed to support claims about niche-stage relationships.
 
-## Components
+## Metrics
 
-### Quantitative Evaluation
+### Classification Metrics
 
-Standard metrics computed on donor-held-out test sets:
-- Sinkhorn divergence between predicted and true target distributions
-- MMD (kernel-based distribution comparison)
-- Wasserstein distance
-- Per-cell-type transport accuracy
+Computed by `compute_stage_metrics` (canonical 5-class) and `compute_grouped_stage_metrics` (grouped 3-class):
 
-These establish whether the model works at all. They do not, by themselves, constitute a scientific contribution.
+| Metric | Formula | Scope |
+|--------|---------|-------|
+| `macro_f1` | Mean of per-class F1 | Both |
+| `balanced_accuracy` | Mean of per-class recall | Both |
+| `accuracy` | Fraction correct | Both |
+| `central_recall` | Mean recall of intermediate classes (AAH, AIS, MIA) | Canonical only |
+| `weighted_kappa` | Linear-weighted Cohen's κ | Grouped only |
 
-### Ablation Framework
+**Linear-weighted kappa** penalizes disagreements proportional to the ordinal distance between predicted and true classes:
 
-Systematic comparison of model configurations:
-- RNA-only vs set-only (does spatial context help?)
-- Set-only vs graph-of-sets (does graph attention help?)
-- With vs without WES regularization (does evolutionary state help?)
-- Learned vs Gaussian-SB (does learning improve over the prior?)
+$$\kappa_w = 1 - \frac{\sum_{i,j} w_{ij} \cdot O_{ij}}{\sum_{i,j} w_{ij} \cdot E_{ij}} \quad \text{where } w_{ij} = \frac{|i - j|}{C - 1}$$
 
-Each ablation uses identical data splits and evaluation protocols.
+$O$ is the observed confusion matrix, $E$ is the expected matrix under chance.
 
-### Context Sensitivity
+### Displacement Metrics
 
-Niche shuffling test: permute niche compositions across patients within the same stage. Measure prediction change. A model that actually uses context will produce different trajectories after shuffling; one that ignores context will not.
+Computed from the scalar displacement predictions against ordinal targets:
 
-### Dynamical Analysis
+| Metric | Description |
+|--------|------------|
+| `displacement_mae` | Mean absolute error |
+| `displacement_spearman` ($\rho_s$) | Spearman rank correlation of displacement predictions vs targets |
+| `stage_monotonicity` | Fraction of stage pairs where mean predicted displacement preserves the correct ordering |
 
-Computed from the learned drift field:
-- **Fixed points** — Where drift is near zero. Mapped to biological states.
-- **Niche regimes** — Clusters of niche compositions with distinct transition dynamics. This is the primary biological output.
-- **Trajectory structure** — Convergence, divergence, bifurcation in learned paths.
-- **Pseudotime correspondence** — Consistency with independent temporal ordering methods.
+### Composite Selection Scores
 
-### Gene/Program Attribution
+Used by the HPO loop to select the best trial. The two score variants reflect different evaluation priorities:
 
-Gradient-based attribution from the drift network:
-- Which genes contribute most to velocity at key transitions?
-- Do attributed genes match known biology (surfactant, EMT, immune evasion)?
-- Attribution as sanity check and hypothesis generator.
+**Canonical (5-class):**
+$$\text{score} = F_1^{macro} + 0.25 \cdot \text{bal\_acc} + 0.10 \cdot \max(\rho_s, 0) + 0.05 \cdot \text{central\_recall}$$
 
-### Tissue-Level Reporting
+**Grouped (3-class):**
+$$\text{score} = 0.40 \cdot \max(\rho_s, 0) + 0.30 \cdot \max(\kappa_w, 0) + 0.20 \cdot \text{bal\_acc} + 0.10 \cdot F_1^{macro}$$
 
-Aggregate results into interpretable summaries:
-- Per-edge: dominant drift direction, niche dependence strength, transition rate
-- Per-stage: most dynamic vs most stable populations
-- Cross-edge: how dynamics change through progression
+The grouped score prioritizes ordinal metrics: Spearman displacement correlation (40%) and weighted kappa (30%). This reflects the scientific goal — correctly ordering lesions along the progression continuum matters more than exact 3-class accuracy.
 
-## What Goes In
+### Confusion Matrix and Support
 
-- Trained transition model with drift network
-- Held-out test data with niche context
-- WES features for regularization analysis
+`grouped_confusion_matrix_payload` and `grouped_support_payload` produce structured payloads for logging and reporting:
 
-## What Comes Out
+- Confusion matrix as a flat dictionary with keys like `pred_{i}_true_{j}`
+- Per-class support counts for train/val/test splits
 
-- Metrics tables (JSON)
-- Ablation comparison tables
-- Fixed point maps
-- Niche regime characterizations
-- Gene attribution rankings
-- Tissue-level summary reports
+## Ablation Framework
 
-## Key Design Principle
+### Atlas Ablation Grid
 
-Evaluation code lives in `stagebridge/evaluation/`, not in the training pipeline or visualization layer. The training loop does not own tissue-level interpretation. The evaluation layer is not optional or deferred — it ships with the model.
+The benchmark evaluates each model family × reference feature mode combination:
+
+| Model Family | Description |
+|-------------|-------------|
+| `pooled` | Mean-pool bag aggregation (no attention) |
+| `deep_sets` | DeepSets φ→ρ MLP |
+| `eamist` | Full set-transformer with prototypes |
+
+| Reference Mode | Atlas Features |
+|---------------|----------------|
+| `no_atlas` | All atlas features zeroed |
+| `hlca_only` | Only HLCA healthy atlas |
+| `luca_only` | Only LuCA cancer atlas |
+| `hlca_luca` | Both atlases |
+| `hlca_luca_contrast` | Both + contrast token |
+
+Full grid: 3 × 5 = 15 configurations, each evaluated under 3-fold donor-held-out CV with 50 HPO trials per fold.
+
+### Cross-Validation
+
+Donor-held-out 3-fold CV ensures no donor appears in both train and test:
+
+- `split_donor_cv` groups lesions by donor/patient
+- Each fold: ~37 train, ~9 val, ~10 test lesions
+- Stratified by stage to maintain class proportions
+
+### Negative Controls
+
+Two permutation baselines verify that model performance depends on atlas feature content, not just feature dimensionality or bag structure:
+
+| Control | Method | Preserves | Destroys |
+|---------|--------|-----------|----------|
+| `atlas_label_shuffle` | Shuffle HLCA/LuCA features across lesions globally | Spatial structure, feature statistics | Atlas ↔ stage alignment |
+| `within_lesion_niche_shuffle` | Randomly permute neighborhood order within each lesion | Per-lesion bag statistics | Spatial structure |
+
+Controls use deep copies of the original bags, run `hlca_luca` mode, and are evaluated with the same HPO budget. A valid model should perform **worse** under `atlas_label_shuffle` than the intact `hlca_luca` condition.
+
+## Reporting
+
+### Per-Configuration Output
+
+Each configuration (model × mode × fold) produces:
+
+- Best trial parameters and composite score
+- Full metric dictionary (classification + displacement)
+- Confusion matrix
+- Per-fold support counts
+
+### Benchmark Summary
+
+The benchmark loop (`benchmark_full_atlas_ablation`) aggregates across folds and seeds:
+
+- Mean ± std of all metrics per configuration
+- Ranked comparison tables by composite score
+- Delta columns showing lift/drop vs `no_atlas` baseline
+- Statistical significance tests across seeds
+
+## Key Design Principles
+
+1. **Evaluation is non-optional.** All metrics, controls, and ablation tables are computed during the benchmark, not as a separate post-hoc step.
+2. **Grouped labels are the primary evaluation axis.** The 3-class grouped ordinal scheme addresses the statistical weakness of 5-class classification with small cohorts.
+3. **Negative controls are part of the evidence.** Performance drop under atlas shuffle is essential for claiming that atlas features carry stage-relevant signal.
 
 ## Relationship to Other Layers
 
-- **Upstream:** Transition model provides the learned dynamics; context model provides niche representations
-- **Downstream:** Results tracking records evaluation outputs; visualization renders them
+- **Upstream:** Context model produces stage logits and displacement predictions; training pipeline runs HPO and fold loops
+- **Downstream:** Results tracking persists metric tables; visualization renders ablation plots and confusion matrices

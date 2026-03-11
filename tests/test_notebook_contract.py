@@ -24,30 +24,30 @@ def test_stagebridge_notebook_is_thin_orchestration_surface() -> None:
         if cell.get("cell_type") == "code"
     )
 
-    # The notebook must have numbered steps covering the full pipeline
+    # The notebook must have sections covering the EA-MIST rescue pipeline
     required_keywords = [
-        "Configure",
-        "Validate",
-        "Dataset",
+        "Setup",
+        "Preprocessing",
         "Reference",
         "Spatial",
-        "Context",
-        "Transition",
-        "Evaluation",
+        "Bags",
+        "Ablation",
         "Results",
+        "Transcriptom",
+        "Figures",
     ]
     combined_md = " ".join(markdown_cells)
     for keyword in required_keywords:
         assert keyword.lower() in combined_md.lower(), f"Missing section keyword: {keyword}"
 
-    # Must use research frontend viz functions
-    assert "plot_snrna_preprocessing_frontend(" in code
-    assert "plot_spatial_preprocessing_frontend(" in code
-    assert "plot_wes_preprocessing_frontend(" in code
+    # Must use stagebridge viz and API functions
+    assert "configure_research_style" in code
     assert "plot_reference_frontend(" in code
-    assert "plot_context_frontend(" in code
-    assert "plot_transition_frontend(" in code
-    assert "plot_transformer_attention_frontend(" in code
+    assert "compose_config(" in code
+
+    # Must use dimensionality reduction methods
+    assert "PCA" in code
+    assert "UMAP" in code or "umap" in code
 
     # Must import from stagebridge (not define models inline)
     assert "from stagebridge" in code

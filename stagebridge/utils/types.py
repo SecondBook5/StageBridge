@@ -326,6 +326,20 @@ class LocalNicheExample:
     receiver_confidence: float | None = None
     notes: str | None = None
 
+    def __setstate__(self, state: object) -> None:
+        """Support unpickling caches built before optional fields were added."""
+        if isinstance(state, tuple) and len(state) == 2:
+            _, slot_dict = state
+        elif isinstance(state, dict):
+            slot_dict = state
+        else:
+            slot_dict = state if isinstance(state, dict) else {}
+        defaults = {"hlca_features": None, "luca_features": None,
+                     "receiver_state_label": None, "receiver_confidence": None, "notes": None}
+        for slot in self.__slots__:
+            value = slot_dict.get(slot, defaults.get(slot))
+            object.__setattr__(self, slot, value)
+
 
 @dataclass(slots=True)
 class LesionBag:
@@ -365,6 +379,21 @@ class LesionBag:
     edge_target_mask: np.ndarray | None = None
     edge_target_labels: tuple[str, ...] | None = None
     notes: str | None = None
+
+    def __setstate__(self, state: object) -> None:
+        """Support unpickling caches built before optional fields were added."""
+        if isinstance(state, tuple) and len(state) == 2:
+            _, slot_dict = state
+        elif isinstance(state, dict):
+            slot_dict = state
+        else:
+            slot_dict = state if isinstance(state, dict) else {}
+        defaults = {"evolution_features": None, "stage_index": None,
+                     "displacement_target": None, "edge_targets": None,
+                     "edge_target_mask": None, "edge_target_labels": None, "notes": None}
+        for slot in self.__slots__:
+            value = slot_dict.get(slot, defaults.get(slot))
+            object.__setattr__(self, slot, value)
 
     @property
     def num_neighborhoods(self) -> int:
