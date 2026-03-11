@@ -108,16 +108,19 @@ StageBridge integrates multi-modal data from public GEO repositories:
 
 | Dataset | Modality | GEO Accession | Role |
 |---------|----------|---------------|------|
-| Early LUAD snRNA-seq | Single-cell transcriptomics | GSE308103 | Cell-level expression |
-| 10x Visium | Spatial transcriptomics | GSE307534 | Tissue architecture |
-| Whole-exome sequencing | WES | GSE307529 | Evolutionary features |
-| Brain metastasis snRNA-seq | Single-cell (extension) | GSE223499 | Metastatic progression |
+| Early LUAD snRNA-seq | Single-cell transcriptomics | [GSE308103](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE308103) | Cell-level expression |
+| 10x Visium | Spatial transcriptomics | [GSE307534](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE307534) | Tissue architecture |
+| Whole-exome sequencing | WES | [GSE307529](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE307529) | Evolutionary features |
+| Brain metastasis snRNA-seq | Single-cell (extension) | [GSE223499](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE223499) | Metastatic progression |
 
 **Reference atlases:**
 - [Human Lung Cell Atlas (HLCA)](https://doi.org/10.1038/s41591-023-02327-2) -- healthy reference anchor
 - [LuCA extended atlas](https://www.cell.com/cancer-cell/fulltext/S1535-6108(22)00499-8) -- tumor-aware cell state reference
 
-**Spatial mapping providers:** Tangram, TACCO, DestVI (with automated benchmark selection)
+**Spatial mapping providers:**
+- [Tangram](https://www.nature.com/articles/s41592-021-01264-7) -- deep learning-based spatial mapping of single-cell transcriptomes
+- [TACCO](https://www.nature.com/articles/s41587-023-01657-3) -- transfer of annotations to cells and their combinations in spatial omics
+- [DestVI](https://www.nature.com/articles/s41587-022-01272-8) -- multi-resolution deconvolution of spatial transcriptomics data
 
 ---
 
