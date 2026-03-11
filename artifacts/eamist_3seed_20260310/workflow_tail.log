@@ -1,4 +1,0 @@
-[2026-03-10T00:43:34-04:00] ROOT=/home/ajbook/projects/StageBridge CHECKPOINT=/home/ajbook/projects/StageBridge/outputs/scratch/eamist_v1_20260309/eamist_pretrain/best_local_encoder.pt
-[2026-03-10T00:43:34-04:00] START train_lesion (3 seeds)
-2026-03-10 00:43:37 | INFO     | stagebridge.data.luad_evo.visium | squidpy 1.8.1 available — using sq.read.visium() as primary loader.
-2026-03-10 00:43:53 | INFO     | stagebridge.pipelines.train_lesion | Starting EA-MIST lesion training on device=cuda with models=['pooled', 'deep_sets', 'lesion_set_transformer', 'eamist_no_prototypes', 'eamist'], reference_modes=['hlca_luca'], folds=3, seeds=[42, 123, 456], lesions=56

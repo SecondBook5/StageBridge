@@ -24,6 +24,9 @@ CANONICAL_STAGE_LABELS: tuple[str, ...] = ("Normal", "AAH", "AIS", "MIA", "LUAD"
 # Grouped ordinal labels for rescue study
 GROUPED_STAGE_LABELS: tuple[str, ...] = ("early_like", "intermediate_like", "invasive_like")
 
+# Binary labels: pre-invasive vs invasive
+BINARY_STAGE_LABELS: tuple[str, ...] = ("pre_invasive", "invasive")
+
 
 def _safe_spearman(x: np.ndarray, y: np.ndarray) -> float:
     """Compute a small-dependency Spearman correlation."""

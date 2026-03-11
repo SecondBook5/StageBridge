@@ -38,6 +38,7 @@ from stagebridge.data.luad_evo.splits import (
     summarize_fold_stage_balance,
 )
 from stagebridge.evaluation.eamist_metrics import (
+    BINARY_STAGE_LABELS,
     CANONICAL_STAGE_LABELS,
     GROUPED_STAGE_LABELS,
     composite_selection_score,
@@ -52,8 +53,10 @@ from stagebridge.evaluation.eamist_metrics import (
     stage_support_payload,
 )
 from stagebridge.data.luad_evo.stages import (
+    BINARY_STAGE_INDEX,
     GROUPED_STAGE_ORDER,
     STAGE_TO_GROUP,
+    stage_to_binary_index,
     stage_to_grouped_index,
     stage_to_group_label,
 )
@@ -90,14 +93,35 @@ def _ensure_dir(path: str | Path) -> Path:
     return resolved
 
 
+def _label_mode(cfg: DictConfig | dict[str, Any]) -> str:
+    """Return the active label mode: 'binary', 'grouped', or 'canonical'."""
+    explicit = _cfg_select(cfg, "context_model.eamist.label_mode", None)
+    if explicit is not None:
+        return str(explicit)
+    # Backward compat: use_grouped_labels=true → 'grouped'
+    if bool(_cfg_select(cfg, "context_model.eamist.use_grouped_labels", False)):
+        return "grouped"
+    return "canonical"
+
+
 def _is_grouped(cfg: DictConfig | dict[str, Any]) -> bool:
     """Return True when the rescue 'use_grouped_labels' flag is active."""
-    return bool(_cfg_select(cfg, "context_model.eamist.use_grouped_labels", False))
+    return _label_mode(cfg) in ("grouped", "binary")
+
+
+def _is_binary(cfg: DictConfig | dict[str, Any]) -> bool:
+    """Return True when binary label mode is active."""
+    return _label_mode(cfg) == "binary"
 
 
 def _active_stage_labels(cfg: DictConfig | dict[str, Any]) -> tuple[str, ...]:
     """Return the label tuple matching the current label mode."""
-    return GROUPED_STAGE_LABELS if _is_grouped(cfg) else CANONICAL_STAGE_LABELS
+    mode = _label_mode(cfg)
+    if mode == "binary":
+        return BINARY_STAGE_LABELS
+    if mode == "grouped":
+        return GROUPED_STAGE_LABELS
+    return CANONICAL_STAGE_LABELS
 
 
 def _active_num_classes(cfg: DictConfig | dict[str, Any]) -> int:
@@ -117,6 +141,17 @@ def _remap_bags_to_grouped(bags: list[LesionBag]) -> None:
         object.__setattr__(bag, "stage_index", grouped_idx)
         # Grouped displacement: 0.0 for early_like, 0.5 for intermediate_like, 1.0 for invasive_like
         object.__setattr__(bag, "displacement_target", grouped_idx / 2.0 if grouped_idx >= 0 else float("nan"))
+
+
+def _remap_bags_to_binary(bags: list[LesionBag]) -> None:
+    """In-place remap of stage_index on bags to binary (0=pre_invasive, 1=invasive)."""
+    for bag in bags:
+        try:
+            binary_idx = stage_to_binary_index(bag.stage)
+        except ValueError:
+            binary_idx = -1
+        object.__setattr__(bag, "stage_index", binary_idx)
+        object.__setattr__(bag, "displacement_target", float(binary_idx) if binary_idx >= 0 else float("nan"))
 
 
 def _apply_atlas_label_shuffle(bags: list[LesionBag], seed: int = 42) -> list[LesionBag]:
@@ -1102,7 +1137,10 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     if not build_result.bags:
         raise RuntimeError("EA-MIST lesion training received no lesion bags.")
     use_grouped = _is_grouped(cfg)
-    if use_grouped:
+    if _is_binary(cfg):
+        _remap_bags_to_binary(build_result.bags)
+        log.info("Remapped %d bags to binary labels (pre_invasive/invasive)", len(build_result.bags))
+    elif use_grouped:
         _remap_bags_to_grouped(build_result.bags)
         log.info("Remapped %d bags to grouped ordinal labels", len(build_result.bags))
     max_neighborhoods = _cfg_select(cfg, "context_model.eamist.max_neighborhoods_per_bag", None)
