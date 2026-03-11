@@ -30,6 +30,47 @@ GROUPED_STAGE_INDEX: dict[str, int] = {
     "invasive_like": 2,
 }
 
+# ── Binary labels: pre-invasive vs invasive ──────────────────────────────────
+# Collapses Normal/AAH/AIS/MIA → pre_invasive, LUAD → invasive.
+# Motivated by per-class analysis showing AAH niche signatures already
+# resemble intermediate stages, making the clean invasion boundary the
+# strongest separable signal.
+BINARY_STAGE_ORDER: tuple[str, ...] = ("pre_invasive", "invasive")
+
+STAGE_TO_BINARY: dict[str, str] = {
+    "Normal": "pre_invasive",
+    "AAH": "pre_invasive",
+    "AIS": "pre_invasive",
+    "MIA": "pre_invasive",
+    "LUAD": "invasive",
+}
+
+BINARY_STAGE_INDEX: dict[str, int] = {
+    "pre_invasive": 0,
+    "invasive": 1,
+}
+
+
+def stage_to_binary_index(stage: str) -> int:
+    """Map a canonical 5-class stage label to its binary index (0 or 1)."""
+    normalized = normalize_stage_label(stage)
+    group = STAGE_TO_BINARY.get(normalized)
+    if group is None:
+        raise ValueError(
+            f"Unknown stage '{stage}' (normalized='{normalized}'). "
+            f"Cannot map to binary label."
+        )
+    return BINARY_STAGE_INDEX[group]
+
+
+def stage_to_binary_label(stage: str) -> str:
+    """Map a canonical 5-class stage label to its binary label string."""
+    normalized = normalize_stage_label(stage)
+    group = STAGE_TO_BINARY.get(normalized)
+    if group is None:
+        raise ValueError(f"Unknown stage '{stage}' for binary grouping.")
+    return group
+
 
 def stage_to_grouped_index(stage: str) -> int:
     """Map a canonical 5-class stage label to its grouped ordinal index (0–2)."""
