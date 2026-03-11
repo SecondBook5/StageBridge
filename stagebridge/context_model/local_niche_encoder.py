@@ -158,8 +158,8 @@ class LocalNicheTokenizer(nn.Module):
         if self.atlas_contrast_proj is not None:
             min_dim = min(self._hlca_dim, self._luca_dim)
             h = hlca_features[:, :min_dim]
-            l = luca_features[:, :min_dim]
-            contrast_input = torch.cat([hlca_features, luca_features, l - h, h * l, (l - h).abs()], dim=-1)
+            lu = luca_features[:, :min_dim]
+            contrast_input = torch.cat([hlca_features, luca_features, lu - h, h * lu, (lu - h).abs()], dim=-1)
             contrast_token = self.atlas_contrast_proj(contrast_input)
             contrast_token = contrast_token + self.token_type_embedding(
                 torch.full((batch_size,), 6, dtype=torch.long, device=hlca_features.device)
