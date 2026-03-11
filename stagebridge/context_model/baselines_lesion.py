@@ -19,6 +19,7 @@ class LesionModelOutput:
     displacement: Tensor
     edge_logits: Tensor | None = None
     attention_weights: Tensor | None = None
+    niche_transition_scores: Tensor | None = None
 
 
 def _masked_mean(x: Tensor, mask: Tensor) -> Tensor:

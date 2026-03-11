@@ -21,6 +21,9 @@ from sklearn.metrics import (
 
 CANONICAL_STAGE_LABELS: tuple[str, ...] = ("Normal", "AAH", "AIS", "MIA", "LUAD")
 
+# Grouped ordinal labels for rescue study
+GROUPED_STAGE_LABELS: tuple[str, ...] = ("early_like", "intermediate_like", "invasive_like")
+
 
 def _safe_spearman(x: np.ndarray, y: np.ndarray) -> float:
     """Compute a small-dependency Spearman correlation."""
@@ -94,6 +97,122 @@ def stage_support_payload(
         str(names[idx]): int(np.sum(y_true == int(label)))
         for idx, label in enumerate(label_list)
     }
+
+
+def compute_grouped_stage_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    labels: Iterable[int] | None = None,
+) -> dict[str, float]:
+    """Compute grouped ordinal classification metrics.
+
+    Uses the 3-class grouped labels (early_like, intermediate_like, invasive_like).
+    Includes weighted kappa for ordinal agreement.
+    """
+    y_true = np.asarray(y_true, dtype=np.int64)
+    y_pred = np.asarray(y_pred, dtype=np.int64)
+    label_list = list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    if y_true.shape[0] == 0:
+        return {
+            "grouped_macro_f1": float("nan"),
+            "grouped_balanced_accuracy": float("nan"),
+            "grouped_weighted_kappa": float("nan"),
+            "grouped_accuracy": float("nan"),
+        }
+    macro_f1 = float(f1_score(y_true, y_pred, labels=label_list, average="macro", zero_division=0))
+    bal_acc = float(balanced_accuracy_score(y_true, y_pred))
+    acc = float(np.mean(y_true == y_pred))
+    # Weighted (linear) kappa for ordinal agreement
+    kappa = _linear_weighted_kappa(y_true, y_pred, num_classes=len(label_list))
+    return {
+        "grouped_macro_f1": macro_f1,
+        "grouped_balanced_accuracy": bal_acc,
+        "grouped_weighted_kappa": kappa,
+        "grouped_accuracy": acc,
+    }
+
+
+def _linear_weighted_kappa(y_true: np.ndarray, y_pred: np.ndarray, *, num_classes: int) -> float:
+    """Compute linearly-weighted Cohen's kappa for ordinal labels."""
+    y_true = np.asarray(y_true, dtype=np.int64)
+    y_pred = np.asarray(y_pred, dtype=np.int64)
+    if y_true.shape[0] == 0:
+        return float("nan")
+    # Build weight matrix: w_ij = |i - j| / (num_classes - 1)
+    weight_mat = np.zeros((num_classes, num_classes), dtype=np.float64)
+    for i in range(num_classes):
+        for j in range(num_classes):
+            weight_mat[i, j] = abs(i - j) / max(num_classes - 1, 1)
+    # Observed confusion matrix
+    observed = confusion_matrix(y_true, y_pred, labels=list(range(num_classes))).astype(np.float64)
+    n = observed.sum()
+    if n == 0:
+        return float("nan")
+    observed /= n
+    # Expected under independence
+    row_marginals = observed.sum(axis=1)
+    col_marginals = observed.sum(axis=0)
+    expected = np.outer(row_marginals, col_marginals)
+    # Weighted kappa
+    po = (weight_mat * observed).sum()
+    pe = (weight_mat * expected).sum()
+    if abs(1.0 - pe) < 1e-12:
+        return float("nan")
+    return float(1.0 - po / pe)
+
+
+def grouped_confusion_matrix_payload(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    labels: Iterable[int] | None = None,
+    label_names: Iterable[str] | None = None,
+) -> dict[str, object]:
+    """Return a JSON-friendly grouped confusion matrix payload."""
+    label_list = list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    names = list(GROUPED_STAGE_LABELS if label_names is None else label_names)
+    matrix = confusion_matrix(np.asarray(y_true, dtype=np.int64), np.asarray(y_pred, dtype=np.int64), labels=label_list)
+    return {"labels": label_list, "label_names": names, "matrix": matrix.astype(int).tolist()}
+
+
+def grouped_support_payload(
+    y_true: np.ndarray,
+    *,
+    labels: Iterable[int] | None = None,
+    label_names: Iterable[str] | None = None,
+) -> dict[str, int]:
+    """Return observed support per grouped stage."""
+    label_list = list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    names = list(GROUPED_STAGE_LABELS if label_names is None else label_names)
+    y_true = np.asarray(y_true, dtype=np.int64)
+    return {
+        str(names[idx]): int(np.sum(y_true == int(label)))
+        for idx, label in enumerate(label_list)
+    }
+
+
+def composite_selection_score_grouped(metrics: dict[str, float]) -> float:
+    """Checkpoint-selection score for grouped ordinal classification.
+
+    Prioritises ordinal metrics: displacement_spearman + weighted_kappa + balanced_accuracy.
+    """
+    spearman = float(metrics.get("displacement_spearman", float("nan")))
+    kappa = float(metrics.get("grouped_weighted_kappa", float("nan")))
+    bal_acc = float(metrics.get("grouped_balanced_accuracy", float("nan")))
+    macro_f1 = float(metrics.get("grouped_macro_f1", float("nan")))
+    if np.isnan(bal_acc):
+        return -float("inf")
+    score = 0.0
+    if not np.isnan(spearman):
+        score += 0.40 * max(spearman, 0.0)
+    if not np.isnan(kappa):
+        score += 0.30 * max(kappa, 0.0)
+    if not np.isnan(bal_acc):
+        score += 0.20 * bal_acc
+    if not np.isnan(macro_f1):
+        score += 0.10 * macro_f1
+    return float(score)
 
 
 def compute_displacement_metrics(

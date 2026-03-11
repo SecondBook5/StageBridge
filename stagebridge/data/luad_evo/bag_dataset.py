@@ -12,18 +12,61 @@ from stagebridge.utils.types import LesionBag, LesionBagBatch, LocalNicheExample
 
 
 class LesionBagDataset(Dataset[LesionBag]):
-    """Torch dataset wrapper over lesion-level bags."""
+    """Torch dataset wrapper over lesion-level bags.
 
-    def __init__(self, bags: list[LesionBag]) -> None:
+    Parameters
+    ----------
+    bags : list[LesionBag]
+        Full-resolution lesion bags.
+    max_neighborhoods : int | None
+        If set, each ``__getitem__`` call randomly subsamples at most this
+        many neighborhoods from the bag.  This keeps memory and collation
+        time tractable when bags contain 10K+ niches.
+    """
+
+    def __init__(
+        self,
+        bags: list[LesionBag],
+        *,
+        max_neighborhoods: int | None = None,
+    ) -> None:
         if not bags:
             raise ValueError("LesionBagDataset requires at least one bag.")
         self.bags = list(bags)
+        self.max_neighborhoods = max_neighborhoods
+        self._rng = np.random.default_rng(42)
 
     def __len__(self) -> int:
         return len(self.bags)
 
     def __getitem__(self, index: int) -> LesionBag:
-        return self.bags[int(index)]
+        bag = self.bags[int(index)]
+        if self.max_neighborhoods is None or bag.num_neighborhoods <= self.max_neighborhoods:
+            return bag
+        # Subsample neighborhoods for this training iteration.
+        chosen = self._rng.choice(bag.num_neighborhoods, size=self.max_neighborhoods, replace=False)
+        chosen.sort()
+        subsampled = [bag.neighborhoods[int(i)] for i in chosen]
+        return LesionBag(
+            lesion_id=bag.lesion_id,
+            sample_id=bag.sample_id,
+            donor_id=bag.donor_id,
+            patient_id=bag.patient_id,
+            stage=bag.stage,
+            edge_id=bag.edge_id,
+            edge_label=bag.edge_label,
+            label=bag.label,
+            label_weight=bag.label_weight,
+            label_source=bag.label_source,
+            neighborhoods=subsampled,
+            evolution_features=bag.evolution_features,
+            stage_index=bag.stage_index,
+            displacement_target=bag.displacement_target,
+            edge_targets=bag.edge_targets,
+            edge_target_mask=bag.edge_target_mask,
+            edge_target_labels=bag.edge_target_labels,
+            notes=bag.notes,
+        )
 
 
 @dataclass(slots=True)
@@ -138,22 +181,34 @@ def collate_lesion_bags(bags: list[LesionBag]) -> LesionBagBatch:
         evolution = None
 
     for bag_idx, bag in enumerate(bags):
-        for niche_idx, neighborhood in enumerate(bag.neighborhoods):
-            receiver_embeddings[bag_idx, niche_idx] = torch.as_tensor(neighborhood.receiver_embedding, dtype=torch.float32)
-            receiver_state_ids[bag_idx, niche_idx] = int(neighborhood.receiver_state_id)
-            ring_compositions[bag_idx, niche_idx] = torch.as_tensor(neighborhood.ring_compositions, dtype=torch.float32)
-            if hlca_features is not None and neighborhood.hlca_features is not None:
-                hlca_features[bag_idx, niche_idx] = torch.as_tensor(neighborhood.hlca_features, dtype=torch.float32)
-            if luca_features is not None and neighborhood.luca_features is not None:
-                luca_features[bag_idx, niche_idx] = torch.as_tensor(neighborhood.luca_features, dtype=torch.float32)
-            lr_pathway_summary[bag_idx, niche_idx] = torch.as_tensor(neighborhood.lr_pathway_summary, dtype=torch.float32)
-            neighborhood_stats[bag_idx, niche_idx] = torch.as_tensor(neighborhood.neighborhood_stats, dtype=torch.float32)
-            flat_features[bag_idx, niche_idx] = torch.as_tensor(neighborhood.flat_features, dtype=torch.float32)
-            center_coords[bag_idx, niche_idx] = torch.as_tensor(neighborhood.center_coord, dtype=torch.float32)
-            mask[bag_idx, niche_idx] = True
+        n = bag.num_neighborhoods
+        niches = bag.neighborhoods
+        # Vectorized: stack all neighborhoods into numpy arrays, convert once.
+        re_arr = np.stack([np.asarray(nh.receiver_embedding, dtype=np.float32) for nh in niches])
+        rs_arr = np.array([int(nh.receiver_state_id) for nh in niches], dtype=np.int64)
+        rc_arr = np.stack([np.asarray(nh.ring_compositions, dtype=np.float32) for nh in niches])
+        lr_arr = np.stack([np.asarray(nh.lr_pathway_summary, dtype=np.float32) for nh in niches])
+        ns_arr = np.stack([np.asarray(nh.neighborhood_stats, dtype=np.float32) for nh in niches])
+        ff_arr = np.stack([np.asarray(nh.flat_features, dtype=np.float32) for nh in niches])
+        cc_arr = np.stack([np.asarray(nh.center_coord, dtype=np.float32) for nh in niches])
+
+        receiver_embeddings[bag_idx, :n] = torch.from_numpy(re_arr)
+        receiver_state_ids[bag_idx, :n] = torch.from_numpy(rs_arr)
+        ring_compositions[bag_idx, :n] = torch.from_numpy(rc_arr)
+        lr_pathway_summary[bag_idx, :n] = torch.from_numpy(lr_arr)
+        neighborhood_stats[bag_idx, :n] = torch.from_numpy(ns_arr)
+        flat_features[bag_idx, :n] = torch.from_numpy(ff_arr)
+        center_coords[bag_idx, :n] = torch.from_numpy(cc_arr)
+        if hlca_features is not None:
+            h_arr = np.stack([np.asarray(nh.hlca_features if nh.hlca_features is not None else np.zeros(hlca_dim, dtype=np.float32), dtype=np.float32) for nh in niches])
+            hlca_features[bag_idx, :n] = torch.from_numpy(h_arr)
+        if luca_features is not None:
+            l_arr = np.stack([np.asarray(nh.luca_features if nh.luca_features is not None else np.zeros(luca_dim, dtype=np.float32), dtype=np.float32) for nh in niches])
+            luca_features[bag_idx, :n] = torch.from_numpy(l_arr)
+        mask[bag_idx, :n] = True
         if evolution is not None and bag.evolution_features is not None:
             evo = np.asarray(bag.evolution_features, dtype=np.float32)
-            evolution[bag_idx, : evo.shape[0]] = torch.as_tensor(evo, dtype=torch.float32)
+            evolution[bag_idx, : evo.shape[0]] = torch.from_numpy(evo)
 
     stage_indices = None
     if any(bag.stage_index is not None for bag in bags):

@@ -102,6 +102,59 @@ def displacement_regression_loss(prediction: Tensor, target: Tensor) -> Tensor:
     return F.smooth_l1_loss(prediction[valid_mask], target[valid_mask].to(dtype=prediction.dtype))
 
 
+def ordinal_stage_loss(
+    logits: Tensor,
+    labels: Tensor,
+    *,
+    num_classes: int = 5,
+) -> Tensor:
+    """Compute ordinal EMD loss on cumulative stage distributions.
+
+    Computes the Earth Mover's Distance between the predicted probability
+    distribution (softmax of logits) and the one-hot target by comparing
+    their cumulative distributions.  This penalises predictions that are
+    ordinally far from the true class more than those that are close.
+    """
+    if logits.ndim != 2:
+        raise ValueError(f"ordinal_stage_loss expects 2D logits, got shape={tuple(logits.shape)}")
+    if labels.ndim != 1:
+        raise ValueError(f"ordinal_stage_loss expects 1D labels, got shape={tuple(labels.shape)}")
+    if logits.shape[0] != labels.shape[0]:
+        raise ValueError("Stage logits and labels must share the same batch length.")
+    valid_mask = labels >= 0
+    if not torch.any(valid_mask):
+        return torch.zeros((), dtype=logits.dtype, device=logits.device)
+    valid_logits = logits[valid_mask]
+    valid_labels = labels[valid_mask].to(dtype=torch.long)
+    pred_cdf = torch.cumsum(F.softmax(valid_logits, dim=-1), dim=-1)
+    target_onehot = F.one_hot(valid_labels, num_classes=int(num_classes)).to(dtype=pred_cdf.dtype)
+    target_cdf = torch.cumsum(target_onehot, dim=-1)
+    return (pred_cdf - target_cdf).abs().mean()
+
+
+def transition_consistency_loss(
+    displacement_pred: Tensor,
+    niche_transition_scores: Tensor,
+    mask: Tensor,
+) -> Tensor:
+    """Soft monotonic regularizer: SmoothL1 between predicted displacement and mean niche transition score.
+
+    This encourages the lesion-level displacement prediction to be
+    consistent with the average per-niche transition signal. The niche
+    scores are detached so gradients only flow into the displacement head.
+    """
+    if displacement_pred.ndim != 1:
+        raise ValueError(f"displacement_pred must be 1D, got shape={tuple(displacement_pred.shape)}")
+    if niche_transition_scores.ndim != 2 or mask.ndim != 2:
+        raise ValueError("niche_transition_scores and mask must be 2D (B, N).")
+    valid_scores = niche_transition_scores.masked_fill(~mask, float("nan"))
+    mean_score = torch.nanmean(valid_scores, dim=-1)
+    finite = torch.isfinite(mean_score) & torch.isfinite(displacement_pred)
+    if not torch.any(finite):
+        return torch.zeros((), dtype=displacement_pred.dtype, device=displacement_pred.device)
+    return F.smooth_l1_loss(displacement_pred[finite], mean_score[finite].detach())
+
+
 def masked_edge_loss(
     logits: Tensor | None,
     targets: Tensor | None,

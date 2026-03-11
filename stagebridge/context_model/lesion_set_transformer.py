@@ -28,6 +28,26 @@ class EAMISTOutput:
     lesion_attention: Tensor | None = None
     local_attention: Tensor | None = None
     evolution_embedding: Tensor | None = None
+    niche_transition_scores: Tensor | None = None
+
+
+class NicheTransitionScoreHead(nn.Module):
+    """Per-niche scalar transition score from local niche embeddings."""
+
+    def __init__(self, model_dim: int, *, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(int(model_dim), int(model_dim)),
+            nn.GELU(),
+            nn.Dropout(float(dropout)),
+            nn.Linear(int(model_dim), 1),
+        )
+
+    def forward(self, niche_embeddings: Tensor, mask: Tensor) -> Tensor:
+        """Return per-niche transition scores (B, N). Masked niches get -inf."""
+        scores = self.net(niche_embeddings).squeeze(-1)  # (B, N)
+        scores = scores.masked_fill(~mask, float("-inf"))
+        return scores
 
 
 class LesionSetTransformerBackbone(nn.Module):
@@ -105,13 +125,17 @@ class EAMISTModel(nn.Module):
         num_stage_classes: int = 5,
         num_edge_heads: int = 0,
         reference_feature_mode: str = "hlca_luca",
+        use_distribution_summary: bool = False,
+        use_atlas_contrast_token: bool = False,
     ) -> None:
         super().__init__()
         self.hidden_dim = int(hidden_dim)
         self.local_encoder_type = str(local_encoder_type)
         self.use_prototypes = bool(use_prototypes)
         self.reference_feature_mode = str(reference_feature_mode)
-        if self.reference_feature_mode not in {"hlca_luca", "hlca_only", "luca_only"}:
+        self.use_distribution_summary = bool(use_distribution_summary)
+        self.use_atlas_contrast_token = bool(use_atlas_contrast_token)
+        if self.reference_feature_mode not in {"hlca_luca", "hlca_only", "luca_only", "no_atlas"}:
             raise ValueError(f"Unsupported reference_feature_mode '{reference_feature_mode}'.")
         if self.local_encoder_type == "transformer":
             self.local_encoder: nn.Module = LocalNicheTransformerEncoder(
@@ -127,6 +151,7 @@ class EAMISTModel(nn.Module):
                 num_receiver_states=num_receiver_states,
                 num_rings=num_rings,
                 dropout=dropout,
+                use_atlas_contrast_token=self.use_atlas_contrast_token,
             )
         elif self.local_encoder_type == "mlp":
             self.local_encoder = LocalNicheMLPEncoder(input_dim=flat_feature_dim, hidden_dim=self.hidden_dim, dropout=dropout)
@@ -149,7 +174,11 @@ class EAMISTModel(nn.Module):
             use_isab=True,
         )
         self.evolution_branch = None if evolution_dim is None or evolution_dim <= 0 else EvolutionBranch(evolution_dim, self.hidden_dim, mode=evolution_mode, dropout=dropout)
-        self.heads = LesionMultitaskHeads(self.hidden_dim, num_stage_classes=num_stage_classes, num_edge_heads=num_edge_heads, dropout=dropout)
+        # Distribution-aware pooling: per-niche transition score → summary stats
+        _num_dist_stats = 7  # mean, std, min, max, q25, median, q75
+        self.niche_transition_head = NicheTransitionScoreHead(self.hidden_dim, dropout=dropout) if self.use_distribution_summary else None
+        head_input_dim = self.hidden_dim + (_num_dist_stats if self.use_distribution_summary else 0)
+        self.heads = LesionMultitaskHeads(head_input_dim, num_stage_classes=num_stage_classes, num_edge_heads=num_edge_heads, dropout=dropout)
 
     def _resolve_reference_features(self, batch: LesionBagBatch) -> tuple[Tensor, Tensor]:
         hlca = batch.hlca_features
@@ -162,6 +191,11 @@ class EAMISTModel(nn.Module):
             luca = torch.zeros_like(luca)
         if self.reference_feature_mode == "luca_only" and hlca.shape[-1] > 0:
             hlca = torch.zeros_like(hlca)
+        if self.reference_feature_mode == "no_atlas":
+            if hlca.shape[-1] > 0:
+                hlca = torch.zeros_like(hlca)
+            if luca.shape[-1] > 0:
+                luca = torch.zeros_like(luca)
         return hlca, luca
 
     def encode_local(self, batch: LesionBagBatch, *, return_attention: bool = False) -> tuple[Tensor, Tensor | None]:
@@ -235,7 +269,38 @@ class EAMISTModel(nn.Module):
             if self.evolution_branch is None
             else self.evolution_branch(lesion_embedding, batch.evolution_features)
         )
-        task_output = self.heads(fused_lesion)
+        # Distribution-aware pooling: compute per-niche transition scores and summary stats
+        niche_transition_scores = None
+        head_input = fused_lesion
+        if self.niche_transition_head is not None:
+            niche_transition_scores = self.niche_transition_head(local_embeddings, batch.neighborhood_mask)
+            # Compute summary statistics over valid niches
+            valid_scores = niche_transition_scores.masked_fill(~batch.neighborhood_mask, float("nan"))
+            s_mean = torch.nanmean(valid_scores, dim=-1, keepdim=True)
+            # std, min, max, quantiles via sorting valid entries
+            # Replace nan with large value for min/sort, small for max
+            big = torch.finfo(valid_scores.dtype).max
+            scores_for_min = valid_scores.masked_fill(~batch.neighborhood_mask, big)
+            scores_for_max = valid_scores.masked_fill(~batch.neighborhood_mask, -big)
+            s_min = scores_for_min.min(dim=-1, keepdim=True).values
+            s_max = scores_for_max.max(dim=-1, keepdim=True).values
+            # std: manual to handle masking
+            counts = batch.neighborhood_mask.sum(dim=-1, keepdim=True).clamp_min(1).to(valid_scores.dtype)
+            diffs = (valid_scores - s_mean).masked_fill(~batch.neighborhood_mask, 0.0)
+            s_std = (diffs.pow(2).sum(dim=-1, keepdim=True) / counts.clamp_min(2)).sqrt()
+            # quantiles via sorted valid scores
+            sorted_scores, _ = scores_for_min.sort(dim=-1)
+            N = counts.squeeze(-1).long()  # (B,)
+            batch_idx = torch.arange(sorted_scores.shape[0], device=sorted_scores.device)
+            q25_idx = ((N.float() - 1) * 0.25).clamp_min(0).long()
+            q50_idx = ((N.float() - 1) * 0.50).clamp_min(0).long()
+            q75_idx = ((N.float() - 1) * 0.75).clamp_min(0).long()
+            s_q25 = sorted_scores[batch_idx, q25_idx].unsqueeze(-1)
+            s_q50 = sorted_scores[batch_idx, q50_idx].unsqueeze(-1)
+            s_q75 = sorted_scores[batch_idx, q75_idx].unsqueeze(-1)
+            dist_stats = torch.cat([s_mean, s_std, s_min, s_max, s_q25, s_q50, s_q75], dim=-1)
+            head_input = torch.cat([fused_lesion, dist_stats], dim=-1)
+        task_output = self.heads(head_input)
         return EAMISTOutput(
             local_embeddings=local_embeddings,
             lesion_embedding=fused_lesion,
@@ -246,6 +311,7 @@ class EAMISTModel(nn.Module):
             lesion_attention=lesion_attention,
             local_attention=local_attention,
             evolution_embedding=evolution_embedding,
+            niche_transition_scores=niche_transition_scores,
         )
 
 

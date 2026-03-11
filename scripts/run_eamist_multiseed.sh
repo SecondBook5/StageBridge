@@ -9,6 +9,8 @@
 
 set -euo pipefail
 
+export STAGEBRIDGE_DATA_ROOT="${STAGEBRIDGE_DATA_ROOT:-/mnt/e/StageBridge_data}"
+
 RUN_NAME="${1:-eamist_multiseed_$(date +%Y%m%d_%H%M%S)}"
 CHECKPOINT="${2:-outputs/scratch/eamist_v1_20260309/eamist_pretrain/best_local_encoder.pt}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
