@@ -30,7 +30,7 @@ from stagebridge.models.dual_reference import create_dual_reference_mapper
 from stagebridge.context_model.local_niche_encoder import LocalNicheTransformerEncoder
 from stagebridge.context_model.set_encoder import TypedSetContextEncoder
 from stagebridge.transition_model.stochastic_dynamics import EdgeWiseStochasticDynamics
-from stagebridge.transition_model.wes_regularizer import GenomicNicheEncoder
+from stagebridge.transition_model.wes_regularizer import GenomicNicheEncoder, GenomicNicheConfig
 
 
 class StageBridgeV1Full(nn.Module):
@@ -150,12 +150,12 @@ class StageBridgeV1Full(nn.Module):
 
         # Layer F: WES Compatibility
         if use_wes:
-            self.wes_encoder = GenomicNicheEncoder(
+            wes_config = GenomicNicheConfig(
                 wes_dim=wes_dim,
-                hidden_dim=wes_hidden_dim,
-                output_dim=latent_dim,
+                niche_dim=latent_dim,
                 dropout=dropout,
             )
+            self.wes_encoder = GenomicNicheEncoder(config=wes_config)
         else:
             self.wes_encoder = None
 
