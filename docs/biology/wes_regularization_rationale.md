@@ -8,33 +8,58 @@ Cancer progression is driven by the accumulation of somatic mutations, copy-numb
 - Influence the rate and direction of phenotypic transitions
 - Create patient-specific evolutionary contexts that modulate disease dynamics
 
-Two patients at the same histological stage but with different mutational profiles (e.g., KRAS-mutant vs EGFR-mutant) may undergo different transition dynamics. Ignoring genomic state treats all patients at a given stage as interchangeable, which they are not.
+Two patients at the same histological stage but with different mutational profiles (e.g., KRAS-mutant vs EGFR-mutant) may undergo different transition dynamics. Ignoring genomic state treats all patients as interchangeable, which they are not.
 
-## Why Regularization Rather Than Conditioning
+## V1 Approach: Regularization
 
-In v1, WES features enter as a regularizer on transport, not as direct input to the drift network. This is a conservative design choice:
+In V1, WES features enter as a **regularizer on transitions**, not as direct input to the velocity network:
 
-1. **Limited sample size** — The number of donors is small relative to the dimensionality of genomic features. Direct conditioning risks learning donor-specific associations that do not generalize.
+### Why Regularization Rather Than Conditioning?
 
-2. **Separation of concerns** — The primary question is about niche gating. WES regularization tests whether evolutionary state constrains transport without confounding the niche-gating analysis. If WES features directly condition the drift network alongside niche context, disentangling their contributions is harder.
+1. **Limited sample size** — The number of donors is small relative to genomic feature dimensionality. Direct conditioning risks overfitting to donor-specific patterns.
 
-3. **Testable hypothesis** — Regularization provides a clean ablation: compare transport quality with and without WES constraints. If WES regularization improves held-out performance, evolutionary state is informatively constraining the model.
+2. **Separation of concerns** — The primary V1 question is about niche gating. WES regularization tests whether evolutionary state constrains transitions without confounding the niche-gating analysis.
 
-## How WES Regularization Works (Conceptually)
+3. **Testable hypothesis** — Regularization provides a clean ablation: compare transition quality with and without WES constraints.
+
+### How It Works
 
 - Per-donor features: mutation burden, driver mutation status (KRAS, EGFR, STK11, TP53), copy-number summary
-- Auxiliary loss: penalizes transport paths where donors with different evolutionary states produce identical transition dynamics
-- Effect: the model is encouraged to learn evolutionary-state-aware transitions without being given direct genomic input
-- Example: a high-mutation-burden donor's transitions should differ from a low-mutation-burden donor's, and the regularizer enforces this
+- Auxiliary loss: penalizes transitions where donors with different evolutionary states produce identical dynamics
+- Effect: model is encouraged to learn evolutionary-state-aware transitions
+- Example: high-mutation-burden transitions should differ from low-mutation-burden transitions
+
+## WES Features (V1)
+
+| Feature | Description |
+|---------|-------------|
+| `total_variants` | Total number of somatic variants |
+| `missense_count` | Count of missense mutations |
+| `frameshift_count` | Count of frameshift mutations |
+| `stop_gained_count` | Count of stop-gain mutations |
+| `tmb` | Tumor mutation burden (variants/Mb) |
+| `transition_transversion_ratio` | Ti/Tv ratio |
+| `driver_mutations` | Binary flags for key drivers (KRAS, EGFR, etc.) |
+| `cna_burden` | Copy number alteration burden (if available) |
 
 ## What This Enables
 
 - Identification of transitions where evolutionary state matters most
 - Comparison of niche-gated dynamics across evolutionary subgroups
-- A principled path toward direct WES conditioning in v2, informed by v1 regularization results
+- Foundation for V2 direct WES conditioning, informed by V1 results
 
-## What This Does Not Claim
+## V2 Extension: Direct Conditioning
 
-- WES regularization does not guarantee better predictions
-- Negative results (regularization does not help) are informative
-- The auxiliary loss formulation is a modeling choice that may need iteration
+If V1 regularization shows evolutionary state matters:
+- V2 can add WES features directly to the velocity network
+- FiLM or gated conditioning (similar to evolution branch in EA-MIST)
+- Enables evolutionary-trajectory-specific predictions
+
+## Ablation Design
+
+| Condition | WES Regularization | Tests |
+|-----------|-------------------|-------|
+| Baseline | Off | Pure niche-conditioned transitions |
+| Regularized | On | Evolutionary constraint effect |
+
+Compare: transition quality, niche regime consistency, per-donor trajectory variance

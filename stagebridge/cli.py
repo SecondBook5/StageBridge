@@ -39,6 +39,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_eval = sub.add_parser("evaluate", help="Run evaluation workflow")
     p_eval.add_argument("-o", "--override", action="append", default=[])
 
+    p_data = sub.add_parser("data-prep", help="Run raw data preparation (Step 0)")
+    p_data.add_argument("--data-root", type=str, default=None, help="Override STAGEBRIDGE_DATA_ROOT")
+    p_data.add_argument("--force", action="store_true", help="Force re-processing")
+    p_data.add_argument("--skip-qc", action="store_true", help="Skip QC filtering")
+    p_data.add_argument("--skip-normalization", action="store_true", help="Skip normalization")
+
     return parser
 
 
@@ -71,6 +77,17 @@ def main(argv: list[str] | None = None) -> int:
         cfg = compose_config(entrypoint="default", overrides=args.override)
         _print(run_step("evaluation", cfg))
         return 0
+
+    if args.command == "data-prep":
+        from stagebridge.pipelines.run_data_prep import run_data_prep
+        result = run_data_prep(
+            data_root=args.data_root,
+            force=args.force,
+            skip_qc=args.skip_qc,
+            skip_normalization=args.skip_normalization,
+        )
+        _print(result)
+        return 0 if result.get("ok") else 1
 
     parser.error(f"Unknown command: {args.command}")
     return 2

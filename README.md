@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">StageBridge</h1>
   <p align="center">
-    <strong>Transformer-based modeling of lung adenocarcinoma stage progression<br>from spatial transcriptomics, single-cell RNA-seq, and whole-exome sequencing</strong>
+    <strong>Stochastic transition modeling for cell-state progression<br>in spatial and single-cell omics</strong>
   </p>
   <p align="center">
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
@@ -15,90 +15,104 @@
 
 ## Overview
 
-StageBridge models the full progression cascade of lung adenocarcinoma (LUAD) from pre-malignant lesions to invasive carcinoma:
+StageBridge is a **method for learning cell-state transitions under spatial and multimodal constraints**. The framework models progression at the **cell and niche level**, not as patient classification.
+
+The primary application is lung adenocarcinoma (LUAD) progression:
 
 ```
 Normal  ──>  AAH  ──>  AIS  ──>  MIA  ──>  LUAD
-                                              ├──>  Brain Metastasis
-                                              └──>  Chest Wall Metastasis
 ```
 
-The framework integrates three data modalities -- 10x Visium spatial transcriptomics, snRNA-seq, and whole-exome sequencing -- into a unified transformer architecture that learns **lesion-level stage representations** from local tissue microenvironments (niches).
+The framework integrates three data modalities—10x Visium spatial transcriptomics, snRNA-seq, and whole-exome sequencing—to learn how cells transition between states, conditioned on their local microenvironment (niche) and constrained by evolutionary compatibility.
 
-### Key contributions
+### Core principles
 
-- **EA-MIST** (Evolution-Aware Multiple-Instance Set Transformer) -- the primary benchmarked lesion-level model that encodes spatial niches as structured token sequences and aggregates them with a permutation-invariant Set Transformer
-- **Benchmark model family** centered on EA-MIST variants (`eamist`, `eamist_no_prototypes`, `lesion_set_transformer`, `deep_sets`, `pooled`) under donor-held-out evaluation
-- **Dual reference alignment** against the Human Lung Cell Atlas (HLCA) and LuCA tumor atlas for healthy-to-malignant context
-- **Label repair system** with multi-evidence refinement (WES, CNA, clonal architecture, pathology) for rigorous stage annotation
-- **Experimental research extensions** including Graph-of-Sets Transformer (GoST) and Schr&ouml;dinger bridge / OT transition modeling (not part of the default EA-MIST benchmark path)
+- **Cell-level learning**: The scientific object is cell-state transition, not patient classification
+- **Niche conditioning**: Transitions depend on local neighborhood context
+- **Dual-reference geometry**: Cells are embedded relative to healthy (HLCA) and tumor (LuCA) atlases
+- **Evolutionary constraints**: WES-derived features enforce biologically plausible transitions
+- **Spatial backend agnostic**: Benchmarked across Tangram, TACCO, and DestVI
 
 ---
 
 ## Architecture
 
-```
-                         ┌─────────────────────────────────────────────────────────┐
-                         │                    EA-MIST Pipeline                      │
-                         │                                                         │
-  Spatial Niche ────>    │   9-Token Local        Prototype        Set Transformer  │
-  (receiver +            │   Niche Encoder   ──>  Bottleneck  ──>  (ISAB→SAB→PMA)  │
-   4 rings +             │   (per niche)          (optional)       (per lesion)     │
-   HLCA/LuCA +           │                                              │           │
-   pathway + stats)      │                                              v           │
-                         │                                    Evolution Branch      │
-  WES Features ────────> │                                    (gated fusion)        │
-                         │                                              │           │
-                         │                                     ┌────────┴────────┐  │
-                         │                                     │  Multitask Heads │  │
-                         │                                     │  - Stage (5-way) │  │
-                         │                                     │  - Displacement  │  │
-                         │                                     │  - Edges (aux)   │  │
-                         │                                     └─────────────────┘  │
-                         └─────────────────────────────────────────────────────────┘
+StageBridge uses a layered architecture:
 
-  ┌──────────────────────────────────────────────────────────────────────────────────┐
-  │  Experimental Research Extensions (not default EA-MIST benchmark path)         │
-  │                                                                                 │
-  │  Graph-of-Sets Transformer (GoST)          OT Transition Model                  │
-  │  - Stage-adjacent edges                    - Sinkhorn OT coupling               │
-  │  - Same-patient cross-stage edges          - FiLM-conditioned drift/diffusion    │
-  │  - Same-stage cross-patient edges          - Euler trajectory integration        │
-  │  - Scatter-softmax sparse attention        - Schrödinger bridge objective        │
-  └──────────────────────────────────────────────────────────────────────────────────┘
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         StageBridge V1 Pipeline                             │
+│                                                                             │
+│  ┌─────────────┐   ┌──────────────────┐   ┌────────────────────┐           │
+│  │   Layer A   │   │     Layer B      │   │      Layer C       │           │
+│  │  Dual-Ref   │──>│  Local Niche     │──>│  Set Transformer   │           │
+│  │   Latent    │   │  Encoder (9-tok) │   │  (ISAB/SAB/PMA)    │           │
+│  └─────────────┘   └──────────────────┘   └────────────────────┘           │
+│        │                                            │                       │
+│        v                                            v                       │
+│  ┌─────────────┐                          ┌────────────────────┐           │
+│  │ HLCA + LuCA │                          │     Layer D        │           │
+│  │  Reference  │                          │  Flow Matching     │           │
+│  │  Alignment  │                          │  (OT-CFM)          │           │
+│  └─────────────┘                          └────────────────────┘           │
+│                                                     │                       │
+│                    WES Features ───────────────────>│                       │
+│                    (Evolutionary Constraint)        v                       │
+│                                           ┌────────────────────┐           │
+│                                           │  Cell Transition   │           │
+│                                           │  Trajectories      │           │
+│                                           └────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Local niche encoding
+### Local niche encoding (Layer B)
 
 Each spatial niche is encoded as a **9-token sequence**:
 
 | Token | Source | Description |
 |-------|--------|-------------|
 | Receiver | Cell identity | Target cell expression + learned state embedding |
-| Ring 1--4 | Spatial neighborhood | Cell-type composition at increasing radii |
+| Ring 1–4 | Spatial neighborhood | Cell-type composition at increasing radii |
 | HLCA | Reference atlas | Similarity to healthy lung cell types |
 | LuCA | Tumor atlas | Similarity to tumor-aware cell states |
 | Pathway | Gene programs | Ligand-receptor and pathway activity summary |
 | Stats | Neighborhood | Local density, entropy, and composition statistics |
 
-### Model variants
+### Stochastic transition model (Layer D)
 
-| Model | Description | Use case |
-|-------|-------------|----------|
-| `eamist` | Full EA-MIST with prototypes + evolution branch | Primary benchmark |
-| `eamist_no_prototypes` | EA-MIST without prototype bottleneck | Ablation |
-| `lesion_set_transformer` | Set Transformer only (no local encoder) | Ablation |
-| `deep_sets` | DeepSets baseline | Baseline |
-| `pooled` | Mean-pooling baseline | Baseline |
+V1 uses **Flow Matching** (OT-CFM) with Sinkhorn coupling:
+- Learns continuous trajectories between cell states
+- Optimal transport provides principled coupling
+- Niche context conditions the flow field
 
-### Experimental extensions
+---
 
-The repository also includes exploratory modules that are valuable for future work but are not part of the canonical V1 benchmark narrative:
+## Project scope
 
-- **Graph-of-Sets Transformer (GoST)** -- inter-lesion / inter-patient graph-context extension
-- **Schr&ouml;dinger bridge / OT transition model** -- probabilistic trajectory modeling extension
+### V1-Minimal (Current)
 
-These modules remain in-repo with configs and tests, but the default quick-start and benchmark workflow are centered on EA-MIST.
+The first publication scope:
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| Raw Data Pipeline | Complete | `stagebridge data-prep` orchestration |
+| Spatial Backend Benchmark | In progress | Tangram/DestVI/TACCO comparison |
+| Dual-Reference Latent | In progress | HLCA + LuCA alignment |
+| Local Niche Encoder | Complete | 9-token transformer (from EA-MIST) |
+| Set Transformer | Complete | ISAB/SAB/PMA hierarchy (from EA-MIST) |
+| Flow Matching | In progress | OT-CFM with Sinkhorn coupling |
+| Evolutionary Compatibility | Complete | WES-derived constraints |
+| Donor-Held-Out Evaluation | Planned | With uncertainty quantification |
+
+### V2/V3 Roadmap (Deferred)
+
+- Non-Euclidean geometry (hyperbolic/spherical latents)
+- Neural SDE backend
+- Phase portrait / attractor decoder
+- Cohort transport layer
+- Destination-conditioned transitions (brain metastasis)
+
+See [AGENTS.md](AGENTS.md) for detailed implementation plans.
 
 ---
 
@@ -111,16 +125,15 @@ StageBridge integrates multi-modal data from public GEO repositories:
 | Early LUAD snRNA-seq | Single-cell transcriptomics | [GSE308103](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE308103) | Cell-level expression |
 | 10x Visium | Spatial transcriptomics | [GSE307534](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE307534) | Tissue architecture |
 | Whole-exome sequencing | WES | [GSE307529](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE307529) | Evolutionary features |
-| Brain metastasis snRNA-seq | Single-cell (extension) | [GSE223499](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE223499) | Metastatic progression |
 
 **Reference atlases:**
-- [Human Lung Cell Atlas (HLCA)](https://doi.org/10.1038/s41591-023-02327-2) -- healthy reference anchor
-- [LuCA extended atlas](https://www.cell.com/cancer-cell/fulltext/S1535-6108(22)00499-8) -- tumor-aware cell state reference
+- [Human Lung Cell Atlas (HLCA)](https://doi.org/10.1038/s41591-023-02327-2) — healthy reference anchor
+- [LuCA extended atlas](https://www.cell.com/cancer-cell/fulltext/S1535-6108(22)00499-8) — tumor-aware cell state reference
 
-**Spatial mapping providers:**
-- [Tangram](https://www.nature.com/articles/s41592-021-01264-7) -- deep learning-based spatial mapping of single-cell transcriptomes
-- [TACCO](https://www.nature.com/articles/s41587-023-01657-3) -- transfer of annotations to cells and their combinations in spatial omics
-- [DestVI](https://www.nature.com/articles/s41587-022-01272-8) -- multi-resolution deconvolution of spatial transcriptomics data
+**Spatial mapping backends:**
+- [Tangram](https://www.nature.com/articles/s41592-021-01264-7) — deep learning-based spatial mapping
+- [TACCO](https://www.nature.com/articles/s41587-023-01657-3) — optimal transport-based annotation transfer
+- [DestVI](https://www.nature.com/articles/s41587-022-01272-8) — variational inference deconvolution
 
 ---
 
@@ -142,72 +155,51 @@ pip install -e ".[all]"
 export STAGEBRIDGE_DATA_ROOT=/path/to/your/data
 ```
 
-**Requirements:** Python 3.11+, PyTorch 2.2+, CUDA 12.x
+**Requirements:** Python 3.11+, PyTorch 2.2+, CUDA 12.x (recommended)
 
 ---
 
 ## Quick start
 
-The default workflow below is the canonical EA-MIST benchmark path.
+### Step 0: Data preparation
+
+Download raw data from GEO and run the data preparation pipeline:
+
+```bash
+# Set data root
+export STAGEBRIDGE_DATA_ROOT=/path/to/your/data
+
+# Run data preparation (extracts, merges, QC filters)
+stagebridge data-prep
+```
+
+This creates:
+- `processed/luad_evo/snrna_merged.h5ad` — merged snRNA-seq (798k cells × 18k genes)
+- `processed/luad_evo/spatial_merged.h5ad` — merged Visium spatial
+- `processed/luad_evo/wes_features.parquet` — WES-derived features
+- `processed/luad_evo/data_prep_audit.json` — processing audit report
 
 ### Python API
 
 ```python
-from stagebridge.notebook_api import compose_config
-from stagebridge.pipelines import (
-    run_train_lesion,
-    run_evaluate_lesion,
-    run_eamist_reporting,
-)
+from stagebridge.notebook_api import compose_config, run_data_prep
 
-# Configure and train
-cfg = compose_config(overrides=["context_model=eamist"])
-results = run_train_lesion(cfg)
+# Data preparation
+result = run_data_prep()
 
-# Evaluate and generate publication figures
-eval_results = run_evaluate_lesion(cfg)
-report = run_eamist_reporting(cfg)
+# Configure training (coming soon)
+cfg = compose_config(overrides=["model=flow_matching"])
 ```
 
 ### Command line
 
 ```bash
-# Train EA-MIST
-python -m stagebridge.pipelines step train_lesion -o context_model=eamist
+# Data preparation
+stagebridge data-prep --data-root /path/to/data
 
-# Evaluate
-python -m stagebridge.pipelines step evaluate_lesion -o context_model=eamist
-
-# Generate figures and tables
-python -m stagebridge.pipelines step eamist_report -o context_model=eamist
+# With options
+stagebridge data-prep --skip-qc --skip-normalization
 ```
-
-### Full pipeline (build bags, train, evaluate, report)
-
-```bash
-bash scripts/run_eamist_full.sh
-```
-
----
-
-## Evaluation
-
-EA-MIST is evaluated under **donor-held-out cross-validation** on lesion-level prediction:
-
-| Metric | Task |
-|--------|------|
-| Macro-F1 | 5-way stage classification |
-| Balanced accuracy | Stage classification |
-| Confusion matrix | Per-stage support analysis |
-| MAE | Displacement regression |
-| Spearman correlation | Displacement ordering |
-| Monotonicity | Stage-wise displacement trend |
-
-Additional evaluation modules:
-- Sinkhorn distance, MMD-RBF, classifier AUC (transition-model extension)
-- Context sensitivity analysis (real vs. shuffled context)
-- Gene-context correlations and niche shift profiling
-- Calibration error analysis
 
 ---
 
@@ -215,36 +207,27 @@ Additional evaluation modules:
 
 ```
 stagebridge/
-├── context_model/          # EA-MIST core + experimental context encoders (e.g., GoST)
-│   ├── lesion_set_transformer.py    # EAMISTModel
-│   ├── local_niche_encoder.py       # 9-token niche transformer
-│   ├── set_encoder.py               # ISAB, SAB, PMA
-│   ├── graph_of_sets.py             # Graph-of-Sets Transformer
-│   └── prototype_bottleneck.py      # Prototype compression
-├── transition_model/       # Experimental OT / Schrödinger bridge trajectory modules
-│   ├── stochastic_dynamics.py       # StageBridgeModel
-│   ├── schrodinger_bridge.py        # Sinkhorn OT coupling
-│   └── drift_network.py            # FiLM-conditioned drift
+├── context_model/          # Niche encoding and set transformers
+│   ├── local_niche_encoder.py       # 9-token niche transformer (Layer B)
+│   ├── set_encoder.py               # ISAB, SAB, PMA (Layer C)
+│   ├── lesion_set_transformer.py    # Hierarchical aggregation
+│   └── prototype_bottleneck.py      # Optional compression
+├── transition_model/       # Stochastic dynamics (Layer D)
+│   ├── flow_matching.py             # OT-CFM implementation
+│   ├── stochastic_dynamics.py       # Neural SDE (V2)
+│   └── schrodinger_bridge.py        # Sinkhorn coupling
 ├── data/                   # Data loading and preprocessing
-│   ├── luad_evo/                    # LUAD progression datasets
-│   └── brainmets/                   # Brain metastasis extension
-├── evaluation/             # Metrics, calibration, ablations
+│   └── luad_evo/                    # LUAD progression datasets
 ├── pipelines/              # End-to-end workflow orchestration
+│   └── run_data_prep.py             # Step 0 data pipeline
 ├── reference/              # HLCA/LuCA atlas alignment
-├── spatial_mapping/        # Tangram, TACCO, DestVI providers
-├── labels/                 # Multi-evidence label refinement
-├── viz/                    # Publication-quality figures
-├── results/                # Run tracking and milestone management
-└── utils/                  # Configuration, I/O, seeds, types
+├── spatial_mapping/        # Tangram, TACCO, DestVI backends
+├── evaluation/             # Metrics and ablations
+└── viz/                    # Publication figures
 
-configs/                    # Hydra YAML configuration system
-├── context_model/          # Model architecture configs
-├── train/                  # Training profiles (full, medium, smoke)
-├── evaluation/             # Evaluation and ablation configs
-└── transition_model/       # Flow matching settings
-
-tests/                      # 33 test files, ~4,400 lines
-docs/                       # Architecture and biology documentation
+configs/                    # Hydra YAML configuration
+tests/                      # Test suite
+docs/                       # Documentation
 ```
 
 ---
@@ -255,34 +238,12 @@ docs/                       # Architecture and biology documentation
 # Full test suite
 pytest tests/
 
-# EA-MIST model tests
-pytest tests/test_eamist_model.py tests/test_eamist_pipelines.py
+# Data pipeline tests
+pytest tests/test_data_prep.py
 
-# Context model ablations
-pytest tests/test_set_only_context.py tests/test_deep_sets_context.py
-
-# Experimental Graph-of-Sets extension
-pytest tests/test_graph_of_sets_context.py
-```
-
----
-
-## Configuration
-
-StageBridge uses [Hydra](https://hydra.cc/) for composable YAML configuration:
-
-```bash
-# Train with specific model variant
-python -m stagebridge.pipelines step train_lesion \
-    -o context_model=eamist train=full_v1
-
-# Run evaluation with ablation config
-python -m stagebridge.pipelines step evaluate_lesion \
-    -o context_model=eamist evaluation=ablation
-
-# Smoke test (fast iteration)
-python -m stagebridge.pipelines step train_lesion \
-    -o context_model=eamist train=smoke
+# Model tests
+pytest tests/test_eamist_model.py
+pytest tests/test_flow_matching.py
 ```
 
 ---
@@ -294,7 +255,7 @@ If you use StageBridge in your research, please cite:
 ```bibtex
 @software{book2026stagebridge,
   author = {Book, AJ},
-  title = {StageBridge: Transformer-based modeling of lung adenocarcinoma stage progression},
+  title = {StageBridge: Stochastic transition modeling for cell-state progression},
   year = {2026},
   url = {https://github.com/SecondBook5/StageBridge}
 }
