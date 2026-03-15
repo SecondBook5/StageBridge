@@ -734,3 +734,79 @@ class PooledContextEncoder(nn.Module):
         pooled = torch.cat([token_mean, token_std, token_max], dim=0)
         context = self.summary_mlp(pooled.unsqueeze(0))[0]
         return SetContextSummary(pooled_context=context, token_embeddings=tokens)
+
+
+class SetTransformer(nn.Module):
+    """
+    Standard Set Transformer for hierarchical set aggregation.
+
+    Combines ISAB (induced set attention blocks) with PMA (pooling by multihead attention)
+    for efficient permutation-invariant processing of variable-size sets.
+
+    Args:
+        dim_input: Input feature dimension
+        dim_hidden: Hidden dimension (used throughout)
+        dim_output: Output dimension
+        num_heads: Number of attention heads
+        num_inds: Number of inducing points for ISAB
+        ln: Use layer normalization
+    """
+
+    def __init__(
+        self,
+        dim_input: int,
+        dim_hidden: int = 128,
+        dim_output: int = 128,
+        num_heads: int = 4,
+        num_inds: int = 16,
+        ln: bool = True,
+    ):
+        super().__init__()
+
+        # Input projection
+        self.input_proj = nn.Linear(dim_input, dim_hidden)
+
+        # ISAB layers for hierarchical processing
+        self.isab1 = ISAB(dim_hidden, num_heads, num_inds)
+        self.isab2 = ISAB(dim_hidden, num_heads, num_inds)
+
+        # PMA for pooling to single vector
+        self.pma = PMA(dim_hidden, num_heads, num_seed_vectors=1)
+
+        # Output projection
+        self.output_proj = nn.Linear(dim_hidden, dim_output)
+
+        # Optional layer norm
+        self.ln = nn.LayerNorm(dim_output) if ln else nn.Identity()
+
+    def forward(
+        self,
+        x: Tensor,
+        mask: Tensor | None = None,
+    ) -> Tensor:
+        """
+        Forward pass through Set Transformer.
+
+        Args:
+            x: Input tensor (batch_size, num_elements, dim_input)
+            mask: Optional mask (batch_size, num_elements)
+
+        Returns:
+            Pooled output (batch_size, dim_output)
+        """
+        # Project input
+        x = self.input_proj(x)
+
+        # ISAB layers
+        x = self.isab1(x, mask=mask)
+        x = self.isab2(x, mask=mask)
+
+        # PMA pooling
+        x = self.pma(x, mask=mask)  # (batch_size, 1, dim_hidden)
+        x = x.squeeze(1)  # (batch_size, dim_hidden)
+
+        # Output projection
+        x = self.output_proj(x)
+        x = self.ln(x)
+
+        return x
