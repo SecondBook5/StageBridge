@@ -1,0 +1,74 @@
+{
+  "folds": [
+    {
+      "fold": 0,
+      "train_donors": [
+        "donor_02",
+        "donor_03",
+        "donor_04"
+      ],
+      "val_donors": [
+        "donor_01"
+      ],
+      "test_donors": [
+        "donor_00"
+      ]
+    },
+    {
+      "fold": 1,
+      "train_donors": [
+        "donor_02",
+        "donor_03",
+        "donor_04"
+      ],
+      "val_donors": [
+        "donor_00"
+      ],
+      "test_donors": [
+        "donor_01"
+      ]
+    },
+    {
+      "fold": 2,
+      "train_donors": [
+        "donor_01",
+        "donor_03",
+        "donor_04"
+      ],
+      "val_donors": [
+        "donor_00"
+      ],
+      "test_donors": [
+        "donor_02"
+      ]
+    },
+    {
+      "fold": 3,
+      "train_donors": [
+        "donor_01",
+        "donor_02",
+        "donor_04"
+      ],
+      "val_donors": [
+        "donor_00"
+      ],
+      "test_donors": [
+        "donor_03"
+      ]
+    },
+    {
+      "fold": 4,
+      "train_donors": [
+        "donor_01",
+        "donor_02",
+        "donor_03"
+      ],
+      "val_donors": [
+        "donor_00"
+      ],
+      "test_donors": [
+        "donor_04"
+      ]
+    }
+  ]
+}

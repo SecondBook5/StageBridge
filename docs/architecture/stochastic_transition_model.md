@@ -1,91 +1,132 @@
-# Architecture: Stochastic Transition Model
+# Architecture: Stochastic Transition Model (Layer D)
 
-**Scientific layer:** 5 — Edge-wise stochastic transition modeling
+**Scientific layer:** D — Cell-state transition dynamics
 **Package location:** `stagebridge/transition_model/`
 
 ## Role in the System
 
-The transition model is the core scientific component. It learns how cells move from one disease stage to the next in HLCA latent space, conditioned on tissue microenvironment context and regularized by evolutionary state.
+The transition model is the core scientific component. It learns how cells move between disease stages in dual-reference latent space, conditioned on local niche context and constrained by evolutionary compatibility.
 
-## Architecture
+**V1 uses Flow Matching (OT-CFM). Neural SDE is deferred to V2.**
 
-### Edge-Wise Design
+## V1: Flow Matching (OT-CFM)
 
-Each disease edge (Normal→AAH, AAH→AIS, AIS→MIA, MIA→LUAD) has its own transition dynamics. The drift network takes a stage pair embedding so it can specialize per edge while sharing parameters.
+### Overview
 
-### Drift-Diffusion SDE
+Flow Matching learns a deterministic velocity field that transports cells from source to target distributions. With optimal transport coupling, it provides:
+- Efficient training (simulation-free)
+- Principled cell-to-cell pairing via Sinkhorn OT
+- Continuous trajectories for interpretation
 
-The dynamics are:
+### Mathematical Formulation
+
+The flow is defined by an ODE:
 ```
-dx_t = f(x_t, t, c, e) dt + sigma(t) dW_t
+dx_t/dt = v_θ(x_t, t, c)
 ```
 
 where:
-- `f` is the learned drift (velocity field)
-- `c` is the niche context vector from the context model
-- `e` is the stage pair embedding
-- `sigma(t)` is the diffusion coefficient (fixed schedule or learned)
-- `dW_t` is Brownian noise
+- `v_θ` is the learned velocity field (neural network)
+- `t ∈ [0, 1]` is the flow time
+- `c` is the niche context vector from Layer C
+- `x_0 ~ p_source`, `x_1 ~ p_target`
 
-### Drift Network
+### OT Coupling (Sinkhorn)
 
-MLP with FiLM conditioning:
-- Sinusoidal time embedding modulates hidden layers
-- Context vector c enters via concatenation or FiLM
-- Stage pair embedding selects edge-specific behavior
-- Output: predicted velocity at (x_t, t)
+Optimal transport provides principled pairing between source and target cells:
 
-### Gaussian Schrodinger Bridge Initialization
+1. Compute cost matrix `C_ij = ||x_i^source - x_j^target||^2`
+2. Sinkhorn iterations find entropic OT coupling `π*`
+3. Sample pairs `(x_0, x_1) ~ π*` for training
+4. Entropy regularization `ε` prevents degenerate matchings
 
-Before learning, compute the closed-form Gaussian SB between source and target stage distributions:
-- Fit multivariate Gaussians to source and target cells in HLCA latent space
-- Compute the SB mean and covariance paths
-- Use as initialization for the drift network (or as a baseline to beat)
+Coupling is precomputed per disease edge and cached.
 
-### OT Coupling
+### Training Objective
 
-Entropic optimal transport provides initial pairings:
-- Sinkhorn iterations compute soft pairings between source and target cells
-- Pairings define (x_0, x_1) training pairs for the flow
-- Entropy regularization avoids degenerate matchings
-- Precomputed per edge and cached
+Conditional Flow Matching (CFM) loss:
 
-### Training (Schrodinger Bridge Objective)
-
-1. Sample an OT pair (x_0, x_1)
-2. Sample time t ~ Uniform(0, 1)
-3. Compute bridge interpolant x_t between x_0 and x_1
-4. Compute target velocity from the bridge
-5. Predict velocity with drift network f(x_t, t, c, e)
-6. Loss = ||predicted - target||^2
-
-### WES Regularization
-
-Auxiliary loss term:
-- Compute per-donor transition statistics (e.g., average drift magnitude, trajectory spread)
-- Penalize when donors with different WES profiles produce identical statistics
-- Effect: the model produces evolutionary-state-aware dynamics
-
-### Integration (Inference)
-
-Euler-Maruyama integration from t=0 to t=1:
 ```
-x_{t+dt} = x_t + f(x_t, t, c, e) * dt + sigma(t) * sqrt(dt) * z
+L_CFM = E_{t, (x_0,x_1)~π*} [ ||v_θ(x_t, t, c) - u_t(x_t | x_0, x_1)||^2 ]
 ```
 
-Higher-order integrators available. Produces full trajectories, not just endpoints.
+where `u_t` is the conditional vector field:
+```
+x_t = (1-t) * x_0 + t * x_1
+u_t = x_1 - x_0
+```
+
+### Velocity Network Architecture
+
+MLP with context conditioning:
+- Input: `[x_t, t_embed, c]` where `t_embed` is sinusoidal time embedding
+- Hidden layers: 2-3 layers with GELU activation
+- Context enters via concatenation or FiLM modulation
+- Output: predicted velocity `v_θ(x_t, t, c)`
+
+### Niche Conditioning
+
+The context vector `c` from Layer C conditions the velocity field:
+- Encodes local tissue microenvironment
+- Allows niche-specific transition dynamics
+- Ablation: compare conditioned vs unconditioned flow
+
+### Inference
+
+Euler integration from t=0 to t=1:
+```
+x_{t+dt} = x_t + v_θ(x_t, t, c) * dt
+```
+
+Higher-order integrators (RK4) available for smoother trajectories.
+
+## V2: Neural SDE (Deferred)
+
+Neural SDE extends flow matching with stochastic dynamics:
+
+```
+dx_t = f_θ(x_t, t, c) dt + σ(t) dW_t
+```
+
+This is **not required for V1** but provides:
+- Uncertainty quantification via trajectory variance
+- More expressive dynamics for multimodal transitions
+- Score matching training objective
+
+## Edge-Wise Design
+
+Each disease edge has distinct dynamics:
+- Normal→AAH, AAH→AIS, AIS→MIA, MIA→LUAD
+- Edge embedding selects specialized behavior
+- Shared parameters with edge-specific modulation
+
+## WES Regularization
+
+Auxiliary loss enforces evolutionary consistency:
+- Penalizes when different WES profiles produce identical dynamics
+- Effect: model learns evolutionary-state-aware transitions
+- Ablation: compare with/without WES constraint
 
 ## Baseline Configurations
 
-| Config | Drift | Context | WES | OT |
-|--------|-------|---------|-----|-----|
-| Linear | None (linear interp) | No | No | No |
-| No-context | Learned | No | No | Yes |
-| Gaussian-SB | Gaussian prior only | No | No | No |
-| Set-only | Learned | Set Transformer | No | Yes |
-| Full | Learned | Set + GoST | Yes | Yes |
+| Config | Velocity | Context | WES | OT Coupling |
+|--------|----------|---------|-----|-------------|
+| Linear | None (interpolation) | No | No | No |
+| Uncoupled | Learned | No | No | Random pairs |
+| OT-only | Learned | No | No | Yes |
+| Conditioned | Learned | Layer C | No | Yes |
+| Full V1 | Learned | Layer C | Regularizer | Yes |
+
+## Evaluation Metrics
+
+| Metric | Description |
+|--------|-------------|
+| Sinkhorn distance | OT distance between predicted and target distributions |
+| MMD-RBF | Maximum mean discrepancy with RBF kernel |
+| Trajectory smoothness | Mean velocity magnitude along paths |
+| Niche sensitivity | Change in trajectories under context perturbation |
 
 ## Relationship to Other Layers
 
-- **Upstream:** Context model provides conditioning vector c; reference mapping defines the latent space; data ingestion provides cells
-- **Downstream:** Evaluation layer assesses transition quality and biological meaning
+- **Upstream:** Layer A (dual-reference latent) defines the space; Layer B+C (niche encoder) provides context
+- **Downstream:** Evaluation assesses transition quality; visualization renders trajectories

@@ -4,6 +4,7 @@ from __future__ import annotations
 from importlib import import_module
 
 _EXPORTS: dict[str, str] = {
+    "run_data_prep": ".run_data_prep",
     "run_evaluate_lesion": ".evaluate_lesion",
     "run_pretrain_local": ".pretrain_local",
     "run_context_model": ".run_context_model",
@@ -34,6 +35,7 @@ def __getattr__(name: str):
     return value
 
 __all__ = [
+    "run_data_prep",
     "run_evaluate_lesion",
     "run_context_model",
     "run_eamist_reporting",

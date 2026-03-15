@@ -1,0 +1,14 @@
+{
+  "n_cells": 500,
+  "n_donors": 5,
+  "n_stages": 4,
+  "stages": [
+    "Normal",
+    "Preneoplastic",
+    "Invasive",
+    "Advanced"
+  ],
+  "latent_dim": 2,
+  "n_celltypes": 8,
+  "seed": 42
+}

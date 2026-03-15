@@ -1,51 +1,77 @@
 # Architecture: Spatial Mapping Layer
 
-**Scientific layer:** 3 — Spatial mapping
+**Scientific layer:** Input preprocessing
 **Package location:** `stagebridge/spatial_mapping/`
 
 ## Role in the System
 
-Spatial mapping connects single-cell identities to physical tissue locations. It answers: for each Visium spot, what cell types are present and in what proportions? These compositions define the typed niches that the context model encodes.
+Spatial mapping connects single-cell identities to physical tissue locations. It answers: for each Visium spot, what cell types are present and in what proportions? These compositions define the typed niches that Layer B encodes.
 
-## How It Works
+**V1 requires benchmarking across multiple backends** to ensure robustness and justify the chosen method.
 
-### Tangram (Primary)
+## Spatial Mapping Backends
 
-Tangram optimizes a mapping matrix M between N cells and S spots by maximizing the cosine similarity of mapped gene expression profiles.
+### Tangram
 
-- Input: snRNA-seq AnnData (with cell-type labels), spatial AnnData (with spot coordinates and expression)
-- Optimization: gradient descent on mapping matrix, guided by marker genes
-- Output: S x C matrix of cell-type probability scores per spot (C = number of cell types)
+Deep learning-based mapping that optimizes a cell-to-spot assignment matrix:
+- Input: snRNA-seq AnnData (with cell-type labels), spatial AnnData
+- Optimization: gradient descent maximizing cosine similarity of mapped expression
+- Output: spot × cell-type probability matrix
 
-### TACCO / DestVI (Alternatives)
+### TACCO
 
-Same conceptual output (spot-level composition scores) via different methods. Share the common output contract so downstream code is agnostic to which method produced the scores.
+Optimal transport-based annotation transfer:
+- Uses OT to transfer annotations from reference to spatial data
+- Probabilistic cell-type assignments per spot
+- Computationally efficient
+
+### DestVI
+
+Variational inference deconvolution:
+- Generative model for spot expression
+- Infers cell-type proportions as latent variables
+- Captures uncertainty in assignments
+
+## V1 Benchmark Requirement
+
+The V1 publication **must** include a spatial backend benchmark:
+
+| Metric | Description |
+|--------|-------------|
+| Reconstruction error | How well do inferred compositions explain spot expression? |
+| Consistency | Do methods agree on dominant cell types? |
+| Downstream impact | Does transition model performance vary by backend? |
+
+A robust result should be **backend-agnostic** — transition findings should hold across Tangram, TACCO, and DestVI.
 
 ## From Spatial Scores to Niche Tokens
 
 1. **Composition vector** — Per-spot probability distribution over cell types
-2. **Neighborhood aggregation** — k-nearest spatial neighbors' compositions are averaged to capture the local tissue context beyond a single spot
-3. **Entropy features** — Shannon entropy of the composition captures niche diversity
-4. **Typed token assignment** — Composition entries are grouped into broad lineages (epithelial, stromal, immune, vascular) to create the typed tokens consumed by the context model
+2. **Neighborhood aggregation** — k-nearest spots' compositions averaged for local context
+3. **Ring construction** — Compositions at increasing radii (Ring 1-4 tokens)
+4. **Entropy features** — Shannon entropy captures niche diversity
+5. **Token assignment** — Compositions grouped into the 9-token structure for Layer B
 
 ## What Goes In
 
 - HLCA-labeled snRNA-seq AnnData
-- Spatial AnnData with spot coordinates
+- Spatial AnnData with spot coordinates and expression
+- Gene marker lists for mapping
 
 ## What Comes Out
 
 - Spatial AnnData with composition scores in `.obsm`
-- Niche token features (parquet)
-- Mapping report (JSON)
+- Niche token features (parquet or stored in AnnData)
+- Mapping quality report (JSON)
 
 ## Key Design Decisions
 
-- **Tangram first** — Well-established, interpretable, no generative model required
+- **Multiple backends** — Not locked to one method; benchmark determines choice
 - **Common contract** — All methods produce the same output format
-- **Preprocessing, not model** — Spatial mapping is a feature extraction step, not the scientific model
+- **Preprocessing, not model** — Spatial mapping is feature extraction, not the scientific model
+- **Quality diagnostics** — Mapping quality is monitored and reported
 
 ## Relationship to Other Layers
 
-- **Upstream:** Reference mapping provides cell-type labels; data ingestion provides spatial AnnData
-- **Downstream:** Context model consumes niche tokens as typed biological sets
+- **Upstream:** Layer A (reference mapping) provides cell-type labels for snRNA-seq
+- **Downstream:** Layer B consumes niche tokens (ring compositions)

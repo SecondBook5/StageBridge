@@ -139,6 +139,7 @@ def _progress_iter(iterable: list[str], *, desc: str, enabled: bool) -> Any:
 
 
 _STEP_REGISTRY: dict[str, StepSpec] = {
+    "data_prep": ("stagebridge.pipelines.run_data_prep", "run_data_prep"),
     "label_repair": ("stagebridge.pipelines.run_label_repair", "run_label_repair"),
     "pretrain_local": ("stagebridge.pipelines.pretrain_local", "run_pretrain_local"),
     "train_lesion": ("stagebridge.pipelines.train_lesion", "run_train_lesion"),
@@ -169,6 +170,10 @@ def _resolve_step_fn(step: str) -> StepFn:
     module = import_module(module_name)
     fn = getattr(module, fn_name)
     return fn
+
+
+def run_data_prep(*args, **kwargs):
+    return _resolve_step_fn("data_prep")(*args, **kwargs)
 
 
 def run_label_repair(*args, **kwargs):
@@ -1385,6 +1390,7 @@ __all__ = [
     "clone_config",
     "compose_config",
     "load_run",
+    "run_data_prep",
     "run_data_preprocessing_overview",
     "run_latent_backend_compare",
     "run_mode_ladder",
