@@ -116,18 +116,20 @@ class SyntheticDataGenerator:
         for stage_idx, stage in enumerate(self.stages):
             centroid = self.stage_centroids[stage]
 
+            # Expand centroid to match latent_dim
+            if self.latent_dim > 2:
+                centroid_expanded = np.zeros(self.latent_dim)
+                centroid_expanded[:2] = centroid
+            else:
+                centroid_expanded = centroid
+
             # Generate latent positions with controlled overlap
             stage_std = noise_level + overlap * 0.3
             z_positions = self.rng.normal(
-                loc=centroid,
+                loc=centroid_expanded,
                 scale=stage_std,
                 size=(cells_per_stage, self.latent_dim)
             )
-
-            # Pad to match expected latent_dim (if >2, fill with zeros)
-            if self.latent_dim > 2:
-                padding = np.zeros((cells_per_stage, self.latent_dim - 2))
-                z_positions = np.concatenate([z_positions[:, :2], padding], axis=1)
 
             # Assign donors with stage enrichment
             # Early stages → early donors, late stages → late donors (simulate progression)
