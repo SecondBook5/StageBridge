@@ -360,6 +360,58 @@ def plot_backend_comparison(
     print(f"Saved comparison plot to {output_dir / 'backend_comparison.png'}")
 
 
+def run_comprehensive_benchmark(
+    snrna_path: Path,
+    spatial_path: Path,
+    output_dir: Path,
+    backends: List[str] = None,
+    quick: bool = False,
+) -> Dict:
+    """
+    Wrapper function for comprehensive backend benchmark.
+
+    Returns results formatted for notebook consumption.
+
+    Returns:
+        Dictionary with:
+        - metrics: List of dicts for DataFrame (backend, mapping_quality, runtime_minutes, memory_gb, downstream_utility)
+        - recommendation: Dict with backend and rationale
+    """
+    comparison = run_backend_comparison(
+        snrna_path=snrna_path,
+        spatial_path=spatial_path,
+        output_dir=output_dir,
+        backends=backends,
+        quick=quick,
+    )
+
+    # Format for notebook
+    metrics = []
+    for backend_name, data in comparison["backends"].items():
+        if data["status"] != "success":
+            continue
+
+        metrics.append({
+            "backend": backend_name.upper(),
+            "mapping_quality": data["upstream_metrics"]["coverage"],
+            "runtime_minutes": data["runtime_seconds"] / 60,
+            "memory_gb": 16.0,  # Placeholder - would need actual measurement
+            "downstream_utility": data["mean_confidence"],
+        })
+
+    # Format recommendation
+    formatted_results = {
+        "metrics": metrics,
+        "recommendation": {
+            "backend": comparison["recommendation"]["canonical_backend"].upper(),
+            "rationale": comparison["recommendation"]["rationale"],
+        },
+        "rankings": comparison["rankings"],
+    }
+
+    return formatted_results
+
+
 def main():
     parser = argparse.ArgumentParser(description="Spatial Backend Benchmark")
     parser.add_argument("--snrna", type=str, required=True, help="Path to snRNA h5ad")

@@ -494,7 +494,7 @@ def generate_transformer_report(
 
         f.write("## Attention Patterns\n\n")
         f.write("### Entropy Analysis\n\n")
-        f.write(entropy_df.to_markdown(index=False))
+        f.write(entropy_df.to_string())
         f.write("\n\n")
 
         f.write("## Key Findings\n\n")
