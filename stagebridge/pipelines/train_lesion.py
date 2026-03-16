@@ -53,9 +53,6 @@ from stagebridge.evaluation.eamist_metrics import (
     stage_support_payload,
 )
 from stagebridge.data.luad_evo.stages import (
-    BINARY_STAGE_INDEX,
-    GROUPED_STAGE_ORDER,
-    STAGE_TO_GROUP,
     stage_to_binary_index,
     stage_to_grouped_index,
     stage_to_group_label,

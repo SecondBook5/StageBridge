@@ -173,9 +173,9 @@ One of the key ablations tests whether the transformer architecture matters:
 
 | Architecture | W-distance | Attention? | Interpretable? |
 |--------------|------------|------------|----------------|
-| **Transformer** | 0.74 ± 0.05 | ✅ | ✅ |
-| MLP pooling | 0.89 ± 0.07 | ❌ | ❌ |
-| Mean pooling | 0.95 ± 0.08 | ❌ | ❌ |
+| **Transformer** | 0.74 ± 0.05 |  |  |
+| MLP pooling | 0.89 ± 0.07 |  |  |
+| Mean pooling | 0.95 ± 0.08 |  |  |
 
 **Conclusion**: Transformer architecture provides both:
 - ~20% better performance (lower W-distance)

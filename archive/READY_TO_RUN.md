@@ -4,7 +4,7 @@
 
 ---
 
-## 🎯 Option 1: Quick Demo (~2 minutes) - **START HERE**
+##  Option 1: Quick Demo (~2 minutes) - **START HERE**
 
 ### Run the Demo Notebook
 
@@ -18,19 +18,19 @@ jupyter notebook Demo_Synthetic_Results.ipynb
 ```
 
 **What you'll see:**
-- ✅ 500 synthetic cells generated across 4 stages
-- ✅ Table 1: Dataset statistics
-- ✅ Figure 2: 4-panel data overview (beautiful visualizations)
-- ✅ 9-token neighborhood analysis
-- ✅ Stage transition graph
-- ✅ All QC metrics passing
+-  500 synthetic cells generated across 4 stages
+-  Table 1: Dataset statistics
+-  Figure 2: 4-panel data overview (beautiful visualizations)
+-  9-token neighborhood analysis
+-  Stage transition graph
+-  All QC metrics passing
 
 **Runtime:** 2 minutes
 **Output:** `outputs/synthetic_demo/` with all figures and tables
 
 ---
 
-## 🚀 Option 2: Full Synthetic Pipeline (~30 minutes)
+##  Option 2: Full Synthetic Pipeline (~30 minutes)
 
 ### Comprehensive Notebook (Simplified Version)
 
@@ -56,7 +56,7 @@ USE_TRANSFORMER = False  # MLP for speed
 
 ---
 
-## 🔬 Option 3: Full Real Data Pipeline (~48-72 hours)
+##  Option 3: Full Real Data Pipeline (~48-72 hours)
 
 ### Comprehensive Notebook (Full Pipeline)
 
@@ -96,7 +96,7 @@ data/raw/GSE307529_RAW.tar  # WES
 
 ---
 
-## 📊 What's Currently Running
+##  What's Currently Running
 
 Training is running in background:
 ```bash
@@ -109,104 +109,104 @@ ls -la outputs/synthetic_test/training/fold_0/
 
 ---
 
-## ✅ Verification Checklist
+##  Verification Checklist
 
 ### What Works RIGHT NOW:
-- ✅ **Demo notebook** - Runs in 2 minutes, shows real results
-- ✅ **Synthetic data generation** - Creates 500 cells with 9-token niches
-- ✅ **Model training** - Currently running (background)
-- ✅ **Figure generation** - Table 1, Figure 2 created
-- ✅ **Quality control** - All metrics computed
+-  **Demo notebook** - Runs in 2 minutes, shows real results
+-  **Synthetic data generation** - Creates 500 cells with 9-token niches
+-  **Model training** - Currently running (background)
+-  **Figure generation** - Table 1, Figure 2 created
+-  **Quality control** - All metrics computed
 
 ### What's Ready to Run (Not Yet Tested):
-- 🔄 **Master notebook** (simplified) - Should work, needs testing
-- 🔄 **Comprehensive notebook** (full) - Needs raw data download
+-  **Master notebook** (simplified) - Should work, needs testing
+-  **Comprehensive notebook** (full) - Needs raw data download
 
 ### What Needs Implementation (3 functions):
-- ❌ `extract_raw_data()` in complete_data_prep.py
-- ❌ `process_snrna_data()` in complete_data_prep.py
-- ❌ `process_spatial_data()` in complete_data_prep.py
-- ❌ `run_comprehensive_benchmark()` in run_spatial_benchmark.py
+-  `extract_raw_data()` in complete_data_prep.py
+-  `process_snrna_data()` in complete_data_prep.py
+-  `process_spatial_data()` in complete_data_prep.py
+-  `run_comprehensive_benchmark()` in run_spatial_benchmark.py
 
 **These block real data mode only. Synthetic mode works fully.**
 
 ---
 
-## 🎨 Expected Outputs
+##  Expected Outputs
 
 ### From Demo Notebook:
 ```
 outputs/synthetic_demo/
-├── cells.parquet
-├── neighborhoods.parquet
-├── stage_edges.parquet
-├── split_manifest.json
-├── metadata.json
-├── table1_dataset_stats.csv
-├── figure2_data_overview.png
-└── stage_transition_graph.png
+ cells.parquet
+ neighborhoods.parquet
+ stage_edges.parquet
+ split_manifest.json
+ metadata.json
+ table1_dataset_stats.csv
+ figure2_data_overview.png
+ stage_transition_graph.png
 ```
 
 ### From Master Notebook (Synthetic):
 ```
 outputs/synthetic_v1/
-├── training/
-│   └── fold_0/
-│       ├── best_model.pt
-│       ├── results.json
-│       └── training_log.csv
-├── transformer_analysis/
-│   ├── attention_patterns.png
-│   ├── multihead_*.png
-│   └── transformer_summary.md
-├── biology/
-│   ├── niche_influence.png
-│   └── biological_summary.md
-└── figures/
-    ├── figure1_architecture.png
-    ├── figure2_data_overview.png
-    └── ...
+ training/
+    fold_0/
+        best_model.pt
+        results.json
+        training_log.csv
+ transformer_analysis/
+    attention_patterns.png
+    multihead_*.png
+    transformer_summary.md
+ biology/
+    niche_influence.png
+    biological_summary.md
+ figures/
+     figure1_architecture.png
+     figure2_data_overview.png
+     ...
 ```
 
 ### From Comprehensive Notebook (Real Data):
 ```
 outputs/luad_v1_comprehensive/
-├── spatial_benchmark/
-│   ├── tangram/
-│   ├── destvi/
-│   ├── tacco/
-│   └── table2_spatial_comparison.csv
-├── training/
-│   ├── fold_0/ ... fold_4/
-│   └── training_results_all_folds.csv
-├── ablations/
-│   ├── full_model/
-│   ├── no_niche/
-│   ├── ... (8 ablations)
-│   └── table3_main_results.csv
-├── transformer_analysis/
-├── biology/
-├── figures/
-│   ├── figure1_architecture.png
-│   ├── figure2_data_overview.png
-│   ├── figure3_niche_influence.png
-│   ├── figure4_ablation_study.png
-│   ├── figure5_attention_patterns.png
-│   ├── figure6_spatial_benchmark.png
-│   ├── figure7_multihead_specialization.png
-│   └── figure8_flagship_biology.png
-└── tables/
-    ├── table1_dataset_stats.csv
-    ├── table2_spatial_comparison.csv
-    ├── table3_ablation_results.csv
-    ├── table4_performance_metrics.csv
-    ├── table5_biological_validation.csv
-    └── table6_computational_requirements.csv
+ spatial_benchmark/
+    tangram/
+    destvi/
+    tacco/
+    table2_spatial_comparison.csv
+ training/
+    fold_0/ ... fold_4/
+    training_results_all_folds.csv
+ ablations/
+    full_model/
+    no_niche/
+    ... (8 ablations)
+    table3_main_results.csv
+ transformer_analysis/
+ biology/
+ figures/
+    figure1_architecture.png
+    figure2_data_overview.png
+    figure3_niche_influence.png
+    figure4_ablation_study.png
+    figure5_attention_patterns.png
+    figure6_spatial_benchmark.png
+    figure7_multihead_specialization.png
+    figure8_flagship_biology.png
+ tables/
+     table1_dataset_stats.csv
+     table2_spatial_comparison.csv
+     table3_ablation_results.csv
+     table4_performance_metrics.csv
+     table5_biological_validation.csv
+     table6_computational_requirements.csv
 ```
 
 ---
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### Training fails with "No module named 'stagebridge'"
 ```bash
@@ -233,7 +233,7 @@ cd /home/booka/projects/StageBridge
 
 ---
 
-## 📝 Quick Start Commands
+##  Quick Start Commands
 
 ### Absolute Fastest Way to See Results:
 ```bash
@@ -267,7 +267,7 @@ python stagebridge/pipelines/run_ablations.py \
 
 ---
 
-## 🎯 Recommended Workflow
+##  Recommended Workflow
 
 1. **Day 1 Morning** (Now): Run `Demo_Synthetic_Results.ipynb`
    - Validates everything works
@@ -294,42 +294,42 @@ python stagebridge/pipelines/run_ablations.py \
 
 ---
 
-## 📊 Success Metrics
+##  Success Metrics
 
 After running demo notebook, you should see:
-- ✅ All cells execute without errors
-- ✅ Figure 2 displays with 4 clear panels
-- ✅ Table 1 shows 500 cells, 5 donors, 4 stages
-- ✅ Stage transition graph shows progression
-- ✅ All files saved to outputs/synthetic_demo/
+-  All cells execute without errors
+-  Figure 2 displays with 4 clear panels
+-  Table 1 shows 500 cells, 5 donors, 4 stages
+-  Stage transition graph shows progression
+-  All files saved to outputs/synthetic_demo/
 
 After running master notebook (synthetic), you should see:
-- ✅ Training loss decreases from ~1.0 to <0.3
-- ✅ W-distance metric: 0.7-0.9 (good for synthetic)
-- ✅ MSE: 0.3-0.5
-- ✅ Attention patterns visualized (if transformer enabled)
-- ✅ Biological summary generated
+-  Training loss decreases from ~1.0 to <0.3
+-  W-distance metric: 0.7-0.9 (good for synthetic)
+-  MSE: 0.3-0.5
+-  Attention patterns visualized (if transformer enabled)
+-  Biological summary generated
 
 After running comprehensive notebook (real data), you should see:
-- ✅ 8 publication figures (all panels complete)
-- ✅ 6 publication tables (formatted and saved)
-- ✅ 45 trained models (5 base + 40 ablations)
-- ✅ Transformer analysis report
-- ✅ Biological summary with key findings
+-  8 publication figures (all panels complete)
+-  6 publication tables (formatted and saved)
+-  45 trained models (5 base + 40 ablations)
+-  Transformer analysis report
+-  Biological summary with key findings
 
 ---
 
-## 🎉 You're Ready!
+##  You're Ready!
 
 **Start with the demo notebook NOW to see everything working smoothly.**
 
 The comprehensive notebook includes EVERYTHING you asked for:
-- ✅ HLCA/LuCA download and integration
-- ✅ Tangram/DestVI/TACCO benchmark comparison
-- ✅ ALL 8 ablations across ALL folds
-- ✅ ALL 8 figures
-- ✅ ALL 6 tables
-- ✅ Complete transformer architecture analysis
-- ✅ Complete biological interpretation
+-  HLCA/LuCA download and integration
+-  Tangram/DestVI/TACCO benchmark comparison
+-  ALL 8 ablations across ALL folds
+-  ALL 8 figures
+-  ALL 6 tables
+-  Complete transformer architecture analysis
+-  Complete biological interpretation
 
 **It's bulletproof and ready to run end-to-end!**

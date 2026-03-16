@@ -27,8 +27,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, List
-from tqdm import tqdm
-import yaml
 
 
 ABLATION_CONFIGS = {
@@ -221,7 +219,7 @@ def run_all_ablations(
                     **test_metrics,
                 })
             else:
-                print(f"  ✗ Failed: {result.get('error', 'Unknown error')}")
+                print(f"   Failed: {result.get('error', 'Unknown error')}")
                 all_results.append({
                     "ablation": ablation_name,
                     "fold": fold,
@@ -410,7 +408,7 @@ def main():
     generate_statistical_comparisons(results_df, output_dir)
 
     print("\n" + "=" * 80)
-    print("✓ Ablation suite complete!")
+    print(" Ablation suite complete!")
     print(f"  Results: {output_dir}")
     print("=" * 80)
 

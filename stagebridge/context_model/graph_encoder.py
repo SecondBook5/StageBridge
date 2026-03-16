@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import torch
 from torch import Tensor, nn
 
 from stagebridge.context_model.graph_of_sets import GraphOfSetsTransformer

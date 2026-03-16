@@ -17,10 +17,9 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import anndata as ad
-import scanpy as sc
 import json
 import yaml
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from tqdm import tqdm
 
 
@@ -111,7 +110,7 @@ def generate_canonical_artifacts(
     print("  Saved feature specifications")
 
     print("\n" + "=" * 80)
-    print("✓ Canonical artifacts complete!")
+    print(" Canonical artifacts complete!")
     print(f"  Output: {output_dir}")
     print("=" * 80)
 

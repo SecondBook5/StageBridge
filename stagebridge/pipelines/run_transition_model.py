@@ -19,7 +19,6 @@ from stagebridge.context_model.set_encoder import (
 from stagebridge.context_model.token_builder import build_typed_spot_tokens
 from stagebridge.data.common.schema import LatentCohort
 from stagebridge.data.luad_evo.wes import build_wes_feature_lookup, load_luad_evo_wes_features
-from stagebridge.pipelines.run_context_model import run_context_model
 from stagebridge.pipelines.run_reference import run_reference
 from stagebridge.pipelines.run_spatial_mapping import run_spatial_mapping
 from stagebridge.transition_model.disease_edges import edge_id_map, edge_label, resolve_disease_edge

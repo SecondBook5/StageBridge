@@ -14,7 +14,7 @@ Design goals:
 
 import numpy as np
 import pandas as pd
-from typing import Tuple, Dict, List, Optional
+from typing import Tuple, Dict
 from pathlib import Path
 import json
 
@@ -422,7 +422,7 @@ def generate_synthetic_dataset(
     """
     output_path = Path(output_dir)
 
-    print(f"Generating synthetic dataset...")
+    print("Generating synthetic dataset...")
     print(f"  n_cells: {n_cells}")
     print(f"  n_donors: {n_donors}")
     print(f"  latent_dim: {latent_dim}")
@@ -443,7 +443,7 @@ def generate_synthetic_dataset(
         overlap=overlap,
     )
 
-    print(f"\nGenerated:")
+    print("\nGenerated:")
     print(f"  Cells: {len(cells)}")
     print(f"  Neighborhoods: {len(neighborhoods)}")
     print(f"  Stage edges: {len(stage_edges)}")
@@ -452,11 +452,11 @@ def generate_synthetic_dataset(
     generator.save(cells, neighborhoods, stage_edges, output_path)
 
     print(f"\nSaved to: {output_path}")
-    print(f"  cells.parquet")
-    print(f"  neighborhoods.parquet")
-    print(f"  stage_edges.parquet")
-    print(f"  split_manifest.json")
-    print(f"  metadata.json")
+    print("  cells.parquet")
+    print("  neighborhoods.parquet")
+    print("  stage_edges.parquet")
+    print("  split_manifest.json")
+    print("  metadata.json")
 
     return output_path
 
@@ -464,4 +464,4 @@ def generate_synthetic_dataset(
 if __name__ == "__main__":
     # Generate default synthetic dataset
     output_dir = generate_synthetic_dataset()
-    print(f"\n✓ Synthetic dataset ready at: {output_dir}")
+    print(f"\n Synthetic dataset ready at: {output_dir}")

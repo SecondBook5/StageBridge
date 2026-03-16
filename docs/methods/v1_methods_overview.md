@@ -596,31 +596,31 @@ packages:
 
 ### 7.1 Completed Components
 
-- ✅ Layer A scaffolding (reference alignment structure exists)
-- ✅ Layer B implementation (`LocalNicheTransformerEncoder`)
-- ✅ Layer C implementation (`ISAB`, `SAB`, `PMA`)
-- ✅ Layer D scaffolding (`stochastic_dynamics.py`)
-- ✅ Layer F scaffolding (WES regularizer exists)
-- ✅ Config system (Hydra-based)
-- ✅ Basic data loaders
+-  Layer A scaffolding (reference alignment structure exists)
+-  Layer B implementation (`LocalNicheTransformerEncoder`)
+-  Layer C implementation (`ISAB`, `SAB`, `PMA`)
+-  Layer D scaffolding (`stochastic_dynamics.py`)
+-  Layer F scaffolding (WES regularizer exists)
+-  Config system (Hydra-based)
+-  Basic data loaders
 
 ### 7.2 In-Progress Components
 
-- 🔄 Step 0 data pipeline (run_data_prep.py)
-- 🔄 Spatial backend benchmark loop
-- 🔄 Full training script integration
-- 🔄 Donor-held-out evaluation harness
+-  Step 0 data pipeline (run_data_prep.py)
+-  Spatial backend benchmark loop
+-  Full training script integration
+-  Donor-held-out evaluation harness
 
 ### 7.3 Required for V1 Completion
 
-- ❌ Canonical artifacts generation (cells.parquet, neighborhoods.parquet, etc.)
-- ❌ Spatial backend standardization layer
-- ❌ Tier 1 ablation scripts
-- ❌ Evaluation and plotting utilities
-- ❌ Documentation of all modules
-- ❌ Integration tests
-- ❌ Benchmark on synthetic data
-- ❌ Final publication figures
+-  Canonical artifacts generation (cells.parquet, neighborhoods.parquet, etc.)
+-  Spatial backend standardization layer
+-  Tier 1 ablation scripts
+-  Evaluation and plotting utilities
+-  Documentation of all modules
+-  Integration tests
+-  Benchmark on synthetic data
+-  Final publication figures
 
 ---
 

@@ -24,7 +24,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from typing import Dict, Tuple
+from typing import Dict
 
 # StageBridge imports
 from stagebridge.data.synthetic import generate_synthetic_dataset
@@ -717,7 +717,7 @@ def main():
     torch.save(model.state_dict(), output_dir / "model.pt")
 
     print("\n" + "=" * 80)
-    print("✓ Pipeline complete!")
+    print(" Pipeline complete!")
     print(f"  Results saved to: {output_dir}")
     print("=" * 80)
 

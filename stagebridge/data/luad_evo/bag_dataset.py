@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from stagebridge.utils.types import LesionBag, LesionBagBatch, LocalNicheExample
+from stagebridge.utils.types import LesionBag, LesionBagBatch
 
 
 class LesionBagDataset(Dataset[LesionBag]):

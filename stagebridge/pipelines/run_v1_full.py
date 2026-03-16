@@ -19,9 +19,8 @@ import torch.optim as optim
 from pathlib import Path
 import json
 import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
-from typing import Dict, Tuple, Optional
+from typing import Dict
 import yaml
 
 # StageBridge imports
@@ -547,7 +546,7 @@ def main():
     torch.save(model.state_dict(), output_dir / "final_model.pt")
 
     print("\n" + "=" * 80)
-    print("✓ Training complete!")
+    print(" Training complete!")
     print(f"  Results saved to: {output_dir}")
     print("=" * 80)
 

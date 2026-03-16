@@ -163,9 +163,9 @@ print(f"Interpretation: {stats['interpretation']}")
 
 | Architecture | W-distance | Interpretable? | Training Time |
 |--------------|------------|----------------|---------------|
-| **Full Transformer** | **0.74 ± 0.05** | ✅ Yes | 2.5 hrs/epoch |
-| MLP + Mean Pool | 0.89 ± 0.07 | ❌ No | 1.8 hrs/epoch |
-| MLP + No Niche | 0.95 ± 0.08 | ❌ No | 1.5 hrs/epoch |
+| **Full Transformer** | **0.74 ± 0.05** |  Yes | 2.5 hrs/epoch |
+| MLP + Mean Pool | 0.89 ± 0.07 |  No | 1.8 hrs/epoch |
+| MLP + No Niche | 0.95 ± 0.08 |  No | 1.5 hrs/epoch |
 
 **Conclusion**: Extra 40% training time worth it for 20% performance gain + full interpretability.
 
@@ -252,6 +252,6 @@ If you use transformer analysis tools:
 
 ---
 
-**Status**: ✅ READY - Use these tools to analyze any trained StageBridge model
+**Status**:  READY - Use these tools to analyze any trained StageBridge model
 
 **Support**: See `stagebridge/analysis/README.md` for detailed documentation

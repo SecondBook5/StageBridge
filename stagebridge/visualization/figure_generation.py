@@ -3,13 +3,11 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
 import torch
 from scipy.stats import entropy
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from sklearn.metrics import roc_curve, auc, precision_recall_curve, f1_score, accuracy_score
 import umap
 
 
@@ -86,7 +84,7 @@ def generate_figure1_architecture(output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ Figure 1 (ARCHITECTURE): {output_path}")
+    print(f" Figure 1 (ARCHITECTURE): {output_path}")
 
 
 def generate_figure5_attention_patterns(model, test_loader, output_path):
@@ -134,14 +132,48 @@ def generate_figure5_attention_patterns(model, test_loader, output_path):
 
     # C: Attention entropy
     ax = axes[0, 2]
-    entropies = [entropy(attention[i, 0]) for i in range(min(len(attention), 100))]
-    ax.hist(entropies, bins=25, color='#2ecc71', alpha=0.8, edgecolor='black')
-    ax.axvline(np.mean(entropies), color='red', linestyle='--', linewidth=2.5, label=f'Mean: {np.mean(entropies):.2f}')
-    ax.set_xlabel("Attention Entropy", fontweight="bold")
-    ax.set_ylabel("Frequency", fontweight="bold")
-    ax.set_title("C. Attention Focus", fontsize=12, fontweight="bold")
-    ax.legend(fontsize=10)
-    ax.grid(alpha=0.3, linestyle='--')
+
+    # Compute entropies safely
+    entropies = []
+    for i in range(min(len(attention), 100)):
+        try:
+            # Get attention distribution for this sample
+            if attention.ndim == 3:
+                attn_dist = attention[i, 0]  # First query token
+            else:
+                attn_dist = attention[i]
+
+            # Ensure 1D array
+            attn_dist = np.asarray(attn_dist).ravel()
+
+            # Skip if invalid
+            if len(attn_dist) > 0 and np.sum(attn_dist) > 0:
+                # Normalize to probability distribution
+                attn_dist = attn_dist / np.sum(attn_dist)
+
+                # Compute entropy (should return scalar)
+                ent = float(entropy(attn_dist))
+
+                # Check if valid
+                if np.isfinite(ent):
+                    entropies.append(ent)
+        except Exception:
+            # Skip this sample if any error
+            continue
+
+    if len(entropies) > 0:
+        ax.hist(entropies, bins=25, color='#2ecc71', alpha=0.8, edgecolor='black')
+        ax.axvline(np.mean(entropies), color='red', linestyle='--', linewidth=2.5,
+                   label=f'Mean: {np.mean(entropies):.2f}')
+        ax.set_xlabel("Attention Entropy", fontweight="bold")
+        ax.set_ylabel("Frequency", fontweight="bold")
+        ax.set_title("C. Attention Focus", fontsize=12, fontweight="bold")
+        ax.legend(fontsize=10)
+        ax.grid(alpha=0.3, linestyle='--')
+    else:
+        ax.text(0.5, 0.5, 'No valid entropy data', ha='center', va='center',
+               transform=ax.transAxes, fontsize=12)
+        ax.set_title("C. Attention Focus", fontsize=12, fontweight="bold")
 
     # D: Spatial attention (rings)
     ax = axes[1, 0]
@@ -191,7 +223,7 @@ def generate_figure5_attention_patterns(model, test_loader, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ Figure 5 (ATTENTION PATTERNS): {output_path}")
+    print(f" Figure 5 (ATTENTION PATTERNS): {output_path}")
 
 
 def generate_figure7_multihead_specialization(model, test_loader, output_path):
@@ -247,7 +279,7 @@ def generate_figure7_multihead_specialization(model, test_loader, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ Figure 7 (MULTIHEAD SPECIALIZATION): {output_path}")
+    print(f" Figure 7 (MULTIHEAD SPECIALIZATION): {output_path}")
 
 
 def generate_figure3_niche_influence_biology(influence_df, pathway_df, cells_df, output_path):
@@ -341,7 +373,7 @@ def generate_figure3_niche_influence_biology(influence_df, pathway_df, cells_df,
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ Figure 3 (BIOLOGICAL DISCOVERY): {output_path}")
+    print(f" Figure 3 (BIOLOGICAL DISCOVERY): {output_path}")
 
 
 def generate_figure8_flagship_biology(cells_df, influence_df, pathway_df, output_path):
@@ -429,7 +461,7 @@ def generate_figure8_flagship_biology(cells_df, influence_df, pathway_df, output
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ Figure 8 (FLAGSHIP BIOLOGY): {output_path}")
+    print(f" Figure 8 (FLAGSHIP BIOLOGY): {output_path}")
 
 
 def generate_figure2_dimensionality_reduction(cells_df, output_path):
@@ -580,7 +612,7 @@ def generate_figure2_dimensionality_reduction(cells_df, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ Figure 2 (DIMENSIONALITY REDUCTION): {output_path}")
+    print(f" Figure 2 (DIMENSIONALITY REDUCTION): {output_path}")
 
 
 def generate_figure4_model_performance(training_results_df, baseline_results=None, output_path=None):
@@ -836,7 +868,7 @@ def generate_figure4_model_performance(training_results_df, baseline_results=Non
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ Figure 4 (MODEL PERFORMANCE): {output_path}")
+    print(f" Figure 4 (MODEL PERFORMANCE): {output_path}")
 
 
 def generate_figure6_spatial_benchmark(benchmark_results, output_path):
@@ -978,7 +1010,7 @@ def generate_figure6_spatial_benchmark(benchmark_results, output_path):
             f"{row['downstream_utility']:.3f}",
             f"{row['runtime_minutes']:.1f} min",
             f"{row['memory_gb']:.1f} GB",
-            "✓ CANONICAL" if row['backend'] == canonical_backend else ""
+            " CANONICAL" if row['backend'] == canonical_backend else ""
         ])
 
     table = ax.table(cellText=ranking_data,
@@ -1033,7 +1065,7 @@ def generate_figure6_spatial_benchmark(benchmark_results, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ Figure 6 (SPATIAL BENCHMARK): {output_path}")
+    print(f" Figure 6 (SPATIAL BENCHMARK): {output_path}")
 
 
 def generate_flow_matching_dynamics(model, test_loader, cells_df, output_path):
@@ -1256,7 +1288,7 @@ def generate_flow_matching_dynamics(model, test_loader, cells_df, output_path):
         "FLOW MATCHING SUMMARY:\n\n"
         "• Method: OT-CFM with Sinkhorn\n"
         "• Integration: Euler-Maruyama\n"
-        f"• Final W-distance: 1.26\n\n"
+        "• Final W-distance: 1.26\n\n"
         "• Vector field learns smooth\n"
         "  transition dynamics\n\n"
         "• Schrödinger bridge ensures\n"
@@ -1279,7 +1311,7 @@ def generate_flow_matching_dynamics(model, test_loader, cells_df, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ FLOW MATCHING DYNAMICS: {output_path}")
+    print(f" FLOW MATCHING DYNAMICS: {output_path}")
 
 
 def generate_set_transformer_mechanics(model, test_loader, output_path):
@@ -1535,7 +1567,7 @@ def generate_set_transformer_mechanics(model, test_loader, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ SET TRANSFORMER MECHANICS: {output_path}")
+    print(f" SET TRANSFORMER MECHANICS: {output_path}")
 
 
 def generate_ablation_impact_visualization(ablation_results_df, output_path):
@@ -1682,7 +1714,7 @@ def generate_ablation_impact_visualization(ablation_results_df, output_path):
                fontsize=9, fontweight='bold', color='white')
 
         # Ablation label
-        ax.text(0.55, layer['y'], f'❌ {layer["ablation"]}', ha='left', va='center',
+        ax.text(0.55, layer['y'], f' {layer["ablation"]}', ha='left', va='center',
                fontsize=8, fontweight='bold', color='red')
 
         # Impact arrow
@@ -1811,7 +1843,7 @@ def generate_ablation_impact_visualization(ablation_results_df, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ ABLATION IMPACT VISUALIZATION: {output_path}")
+    print(f" ABLATION IMPACT VISUALIZATION: {output_path}")
 
 
 def generate_cross_modal_integration(cells_df, output_path):
@@ -2064,4 +2096,4 @@ def generate_cross_modal_integration(cells_df, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white')
     plt.close()
-    print(f"✓ CROSS-MODAL INTEGRATION: {output_path}")
+    print(f" CROSS-MODAL INTEGRATION: {output_path}")

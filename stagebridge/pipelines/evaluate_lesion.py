@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import torch
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, Subset

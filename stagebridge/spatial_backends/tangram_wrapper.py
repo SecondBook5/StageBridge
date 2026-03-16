@@ -311,7 +311,7 @@ def run_tangram(
     # Save result
     result.save(output_dir)
 
-    print(f"✓ Tangram mapping complete. Results saved to {output_dir}")
+    print(f" Tangram mapping complete. Results saved to {output_dir}")
 
     return result
 
@@ -348,4 +348,4 @@ if __name__ == "__main__":
     print(f"Confidence range: [{result.confidence.min():.3f}, {result.confidence.max():.3f}]")
     print(f"Metrics: {result.upstream_metrics}")
 
-    print("\n✓ Tangram backend test passed!")
+    print("\n Tangram backend test passed!")

@@ -13,7 +13,6 @@ Usage:
 
 import argparse
 from pathlib import Path
-import subprocess
 import urllib.request
 from tqdm import tqdm
 
@@ -51,7 +50,7 @@ def download_hlca(output_dir: Path) -> Path:
     hlca_path = output_dir / "hlca_core.h5ad"
 
     if hlca_path.exists():
-        print(f"✓ HLCA already exists: {hlca_path}")
+        print(f" HLCA already exists: {hlca_path}")
         return hlca_path
 
     print(f"Downloading from: {hlca_url}")
@@ -60,11 +59,11 @@ def download_hlca(output_dir: Path) -> Path:
 
     try:
         download_file_with_progress(hlca_url, hlca_path)
-        print(f"✓ Downloaded HLCA: {hlca_path}")
+        print(f" Downloaded HLCA: {hlca_path}")
         print(f"  Size: {hlca_path.stat().st_size / 1024 / 1024:.1f} MB")
         return hlca_path
     except Exception as e:
-        print(f"✗ Failed to download HLCA: {e}")
+        print(f" Failed to download HLCA: {e}")
         print("\nAlternative: Download manually from https://cellxgene.cziscience.com/")
         print(f"and save to: {hlca_path}")
         raise
@@ -92,10 +91,10 @@ def download_luca(output_dir: Path) -> Path:
     luca_path = output_dir / "luca_luad.h5ad"
 
     if luca_path.exists():
-        print(f"✓ LuCA already exists: {luca_path}")
+        print(f" LuCA already exists: {luca_path}")
         return luca_path
 
-    print("⚠️  LuCA direct download not yet available")
+    print("  LuCA direct download not yet available")
     print("Options:")
     print("  1. Use HLCA cancer cells as proxy (included in HLCA download)")
     print("  2. Download from GEO: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131907")
@@ -109,7 +108,7 @@ def download_luca(output_dir: Path) -> Path:
     if hlca_path.exists():
         import os
         os.symlink(hlca_path, luca_path)
-        print(f"✓ Created LuCA proxy: {luca_path} -> {hlca_path}")
+        print(f" Created LuCA proxy: {luca_path} -> {hlca_path}")
         print("  (Will filter cancer cells during integration)")
         return luca_path
     else:
@@ -143,7 +142,7 @@ def download_reference_atlases(
         results['luca'] = None
 
     print("\n" + "="*60)
-    print("✓ Reference Atlas Download Complete")
+    print(" Reference Atlas Download Complete")
     print("="*60)
     for key, path in results.items():
         if path:
@@ -180,7 +179,7 @@ def main():
         download_luca=args.download_luca,
     )
 
-    print("\n✓ Done!")
+    print("\n Done!")
 
 
 if __name__ == "__main__":

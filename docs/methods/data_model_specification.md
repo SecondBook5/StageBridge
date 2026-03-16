@@ -26,11 +26,11 @@ The fundamental unit of the model.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `cell_id` | string | ✓ | Unique cell identifier |
-| `donor_id` | string | ✓ | Donor/patient identifier |
-| `lesion_id` | string | ✓ | Lesion/sample identifier |
-| `stage` | string | ✓ | Disease stage (e.g., "AIS", "MIA", "invasive") |
-| `modality` | string | ✓ | "snrna" or "spatial" |
+| `cell_id` | string |  | Unique cell identifier |
+| `donor_id` | string |  | Donor/patient identifier |
+| `lesion_id` | string |  | Lesion/sample identifier |
+| `stage` | string |  | Disease stage (e.g., "AIS", "MIA", "invasive") |
+| `modality` | string |  | "snrna" or "spatial" |
 | `cell_type` | string |  | Annotated cell type |
 | `x_coord` | float |  | Spatial X (for spatial modality) |
 | `y_coord` | float |  | Spatial Y (for spatial modality) |
@@ -45,7 +45,7 @@ The fundamental unit of the model.
 | `clone_id` | string |  | Clone/lineage identifier (if WES available) |
 | `spatial_backend` | string |  | Spatial mapping method ("tangram", "destvi", "tacco") |
 | `mapping_confidence` | float |  | Confidence score from spatial mapping |
-| `split` | string | ✓ | "train", "val", or "test" |
+| `split` | string |  | "train", "val", or "test" |
 
 **Size Estimate:**
 - LUAD dataset: ~500K cells × 2KB/cell ≈ 1GB
@@ -64,18 +64,18 @@ Spatial context around each receiver cell.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `niche_id` | string | ✓ | Unique niche identifier (typically = cell_id) |
-| `receiver_cell_id` | string | ✓ | Center/receiver cell |
-| `neighbor_cell_ids` | list[string] | ✓ | Ordered list of neighbor IDs |
-| `neighbor_distances` | list[float] | ✓ | Euclidean distances (μm) |
-| `ring_assignments` | list[int] | ✓ | Ring index for each neighbor (0-3) |
+| `niche_id` | string |  | Unique niche identifier (typically = cell_id) |
+| `receiver_cell_id` | string |  | Center/receiver cell |
+| `neighbor_cell_ids` | list[string] |  | Ordered list of neighbor IDs |
+| `neighbor_distances` | list[float] |  | Euclidean distances (μm) |
+| `ring_assignments` | list[int] |  | Ring index for each neighbor (0-3) |
 | `niche_composition` | dict |  | Cell type counts in neighborhood |
 | `niche_diversity` | float |  | Shannon entropy of composition |
 | `niche_density` | float |  | Cells per unit area |
 | `hlca_similarity_mean` | float |  | Mean HLCA similarity in neighborhood |
 | `luca_similarity_mean` | float |  | Mean LuCA similarity in neighborhood |
 | `pathway_scores` | dict |  | Ligand-receptor or pathway activities |
-| `graph_method` | string | ✓ | "knn" or "radius" |
+| `graph_method` | string |  | "knn" or "radius" |
 | `k_neighbors` | int |  | K value (if KNN) |
 | `radius_um` | float |  | Radius value (if radius-based) |
 
@@ -102,15 +102,15 @@ Training batches for transition learning.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `edge_id` | string | ✓ | "stage_src_to_stage_tgt" |
-| `source_stage` | string | ✓ | Source stage name |
-| `target_stage` | string | ✓ | Target stage name |
-| `source_cell_ids` | list[string] | ✓ | Source cell IDs |
-| `target_cell_ids` | list[string] | ✓ | Target cell IDs |
-| `n_source_cells` | int | ✓ | Number of source cells |
-| `n_target_cells` | int | ✓ | Number of target cells |
-| `donor_ids` | list[string] | ✓ | Donors contributing to this edge |
-| `lesion_ids` | list[string] | ✓ | Lesions contributing to this edge |
+| `edge_id` | string |  | "stage_src_to_stage_tgt" |
+| `source_stage` | string |  | Source stage name |
+| `target_stage` | string |  | Target stage name |
+| `source_cell_ids` | list[string] |  | Source cell IDs |
+| `target_cell_ids` | list[string] |  | Target cell IDs |
+| `n_source_cells` | int |  | Number of source cells |
+| `n_target_cells` | int |  | Number of target cells |
+| `donor_ids` | list[string] |  | Donors contributing to this edge |
+| `lesion_ids` | list[string] |  | Lesions contributing to this edge |
 | `edge_weight` | float |  | Edge weight for sampling (e.g., by prevalence) |
 | `has_genomics` | bool |  | Whether WES data available |
 
@@ -258,7 +258,7 @@ Genomic features per donor/lesion.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `sample_id` | string | ✓ | Donor or lesion ID |
+| `sample_id` | string |  | Donor or lesion ID |
 | `tmb` | float |  | Tumor mutation burden (mutations/Mb) |
 | `signature_sbs1` | float |  | Clock-like signature weight |
 | `signature_sbs4` | float |  | Smoking signature weight |
@@ -287,23 +287,23 @@ Each spatial backend produces standardized outputs.
 
 ```
 data/processed/<dataset>/spatial_backend/
-├── tangram/
-│   ├── cell_type_proportions.parquet
-│   ├── mapping_confidence.parquet
-│   ├── gene_imputation.h5ad  # optional
-│   ├── upstream_metrics.json
-│   └── backend_metadata.json
-├── destvi/
-│   ├── cell_type_proportions.parquet
-│   ├── mapping_confidence.parquet
-│   ├── gene_imputation.h5ad
-│   ├── upstream_metrics.json
-│   └── backend_metadata.json
-└── tacco/
-    ├── cell_type_proportions.parquet
-    ├── mapping_confidence.parquet
-    ├── upstream_metrics.json
-    └── backend_metadata.json
+ tangram/
+    cell_type_proportions.parquet
+    mapping_confidence.parquet
+    gene_imputation.h5ad  # optional
+    upstream_metrics.json
+    backend_metadata.json
+ destvi/
+    cell_type_proportions.parquet
+    mapping_confidence.parquet
+    gene_imputation.h5ad
+    upstream_metrics.json
+    backend_metadata.json
+ tacco/
+     cell_type_proportions.parquet
+     mapping_confidence.parquet
+     upstream_metrics.json
+     backend_metadata.json
 ```
 
 ### 3.2 Cell Type Proportions
@@ -312,9 +312,9 @@ data/processed/<dataset>/spatial_backend/
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `spot_id` | string | ✓ | Spatial spot identifier |
-| `cell_type` | string | ✓ | Cell type label |
-| `proportion` | float | ✓ | Estimated proportion (0-1) |
+| `spot_id` | string |  | Spatial spot identifier |
+| `cell_type` | string |  | Cell type label |
+| `proportion` | float |  | Estimated proportion (0-1) |
 | `n_cells_est` | float |  | Estimated number of cells |
 
 **Notes:**
@@ -328,8 +328,8 @@ data/processed/<dataset>/spatial_backend/
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `spot_id` | string | ✓ | Spatial spot identifier |
-| `confidence_score` | float | ✓ | Overall mapping confidence (0-1) |
+| `spot_id` | string |  | Spatial spot identifier |
+| `confidence_score` | float |  | Overall mapping confidence (0-1) |
 | `entropy` | float |  | Entropy of proportion distribution |
 | `n_cells` | int |  | Number of cells detected |
 
@@ -392,23 +392,23 @@ After running `run_data_prep.py`, the following files must exist:
 
 ```
 data/processed/<dataset>/
-├── snrna_merged.h5ad                    # 19GB (LUAD)
-├── snrna_qc_normalized.h5ad             # 15GB (post-QC)
-├── snrna_manifest.csv                   # Sample metadata
-├── spatial_merged.h5ad                  # 35GB (LUAD)
-├── spatial_qc_normalized.h5ad           # 28GB (post-QC)
-├── spatial_manifest.csv                 # Sample metadata
-├── wes_features.parquet                 # 50KB
-├── cells.parquet                        # 1GB
-├── neighborhoods.parquet                # 2GB
-├── stage_edges.parquet                  # 10MB
-├── split_manifest.json                  # 10KB
-├── feature_spec.yaml                    # 5KB
-├── spatial_backend/
-│   ├── tangram/...
-│   ├── destvi/...
-│   └── tacco/...
-└── audit_report.json                    # QC summary
+ snrna_merged.h5ad                    # 19GB (LUAD)
+ snrna_qc_normalized.h5ad             # 15GB (post-QC)
+ snrna_manifest.csv                   # Sample metadata
+ spatial_merged.h5ad                  # 35GB (LUAD)
+ spatial_qc_normalized.h5ad           # 28GB (post-QC)
+ spatial_manifest.csv                 # Sample metadata
+ wes_features.parquet                 # 50KB
+ cells.parquet                        # 1GB
+ neighborhoods.parquet                # 2GB
+ stage_edges.parquet                  # 10MB
+ split_manifest.json                  # 10KB
+ feature_spec.yaml                    # 5KB
+ spatial_backend/
+    tangram/...
+    destvi/...
+    tacco/...
+ audit_report.json                    # QC summary
 ```
 
 **Total Size Estimate:** ~100GB for LUAD dataset
@@ -637,18 +637,18 @@ For longitudinal studies:
 
 A dataset is V1-compliant if:
 
-- ✅ `cells.parquet` exists with all required fields
-- ✅ `neighborhoods.parquet` exists for spatial cells
-- ✅ `stage_edges.parquet` defines transition graph
-- ✅ `split_manifest.json` has donor-held-out splits
-- ✅ `feature_spec.yaml` documents all features
-- ✅ At least 3 spatial backends run and standardized
-- ✅ WES features available (even if optional)
-- ✅ All cell IDs are unique
-- ✅ All referenced IDs exist (no orphans)
-- ✅ Validation script passes all checks
-- ✅ Audit report generated
-- ✅ Version file exists with provenance
+-  `cells.parquet` exists with all required fields
+-  `neighborhoods.parquet` exists for spatial cells
+-  `stage_edges.parquet` defines transition graph
+-  `split_manifest.json` has donor-held-out splits
+-  `feature_spec.yaml` documents all features
+-  At least 3 spatial backends run and standardized
+-  WES features available (even if optional)
+-  All cell IDs are unique
+-  All referenced IDs exist (no orphans)
+-  Validation script passes all checks
+-  Audit report generated
+-  Version file exists with provenance
 
 ---
 
