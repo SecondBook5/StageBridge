@@ -21,6 +21,7 @@ import json
 import yaml
 from typing import Dict, List
 from tqdm import tqdm
+from stagebridge.utils.data_cache import get_data_cache
 
 
 def generate_canonical_artifacts(
@@ -55,14 +56,15 @@ def generate_canonical_artifacts(
     print("Generating Canonical Artifacts")
     print("=" * 80)
 
-    # Load data
+    # Load data (OPTIMIZED: Use cache for parquet files)
     print("\n[1/6] Loading data...")
+    cache = get_data_cache()
     snrna = ad.read_h5ad(snrna_path)
     spatial = ad.read_h5ad(spatial_path)
-    wes_df = pd.read_parquet(wes_features_path) if wes_features_path.exists() else None
+    wes_df = cache.read_parquet(wes_features_path) if wes_features_path.exists() else None
 
     # Load spatial backend results (use canonical backend from benchmark)
-    backend_results = pd.read_parquet(spatial_backend_dir / "cell_type_proportions.parquet")
+    backend_results = cache.read_parquet(spatial_backend_dir / "cell_type_proportions.parquet")
 
     print(f"  snRNA: {snrna.shape[0]} cells")
     print(f"  Spatial: {spatial.shape[0]} spots")
@@ -261,14 +263,15 @@ def generate_neighborhoods_table(
 
     records = []
 
-    for idx, row in tqdm(spatial_cells.iterrows(), total=len(spatial_cells), desc="  Building niches"):
-        cell_id = row["cell_id"]
-        donor_id = row["donor_id"]
-        stage = row["stage"]
+    # OPTIMIZED: Use enumerate + itertuples instead of iterrows (10× faster)
+    for pos_idx, row in enumerate(tqdm(spatial_cells.itertuples(), total=len(spatial_cells), desc="  Building niches")):
+        cell_id = row.cell_id
+        donor_id = row.donor_id
+        stage = row.stage
 
-        # Get neighbors (exclude self)
-        neighbor_indices = indices[idx][1:]
-        neighbor_distances = distances[idx][1:]
+        # Get neighbors (exclude self) - use positional index
+        neighbor_indices = indices[pos_idx][1:]
+        neighbor_distances = distances[pos_idx][1:]
 
         # Build 9-token structure
         tokens = []
@@ -278,8 +281,8 @@ def generate_neighborhoods_table(
             "token_idx": 0,
             "token_type": "receiver",
             "cell_id": cell_id,
-            "cell_type": row["cell_type"],
-            "z_fused": row["z_fused"],
+            "cell_type": row.cell_type,
+            "z_fused": row.z_fused,
         })
 
         # Tokens 1-4: Rings (5 cells per ring)
@@ -319,14 +322,14 @@ def generate_neighborhoods_table(
         tokens.append({
             "token_idx": 5,
             "token_type": "hlca",
-            "z_hlca": row["z_hlca"],
+            "z_hlca": row.z_hlca,
         })
 
         # Token 6: LuCA context
         tokens.append({
             "token_idx": 6,
             "token_type": "luca",
-            "z_luca": row["z_luca"],
+            "z_luca": row.z_luca,
         })
 
         # Token 7: Pathway activity (from spatial backend cell type proportions)

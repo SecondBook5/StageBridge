@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 import pandas as pd
 import anndata as ad
 import numpy as np
+from ..utils.data_cache import get_data_cache
 
 
 @dataclass
@@ -72,17 +73,26 @@ class SpatialMappingResult:
             )
 
     @classmethod
-    def load(cls, output_dir: Path) -> "SpatialMappingResult":
-        """Load results from standardized format."""
+    def load(cls, output_dir: Path, use_cache: bool = True) -> "SpatialMappingResult":
+        """Load results from standardized format (with optional caching)."""
         output_dir = Path(output_dir)
+        cache = get_data_cache() if use_cache else None
 
-        # Load main outputs
-        cell_type_proportions = pd.read_parquet(
-            output_dir / "cell_type_proportions.parquet"
-        )
-        confidence = pd.read_parquet(
-            output_dir / "mapping_confidence.parquet"
-        )["confidence"]
+        # Load main outputs (OPTIMIZED: Use cache to avoid redundant reads)
+        if cache:
+            cell_type_proportions = cache.read_parquet(
+                output_dir / "cell_type_proportions.parquet"
+            )
+            confidence = cache.read_parquet(
+                output_dir / "mapping_confidence.parquet"
+            )["confidence"]
+        else:
+            cell_type_proportions = pd.read_parquet(
+                output_dir / "cell_type_proportions.parquet"
+            )
+            confidence = pd.read_parquet(
+                output_dir / "mapping_confidence.parquet"
+            )["confidence"]
 
         # Load metrics
         import json
@@ -95,15 +105,25 @@ class SpatialMappingResult:
         # Load optional outputs
         cell_assignments = None
         if (output_dir / "cell_assignments.parquet").exists():
-            cell_assignments = pd.read_parquet(
-                output_dir / "cell_assignments.parquet"
-            )
+            if cache:
+                cell_assignments = cache.read_parquet(
+                    output_dir / "cell_assignments.parquet"
+                )
+            else:
+                cell_assignments = pd.read_parquet(
+                    output_dir / "cell_assignments.parquet"
+                )
 
         reconstructed_expression = None
         if (output_dir / "reconstructed_expression.parquet").exists():
-            reconstructed_expression = pd.read_parquet(
-                output_dir / "reconstructed_expression.parquet"
-            )
+            if cache:
+                reconstructed_expression = cache.read_parquet(
+                    output_dir / "reconstructed_expression.parquet"
+                )
+            else:
+                reconstructed_expression = pd.read_parquet(
+                    output_dir / "reconstructed_expression.parquet"
+                )
 
         return cls(
             cell_type_proportions=cell_type_proportions,

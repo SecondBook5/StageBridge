@@ -24,7 +24,7 @@ from typing import Dict
 import yaml
 
 # StageBridge imports
-from stagebridge.data.loaders import get_dataloader, StageBridgeBatch
+from stagebridge.data.loaders_optimized import get_dataloader_optimized, StageBridgeBatch
 from stagebridge.models.dual_reference import create_dual_reference_mapper
 from stagebridge.context_model.local_niche_encoder import LocalNicheTransformerEncoder
 from stagebridge.context_model.set_encoder import TypedSetContextEncoder
@@ -432,7 +432,7 @@ def main():
 
     # Create dataloaders
     print("\n[1/5] Creating dataloaders...")
-    train_loader = get_dataloader(
+    train_loader = get_dataloader_optimized(
         data_dir=args.data_dir,
         fold=args.fold,
         split="train",
@@ -441,7 +441,7 @@ def main():
         shuffle=True,
     )
 
-    val_loader = get_dataloader(
+    val_loader = get_dataloader_optimized(
         data_dir=args.data_dir,
         fold=args.fold,
         split="val",
@@ -450,7 +450,7 @@ def main():
         shuffle=False,
     )
 
-    test_loader = get_dataloader(
+    test_loader = get_dataloader_optimized(
         data_dir=args.data_dir,
         fold=args.fold,
         split="test",

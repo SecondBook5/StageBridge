@@ -129,9 +129,10 @@ class StageBridgeDataset(Dataset):
         """Build index mapping stage edges to source cells."""
         self.edge_to_cells = {}
 
-        for _, edge in self.stage_edges.iterrows():
-            edge_id = edge["edge_id"]
-            source_stage = edge["source_stage"]
+        # OPTIMIZED: Use itertuples() instead of iterrows() (10× faster)
+        for edge in self.stage_edges.itertuples():
+            edge_id = edge.edge_id
+            source_stage = edge.source_stage
 
             # Find all cells at source stage
             source_cells = self.cells[self.cells["stage"] == source_stage]

@@ -173,8 +173,9 @@ def extract_pathway_signatures(
     """
     results = []
 
-    for _, row in neighborhoods_df.iterrows():
-        tokens = row["tokens"]
+    # OPTIMIZED: Use itertuples() instead of iterrows() (10× faster)
+    for row in neighborhoods_df.itertuples():
+        tokens = row.tokens
 
         # Extract cell type composition from ring tokens
         cell_type_counts = {}
@@ -197,9 +198,9 @@ def extract_pathway_signatures(
         emt_score = 0.6 * caf_score + 0.4 * immune_score
 
         results.append({
-            "cell_id": row["cell_id"],
-            "donor_id": row["donor_id"],
-            "stage": row["stage"],
+            "cell_id": row.cell_id,
+            "donor_id": row.donor_id,
+            "stage": row.stage,
             "emt_score": emt_score,
             "caf_score": caf_score,
             "immune_score": immune_score,
