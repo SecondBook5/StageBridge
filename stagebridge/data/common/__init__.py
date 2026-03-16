@@ -1,2 +1,1 @@
 """Shared data-layer utilities."""
-

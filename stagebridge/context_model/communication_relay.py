@@ -1,4 +1,5 @@
 """Communication-relay transformer and baseline models for StageBridge."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -36,7 +37,9 @@ def _aggregate_bag_logits(query_logits: Tensor, bag_index: Tensor, num_bags: int
     for bag_idx in range(int(num_bags)):
         mask = bag_index == int(bag_idx)
         if not torch.any(mask):
-            bag_logits.append(torch.tensor(0.0, device=query_logits.device, dtype=query_logits.dtype))
+            bag_logits.append(
+                torch.tensor(0.0, device=query_logits.device, dtype=query_logits.dtype)
+            )
         else:
             bag_logits.append(query_logits[mask].mean())
     return torch.stack(bag_logits, dim=0)
@@ -63,7 +66,10 @@ def _build_relay_output(
     query_logits = _select_edge_logits(query_embeddings, batch.edge_ids, edge_heads)
     bag_logits = _aggregate_bag_logits(query_logits, batch.bag_index, len(batch.sample_ids))
     bag_embeddings = torch.stack(
-        [query_embeddings[batch.bag_index == idx].mean(dim=0) for idx in range(len(batch.sample_ids))],
+        [
+            query_embeddings[batch.bag_index == idx].mean(dim=0)
+            for idx in range(len(batch.sample_ids))
+        ],
         dim=0,
     )
     return CommunicationRelayOutput(
@@ -83,15 +89,37 @@ def collate_communication_bags(bags: list[CommunicationBag]) -> CommunicationBat
     receiver_dim = int(bags[0].examples[0].receiver_embedding.shape[0])
     program_dim = int(bags[0].examples[0].receiver_programs.shape[0])
     sender_dim = int(bags[0].examples[0].sender_embeddings.shape[1])
-    lr_dim = int(bags[0].examples[0].lr_token_features.shape[1]) if bags[0].examples[0].lr_token_features.size else 10
-    response_dim = int(bags[0].examples[0].response_token_features.shape[1]) if bags[0].examples[0].response_token_features.size else 5
-    relay_dim = int(bags[0].examples[0].relay_token_features.shape[1]) if bags[0].examples[0].relay_token_features.size else 6
+    lr_dim = (
+        int(bags[0].examples[0].lr_token_features.shape[1])
+        if bags[0].examples[0].lr_token_features.size
+        else 10
+    )
+    response_dim = (
+        int(bags[0].examples[0].response_token_features.shape[1])
+        if bags[0].examples[0].response_token_features.size
+        else 5
+    )
+    relay_dim = (
+        int(bags[0].examples[0].relay_token_features.shape[1])
+        if bags[0].examples[0].relay_token_features.size
+        else 6
+    )
     wes_dim = 0
     target_dim = 0
-    max_sender = max(example.sender_embeddings.shape[0] for bag in bags for example in bag.examples)
-    max_lr = max(max(example.lr_token_features.shape[0], 1) for bag in bags for example in bag.examples)
-    max_response = max(max(example.response_token_features.shape[0], 1) for bag in bags for example in bag.examples)
-    max_relay = max(max(example.relay_token_features.shape[0], 1) for bag in bags for example in bag.examples)
+    max_sender = max(
+        example.sender_embeddings.shape[0] for bag in bags for example in bag.examples
+    )
+    max_lr = max(
+        max(example.lr_token_features.shape[0], 1) for bag in bags for example in bag.examples
+    )
+    max_response = max(
+        max(example.response_token_features.shape[0], 1)
+        for bag in bags
+        for example in bag.examples
+    )
+    max_relay = max(
+        max(example.relay_token_features.shape[0], 1) for bag in bags for example in bag.examples
+    )
     for bag in bags:
         for example in bag.examples:
             if example.wes_features is not None:
@@ -106,7 +134,9 @@ def collate_communication_bags(bags: list[CommunicationBag]) -> CommunicationBat
     sender_offsets = torch.zeros((total_queries, max_sender, 2), dtype=torch.float32)
     ring_ids = torch.zeros((total_queries, max_sender), dtype=torch.long)
     lr_token_features = torch.zeros((total_queries, max_lr, lr_dim), dtype=torch.float32)
-    response_token_features = torch.zeros((total_queries, max_response, response_dim), dtype=torch.float32)
+    response_token_features = torch.zeros(
+        (total_queries, max_response, response_dim), dtype=torch.float32
+    )
     relay_token_features = torch.zeros((total_queries, max_relay, relay_dim), dtype=torch.float32)
     query_mask = torch.ones((total_queries,), dtype=torch.bool)
     sender_mask = torch.zeros((total_queries, max_sender), dtype=torch.bool)
@@ -116,8 +146,12 @@ def collate_communication_bags(bags: list[CommunicationBag]) -> CommunicationBat
     edge_ids = torch.zeros((total_queries,), dtype=torch.long)
     bag_index = torch.zeros((total_queries,), dtype=torch.long)
     weak_labels = torch.tensor([bag.weak_label for bag in bags], dtype=torch.float32)
-    wes_features = None if wes_dim <= 0 else torch.zeros((total_queries, wes_dim), dtype=torch.float32)
-    target_latent = None if target_dim <= 0 else torch.zeros((total_queries, target_dim), dtype=torch.float32)
+    wes_features = (
+        None if wes_dim <= 0 else torch.zeros((total_queries, wes_dim), dtype=torch.float32)
+    )
+    target_latent = (
+        None if target_dim <= 0 else torch.zeros((total_queries, target_dim), dtype=torch.float32)
+    )
     sample_ids = [bag.sample_id for bag in bags]
     donor_ids = [bag.donor_id for bag in bags]
     label_sources = [bag.label_source for bag in bags]
@@ -126,30 +160,58 @@ def collate_communication_bags(bags: list[CommunicationBag]) -> CommunicationBat
     query_idx = 0
     for bag_idx, bag in enumerate(bags):
         for example in bag.examples:
-            receiver_embedding[query_idx] = torch.as_tensor(example.receiver_embedding, dtype=torch.float32)
-            receiver_programs[query_idx] = torch.as_tensor(example.receiver_programs, dtype=torch.float32)
+            receiver_embedding[query_idx] = torch.as_tensor(
+                example.receiver_embedding, dtype=torch.float32
+            )
+            receiver_programs[query_idx] = torch.as_tensor(
+                example.receiver_programs, dtype=torch.float32
+            )
             n_sender = int(example.sender_embeddings.shape[0])
-            sender_embeddings[query_idx, :n_sender] = torch.as_tensor(example.sender_embeddings, dtype=torch.float32)
-            sender_types[query_idx, :n_sender] = torch.as_tensor(example.sender_types, dtype=torch.long)
-            sender_offsets[query_idx, :n_sender] = torch.as_tensor(example.sender_offsets, dtype=torch.float32)
+            sender_embeddings[query_idx, :n_sender] = torch.as_tensor(
+                example.sender_embeddings, dtype=torch.float32
+            )
+            sender_types[query_idx, :n_sender] = torch.as_tensor(
+                example.sender_types, dtype=torch.long
+            )
+            sender_offsets[query_idx, :n_sender] = torch.as_tensor(
+                example.sender_offsets, dtype=torch.float32
+            )
             ring_ids[query_idx, :n_sender] = torch.as_tensor(example.ring_ids, dtype=torch.long)
             sender_mask[query_idx, :n_sender] = True
             n_lr = int(example.lr_token_features.shape[0])
             if n_lr > 0:
-                lr_token_features[query_idx, :n_lr] = torch.as_tensor(example.lr_token_features, dtype=torch.float32)
+                lr_token_features[query_idx, :n_lr] = torch.as_tensor(
+                    example.lr_token_features, dtype=torch.float32
+                )
                 lr_mask[query_idx, :n_lr] = True
             n_response = int(example.response_token_features.shape[0])
             if n_response > 0:
-                response_token_features[query_idx, :n_response] = torch.as_tensor(example.response_token_features, dtype=torch.float32)
+                response_token_features[query_idx, :n_response] = torch.as_tensor(
+                    example.response_token_features, dtype=torch.float32
+                )
                 response_mask[query_idx, :n_response] = True
             n_relay = int(example.relay_token_features.shape[0])
             if n_relay > 0:
-                relay_token_features[query_idx, :n_relay] = torch.as_tensor(example.relay_token_features, dtype=torch.float32)
+                relay_token_features[query_idx, :n_relay] = torch.as_tensor(
+                    example.relay_token_features, dtype=torch.float32
+                )
                 relay_mask[query_idx, :n_relay] = True
-            if wes_features is not None and example.wes_features is not None and example.wes_features.size > 0:
-                wes_features[query_idx, : example.wes_features.shape[0]] = torch.as_tensor(example.wes_features, dtype=torch.float32)
-            if target_latent is not None and example.target_latent is not None and example.target_latent.size > 0:
-                target_latent[query_idx, : example.target_latent.shape[0]] = torch.as_tensor(example.target_latent, dtype=torch.float32)
+            if (
+                wes_features is not None
+                and example.wes_features is not None
+                and example.wes_features.size > 0
+            ):
+                wes_features[query_idx, : example.wes_features.shape[0]] = torch.as_tensor(
+                    example.wes_features, dtype=torch.float32
+                )
+            if (
+                target_latent is not None
+                and example.target_latent is not None
+                and example.target_latent.size > 0
+            ):
+                target_latent[query_idx, : example.target_latent.shape[0]] = torch.as_tensor(
+                    example.target_latent, dtype=torch.float32
+                )
             edge_ids[query_idx] = int(example.edge_id)
             bag_index[query_idx] = int(bag_idx)
             receiver_cell_ids.append(example.receiver_cell_id)
@@ -189,7 +251,9 @@ class SenderEncoder(nn.Module):
         super().__init__()
         self.block = SAB(dim=hidden_dim, num_heads=num_heads, dropout=dropout)
 
-    def forward(self, tokens: Tensor, mask: Tensor, *, return_attention: bool = False) -> tuple[Tensor, Tensor | None]:
+    def forward(
+        self, tokens: Tensor, mask: Tensor, *, return_attention: bool = False
+    ) -> tuple[Tensor, Tensor | None]:
         if return_attention:
             encoded, attn = self.block(tokens, mask=mask, return_attention=True)
             return encoded, attn
@@ -234,7 +298,9 @@ class RelayEncoder(nn.Module):
         super().__init__()
         self.block = SAB(dim=hidden_dim, num_heads=num_heads, dropout=dropout)
 
-    def forward(self, tokens: Tensor, mask: Tensor, *, return_attention: bool = False) -> tuple[Tensor, Tensor | None]:
+    def forward(
+        self, tokens: Tensor, mask: Tensor, *, return_attention: bool = False
+    ) -> tuple[Tensor, Tensor | None]:
         if return_attention:
             encoded, attn = self.block(tokens, mask=mask, return_attention=True)
             return encoded, attn
@@ -301,7 +367,9 @@ class StageBridgeCommunicationModel(nn.Module):
         self.use_response_tokens = bool(use_response_tokens)
         self.use_relay_tokens = bool(use_relay_tokens)
 
-        self.receiver_projection = nn.Linear(int(receiver_dim + receiver_program_dim + max(wes_dim, 0)), int(hidden_dim))
+        self.receiver_projection = nn.Linear(
+            int(receiver_dim + receiver_program_dim + max(wes_dim, 0)), int(hidden_dim)
+        )
         self.sender_projection = nn.Linear(int(sender_dim), int(hidden_dim))
         self.lr_projection = nn.Linear(int(lr_dim), int(hidden_dim))
         self.response_projection = nn.Linear(int(response_dim), int(hidden_dim))
@@ -315,12 +383,22 @@ class StageBridgeCommunicationModel(nn.Module):
         )
         self.edge_embedding = nn.Embedding(int(num_edges), int(hidden_dim))
         self.token_type_embedding = nn.Embedding(5, int(hidden_dim))
-        self.sender_encoder = SenderEncoder(int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
-        self.communication_encoder = CommunicationEncoder(int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
-        self.relay_encoder = RelayEncoder(int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
-        self.receiver_query = ReceiverQueryBlock(int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
+        self.sender_encoder = SenderEncoder(
+            int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout)
+        )
+        self.communication_encoder = CommunicationEncoder(
+            int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout)
+        )
+        self.relay_encoder = RelayEncoder(
+            int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout)
+        )
+        self.receiver_query = ReceiverQueryBlock(
+            int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout)
+        )
         self.query_norm = nn.LayerNorm(int(hidden_dim))
-        self.edge_heads = nn.ModuleList([nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))])
+        self.edge_heads = nn.ModuleList(
+            [nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))]
+        )
 
     def _receiver_token(self, batch: CommunicationBatch) -> Tensor:
         features = [batch.receiver_embedding, batch.receiver_programs]
@@ -340,7 +418,9 @@ class StageBridgeCommunicationModel(nn.Module):
         sender_tokens = sender_tokens + self.token_type_embedding.weight[1].view(1, 1, -1)
         return sender_tokens
 
-    def forward(self, batch: CommunicationBatch, *, return_attention: bool = False) -> CommunicationRelayOutput:
+    def forward(
+        self, batch: CommunicationBatch, *, return_attention: bool = False
+    ) -> CommunicationRelayOutput:
         receiver_token = self._receiver_token(batch)
         sender_tokens = self._sender_tokens(batch)
         encoded_sender, sender_attention = self.sender_encoder(
@@ -355,7 +435,9 @@ class StageBridgeCommunicationModel(nn.Module):
             attention_maps["sender_self_attention"] = sender_attention
 
         if self.use_lr_tokens:
-            lr_tokens = self.lr_projection(batch.lr_token_features) + self.token_type_embedding.weight[2].view(1, 1, -1)
+            lr_tokens = self.lr_projection(
+                batch.lr_token_features
+            ) + self.token_type_embedding.weight[2].view(1, 1, -1)
             encoded_lr, lr_attention = self.communication_encoder(
                 lr_tokens,
                 encoded_sender,
@@ -371,17 +453,23 @@ class StageBridgeCommunicationModel(nn.Module):
         relay_parts: list[Tensor] = []
         relay_masks: list[Tensor] = []
         if self.use_response_tokens:
-            response_tokens = self.response_projection(batch.response_token_features) + self.token_type_embedding.weight[3].view(1, 1, -1)
+            response_tokens = self.response_projection(
+                batch.response_token_features
+            ) + self.token_type_embedding.weight[3].view(1, 1, -1)
             relay_parts.append(response_tokens)
             relay_masks.append(batch.response_mask)
         if self.use_relay_tokens:
-            relay_tokens = self.relay_projection(batch.relay_token_features) + self.token_type_embedding.weight[4].view(1, 1, -1)
+            relay_tokens = self.relay_projection(
+                batch.relay_token_features
+            ) + self.token_type_embedding.weight[4].view(1, 1, -1)
             relay_parts.append(relay_tokens)
             relay_masks.append(batch.relay_mask)
         if relay_parts:
             relay_bank = torch.cat(relay_parts, dim=1)
             relay_mask = torch.cat(relay_masks, dim=1)
-            encoded_relay, relay_attention = self.relay_encoder(relay_bank, relay_mask, return_attention=return_attention)
+            encoded_relay, relay_attention = self.relay_encoder(
+                relay_bank, relay_mask, return_attention=return_attention
+            )
             encoded_relay = encoded_relay * relay_mask.unsqueeze(-1).to(encoded_relay.dtype)
             memory_parts.append(encoded_relay)
             memory_masks.append(relay_mask)
@@ -402,7 +490,10 @@ class StageBridgeCommunicationModel(nn.Module):
         query_logits = _select_edge_logits(query_embeddings, batch.edge_ids, self.edge_heads)
         bag_logits = _aggregate_bag_logits(query_logits, batch.bag_index, len(batch.sample_ids))
         bag_embeddings = torch.stack(
-            [query_embeddings[batch.bag_index == idx].mean(dim=0) for idx in range(len(batch.sample_ids))],
+            [
+                query_embeddings[batch.bag_index == idx].mean(dim=0)
+                for idx in range(len(batch.sample_ids))
+            ],
             dim=0,
         )
         return CommunicationRelayOutput(
@@ -413,14 +504,20 @@ class StageBridgeCommunicationModel(nn.Module):
             context_tokens=memory,
             attention_maps=attention_maps,
             diagnostics={
-                "sender_token_count_mean": float(batch.sender_mask.float().sum(dim=1).mean().item()),
+                "sender_token_count_mean": float(
+                    batch.sender_mask.float().sum(dim=1).mean().item()
+                ),
                 "lr_token_count_mean": float(batch.lr_mask.float().sum(dim=1).mean().item()),
-                "response_token_count_mean": float(batch.response_mask.float().sum(dim=1).mean().item()),
+                "response_token_count_mean": float(
+                    batch.response_mask.float().sum(dim=1).mean().item()
+                ),
                 "relay_token_count_mean": float(batch.relay_mask.float().sum(dim=1).mean().item()),
             },
         )
 
-    def counterfactual_edit(self, batch: CommunicationBatch, *, mask_lr: bool = False, mask_relay: bool = False) -> CommunicationRelayOutput:
+    def counterfactual_edit(
+        self, batch: CommunicationBatch, *, mask_lr: bool = False, mask_relay: bool = False
+    ) -> CommunicationRelayOutput:
         edited = CommunicationBatch(
             receiver_embedding=batch.receiver_embedding,
             receiver_programs=batch.receiver_programs,
@@ -428,9 +525,13 @@ class StageBridgeCommunicationModel(nn.Module):
             sender_types=batch.sender_types,
             sender_offsets=batch.sender_offsets,
             ring_ids=batch.ring_ids,
-            lr_token_features=torch.zeros_like(batch.lr_token_features) if mask_lr else batch.lr_token_features,
+            lr_token_features=torch.zeros_like(batch.lr_token_features)
+            if mask_lr
+            else batch.lr_token_features,
             response_token_features=batch.response_token_features,
-            relay_token_features=torch.zeros_like(batch.relay_token_features) if mask_relay else batch.relay_token_features,
+            relay_token_features=torch.zeros_like(batch.relay_token_features)
+            if mask_relay
+            else batch.relay_token_features,
             query_mask=batch.query_mask,
             sender_mask=batch.sender_mask,
             lr_mask=torch.zeros_like(batch.lr_mask) if mask_lr else batch.lr_mask,
@@ -452,7 +553,15 @@ class StageBridgeCommunicationModel(nn.Module):
 class FocalCellMLP(nn.Module):
     """Receiver-only baseline."""
 
-    def __init__(self, receiver_dim: int, receiver_program_dim: int, *, hidden_dim: int = 128, num_edges: int = 4, wes_dim: int = 0) -> None:
+    def __init__(
+        self,
+        receiver_dim: int,
+        receiver_program_dim: int,
+        *,
+        hidden_dim: int = 128,
+        num_edges: int = 4,
+        wes_dim: int = 0,
+    ) -> None:
         super().__init__()
         self.edge_embedding = nn.Embedding(int(num_edges), int(hidden_dim))
         self.mlp = nn.Sequential(
@@ -463,9 +572,13 @@ class FocalCellMLP(nn.Module):
             nn.GELU(),
             nn.LayerNorm(int(hidden_dim)),
         )
-        self.edge_heads = nn.ModuleList([nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))])
+        self.edge_heads = nn.ModuleList(
+            [nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))]
+        )
 
-    def forward(self, batch: CommunicationBatch, *, return_attention: bool = False) -> CommunicationRelayOutput:
+    def forward(
+        self, batch: CommunicationBatch, *, return_attention: bool = False
+    ) -> CommunicationRelayOutput:
         del return_attention
         features = [batch.receiver_embedding, batch.receiver_programs]
         if batch.wes_features is not None:
@@ -491,7 +604,15 @@ class PooledNeighborhoodModel(nn.Module):
         wes_dim: int = 0,
     ) -> None:
         super().__init__()
-        input_dim = int(receiver_dim + receiver_program_dim + sender_dim + lr_dim + response_dim + relay_dim + max(wes_dim, 0))
+        input_dim = int(
+            receiver_dim
+            + receiver_program_dim
+            + sender_dim
+            + lr_dim
+            + response_dim
+            + relay_dim
+            + max(wes_dim, 0)
+        )
         self.edge_embedding = nn.Embedding(int(num_edges), int(hidden_dim))
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, int(hidden_dim)),
@@ -501,15 +622,26 @@ class PooledNeighborhoodModel(nn.Module):
             nn.GELU(),
             nn.LayerNorm(int(hidden_dim)),
         )
-        self.edge_heads = nn.ModuleList([nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))])
+        self.edge_heads = nn.ModuleList(
+            [nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))]
+        )
 
-    def forward(self, batch: CommunicationBatch, *, return_attention: bool = False) -> CommunicationRelayOutput:
+    def forward(
+        self, batch: CommunicationBatch, *, return_attention: bool = False
+    ) -> CommunicationRelayOutput:
         del return_attention
         sender_pool = _masked_mean(batch.sender_embeddings, batch.sender_mask, dim=1)
         lr_pool = _masked_mean(batch.lr_token_features, batch.lr_mask, dim=1)
         response_pool = _masked_mean(batch.response_token_features, batch.response_mask, dim=1)
         relay_pool = _masked_mean(batch.relay_token_features, batch.relay_mask, dim=1)
-        parts = [batch.receiver_embedding, batch.receiver_programs, sender_pool, lr_pool, response_pool, relay_pool]
+        parts = [
+            batch.receiver_embedding,
+            batch.receiver_programs,
+            sender_pool,
+            lr_pool,
+            response_pool,
+            relay_pool,
+        ]
         if batch.wes_features is not None:
             parts.append(batch.wes_features)
         h = self.mlp(torch.cat(parts, dim=-1)) + self.edge_embedding(batch.edge_ids)
@@ -533,7 +665,13 @@ class DeepSetsCommunicationModel(nn.Module):
         wes_dim: int = 0,
     ) -> None:
         super().__init__()
-        max_dim = max(receiver_dim + receiver_program_dim + max(wes_dim, 0), sender_dim, lr_dim, response_dim, relay_dim)
+        max_dim = max(
+            receiver_dim + receiver_program_dim + max(wes_dim, 0),
+            sender_dim,
+            lr_dim,
+            response_dim,
+            relay_dim,
+        )
         self.max_dim = int(max_dim)
         self.token_type_embedding = nn.Embedding(5, int(hidden_dim))
         self.proj = nn.Linear(int(max_dim), int(hidden_dim))
@@ -551,30 +689,56 @@ class DeepSetsCommunicationModel(nn.Module):
             nn.LayerNorm(int(hidden_dim)),
         )
         self.edge_embedding = nn.Embedding(int(num_edges), int(hidden_dim))
-        self.edge_heads = nn.ModuleList([nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))])
+        self.edge_heads = nn.ModuleList(
+            [nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))]
+        )
 
     def _pad_last_dim(self, tensor: Tensor) -> Tensor:
         if tensor.shape[-1] == self.max_dim:
             return tensor
-        out = torch.zeros((*tensor.shape[:-1], self.max_dim), device=tensor.device, dtype=tensor.dtype)
+        out = torch.zeros(
+            (*tensor.shape[:-1], self.max_dim), device=tensor.device, dtype=tensor.dtype
+        )
         out[..., : tensor.shape[-1]] = tensor
         return out
 
-    def forward(self, batch: CommunicationBatch, *, return_attention: bool = False) -> CommunicationRelayOutput:
+    def forward(
+        self, batch: CommunicationBatch, *, return_attention: bool = False
+    ) -> CommunicationRelayOutput:
         del return_attention
         receiver_inputs = torch.cat(
-            [batch.receiver_embedding, batch.receiver_programs, batch.wes_features if batch.wes_features is not None else batch.receiver_embedding.new_zeros((batch.receiver_embedding.shape[0], 0))],
+            [
+                batch.receiver_embedding,
+                batch.receiver_programs,
+                batch.wes_features
+                if batch.wes_features is not None
+                else batch.receiver_embedding.new_zeros((batch.receiver_embedding.shape[0], 0)),
+            ],
             dim=-1,
         )
-        receiver_tok = self.proj(self._pad_last_dim(receiver_inputs).unsqueeze(1)) + self.token_type_embedding.weight[0].view(1, 1, -1)
-        sender_tok = self.proj(self._pad_last_dim(batch.sender_embeddings)) + self.token_type_embedding.weight[1].view(1, 1, -1)
-        lr_tok = self.proj(self._pad_last_dim(batch.lr_token_features)) + self.token_type_embedding.weight[2].view(1, 1, -1)
-        response_tok = self.proj(self._pad_last_dim(batch.response_token_features)) + self.token_type_embedding.weight[3].view(1, 1, -1)
-        relay_tok = self.proj(self._pad_last_dim(batch.relay_token_features)) + self.token_type_embedding.weight[4].view(1, 1, -1)
+        receiver_tok = self.proj(
+            self._pad_last_dim(receiver_inputs).unsqueeze(1)
+        ) + self.token_type_embedding.weight[0].view(1, 1, -1)
+        sender_tok = self.proj(
+            self._pad_last_dim(batch.sender_embeddings)
+        ) + self.token_type_embedding.weight[1].view(1, 1, -1)
+        lr_tok = self.proj(
+            self._pad_last_dim(batch.lr_token_features)
+        ) + self.token_type_embedding.weight[2].view(1, 1, -1)
+        response_tok = self.proj(
+            self._pad_last_dim(batch.response_token_features)
+        ) + self.token_type_embedding.weight[3].view(1, 1, -1)
+        relay_tok = self.proj(
+            self._pad_last_dim(batch.relay_token_features)
+        ) + self.token_type_embedding.weight[4].view(1, 1, -1)
         tokens = torch.cat([receiver_tok, sender_tok, lr_tok, response_tok, relay_tok], dim=1)
         mask = torch.cat(
             [
-                torch.ones((batch.receiver_embedding.shape[0], 1), device=batch.receiver_embedding.device, dtype=torch.bool),
+                torch.ones(
+                    (batch.receiver_embedding.shape[0], 1),
+                    device=batch.receiver_embedding.device,
+                    dtype=torch.bool,
+                ),
                 batch.sender_mask,
                 batch.lr_mask,
                 batch.response_mask,
@@ -585,32 +749,67 @@ class DeepSetsCommunicationModel(nn.Module):
         h = self.phi(tokens)
         pooled_mean = _masked_mean(h, mask, dim=1)
         pooled_max = (h.masked_fill(~mask.unsqueeze(-1), float("-inf"))).max(dim=1).values
-        pooled_max = torch.where(torch.isfinite(pooled_max), pooled_max, torch.zeros_like(pooled_max))
-        query_embeddings = self.rho(torch.cat([pooled_mean, pooled_max], dim=-1)) + self.edge_embedding(batch.edge_ids)
+        pooled_max = torch.where(
+            torch.isfinite(pooled_max), pooled_max, torch.zeros_like(pooled_max)
+        )
+        query_embeddings = self.rho(
+            torch.cat([pooled_mean, pooled_max], dim=-1)
+        ) + self.edge_embedding(batch.edge_ids)
         return _build_relay_output(query_embeddings, batch, self.edge_heads)
 
 
 class LocalGraphSAGEBaseline(nn.Module):
     """Two-layer local receiver-sender graph aggregator."""
 
-    def __init__(self, receiver_dim: int, receiver_program_dim: int, sender_dim: int, *, hidden_dim: int = 128, num_edges: int = 4, wes_dim: int = 0) -> None:
+    def __init__(
+        self,
+        receiver_dim: int,
+        receiver_program_dim: int,
+        sender_dim: int,
+        *,
+        hidden_dim: int = 128,
+        num_edges: int = 4,
+        wes_dim: int = 0,
+    ) -> None:
         super().__init__()
         receiver_input = int(receiver_dim + receiver_program_dim + max(wes_dim, 0))
         self.receiver_proj = nn.Linear(receiver_input, int(hidden_dim))
         self.sender_proj = nn.Linear(int(sender_dim), int(hidden_dim))
-        self.recv_update1 = nn.Sequential(nn.Linear(int(hidden_dim) * 2, int(hidden_dim)), nn.GELU(), nn.LayerNorm(int(hidden_dim)))
-        self.send_update1 = nn.Sequential(nn.Linear(int(hidden_dim) * 2, int(hidden_dim)), nn.GELU(), nn.LayerNorm(int(hidden_dim)))
-        self.recv_update2 = nn.Sequential(nn.Linear(int(hidden_dim) * 2, int(hidden_dim)), nn.GELU(), nn.LayerNorm(int(hidden_dim)))
-        self.send_update2 = nn.Sequential(nn.Linear(int(hidden_dim) * 2, int(hidden_dim)), nn.GELU(), nn.LayerNorm(int(hidden_dim)))
+        self.recv_update1 = nn.Sequential(
+            nn.Linear(int(hidden_dim) * 2, int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+        self.send_update1 = nn.Sequential(
+            nn.Linear(int(hidden_dim) * 2, int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+        self.recv_update2 = nn.Sequential(
+            nn.Linear(int(hidden_dim) * 2, int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
+        self.send_update2 = nn.Sequential(
+            nn.Linear(int(hidden_dim) * 2, int(hidden_dim)),
+            nn.GELU(),
+            nn.LayerNorm(int(hidden_dim)),
+        )
         self.edge_embedding = nn.Embedding(int(num_edges), int(hidden_dim))
-        self.edge_heads = nn.ModuleList([nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))])
+        self.edge_heads = nn.ModuleList(
+            [nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))]
+        )
 
-    def forward(self, batch: CommunicationBatch, *, return_attention: bool = False) -> CommunicationRelayOutput:
+    def forward(
+        self, batch: CommunicationBatch, *, return_attention: bool = False
+    ) -> CommunicationRelayOutput:
         del return_attention
         recv_inputs = [batch.receiver_embedding, batch.receiver_programs]
         if batch.wes_features is not None:
             recv_inputs.append(batch.wes_features)
-        recv = self.receiver_proj(torch.cat(recv_inputs, dim=-1)) + self.edge_embedding(batch.edge_ids)
+        recv = self.receiver_proj(torch.cat(recv_inputs, dim=-1)) + self.edge_embedding(
+            batch.edge_ids
+        )
         send = self.sender_proj(batch.sender_embeddings)
         neigh_mean1 = _masked_mean(send, batch.sender_mask, dim=1)
         recv1 = self.recv_update1(torch.cat([recv, neigh_mean1], dim=-1))
@@ -643,7 +842,9 @@ class LocalGraphTransformerBaseline(nn.Module):
         wes_dim: int = 0,
     ) -> None:
         super().__init__()
-        self.receiver_proj = nn.Linear(int(receiver_dim + receiver_program_dim + max(wes_dim, 0)), int(hidden_dim))
+        self.receiver_proj = nn.Linear(
+            int(receiver_dim + receiver_program_dim + max(wes_dim, 0)), int(hidden_dim)
+        )
         self.sender_proj = nn.Linear(int(sender_dim), int(hidden_dim))
         self.lr_proj = nn.Linear(int(lr_dim), int(hidden_dim))
         self.response_proj = nn.Linear(int(response_dim), int(hidden_dim))
@@ -669,20 +870,28 @@ class LocalGraphTransformerBaseline(nn.Module):
             ]
         )
         self.out_norm = nn.LayerNorm(int(hidden_dim))
-        self.edge_heads = nn.ModuleList([nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))])
+        self.edge_heads = nn.ModuleList(
+            [nn.Linear(int(hidden_dim), 1) for _ in range(int(num_edges))]
+        )
 
     def _query_graph_embedding(self, batch: CommunicationBatch, query_idx: int) -> Tensor:
         receiver_parts = [batch.receiver_embedding[query_idx], batch.receiver_programs[query_idx]]
         if batch.wes_features is not None:
             receiver_parts.append(batch.wes_features[query_idx])
         receiver_token = self.receiver_proj(torch.cat(receiver_parts, dim=-1))
-        receiver_token = receiver_token + self.edge_embedding(batch.edge_ids[query_idx]) + self.node_type_embedding.weight[0]
+        receiver_token = (
+            receiver_token
+            + self.edge_embedding(batch.edge_ids[query_idx])
+            + self.node_type_embedding.weight[0]
+        )
 
         sender_count = int(batch.sender_mask[query_idx].sum().item())
         sender_tokens: list[Tensor] = []
         for sender_idx in range(sender_count):
             token = self.sender_proj(batch.sender_embeddings[query_idx, sender_idx])
-            token = token + self.sender_type_embedding(batch.sender_types[query_idx, sender_idx].clamp_min(0))
+            token = token + self.sender_type_embedding(
+                batch.sender_types[query_idx, sender_idx].clamp_min(0)
+            )
             token = token + self.ring_embedding(batch.ring_ids[query_idx, sender_idx].clamp_min(0))
             token = token + self.offset_proj(batch.sender_offsets[query_idx, sender_idx])
             token = token + self.node_type_embedding.weight[1]
@@ -704,7 +913,9 @@ class LocalGraphTransformerBaseline(nn.Module):
                 batch.response_mask[query_idx : query_idx + 1],
                 dim=1,
             )[0]
-            aux_tokens.append(self.response_proj(response_mean) + self.node_type_embedding.weight[3])
+            aux_tokens.append(
+                self.response_proj(response_mean) + self.node_type_embedding.weight[3]
+            )
             aux_type_ids.append(3)
         if torch.any(batch.relay_mask[query_idx]):
             relay_mean = _masked_mean(
@@ -760,18 +971,36 @@ class LocalGraphTransformerBaseline(nn.Module):
         pooled = x[:, 0].mean(dim=0)
         return self.out_norm(receiver_out + pooled)
 
-    def forward(self, batch: CommunicationBatch, *, return_attention: bool = False) -> CommunicationRelayOutput:
+    def forward(
+        self, batch: CommunicationBatch, *, return_attention: bool = False
+    ) -> CommunicationRelayOutput:
         del return_attention
         query_embeddings = torch.stack(
-            [self._query_graph_embedding(batch, query_idx) for query_idx in range(batch.receiver_embedding.shape[0])],
+            [
+                self._query_graph_embedding(batch, query_idx)
+                for query_idx in range(batch.receiver_embedding.shape[0])
+            ],
             dim=0,
         )
-        return _build_relay_output(query_embeddings, batch, self.edge_heads, diagnostics={
-            "sender_token_count_mean": float(batch.sender_mask.float().sum(dim=1).mean().item()),
-            "aux_node_count_mean": float(
-                (batch.lr_mask.any(dim=1).float() + batch.response_mask.any(dim=1).float() + batch.relay_mask.any(dim=1).float()).mean().item()
-            ),
-        })
+        return _build_relay_output(
+            query_embeddings,
+            batch,
+            self.edge_heads,
+            diagnostics={
+                "sender_token_count_mean": float(
+                    batch.sender_mask.float().sum(dim=1).mean().item()
+                ),
+                "aux_node_count_mean": float(
+                    (
+                        batch.lr_mask.any(dim=1).float()
+                        + batch.response_mask.any(dim=1).float()
+                        + batch.relay_mask.any(dim=1).float()
+                    )
+                    .mean()
+                    .item()
+                ),
+            },
+        )
 
 
 class TransportHeadOTCFM(nn.Module):
@@ -809,7 +1038,13 @@ def build_communication_model(
 ) -> nn.Module:
     key = str(model_name)
     if key == "focal_only":
-        return FocalCellMLP(receiver_dim, receiver_program_dim, hidden_dim=hidden_dim, num_edges=num_edges, wes_dim=wes_dim)
+        return FocalCellMLP(
+            receiver_dim,
+            receiver_program_dim,
+            hidden_dim=hidden_dim,
+            num_edges=num_edges,
+            wes_dim=wes_dim,
+        )
     if key == "pooled":
         return PooledNeighborhoodModel(
             receiver_dim,

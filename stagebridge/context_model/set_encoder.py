@@ -1,4 +1,5 @@
 """Set Transformer components used by StageBridge context encoding."""
+
 from __future__ import annotations
 
 import math
@@ -156,7 +157,9 @@ class ISAB(nn.Module):
 class PMA(nn.Module):
     """Pooling by multihead attention."""
 
-    def __init__(self, dim: int, num_heads: int = 8, num_seed_vectors: int = 1, dropout: float = 0.1) -> None:
+    def __init__(
+        self, dim: int, num_heads: int = 8, num_seed_vectors: int = 1, dropout: float = 0.1
+    ) -> None:
         super().__init__()
         self.seed_vectors = nn.Parameter(torch.randn(1, num_seed_vectors, dim) * 0.02)
         self.mha = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
@@ -210,7 +213,8 @@ class SinusoidalTimeEmbedding(nn.Module):
         device = t.device
         dtype = t.dtype
         freq = torch.exp(
-            torch.arange(half, device=device, dtype=dtype) * (-math.log(10_000.0) / max(half - 1, 1))
+            torch.arange(half, device=device, dtype=dtype)
+            * (-math.log(10_000.0) / max(half - 1, 1))
         )
         phase = t[:, None] * freq[None, :]
         emb = torch.cat([torch.sin(phase), torch.cos(phase)], dim=-1)
@@ -399,7 +403,10 @@ class TypedSetContextEncoder(nn.Module):
             token_confidence,
         )
         normalized_tokens = torch.stack(
-            [self._normalize_by_group(batch_tokens, batch_type_ids) for batch_tokens, batch_type_ids in zip(tokens, token_type_ids, strict=False)],
+            [
+                self._normalize_by_group(batch_tokens, batch_type_ids)
+                for batch_tokens, batch_type_ids in zip(tokens, token_type_ids, strict=False)
+            ],
             dim=0,
         )
         h = self.input_projection(normalized_tokens)
@@ -439,8 +446,12 @@ class TypedSetContextEncoder(nn.Module):
         context = self.context_head(pooled)
         diagnostics = {
             "confidence_gate_mean": confidence_gate_mean,
-            "mean_token_confidence": float(token_confidence.detach().mean().item()) if token_confidence is not None else 1.0,
-            "mean_token_radius": float(normalized_coords.detach().norm(dim=-1).mean().item()) if normalized_coords is not None else 0.0,
+            "mean_token_confidence": float(token_confidence.detach().mean().item())
+            if token_confidence is not None
+            else 1.0,
+            "mean_token_radius": float(normalized_coords.detach().norm(dim=-1).mean().item())
+            if normalized_coords is not None
+            else 0.0,
         }
         if squeeze:
             return SetContextSummary(
@@ -494,7 +505,9 @@ class DeepSetsTransformerHybridEncoder(nn.Module):
 
         self.input_projection = nn.Linear(int(input_dim), int(hidden_dim))
         self.token_type_embedding = (
-            nn.Embedding(self.num_token_types, int(hidden_dim)) if use_token_type_embeddings else None
+            nn.Embedding(self.num_token_types, int(hidden_dim))
+            if use_token_type_embeddings
+            else None
         )
         self.coord_projection = nn.Sequential(
             nn.Linear(2, int(hidden_dim)),
@@ -592,8 +605,16 @@ class DeepSetsTransformerHybridEncoder(nn.Module):
         keep_mask = torch.rand(tokens.shape[:-1], device=tokens.device) < keep_prob
         keep_mask[..., 0] = True
         dropped_tokens = tokens * keep_mask.unsqueeze(-1).to(tokens.dtype)
-        dropped_confidence = None if token_confidence is None else token_confidence * keep_mask.to(token_confidence.dtype)
-        dropped_coords = None if token_coords is None else token_coords * keep_mask.unsqueeze(-1).to(token_coords.dtype)
+        dropped_confidence = (
+            None
+            if token_confidence is None
+            else token_confidence * keep_mask.to(token_confidence.dtype)
+        )
+        dropped_coords = (
+            None
+            if token_coords is None
+            else token_coords * keep_mask.unsqueeze(-1).to(token_coords.dtype)
+        )
         return dropped_tokens, token_type_ids, dropped_confidence, dropped_coords
 
     def forward(
@@ -660,8 +681,12 @@ class DeepSetsTransformerHybridEncoder(nn.Module):
                 n_src=0,
                 return_attention=True,
             )
-            transformer_h, sab_attention = self.sab(transformer_h, mask=mask, return_attention=True)
-            pooled_tokens, pma_attention = self.pma(transformer_h, mask=mask, return_attention=True)
+            transformer_h, sab_attention = self.sab(
+                transformer_h, mask=mask, return_attention=True
+            )
+            pooled_tokens, pma_attention = self.pma(
+                transformer_h, mask=mask, return_attention=True
+            )
             attention_maps = {
                 "hybrid_isab_inducing_to_tokens": isab_attention["inducing_to_tokens"],
                 "hybrid_isab_tokens_to_inducing": isab_attention["tokens_to_inducing"],
@@ -670,7 +695,9 @@ class DeepSetsTransformerHybridEncoder(nn.Module):
                 "pma_seed_attention": pma_attention,
             }
         else:
-            transformer_h = self.isab(deep_embeddings, mask=mask, coords=normalized_coords, n_src=0)
+            transformer_h = self.isab(
+                deep_embeddings, mask=mask, coords=normalized_coords, n_src=0
+            )
             transformer_h = self.sab(transformer_h, mask=mask)
             pooled_tokens = self.pma(transformer_h, mask=mask)
 
@@ -681,11 +708,17 @@ class DeepSetsTransformerHybridEncoder(nn.Module):
         drift_tokens = torch.cat([baseline_token, pooled_tokens], dim=1)
         diagnostics = {
             "confidence_gate_mean": confidence_gate_mean,
-            "mean_token_confidence": float(token_confidence.detach().mean().item()) if token_confidence is not None else 1.0,
-            "mean_token_radius": float(normalized_coords.detach().norm(dim=-1).mean().item()) if normalized_coords is not None else 0.0,
+            "mean_token_confidence": float(token_confidence.detach().mean().item())
+            if token_confidence is not None
+            else 1.0,
+            "mean_token_radius": float(normalized_coords.detach().norm(dim=-1).mean().item())
+            if normalized_coords is not None
+            else 0.0,
             "hybrid_gate_mean": float(gate.detach().mean().item()),
             "deep_sets_context_norm": float(deep_context.detach().norm(dim=-1).mean().item()),
-            "transformer_refinement_norm": float(transformer_summary.detach().norm(dim=-1).mean().item()),
+            "transformer_refinement_norm": float(
+                transformer_summary.detach().norm(dim=-1).mean().item()
+            ),
         }
         if squeeze:
             return SetContextSummary(

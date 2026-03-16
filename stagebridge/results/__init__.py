@@ -15,7 +15,12 @@ from .registry import (
     read_results_registry,
 )
 from .result_card import build_result_card
-from .run_writer import load_current_scratch_run, run_smoke_execution, write_pipeline_scratch_run, write_scratch_run
+from .run_writer import (
+    load_current_scratch_run,
+    run_smoke_execution,
+    write_pipeline_scratch_run,
+    write_scratch_run,
+)
 
 __all__ = [
     "MilestoneArchiveResult",

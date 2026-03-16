@@ -1,4 +1,5 @@
 """Hybrid provider benchmarking for Tangram, TACCO, and DestVI."""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -38,12 +39,9 @@ def _provider_agreement_summary(agreement_table: pd.DataFrame) -> pd.DataFrame:
         }
         rows.extend([left, right])
     frame = pd.DataFrame(rows)
-    return (
-        frame.groupby("method", as_index=False)
-        .agg(
-            winner_agreement_mean=("winner_agreement", "mean"),
-            cosine_similarity_mean=("cosine_similarity", "mean"),
-        )
+    return frame.groupby("method", as_index=False).agg(
+        winner_agreement_mean=("winner_agreement", "mean"),
+        cosine_similarity_mean=("cosine_similarity", "mean"),
     )
 
 
@@ -79,18 +77,19 @@ def summarize_provider_benchmark(
     if qc.empty:
         qc = pd.DataFrame({"method": methods})
     qc["method"] = qc["method"].astype(str)
-    qc["complete_flag"] = qc.get("status", pd.Series(["failed"] * qc.shape[0])).eq("complete").astype(float)
-    qc["row_sum_deviation"] = (qc.get("mean_row_sum", pd.Series([np.nan] * qc.shape[0])).astype(float) - 1.0).abs()
-    qc_agg = (
-        qc.groupby("method", as_index=False)
-        .agg(
-            mean_row_sum=("mean_row_sum", "mean"),
-            rows_close_to_one_frac=("rows_close_to_one_frac", "mean"),
-            mean_max_assignment=("mean_max_assignment", "mean"),
-            mean_normalized_entropy=("mean_normalized_entropy", "mean"),
-            complete_fraction=("complete_flag", "mean"),
-            row_sum_deviation=("row_sum_deviation", "mean"),
-        )
+    qc["complete_flag"] = (
+        qc.get("status", pd.Series(["failed"] * qc.shape[0])).eq("complete").astype(float)
+    )
+    qc["row_sum_deviation"] = (
+        qc.get("mean_row_sum", pd.Series([np.nan] * qc.shape[0])).astype(float) - 1.0
+    ).abs()
+    qc_agg = qc.groupby("method", as_index=False).agg(
+        mean_row_sum=("mean_row_sum", "mean"),
+        rows_close_to_one_frac=("rows_close_to_one_frac", "mean"),
+        mean_max_assignment=("mean_max_assignment", "mean"),
+        mean_normalized_entropy=("mean_normalized_entropy", "mean"),
+        complete_fraction=("complete_flag", "mean"),
+        row_sum_deviation=("row_sum_deviation", "mean"),
     )
 
     qc_agg["mapping_rank"] = (
@@ -104,14 +103,11 @@ def summarize_provider_benchmark(
     if perf.empty:
         perf = pd.DataFrame({"method": methods})
     perf["method"] = perf["method"].astype(str)
-    perf_agg = (
-        perf.groupby("method", as_index=False)
-        .agg(
-            sinkhorn_mean=("sinkhorn", "mean"),
-            sinkhorn_std=("sinkhorn", "std"),
-            calibration_mean=("calibration_error", "mean"),
-            calibration_std=("calibration_error", "std"),
-        )
+    perf_agg = perf.groupby("method", as_index=False).agg(
+        sinkhorn_mean=("sinkhorn", "mean"),
+        sinkhorn_std=("sinkhorn", "std"),
+        calibration_mean=("calibration_error", "mean"),
+        calibration_std=("calibration_error", "std"),
     )
     perf_agg["performance_rank"] = (
         _rank(perf_agg["sinkhorn_mean"], ascending=True)
@@ -119,7 +115,12 @@ def summarize_provider_benchmark(
     ) / 2.0
 
     stability_rows: list[dict[str, Any]] = []
-    if not perf.empty and {"dominant_increase_group", "dominant_decrease_group", "edge", "mode"}.issubset(perf.columns):
+    if not perf.empty and {
+        "dominant_increase_group",
+        "dominant_decrease_group",
+        "edge",
+        "mode",
+    }.issubset(perf.columns):
         perf = perf.copy()
         perf["biology_pair"] = (
             perf["dominant_increase_group"].fillna("n/a").astype(str)
@@ -151,7 +152,9 @@ def summarize_provider_benchmark(
                     {
                         "method": str(method),
                         "dominant_pair_consistency": majority_frac,
-                        "edge_interpretation_distinctiveness": float(np.mean(edge_distinct)) if edge_distinct else float("nan"),
+                        "edge_interpretation_distinctiveness": float(np.mean(edge_distinct))
+                        if edge_distinct
+                        else float("nan"),
                     }
                 )
     stability = pd.DataFrame(stability_rows)
@@ -172,8 +175,12 @@ def summarize_provider_benchmark(
         .merge(stability, on="method", how="left")
     )
     provider_scores["mapping_rank"] = provider_scores["mapping_rank"].fillna(float(len(methods)))
-    provider_scores["performance_rank"] = provider_scores["performance_rank"].fillna(float(len(methods)))
-    provider_scores["stability_rank"] = provider_scores["stability_rank"].fillna(float(len(methods)))
+    provider_scores["performance_rank"] = provider_scores["performance_rank"].fillna(
+        float(len(methods))
+    )
+    provider_scores["stability_rank"] = provider_scores["stability_rank"].fillna(
+        float(len(methods))
+    )
     provider_scores["hybrid_rank_score"] = (
         0.25 * provider_scores["mapping_rank"]
         + 0.50 * provider_scores["performance_rank"]
@@ -185,9 +192,21 @@ def summarize_provider_benchmark(
     ).reset_index(drop=True)
 
     top_method = None if provider_scores.empty else str(provider_scores.iloc[0]["method"])
-    second_score = float(provider_scores.iloc[1]["hybrid_rank_score"]) if provider_scores.shape[0] > 1 else float("inf")
-    top_score = float(provider_scores.iloc[0]["hybrid_rank_score"]) if provider_scores.shape[0] > 0 else float("inf")
-    winner_margin = float(second_score - top_score) if np.isfinite(second_score) and np.isfinite(top_score) else float("inf")
+    second_score = (
+        float(provider_scores.iloc[1]["hybrid_rank_score"])
+        if provider_scores.shape[0] > 1
+        else float("inf")
+    )
+    top_score = (
+        float(provider_scores.iloc[0]["hybrid_rank_score"])
+        if provider_scores.shape[0] > 0
+        else float("inf")
+    )
+    winner_margin = (
+        float(second_score - top_score)
+        if np.isfinite(second_score) and np.isfinite(top_score)
+        else float("inf")
+    )
 
     selection_status = "pass"
     selection_reason = f"{top_method} achieved the best weighted provider rank."
@@ -197,11 +216,15 @@ def summarize_provider_benchmark(
     gate_status = str((reference_gate or {}).get("status", "pass"))
     if gate_status == "fail":
         selection_status = "inconclusive"
-        selection_reason = "HLCA alignment gate failed, so provider selection cannot be trusted as a default."
+        selection_reason = (
+            "HLCA alignment gate failed, so provider selection cannot be trusted as a default."
+        )
         recommended_action = "needs_more_data"
     elif provider_scores.shape[0] < 2:
         selection_status = "inconclusive"
-        selection_reason = "Only one provider completed credibly, so selection remains inconclusive."
+        selection_reason = (
+            "Only one provider completed credibly, so selection remains inconclusive."
+        )
         recommended_action = "needs_more_data"
     elif winner_margin < decisive_margin:
         selection_status = "inconclusive"
@@ -210,7 +233,9 @@ def summarize_provider_benchmark(
             "is too small to call the provider winner decisive."
         )
         recommended_action = "keep_as_optional"
-    elif provider_scores.iloc[0]["performance_rank"] > provider_scores.iloc[0]["mapping_rank"] + 1.0:
+    elif (
+        provider_scores.iloc[0]["performance_rank"] > provider_scores.iloc[0]["mapping_rank"] + 1.0
+    ):
         selection_status = "weak_pass"
         selection_reason = (
             f"{top_method} ranked first overall, but the QC/performance split is uneven. "
@@ -256,4 +281,3 @@ def render_provider_benchmark_md(benchmark_payload: Mapping[str, Any]) -> str:
             ]
         )
     return "\n".join(lines).strip() + "\n"
-

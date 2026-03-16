@@ -70,7 +70,13 @@ def _synthetic_spatial() -> SpatialCohort:
         }
     )
     feature_names = ("AT2", "Basal", "Capillary", "Ciliated", "Fibroblast lineage", "Macrophages")
-    return SpatialCohort(compositions=comps, coords=coords, obs=obs, feature_names=feature_names, source_path=Path("/tmp/synthetic_spatial.h5ad"))
+    return SpatialCohort(
+        compositions=comps,
+        coords=coords,
+        obs=obs,
+        feature_names=feature_names,
+        source_path=Path("/tmp/synthetic_spatial.h5ad"),
+    )
 
 
 def _synthetic_wes() -> WESCohort:
@@ -90,7 +96,16 @@ def _synthetic_wes() -> WESCohort:
     )
     return WESCohort(
         frame=frame,
-        feature_columns=("tmb", "kras_mut", "egfr_mut", "tp53_mut", "stk11_mut", "keap1_mut", "smad4_mut", "braf_mut"),
+        feature_columns=(
+            "tmb",
+            "kras_mut",
+            "egfr_mut",
+            "tp53_mut",
+            "stk11_mut",
+            "keap1_mut",
+            "smad4_mut",
+            "braf_mut",
+        ),
         source_path=Path("/tmp/synthetic_wes.parquet"),
     )
 
@@ -125,7 +140,12 @@ def _synthetic_expression_frame() -> pd.DataFrame:
     base = np.linspace(0.1, 2.0, len(genes), dtype=np.float32)
     rows = []
     for idx, cell_id in enumerate(["c1", "c2", "c3", "c4", "c5", "c6"]):
-        rows.append({"cell_id": cell_id, **{gene: float(base[g_idx] + 0.2 * idx) for g_idx, gene in enumerate(genes)}})
+        rows.append(
+            {
+                "cell_id": cell_id,
+                **{gene: float(base[g_idx] + 0.2 * idx) for g_idx, gene in enumerate(genes)},
+            }
+        )
     return pd.DataFrame(rows)
 
 

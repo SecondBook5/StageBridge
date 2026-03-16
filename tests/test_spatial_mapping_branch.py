@@ -1,4 +1,5 @@
 """Mission 3 tests for the spatial mapping branch."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -128,7 +129,10 @@ def test_tangram_mapping_contract_and_interfaces(tmp_path: Path) -> None:
     pipeline_output = run_spatial_mapping(cfg)
     assert pipeline_output["ok"] is True
     assert pipeline_output["status"] == "complete"
-    assert pipeline_output["spatial_mapping"]["n_spots"] == 4 or pipeline_output["spatial_mapping"]["n_spots"] == 3
+    assert (
+        pipeline_output["spatial_mapping"]["n_spots"] == 4
+        or pipeline_output["spatial_mapping"]["n_spots"] == 3
+    )
 
 
 def test_tangram_rebuild_and_tacco_raw_provider_paths(tmp_path: Path) -> None:
@@ -199,7 +203,9 @@ def test_tangram_rebuild_and_tacco_raw_provider_paths(tmp_path: Path) -> None:
     assert tacco.execution_mode == "rebuild_cached"
     assert tacco.provenance is not None
     assert tacco.provenance["annotation_method_used"] in {"OT", "nnls"}
-    assert tacco.provenance["reference_subset_metadata"]["label_source"]["source"] == "labels_parquet"
+    assert (
+        tacco.provenance["reference_subset_metadata"]["label_source"]["source"] == "labels_parquet"
+    )
     assert tacco.compositions is not None
     assert tacco.compositions.shape[0] == 2
 

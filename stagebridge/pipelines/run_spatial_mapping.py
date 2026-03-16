@@ -1,4 +1,5 @@
 """Spatial-mapping pipeline entrypoint."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -50,5 +51,7 @@ def run_spatial_mapping(
         "status": result.status,
         "spatial_mapping": result.summary(),
         "mapping_result": result,
-        "reference_summary": None if reference_output is None else reference_output.get("reference"),
+        "reference_summary": None
+        if reference_output is None
+        else reference_output.get("reference"),
     }

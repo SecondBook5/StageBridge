@@ -1,4 +1,5 @@
 """Gaussian bridge initialization for edge-wise stochastic transitions."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

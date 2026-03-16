@@ -1,4 +1,5 @@
 """Hierarchical typed transformer context encoder for StageBridge v2."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,7 +8,13 @@ from typing import Any
 import torch
 from torch import Tensor, nn
 
-from stagebridge.context_model.set_encoder import FeedForwardBlock, ISAB, PMA, SAB, SetContextSummary
+from stagebridge.context_model.set_encoder import (
+    FeedForwardBlock,
+    ISAB,
+    PMA,
+    SAB,
+    SetContextSummary,
+)
 
 
 DATASET_TO_ID = {
@@ -53,7 +60,12 @@ class _GroupSetEncoder(nn.Module):
             use_spatial_rpe=use_spatial_rpe,
         )
         self.sab = SAB(dim=hidden_dim, num_heads=num_heads, dropout=dropout)
-        self.pma = PMA(dim=hidden_dim, num_heads=num_heads, num_seed_vectors=num_summary_tokens, dropout=dropout)
+        self.pma = PMA(
+            dim=hidden_dim,
+            num_heads=num_heads,
+            num_seed_vectors=num_summary_tokens,
+            dropout=dropout,
+        )
 
     def forward(
         self,
@@ -129,7 +141,9 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
         self.num_fusion_queries = int(num_fusion_queries)
         self.token_dropout_rate = float(token_dropout_rate)
         self.use_relation_tokens = bool(use_relation_tokens)
-        self.group_names = tuple(group_names or [f"group_{idx}" for idx in range(self.num_token_types)])
+        self.group_names = tuple(
+            group_names or [f"group_{idx}" for idx in range(self.num_token_types)]
+        )
         self.query_role_names = tuple(
             [
                 "source_stage",
@@ -164,7 +178,9 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
         self.dataset_proj = nn.Linear(int(hidden_dim), int(hidden_dim))
         self.dataset_film = nn.Linear(int(hidden_dim), int(hidden_dim) * 2)
         self.edge_embedding = nn.Embedding(int(num_edges), int(hidden_dim))
-        self.query_tokens = nn.Parameter(torch.randn(1, self.num_fusion_queries, int(hidden_dim)) * 0.02)
+        self.query_tokens = nn.Parameter(
+            torch.randn(1, self.num_fusion_queries, int(hidden_dim)) * 0.02
+        )
         self.query_role_embedding = nn.Embedding(self.num_fusion_queries, int(hidden_dim))
         self.group_confidence_proj = nn.Sequential(
             nn.Linear(1, int(hidden_dim)),
@@ -172,7 +188,8 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
             nn.Linear(int(hidden_dim), int(hidden_dim)),
         )
         self.empty_group_tokens = nn.Parameter(
-            torch.randn(self.num_token_types, self.num_group_summary_tokens, int(hidden_dim)) * 0.02
+            torch.randn(self.num_token_types, self.num_group_summary_tokens, int(hidden_dim))
+            * 0.02
         )
         self.relation_pair_indices = [
             (left_idx, right_idx)
@@ -197,12 +214,18 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
                 for _ in range(self.num_token_types)
             ]
         )
-        self.fusion_attn = nn.MultiheadAttention(int(hidden_dim), int(num_heads), dropout=float(dropout), batch_first=True)
+        self.fusion_attn = nn.MultiheadAttention(
+            int(hidden_dim), int(num_heads), dropout=float(dropout), batch_first=True
+        )
         self.fusion_ln1 = nn.LayerNorm(int(hidden_dim))
         self.fusion_ff = FeedForwardBlock(dim=int(hidden_dim), dropout=float(dropout))
         self.fusion_ln2 = nn.LayerNorm(int(hidden_dim))
-        self.fusion_sab = SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
-        self.fusion_sab2 = SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
+        self.fusion_sab = SAB(
+            dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout)
+        )
+        self.fusion_sab2 = SAB(
+            dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout)
+        )
         self.relation_mlp = nn.Sequential(
             nn.Linear(int(hidden_dim) * 4, int(hidden_dim) * 2),
             nn.GELU(),
@@ -248,8 +271,16 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
         keep_mask = torch.rand(tokens.shape[:-1], device=tokens.device) < keep_prob
         keep_mask[..., 0] = True
         dropped_tokens = tokens * keep_mask.unsqueeze(-1).to(tokens.dtype)
-        dropped_confidence = None if token_confidence is None else token_confidence * keep_mask.to(token_confidence.dtype)
-        dropped_coords = None if token_coords is None else token_coords * keep_mask.unsqueeze(-1).to(token_coords.dtype)
+        dropped_confidence = (
+            None
+            if token_confidence is None
+            else token_confidence * keep_mask.to(token_confidence.dtype)
+        )
+        dropped_coords = (
+            None
+            if token_coords is None
+            else token_coords * keep_mask.unsqueeze(-1).to(token_coords.dtype)
+        )
         return dropped_tokens, token_type_ids, dropped_confidence, dropped_coords
 
     def _encode_single_group(
@@ -324,10 +355,14 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
         group_means = [summary.mean(dim=0) for summary in group_summaries]
         relation_tokens: list[Tensor] = []
         relation_scores: dict[str, float] = {}
-        for relation_name, (left_idx, right_idx) in zip(self.relation_pair_names, self.relation_pair_indices, strict=False):
+        for relation_name, (left_idx, right_idx) in zip(
+            self.relation_pair_names, self.relation_pair_indices, strict=False
+        ):
             left = group_means[left_idx]
             right = group_means[right_idx]
-            relation_input = torch.cat([left, right, torch.abs(left - right), left * right], dim=-1)
+            relation_input = torch.cat(
+                [left, right, torch.abs(left - right), left * right], dim=-1
+            )
             relation_token = self.relation_mlp(relation_input)
             relation_tokens.append(relation_token)
             left_conf = float(group_diag_rows[left_idx]["mean_confidence"])
@@ -400,8 +435,12 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
                 summary, group_attention, diag = self._encode_single_group(
                     normalized_tokens[batch_idx],
                     token_type_ids[batch_idx],
-                    batch_coords=None if normalized_coords is None else normalized_coords[batch_idx],
-                    batch_confidence=None if token_confidence is None else token_confidence[batch_idx],
+                    batch_coords=None
+                    if normalized_coords is None
+                    else normalized_coords[batch_idx],
+                    batch_confidence=None
+                    if token_confidence is None
+                    else token_confidence[batch_idx],
                     group_idx=group_idx,
                     return_attention=return_attention,
                 )
@@ -415,7 +454,9 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
                 )
                 if return_attention:
                     for name, tensor in group_attention.items():
-                        attention_maps.setdefault(f"{self.group_names[group_idx]}_{name}", []).append(tensor[0])
+                        attention_maps.setdefault(
+                            f"{self.group_names[group_idx]}_{name}", []
+                        ).append(tensor[0])
 
             summary_bank = torch.cat(group_summaries, dim=0).unsqueeze(0)
             relation_tokens, relation_scores = self._build_relation_tokens(
@@ -426,7 +467,9 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
             if relation_tokens is not None:
                 relation_token_count = int(relation_tokens.shape[0])
                 summary_bank = torch.cat([summary_bank, relation_tokens.unsqueeze(0)], dim=1)
-            dataset_bias = self.dataset_proj(self.dataset_embedding(dataset_ids[batch_idx])).view(1, 1, -1)
+            dataset_bias = self.dataset_proj(self.dataset_embedding(dataset_ids[batch_idx])).view(
+                1, 1, -1
+            )
             edge_bias = self.edge_embedding(edge_ids[batch_idx]).view(1, 1, -1)
             query_roles = self.query_role_embedding(
                 torch.arange(self.num_fusion_queries, device=tokens.device, dtype=torch.long)
@@ -461,17 +504,30 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
                 for group_idx, group_name in enumerate(self.group_names):
                     start = group_idx * self.num_group_summary_tokens
                     stop = start + self.num_group_summary_tokens
-                    group_attention_scores[str(group_name)] = float(global_attention[start:stop].mean().item())
+                    group_attention_scores[str(group_name)] = float(
+                        global_attention[start:stop].mean().item()
+                    )
                 relation_attention_scores: dict[str, float] = {}
                 if relation_token_count > 0:
                     offset = self.num_token_types * self.num_group_summary_tokens
-                    for relation_idx, relation_name in enumerate(self.relation_pair_names[:relation_token_count]):
-                        relation_attention_scores[str(relation_name)] = float(global_attention[offset + relation_idx].item())
+                    for relation_idx, relation_name in enumerate(
+                        self.relation_pair_names[:relation_token_count]
+                    ):
+                        relation_attention_scores[str(relation_name)] = float(
+                            global_attention[offset + relation_idx].item()
+                        )
                 query_role_scores: dict[str, dict[str, float]] = {}
                 for query_idx, query_name in enumerate(self.query_role_names):
                     query_weights = query_attention[query_idx]
                     query_role_scores[str(query_name)] = {
-                        str(group_name): float(query_weights[group_idx * self.num_group_summary_tokens:(group_idx + 1) * self.num_group_summary_tokens].mean().item())
+                        str(group_name): float(
+                            query_weights[
+                                group_idx * self.num_group_summary_tokens : (group_idx + 1)
+                                * self.num_group_summary_tokens
+                            ]
+                            .mean()
+                            .item()
+                        )
                         for group_idx, group_name in enumerate(self.group_names)
                     }
             else:
@@ -481,8 +537,12 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
 
             group_diagnostics.append(
                 {
-                    "group_token_counts": {row["group_name"]: row["token_count"] for row in group_diag_rows},
-                    "group_mean_confidence": {row["group_name"]: row["mean_confidence"] for row in group_diag_rows},
+                    "group_token_counts": {
+                        row["group_name"]: row["token_count"] for row in group_diag_rows
+                    },
+                    "group_mean_confidence": {
+                        row["group_name"]: row["mean_confidence"] for row in group_diag_rows
+                    },
                     "fusion_attention_by_group": group_attention_scores,
                     "fusion_attention_by_relation": relation_attention_scores,
                     "query_attention_by_group": query_role_scores,
@@ -495,8 +555,12 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
         stacked_context = torch.stack(pooled_contexts, dim=0)
         stacked_fused_tokens = torch.stack(fused_tokens_list, dim=0)
         stacked_group_tokens = torch.stack(group_token_list, dim=0)
-        stacked_relation_tokens = None if not relation_token_list else torch.stack(relation_token_list, dim=0)
-        reduced_attention = {name: torch.stack(values, dim=0) for name, values in attention_maps.items()}
+        stacked_relation_tokens = (
+            None if not relation_token_list else torch.stack(relation_token_list, dim=0)
+        )
+        reduced_attention = {
+            name: torch.stack(values, dim=0) for name, values in attention_maps.items()
+        }
         diagnostics: dict[str, Any] = {
             "dataset_ids": [int(item.item()) for item in dataset_ids],
             "edge_ids": [int(item.item()) for item in edge_ids],
@@ -510,7 +574,9 @@ class TypedHierarchicalTransformerEncoder(nn.Module):
                 token_embeddings=stacked_fused_tokens[0],
                 context_tokens=stacked_fused_tokens[0],
                 group_summary_tokens=stacked_group_tokens[0],
-                relation_tokens=None if stacked_relation_tokens is None else stacked_relation_tokens[0],
+                relation_tokens=None
+                if stacked_relation_tokens is None
+                else stacked_relation_tokens[0],
                 attention_maps={key: value[0] for key, value in reduced_attention.items()},
                 token_type_ids=token_type_ids[0],
                 token_confidence=None if token_confidence is None else token_confidence[0],

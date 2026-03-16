@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 
-from .base import SpatialBackend, SpatialMappingResult, compute_cell_type_entropy, compute_sparsity
+from .base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy, compute_sparsity
 
 
 class DestVIBackend(SpatialBackend):
@@ -45,7 +45,7 @@ class DestVIBackend(SpatialBackend):
         snrna: ad.AnnData,
         spatial: ad.AnnData,
         output_dir: Path | None = None,
-    ) -> SpatialMappingResult:
+    ) -> BackendMappingResult:
         """Run DestVI mapping."""
         # Validate and preprocess
         self.validate_inputs(snrna, spatial)
@@ -92,9 +92,7 @@ class DestVIBackend(SpatialBackend):
         confidence = self.estimate_confidence(snrna, spatial, None)
 
         # Compute upstream metrics
-        upstream_metrics = self.compute_upstream_metrics(
-            snrna, spatial, None
-        )
+        upstream_metrics = self.compute_upstream_metrics(snrna, spatial, None)
 
         # Save models if output_dir provided
         if output_dir:
@@ -103,7 +101,7 @@ class DestVIBackend(SpatialBackend):
             sc_model.save(output_dir / "condscvi_model", overwrite=True)
             spatial_model.save(output_dir / "destvi_model", overwrite=True)
 
-        result = SpatialMappingResult(
+        result = BackendMappingResult(
             cell_type_proportions=cell_type_proportions,
             confidence=confidence,
             upstream_metrics=upstream_metrics,
@@ -122,7 +120,7 @@ class DestVIBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: SpatialMappingResult | None,
+        result: BackendMappingResult | None,
     ) -> dict[str, float]:
         """Compute DestVI-specific upstream metrics."""
         if result is None:
@@ -154,7 +152,7 @@ class DestVIBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: SpatialMappingResult | None,
+        result: BackendMappingResult | None,
     ) -> pd.Series:
         """
         Estimate confidence from proportion variance.
@@ -187,7 +185,7 @@ def run_destvi(
     spatial_path: str | Path,
     output_dir: str | Path,
     **kwargs,
-) -> SpatialMappingResult:
+) -> BackendMappingResult:
     """
     Convenience function to run DestVI mapping.
 
@@ -198,7 +196,7 @@ def run_destvi(
         **kwargs: Additional DestVI parameters
 
     Returns:
-        SpatialMappingResult
+        BackendMappingResult
     """
     # Load data
     print(f"Loading snRNA data from {snrna_path}...")

@@ -24,7 +24,7 @@ from typing import Dict, Optional, Any
 class DataCache:
     """Singleton cache for expensive data loading operations."""
 
-    _instance: Optional['DataCache'] = None
+    _instance: Optional["DataCache"] = None
     _cache: dict[str, pd.DataFrame] = {}
     _verbose: bool = True
 
@@ -35,8 +35,9 @@ class DataCache:
             cls._instance._verbose = True
         return cls._instance
 
-    def read_parquet(self, path: Path | str, columns: list | None = None,
-                     use_cache: bool = True, **kwargs) -> pd.DataFrame:
+    def read_parquet(
+        self, path: Path | str, columns: list | None = None, use_cache: bool = True, **kwargs
+    ) -> pd.DataFrame:
         """
         Read parquet with caching.
 
@@ -69,7 +70,9 @@ class DataCache:
 
         if self._verbose:
             size_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
-            print(f"  [Cache MISS] {path.name} ({df.shape[0]:,} rows × {df.shape[1]} cols, {size_mb:.1f} MB)")
+            print(
+                f"  [Cache MISS] {path.name} ({df.shape[0]:,} rows × {df.shape[1]} cols, {size_mb:.1f} MB)"
+            )
 
         if use_cache:
             self._cache[cache_key] = df
@@ -119,18 +122,15 @@ class DataCache:
 
     def size_mb(self) -> float:
         """Estimate total cache size in MB."""
-        total_bytes = sum(
-            df.memory_usage(deep=True).sum()
-            for df in self._cache.values()
-        )
+        total_bytes = sum(df.memory_usage(deep=True).sum() for df in self._cache.values())
         return total_bytes / (1024 * 1024)
 
     def info(self) -> dict[str, Any]:
         """Get cache statistics."""
         return {
-            'n_items': len(self._cache),
-            'size_mb': self.size_mb(),
-            'keys': list(self._cache.keys()),
+            "n_items": len(self._cache),
+            "size_mb": self.size_mb(),
+            "keys": list(self._cache.keys()),
         }
 
     def set_verbose(self, verbose: bool):

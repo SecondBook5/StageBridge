@@ -26,6 +26,7 @@ De Bortoli et al. "Diffusion Schrödinger Bridge" NeurIPS 2021
 Shi et al. "Diffusion Schrödinger Bridge Matching" ICLR 2024
 Tong et al. "Conditional Flow Matching" ICML 2023
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -91,7 +92,7 @@ def schrodinger_bridge_interpolant(
     # Conditional velocity (drift target)
     if sigma > 1e-8:
         # Score correction term for SB
-        score_coeff = sigma ** 2 * (1.0 - 2.0 * t_clamped) / (2.0 * t_clamped * (1.0 - t_clamped))
+        score_coeff = sigma**2 * (1.0 - 2.0 * t_clamped) / (2.0 * t_clamped * (1.0 - t_clamped))
         u_t = (x1 - x0) + score_coeff * (noise_scale * noise)
     else:
         u_t = x1 - x0
@@ -178,7 +179,9 @@ def schrodinger_bridge_loss(
         )
 
     pred_velocity = model.forward_vector_field(
-        x_t=x_t, t=t, c_s=c_rep,
+        x_t=x_t,
+        t=t,
+        c_s=c_rep,
         stage_pair_id=stage_pair_id,
         wes_features=batch.wes_features,
         lr_features=batch.lr_features,
@@ -195,7 +198,7 @@ def schrodinger_bridge_loss(
         noise_scale = sigma * (t_col * (1.0 - t_col)).sqrt()
         target_score = -noise / noise_scale.clamp_min(1e-8)
         # Predict score as residual from velocity prediction
-        pred_score = (pred_velocity - (y_j - x_i)) / (sigma ** 2 + 1e-8)
+        pred_score = (pred_velocity - (y_j - x_i)) / (sigma**2 + 1e-8)
         loss_score = F.mse_loss(pred_score, target_score)
 
     total = loss_drift + score_weight * loss_score
@@ -261,7 +264,9 @@ def ipf_update_coupling(
                 c_s = c_s.expand(x_src.shape[0], -1)
             pair_id = torch.zeros(x_src.shape[0], dtype=torch.long, device=x_src.device)
             x_transported = model.integrate_euler(
-                x0=x_src, c_s=c_s, stage_pair_id=pair_id,
+                x0=x_src,
+                c_s=c_s,
+                stage_pair_id=pair_id,
                 num_steps=num_euler_steps,
             )
             if sigma > 0:
@@ -315,7 +320,9 @@ def edgewise_schrodinger_bridge_loss(
         context_tokens=context_tokens,
         edge_ids=sampled_edge_ids,
     )
-    pred_diffusion = model.forward_diffusion(x_t=x_t, t=t, context=context, edge_ids=sampled_edge_ids)
+    pred_diffusion = model.forward_diffusion(
+        x_t=x_t, t=t, context=context, edge_ids=sampled_edge_ids
+    )
 
     if bridge is None:
         bridge = build_gaussian_bridge(x_src, x_tgt, sigma=sigma)

@@ -1,4 +1,5 @@
 """PyClone-VI wrapper and lesion-level clonal summary normalization."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,7 +34,9 @@ def _cfg_select(cfg: DictConfig | dict[str, Any], dotted: str, default: Any) -> 
     return current
 
 
-def _empty_clonal_table(manifest: pd.DataFrame, *, backend: str, qc_status: str, backend_trace: str) -> pd.DataFrame:
+def _empty_clonal_table(
+    manifest: pd.DataFrame, *, backend: str, qc_status: str, backend_trace: str
+) -> pd.DataFrame:
     """Return an aligned empty clonal summary frame for every lesion.
 
     Args:
@@ -88,12 +91,18 @@ def _normalize_clonal_summary(frame: pd.DataFrame, manifest: pd.DataFrame) -> pd
     ]:
         merged[column] = pd.to_numeric(merged.get(column), errors="coerce")
     merged["qc_status"] = merged.get("qc_status", pd.Series(["parsed_existing"] * merged.shape[0]))
-    merged["backend_used"] = merged.get("backend_used", pd.Series(["pyclone_vi"] * merged.shape[0]))
-    merged["backend_trace"] = merged["backend_used"].astype(str) + ":" + merged["qc_status"].astype(str)
+    merged["backend_used"] = merged.get(
+        "backend_used", pd.Series(["pyclone_vi"] * merged.shape[0])
+    )
+    merged["backend_trace"] = (
+        merged["backend_used"].astype(str) + ":" + merged["qc_status"].astype(str)
+    )
     return merged.loc[:, list(CLONAL_SUMMARY_COLUMNS)]
 
 
-def run_clonal_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+def run_clonal_backend(
+    cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Run or parse the PyClone-VI clonal layer.
 
     Args:
@@ -106,14 +115,20 @@ def run_clonal_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame)
     if summary_path_raw:
         summary_path = Path(str(summary_path_raw))
         if summary_path.exists():
-            parsed = pd.read_parquet(summary_path) if summary_path.suffix.lower() == ".parquet" else pd.read_csv(summary_path)
+            parsed = (
+                pd.read_parquet(summary_path)
+                if summary_path.suffix.lower() == ".parquet"
+                else pd.read_csv(summary_path)
+            )
             return _normalize_clonal_summary(parsed, manifest), {
                 "backend": "pyclone_vi",
                 "status": "parsed_existing",
                 "summary_path": str(summary_path),
             }
         if parse_only:
-            raise FileNotFoundError(f"Configured PyClone-VI summary does not exist: {summary_path}")
+            raise FileNotFoundError(
+                f"Configured PyClone-VI summary does not exist: {summary_path}"
+            )
 
     if parse_only:
         return _empty_clonal_table(
@@ -126,8 +141,13 @@ def run_clonal_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame)
     executable = str(_cfg_select(cfg, "labels.external_tools.pyclone_vi_executable", "pyclone-vi"))
     command_template = _cfg_select(cfg, "labels.external_tools.pyclone_vi_command_template", None)
     if not command_template:
-        raise ValueError("External PyClone-VI mode requires labels.external_tools.pyclone_vi_command_template.")
-    artifacts_root = Path(str(_cfg_select(cfg, "labels.artifacts_root", "reports/labels/artifacts"))) / "pyclone_vi"
+        raise ValueError(
+            "External PyClone-VI mode requires labels.external_tools.pyclone_vi_command_template."
+        )
+    artifacts_root = (
+        Path(str(_cfg_select(cfg, "labels.artifacts_root", "reports/labels/artifacts")))
+        / "pyclone_vi"
+    )
     result = run_external_command(
         ToolCommand(
             name="pyclone_vi",

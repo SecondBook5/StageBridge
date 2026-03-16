@@ -11,6 +11,7 @@ Biological expectation (Peng et al. 2026, Cancer Cell):
     - SFTPC  (AT2 marker, expected to decrease with stage progression)
     - RELA, NFKB1  (NF-κB pathway, dominant in precursor stages)
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -83,7 +84,8 @@ def extract_context_vectors(
     # Get a representative pair id (use first valid pair in the stage order)
     transitions = ordered_transitions()
     valid_pairs = [
-        (s, t) for s, t in transitions
+        (s, t)
+        for s, t in transitions
         if (stages == normalize_stage_label(s)).any()
         and (stages == normalize_stage_label(t)).any()
     ]
@@ -204,11 +206,11 @@ def compute_gene_context_correlation(
     X_std = X_c.std(axis=0, keepdims=True) + 1e-10
     cv_std = cv_c.std(axis=0, keepdims=True) + 1e-10
 
-    X_n = X_c / X_std       # (n_cells, n_genes)
-    cv_n = cv_c / cv_std    # (n_cells, n_dims)
+    X_n = X_c / X_std  # (n_cells, n_genes)
+    cv_n = cv_c / cv_std  # (n_cells, n_dims)
 
     # r[gene, dim] = (1/n) * X_n[:, gene] · cv_n[:, dim]
-    r_matrix = (X_n.T @ cv_n) / n_cells   # (n_genes, n_dims)
+    r_matrix = (X_n.T @ cv_n) / n_cells  # (n_genes, n_dims)
 
     dim_labels = [f"ctx_{i}" for i in range(n_dims)]
     df = pd.DataFrame(r_matrix, index=gene_names, columns=dim_labels)

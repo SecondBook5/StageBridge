@@ -2,6 +2,7 @@
 
 Loads YAML files and expands ``${ENV_VAR}`` references in string values.
 """
+
 from __future__ import annotations
 
 import os
@@ -17,6 +18,7 @@ _ENV_RE = re.compile(r"\$\{(\w+)\}")
 
 def _expand_env(value: str) -> str:
     """Replace ``${VAR}`` with the environment variable value."""
+
     def _sub(m: re.Match) -> str:
         name = m.group(1)
         val = os.environ.get(name)
@@ -26,6 +28,7 @@ def _expand_env(value: str) -> str:
                 f"Export it or remove the ${{...}} reference from the config."
             )
         return val
+
     return _ENV_RE.sub(_sub, value)
 
 

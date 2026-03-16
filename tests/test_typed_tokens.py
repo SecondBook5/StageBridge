@@ -1,4 +1,5 @@
 """Mission 3 tests for typed niche token construction."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,7 +31,12 @@ def test_typed_token_schema_and_builder() -> None:
 
     typed = build_typed_spot_tokens(compositions, coords, obs, raw_feature_names, schema=schema)
     assert typed.tokens.shape == (3, 4)
-    assert typed.schema.typed_feature_names == ("epithelial", "stromal", "immune", "vascular_program")
+    assert typed.schema.typed_feature_names == (
+        "epithelial",
+        "stromal",
+        "immune",
+        "vascular_program",
+    )
     assert np.allclose(typed.tokens.sum(axis=1), 1.0)
     assert typed.tokens[0, 0] > typed.tokens[0, 1]
     assert typed.tokens[2, 2] == typed.tokens[2, 3]

@@ -1,4 +1,5 @@
 """DestVI provider wrapper for raw snRNA -> spatial mapping."""
+
 from __future__ import annotations
 
 import json
@@ -48,7 +49,11 @@ def _destvi_cache_bundle(
     seed: int,
 ) -> dict[str, Path]:
     paths = resolve_luad_evo_paths(cfg)
-    provider_cfg = dict(cfg.get("spatial_mapping", {})) if hasattr(cfg, "get") else dict(cfg["spatial_mapping"])
+    provider_cfg = (
+        dict(cfg.get("spatial_mapping", {}))
+        if hasattr(cfg, "get")
+        else dict(cfg["spatial_mapping"])
+    )
     cache_key = _stable_hash(
         {
             "method": "destvi",
@@ -250,12 +255,20 @@ def run_destvi(
     max_spots_per_stage: int | None = None,
     seed: int = 42,
 ) -> SpatialMappingResult:
-    provider_cfg = dict(cfg.get("spatial_mapping", {})) if hasattr(cfg, "get") else dict(cfg["spatial_mapping"])
+    provider_cfg = (
+        dict(cfg.get("spatial_mapping", {}))
+        if hasattr(cfg, "get")
+        else dict(cfg["spatial_mapping"])
+    )
     execution_mode = str(provider_cfg.get("execution_mode", "rebuild_cached"))
     provider_version = _provider_version("scvi-tools")
     precomputed_path = provider_cfg.get("precomputed_h5ad")
 
-    if precomputed_path and Path(str(precomputed_path)).exists() and execution_mode == "load_precomputed":
+    if (
+        precomputed_path
+        and Path(str(precomputed_path)).exists()
+        and execution_mode == "load_precomputed"
+    ):
         return _load_destvi_mapping(
             cfg,
             mapping_h5ad_path=Path(str(precomputed_path)),

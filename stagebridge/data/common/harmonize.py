@@ -18,6 +18,7 @@ All functions that add embeddings operate in-place on the passed AnnData.
 Functions that return a new object (intersect_genes, select_hvg) are documented
 as such.
 """
+
 from __future__ import annotations
 
 import re
@@ -53,6 +54,7 @@ def _require_scanpy():
 # Gene intersection
 # ---------------------------------------------------------------------------
 
+
 def intersect_genes(
     adata_a: anndata.AnnData,
     adata_b: anndata.AnnData,
@@ -72,7 +74,7 @@ def intersect_genes(
     """
     genes_a = set(adata_a.var_names)
     genes_b = set(adata_b.var_names)
-    common  = sorted(genes_a & genes_b)
+    common = sorted(genes_a & genes_b)
 
     if not common:
         raise ValueError(
@@ -95,6 +97,7 @@ def intersect_genes(
 # ---------------------------------------------------------------------------
 # Normalisation — delegates to scanpy
 # ---------------------------------------------------------------------------
+
 
 def normalize_log1p(
     adata: anndata.AnnData,
@@ -146,6 +149,7 @@ def normalize_log1p(
 # ---------------------------------------------------------------------------
 # HVG selection — delegates to scanpy
 # ---------------------------------------------------------------------------
+
 
 def select_hvg(
     adata_snrna: anndata.AnnData,
@@ -221,6 +225,7 @@ def select_hvg(
 # PCA — fit on snRNA, project spatial
 # ---------------------------------------------------------------------------
 
+
 def pca_fit_transform_snrna(
     adata: anndata.AnnData,
     n_components: int = 64,
@@ -272,9 +277,10 @@ def pca_fit_transform_snrna(
     # adata.obsm["X_pca"] is now set by scanpy.
     # Build a TruncatedSVD wrapper so we can project the spatial data.
     from sklearn.decomposition import TruncatedSVD
+
     pca_model = TruncatedSVD(n_components=n_components)
     # Populate the model components from the scanpy PCA result
-    pca_model.components_ = adata.varm["PCs"].T          # (n_components, n_genes)
+    pca_model.components_ = adata.varm["PCs"].T  # (n_components, n_genes)
     pca_model.explained_variance_ratio_ = adata.uns["pca"]["variance_ratio"]
 
     cumvar = float(pca_model.explained_variance_ratio_.sum())
@@ -310,7 +316,7 @@ def pca_transform_spatial(
         )
 
     expected = pca_model.components_.shape[1]
-    actual   = adata_spatial.n_vars
+    actual = adata_spatial.n_vars
     if actual != expected:
         raise ValueError(
             f"Feature mismatch: spatial AnnData has {actual} genes but PCA "
@@ -329,6 +335,7 @@ def pca_transform_spatial(
 # ---------------------------------------------------------------------------
 # Harmony batch correction
 # ---------------------------------------------------------------------------
+
 
 def run_harmony(
     adata: anndata.AnnData,
@@ -359,8 +366,7 @@ def run_harmony(
         import harmonypy
     except ImportError as err:
         raise ImportError(
-            "harmonypy is required for run_harmony().\n"
-            "Install with:  pip install harmonypy"
+            "harmonypy is required for run_harmony().\nInstall with:  pip install harmonypy"
         ) from err
 
     if basis not in adata.obsm:
@@ -397,6 +403,7 @@ def run_harmony(
 # UMAP
 # ---------------------------------------------------------------------------
 
+
 def run_umap(
     adata: anndata.AnnData,
     basis: str = "X_pca_harmony",
@@ -421,9 +428,7 @@ def run_umap(
     """
     if basis not in adata.obsm:
         fallback = "X_pca"
-        log.warning(
-            "obsm key '%s' not found; falling back to '%s'.", basis, fallback
-        )
+        log.warning("obsm key '%s' not found; falling back to '%s'.", basis, fallback)
         basis = fallback
         if basis not in adata.obsm:
             raise KeyError(
@@ -443,8 +448,10 @@ def run_umap(
 # HLCA alignment and metadata requirements
 # ---------------------------------------------------------------------------
 
+
 def canonicalize_gene_symbols(adata: anndata.AnnData) -> None:
     """Canonicalize gene symbols in ``adata.var_names`` in place."""
+
     def _canon(symbol: str) -> str:
         s = str(symbol).strip()
         s = re.sub(r"\s+", "", s)

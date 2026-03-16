@@ -1,4 +1,5 @@
 """Self-supervised relational pretraining for the hierarchical transformer."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -178,7 +179,9 @@ def _build_masked_view(
     mask_fraction: float,
     seed: int,
 ) -> tuple[Tensor, Tensor, Tensor | None, Tensor | None, Tensor]:
-    mask_idx = stratified_mask_token_indices(token_type_ids, mask_fraction=mask_fraction, seed=seed)
+    mask_idx = stratified_mask_token_indices(
+        token_type_ids, mask_fraction=mask_fraction, seed=seed
+    )
     masked_tokens = context_tokens.clone()
     masked_tokens.index_fill_(0, mask_idx, 0.0)
     masked_confidence = None
@@ -202,7 +205,9 @@ def _group_means(summary: SetContextSummary, *, num_groups: int) -> Tensor | Non
     per_group = int(group_tokens.shape[1] // max(num_groups, 1))
     if per_group <= 0:
         return None
-    reshaped = group_tokens[:, : per_group * num_groups, :].reshape(group_tokens.shape[0], num_groups, per_group, group_tokens.shape[-1])
+    reshaped = group_tokens[:, : per_group * num_groups, :].reshape(
+        group_tokens.shape[0], num_groups, per_group, group_tokens.shape[-1]
+    )
     return reshaped.mean(dim=2).squeeze(0)
 
 
@@ -253,13 +258,15 @@ def compute_relational_auxiliary_losses(
     dtype = context_tokens.dtype
 
     if include_masked_token and context_tokens.shape[0] > 1:
-        masked_tokens, masked_type_ids, masked_coords, masked_confidence, mask_idx = _build_masked_view(
-            context_tokens=context_tokens,
-            token_type_ids=token_type_ids,
-            token_coords=token_coords,
-            token_confidence=token_confidence,
-            mask_fraction=config.mask_fraction,
-            seed=seed,
+        masked_tokens, masked_type_ids, masked_coords, masked_confidence, mask_idx = (
+            _build_masked_view(
+                context_tokens=context_tokens,
+                token_type_ids=token_type_ids,
+                token_coords=token_coords,
+                token_confidence=token_confidence,
+                mask_fraction=config.mask_fraction,
+                seed=seed,
+            )
         )
         masked_summary = _forward_context_encoder(
             context_encoder,
@@ -275,10 +282,38 @@ def compute_relational_auxiliary_losses(
         decoder_parts = [
             masked_context,
             heads.token_type_embedding(token_type_ids.index_select(0, mask_idx)),
-            heads.coord_projection(token_coords.index_select(0, mask_idx)) if token_coords is not None else torch.zeros(mask_idx.shape[0], heads.token_type_embedding.embedding_dim, device=device, dtype=dtype),
-            heads.confidence_projection(token_confidence.index_select(0, mask_idx).unsqueeze(-1)) if token_confidence is not None else torch.zeros(mask_idx.shape[0], heads.token_type_embedding.embedding_dim, device=device, dtype=dtype),
-            heads.dataset_embedding(dataset_ids[:1].long()).expand(mask_idx.shape[0], -1) if dataset_ids is not None else torch.zeros(mask_idx.shape[0], heads.token_type_embedding.embedding_dim, device=device, dtype=dtype),
-            heads.edge_embedding(edge_ids[:1].long()).expand(mask_idx.shape[0], -1) if edge_ids is not None else torch.zeros(mask_idx.shape[0], heads.token_type_embedding.embedding_dim, device=device, dtype=dtype),
+            heads.coord_projection(token_coords.index_select(0, mask_idx))
+            if token_coords is not None
+            else torch.zeros(
+                mask_idx.shape[0],
+                heads.token_type_embedding.embedding_dim,
+                device=device,
+                dtype=dtype,
+            ),
+            heads.confidence_projection(token_confidence.index_select(0, mask_idx).unsqueeze(-1))
+            if token_confidence is not None
+            else torch.zeros(
+                mask_idx.shape[0],
+                heads.token_type_embedding.embedding_dim,
+                device=device,
+                dtype=dtype,
+            ),
+            heads.dataset_embedding(dataset_ids[:1].long()).expand(mask_idx.shape[0], -1)
+            if dataset_ids is not None
+            else torch.zeros(
+                mask_idx.shape[0],
+                heads.token_type_embedding.embedding_dim,
+                device=device,
+                dtype=dtype,
+            ),
+            heads.edge_embedding(edge_ids[:1].long()).expand(mask_idx.shape[0], -1)
+            if edge_ids is not None
+            else torch.zeros(
+                mask_idx.shape[0],
+                heads.token_type_embedding.embedding_dim,
+                device=device,
+                dtype=dtype,
+            ),
         ]
         masked_pred = heads.masked_decoder(torch.cat(decoder_parts, dim=-1))
         masked_target = context_tokens.index_select(0, mask_idx)
@@ -305,11 +340,16 @@ def compute_relational_auxiliary_losses(
         negative_summaries.append((label, negative_summary))
     positive_score = heads.ranking_head(pooled)
     if negative_summaries:
-        negative_for_head = torch.cat([_ensure_2d(summary_item.pooled_context) for _, summary_item in negative_summaries], dim=0)
+        negative_for_head = torch.cat(
+            [_ensure_2d(summary_item.pooled_context) for _, summary_item in negative_summaries],
+            dim=0,
+        )
         negative_scores = heads.ranking_head(negative_for_head)
         margin = torch.tensor(float(config.ranking_margin), device=device, dtype=dtype)
         losses["ranking"] = torch.relu(margin - positive_score + negative_scores).mean()
-        metrics["ranking_accuracy"] = float((positive_score.detach() > negative_scores.detach()).float().mean().item())
+        metrics["ranking_accuracy"] = float(
+            (positive_score.detach() > negative_scores.detach()).float().mean().item()
+        )
         metrics["negative_control_scores"] = {
             label: float(negative_scores[idx].mean().item())
             for idx, (label, _) in enumerate(negative_summaries)
@@ -337,7 +377,9 @@ def compute_relational_auxiliary_losses(
                 edge_ids=edge_ids,
                 return_attention=False,
             )
-            alt_proj = F.normalize(heads.provider_projector(_ensure_2d(alt_summary.pooled_context)), dim=-1)
+            alt_proj = F.normalize(
+                heads.provider_projector(_ensure_2d(alt_summary.pooled_context)), dim=-1
+            )
             cosine = F.cosine_similarity(anchor_proj, alt_proj, dim=-1)
             provider_losses.append(1.0 - cosine.mean())
             provider_cosines.append(float(cosine.mean().item()))
@@ -382,7 +424,9 @@ def compute_relational_auxiliary_losses(
             positive_pairs: list[Tensor] = []
             negative_pairs: list[Tensor] = []
             if negative_summaries:
-                mismatch_means = _group_means(negative_summaries[0][1], num_groups=heads.token_type_embedding.num_embeddings)
+                mismatch_means = _group_means(
+                    negative_summaries[0][1], num_groups=heads.token_type_embedding.num_embeddings
+                )
             else:
                 mismatch_means = None
             if mismatch_means is None and group_means.shape[0] > 1:
@@ -390,14 +434,22 @@ def compute_relational_auxiliary_losses(
             if mismatch_means is not None:
                 for left_idx in range(group_means.shape[0]):
                     for right_idx in range(left_idx + 1, group_means.shape[0]):
-                        positive_pairs.append(torch.cat([group_means[left_idx], group_means[right_idx]], dim=-1))
-                        negative_pairs.append(torch.cat([group_means[left_idx], mismatch_means[right_idx]], dim=-1))
+                        positive_pairs.append(
+                            torch.cat([group_means[left_idx], group_means[right_idx]], dim=-1)
+                        )
+                        negative_pairs.append(
+                            torch.cat([group_means[left_idx], mismatch_means[right_idx]], dim=-1)
+                        )
             if positive_pairs and negative_pairs:
                 positive_logits = heads.group_relation_head(torch.stack(positive_pairs, dim=0))
                 negative_logits = heads.group_relation_head(torch.stack(negative_pairs, dim=0))
                 losses["group_relation"] = 0.5 * (
-                    F.binary_cross_entropy_with_logits(positive_logits, torch.ones_like(positive_logits))
-                    + F.binary_cross_entropy_with_logits(negative_logits, torch.zeros_like(negative_logits))
+                    F.binary_cross_entropy_with_logits(
+                        positive_logits, torch.ones_like(positive_logits)
+                    )
+                    + F.binary_cross_entropy_with_logits(
+                        negative_logits, torch.zeros_like(negative_logits)
+                    )
                 )
                 pos_acc = (torch.sigmoid(positive_logits.detach()) > 0.5).float().mean()
                 neg_acc = (torch.sigmoid(negative_logits.detach()) < 0.5).float().mean()
@@ -501,11 +553,7 @@ def pretrain_relational_transformer(
         history.append(
             {
                 "epoch": float(epoch + 1),
-                **{
-                    key: float(np.mean(values))
-                    for key, values in epoch_metrics.items()
-                    if values
-                },
+                **{key: float(np.mean(values)) for key, values in epoch_metrics.items() if values},
             }
         )
 

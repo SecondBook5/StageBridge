@@ -1,4 +1,5 @@
 """Target-support and split-viability checks for label-repair outputs."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -44,9 +45,7 @@ def _binary_support(relevant: pd.DataFrame, *, num_folds: int) -> tuple[bool, st
         & (relevant["refined_binary_label"].isin(["positive", "negative"]))
     ].copy()
     donor_support = (
-        usable.groupby(["refined_binary_label"], sort=False)["donor_id"]
-        .nunique()
-        .to_dict()
+        usable.groupby(["refined_binary_label"], sort=False)["donor_id"].nunique().to_dict()
     )
     positive_donors = int(donor_support.get("positive", 0))
     negative_donors = int(donor_support.get("negative", 0))
@@ -67,7 +66,9 @@ def _continuous_support(relevant: pd.DataFrame) -> tuple[bool, str]:
         relevant: Refined label subset for one edge.
     """
     usable = relevant.loc[~relevant["exclusion_flag"].astype(bool)].copy()
-    unique_scores = pd.to_numeric(usable["progression_risk_score"], errors="coerce").dropna().nunique()
+    unique_scores = (
+        pd.to_numeric(usable["progression_risk_score"], errors="coerce").dropna().nunique()
+    )
     donor_count = usable["donor_id"].astype(str).nunique()
     if usable.shape[0] < 5:
         return False, "Too few usable lesions for a continuous target."
@@ -75,7 +76,10 @@ def _continuous_support(relevant: pd.DataFrame) -> tuple[bool, str]:
         return False, "Too few unique risk scores for a continuous target."
     if donor_count < 3:
         return False, "Too few donors for a stable continuous target."
-    return True, "Continuous risk target is supported by lesion count, donor count, and score diversity."
+    return (
+        True,
+        "Continuous risk target is supported by lesion count, donor count, and score diversity.",
+    )
 
 
 def evaluate_label_support(
@@ -96,7 +100,9 @@ def evaluate_label_support(
     split_report: dict[str, Any] = {"requested_num_folds": num_folds, "edges": {}}
 
     for edge_label in sorted(refined_labels["edge_label"].dropna().astype(str).unique().tolist()):
-        relevant = refined_labels.loc[refined_labels["edge_label"].astype(str) == edge_label].copy()
+        relevant = refined_labels.loc[
+            refined_labels["edge_label"].astype(str) == edge_label
+        ].copy()
         binary_viable, binary_reason = _binary_support(relevant, num_folds=num_folds)
         continuous_viable, continuous_reason = _continuous_support(relevant)
         recommended = "exclude"
@@ -111,20 +117,45 @@ def evaluate_label_support(
             recommended = "descriptive_only"
             reason = "Edge retains lesions for descriptive analysis, but target support is insufficient for supervised evaluation."
 
-        donor_support_frame = relevant.groupby("donor_id", sort=False).agg(
-            n_lesions=("lesion_id", "nunique"),
-            positive_lesions=("refined_binary_label", lambda values: int(pd.Series(values).eq("positive").sum())),
-            negative_lesions=("refined_binary_label", lambda values: int(pd.Series(values).eq("negative").sum())),
-            uncertain_lesions=("uncertainty_flag", lambda values: int(pd.Series(values).astype(bool).sum())),
-            excluded_lesions=("exclusion_flag", lambda values: int(pd.Series(values).astype(bool).sum())),
-        ).reset_index()
+        donor_support_frame = (
+            relevant.groupby("donor_id", sort=False)
+            .agg(
+                n_lesions=("lesion_id", "nunique"),
+                positive_lesions=(
+                    "refined_binary_label",
+                    lambda values: int(pd.Series(values).eq("positive").sum()),
+                ),
+                negative_lesions=(
+                    "refined_binary_label",
+                    lambda values: int(pd.Series(values).eq("negative").sum()),
+                ),
+                uncertain_lesions=(
+                    "uncertainty_flag",
+                    lambda values: int(pd.Series(values).astype(bool).sum()),
+                ),
+                excluded_lesions=(
+                    "exclusion_flag",
+                    lambda values: int(pd.Series(values).astype(bool).sum()),
+                ),
+            )
+            .reset_index()
+        )
         donor_support_frame["edge_label"] = edge_label
         donor_support_frame["binary_support_status"] = np.where(
-            (donor_support_frame["positive_lesions"] > 0) & (donor_support_frame["negative_lesions"] > 0),
+            (donor_support_frame["positive_lesions"] > 0)
+            & (donor_support_frame["negative_lesions"] > 0),
             "mixed",
-            np.where(donor_support_frame["positive_lesions"] > 0, "positive_only", np.where(donor_support_frame["negative_lesions"] > 0, "negative_only", "uncertain_only")),
+            np.where(
+                donor_support_frame["positive_lesions"] > 0,
+                "positive_only",
+                np.where(
+                    donor_support_frame["negative_lesions"] > 0, "negative_only", "uncertain_only"
+                ),
+            ),
         )
-        donor_rows.extend(donor_support_frame.loc[:, list(DONOR_SUPPORT_COLUMNS)].to_dict(orient="records"))
+        donor_rows.extend(
+            donor_support_frame.loc[:, list(DONOR_SUPPORT_COLUMNS)].to_dict(orient="records")
+        )
 
         usable_binary = relevant.loc[
             (~relevant["exclusion_flag"].astype(bool))
@@ -137,13 +168,33 @@ def evaluate_label_support(
                 "target_kind": "refined",
                 "n_lesions": int(relevant.shape[0]),
                 "n_donors": int(relevant["donor_id"].astype(str).nunique()),
-                "positive_lesions": int(usable_binary["refined_binary_label"].eq("positive").sum()),
-                "negative_lesions": int(usable_binary["refined_binary_label"].eq("negative").sum()),
+                "positive_lesions": int(
+                    usable_binary["refined_binary_label"].eq("positive").sum()
+                ),
+                "negative_lesions": int(
+                    usable_binary["refined_binary_label"].eq("negative").sum()
+                ),
                 "uncertain_lesions": int(relevant["uncertainty_flag"].astype(bool).sum()),
                 "excluded_lesions": int(relevant["exclusion_flag"].astype(bool).sum()),
-                "positive_donors": int(usable_binary.loc[usable_binary["refined_binary_label"] == "positive", "donor_id"].astype(str).nunique()),
-                "negative_donors": int(usable_binary.loc[usable_binary["refined_binary_label"] == "negative", "donor_id"].astype(str).nunique()),
-                "continuous_unique_scores": int(pd.to_numeric(relevant["progression_risk_score"], errors="coerce").dropna().nunique()),
+                "positive_donors": int(
+                    usable_binary.loc[
+                        usable_binary["refined_binary_label"] == "positive", "donor_id"
+                    ]
+                    .astype(str)
+                    .nunique()
+                ),
+                "negative_donors": int(
+                    usable_binary.loc[
+                        usable_binary["refined_binary_label"] == "negative", "donor_id"
+                    ]
+                    .astype(str)
+                    .nunique()
+                ),
+                "continuous_unique_scores": int(
+                    pd.to_numeric(relevant["progression_risk_score"], errors="coerce")
+                    .dropna()
+                    .nunique()
+                ),
                 "binary_viable": bool(binary_viable),
                 "continuous_viable": bool(continuous_viable),
                 "recommended_target": recommended,

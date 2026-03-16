@@ -176,8 +176,7 @@ def compare_backends(
 
     # Rank backends
     successful_backends = [
-        name for name, data in comparison["backends"].items()
-        if data["status"] == "success"
+        name for name, data in comparison["backends"].items() if data["status"] == "success"
     ]
 
     if len(successful_backends) == 0:
@@ -188,17 +187,19 @@ def compare_backends(
         return comparison
 
     # Ranking criteria (higher is better)
-    ranking_df = pd.DataFrame([
-        {
-            "backend": name,
-            "mean_entropy": comparison["backends"][name]["upstream_metrics"]["mean_entropy"],
-            "coverage": comparison["backends"][name]["upstream_metrics"]["coverage"],
-            "sparsity": comparison["backends"][name]["upstream_metrics"]["sparsity"],
-            "runtime": comparison["backends"][name]["runtime_seconds"],
-            "mean_confidence": comparison["backends"][name]["mean_confidence"],
-        }
-        for name in successful_backends
-    ])
+    ranking_df = pd.DataFrame(
+        [
+            {
+                "backend": name,
+                "mean_entropy": comparison["backends"][name]["upstream_metrics"]["mean_entropy"],
+                "coverage": comparison["backends"][name]["upstream_metrics"]["coverage"],
+                "sparsity": comparison["backends"][name]["upstream_metrics"]["sparsity"],
+                "runtime": comparison["backends"][name]["runtime_seconds"],
+                "mean_confidence": comparison["backends"][name]["mean_confidence"],
+            }
+            for name in successful_backends
+        ]
+    )
 
     # Normalize and score
     # Entropy: moderate is good (0.5-0.7)
@@ -226,8 +227,7 @@ def compare_backends(
     }
 
     ranking_df["composite_score"] = sum(
-        ranking_df[col] * weight
-        for col, weight in weights.items()
+        ranking_df[col] * weight for col, weight in weights.items()
     )
 
     # Sort by composite score
@@ -275,7 +275,9 @@ def generate_rationale(ranking_df: pd.DataFrame) -> str:
     if ranking_df.shape[0] > 1:
         second = ranking_df.iloc[1]
         lines.append("")
-        lines.append(f"Runner-up: {second['backend'].upper()} (score={second['composite_score']:.3f})")
+        lines.append(
+            f"Runner-up: {second['backend'].upper()} (score={second['composite_score']:.3f})"
+        )
 
     return "\n".join(lines)
 
@@ -302,20 +304,26 @@ def plot_backend_comparison(
 
     # 2. Radar chart of individual metrics
     ax = axes[0, 1]
-    metrics = ["entropy_score", "coverage_score", "sparsity_score", "runtime_score", "confidence_score"]
+    metrics = [
+        "entropy_score",
+        "coverage_score",
+        "sparsity_score",
+        "runtime_score",
+        "confidence_score",
+    ]
     angles = np.linspace(0, 2 * np.pi, len(metrics), endpoint=False).tolist()
     angles += angles[:1]
 
-    ax = plt.subplot(222, projection='polar')
+    ax = plt.subplot(222, projection="polar")
     for _, row in ranking_df.iterrows():
         values = [row[m] for m in metrics] + [row[metrics[0]]]
-        ax.plot(angles, values, 'o-', linewidth=2, label=row["backend"])
+        ax.plot(angles, values, "o-", linewidth=2, label=row["backend"])
         ax.fill(angles, values, alpha=0.25)
 
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels([m.replace("_score", "") for m in metrics])
     ax.set_ylim(0, 1)
-    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+    ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.0))
     ax.set_title("Metric Breakdown")
 
     # 3. Runtime comparison
@@ -389,13 +397,15 @@ def run_comprehensive_benchmark(
         if data["status"] != "success":
             continue
 
-        metrics.append({
-            "backend": backend_name.upper(),
-            "mapping_quality": data["upstream_metrics"]["coverage"],
-            "runtime_minutes": data["runtime_seconds"] / 60,
-            "memory_gb": 16.0,  # Placeholder - would need actual measurement
-            "downstream_utility": data["mean_confidence"],
-        })
+        metrics.append(
+            {
+                "backend": backend_name.upper(),
+                "mapping_quality": data["upstream_metrics"]["coverage"],
+                "runtime_minutes": data["runtime_seconds"] / 60,
+                "memory_gb": 16.0,  # Placeholder - would need actual measurement
+                "downstream_utility": data["mean_confidence"],
+            }
+        )
 
     # Format recommendation
     formatted_results = {
@@ -415,10 +425,12 @@ def main():
     parser.add_argument("--snrna", type=str, required=True, help="Path to snRNA h5ad")
     parser.add_argument("--spatial", type=str, required=True, help="Path to spatial h5ad")
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory")
-    parser.add_argument("--backends", type=str, nargs="+", default=None,
-                        help="Backends to run (default: all)")
-    parser.add_argument("--quick", action="store_true",
-                        help="Use reduced epochs for quick testing")
+    parser.add_argument(
+        "--backends", type=str, nargs="+", default=None, help="Backends to run (default: all)"
+    )
+    parser.add_argument(
+        "--quick", action="store_true", help="Use reduced epochs for quick testing"
+    )
     args = parser.parse_args()
 
     comparison = run_backend_comparison(

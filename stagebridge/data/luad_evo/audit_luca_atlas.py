@@ -1,4 +1,5 @@
 """Audit the LuCA atlas schema and export a lightweight metadata table."""
+
 from __future__ import annotations
 
 import argparse
@@ -106,8 +107,15 @@ def run(atlas_path: Path, outdir: Path) -> dict[str, object]:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--atlas", type=Path, required=True, help="Path to luca_extended_atlas.h5ad")
-    parser.add_argument("--outdir", type=Path, required=True, help="Output directory for LuCA metadata/audit JSON files")
+    parser.add_argument(
+        "--atlas", type=Path, required=True, help="Path to luca_extended_atlas.h5ad"
+    )
+    parser.add_argument(
+        "--outdir",
+        type=Path,
+        required=True,
+        help="Output directory for LuCA metadata/audit JSON files",
+    )
     return parser
 
 

@@ -1,4 +1,5 @@
 """Typed manifest helpers for the lightweight StageBridge results system."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -282,13 +283,23 @@ def build_run_metadata(
     data = _cfg_to_dict(cfg)
     git = git_context(base_dir)
     resolved_stage_edges = normalize_stage_edges(
-        stage_edges if stage_edges is not None else nested_get(data, "transition_model.disease_edges", [])
+        stage_edges
+        if stage_edges is not None
+        else nested_get(data, "transition_model.disease_edges", [])
     )
-    resolved_seed = int(seed if seed is not None else nested_get(data, "train.seed", nested_get(data, "seed", 42)))
+    resolved_seed = int(
+        seed if seed is not None else nested_get(data, "train.seed", nested_get(data, "seed", 42))
+    )
     resolved_split = str(
-        split_name if split_name is not None else nested_get(data, "splits.name", "unspecified_split")
+        split_name
+        if split_name is not None
+        else nested_get(data, "splits.name", "unspecified_split")
     )
-    resolved_experiment = str(experiment_name if experiment_name is not None else nested_get(data, "run_name", "stagebridge"))
+    resolved_experiment = str(
+        experiment_name
+        if experiment_name is not None
+        else nested_get(data, "run_name", "stagebridge")
+    )
     resolved_mode = str(mode if mode is not None else infer_mode_from_config(data))
     return RunMetadata(
         timestamp=str(timestamp or utc_timestamp()),
@@ -300,8 +311,12 @@ def build_run_metadata(
         stage_edges=resolved_stage_edges,
         seed=resolved_seed,
         split_name=resolved_split,
-        wes_regularizer_enabled=bool(nested_get(data, "transition_model.wes_regularizer.enabled", False)),
-        spatial_mapping_method=str(nested_get(data, "spatial_mapping.method", "unspecified_mapping")),
+        wes_regularizer_enabled=bool(
+            nested_get(data, "transition_model.wes_regularizer.enabled", False)
+        ),
+        spatial_mapping_method=str(
+            nested_get(data, "spatial_mapping.method", "unspecified_mapping")
+        ),
         context_model_mode=str(nested_get(data, "context_model.mode", "rna_only")),
         notebook_source=notebook_source,
         status=validate_status(status),

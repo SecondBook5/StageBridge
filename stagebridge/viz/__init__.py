@@ -1,6 +1,11 @@
 """Visualisation utilities for StageBridge."""
 
-from .curves import build_metrics_dataframe, plot_benchmark_bars, plot_training_curves, plot_metric_violin
+from .curves import (
+    build_metrics_dataframe,
+    plot_benchmark_bars,
+    plot_training_curves,
+    plot_metric_violin,
+)
 from .embeddings import (
     plot_context_vector_umap,
     plot_umap_by_stage,

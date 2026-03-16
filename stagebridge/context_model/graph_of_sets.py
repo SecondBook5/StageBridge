@@ -21,6 +21,7 @@ This module provides the Graph Transformer layers and graph construction
 utilities.  The intra-set encoding re-uses the rebuilt context-model
 set-encoder blocks.
 """
+
 from __future__ import annotations
 
 import math
@@ -35,6 +36,7 @@ from stagebridge.context_model.set_encoder import FeedForwardBlock
 # ---------------------------------------------------------------------------
 # Graph structure
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SetGraph:
@@ -187,6 +189,7 @@ def build_set_graph(
 # Graph Transformer layers
 # ---------------------------------------------------------------------------
 
+
 class GraphAttentionLayer(nn.Module):
     """Multi-head attention over graph neighbors with typed edge bias.
 
@@ -321,7 +324,9 @@ def _scatter_softmax(
 
     # Compute per-group max for numerical stability
     idx = index.view(E, 1, 1, 1).expand_as(scores)
-    max_vals = torch.full((num_nodes, H, Kq, Ks), float("-inf"), device=scores.device, dtype=scores.dtype)
+    max_vals = torch.full(
+        (num_nodes, H, Kq, Ks), float("-inf"), device=scores.device, dtype=scores.dtype
+    )
     max_vals.scatter_reduce_(0, idx, scores, reduce="amax", include_self=False)
     max_per_edge = max_vals[index]  # (E, H, Kq, Ks)
 
@@ -374,6 +379,7 @@ class GraphTransformerBlock(nn.Module):
 # Full Graph-of-Sets Transformer
 # ---------------------------------------------------------------------------
 
+
 class GraphOfSetsTransformer(nn.Module):
     """Joint Set Transformer + Graph Transformer for cross-population flow conditioning.
 
@@ -412,15 +418,17 @@ class GraphOfSetsTransformer(nn.Module):
                 nn.GELU(),
             )
 
-        self.blocks = nn.ModuleList([
-            GraphTransformerBlock(
-                dim=dim,
-                num_heads=num_heads,
-                num_edge_types=num_edge_types,
-                dropout=dropout,
-            )
-            for _ in range(num_graph_layers)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                GraphTransformerBlock(
+                    dim=dim,
+                    num_heads=num_heads,
+                    num_edge_types=num_edge_types,
+                    dropout=dropout,
+                )
+                for _ in range(num_graph_layers)
+            ]
+        )
 
     def forward(
         self,
@@ -459,6 +467,7 @@ class GraphOfSetsTransformer(nn.Module):
 # ---------------------------------------------------------------------------
 # Convenience: batch graph construction from training data
 # ---------------------------------------------------------------------------
+
 
 def build_training_graph(
     obs_patient: list[str],

@@ -12,7 +12,7 @@ import pandas as pd
 import anndata as ad
 import scanpy as sc
 
-from .base import SpatialBackend, SpatialMappingResult, compute_cell_type_entropy, compute_sparsity
+from .base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy, compute_sparsity
 
 
 class TangramBackend(SpatialBackend):
@@ -49,7 +49,7 @@ class TangramBackend(SpatialBackend):
         snrna: ad.AnnData,
         spatial: ad.AnnData,
         output_dir: Path | None = None,
-    ) -> SpatialMappingResult:
+    ) -> BackendMappingResult:
         """Run Tangram mapping."""
         # Validate and preprocess
         self.validate_inputs(snrna, spatial)
@@ -91,22 +91,16 @@ class TangramBackend(SpatialBackend):
         # Extract cell type proportions
         if self.mode == "clusters":
             # Get cell type proportions directly
-            cell_type_proportions = self._extract_cluster_proportions(
-                ad_map, snrna, spatial
-            )
+            cell_type_proportions = self._extract_cluster_proportions(ad_map, snrna, spatial)
         else:
             # Aggregate cell-level mapping to cell types
-            cell_type_proportions = self._aggregate_to_celltypes(
-                ad_map, snrna, spatial
-            )
+            cell_type_proportions = self._aggregate_to_celltypes(ad_map, snrna, spatial)
 
         # Compute confidence
         confidence = self.estimate_confidence(snrna, spatial, None)
 
         # Compute upstream metrics
-        upstream_metrics = self.compute_upstream_metrics(
-            snrna, spatial, None
-        )
+        upstream_metrics = self.compute_upstream_metrics(snrna, spatial, None)
 
         # Save if output_dir provided
         if output_dir:
@@ -114,7 +108,7 @@ class TangramBackend(SpatialBackend):
             output_dir.mkdir(parents=True, exist_ok=True)
             ad_map.write_h5ad(output_dir / "tangram_mapping.h5ad")
 
-        result = SpatialMappingResult(
+        result = BackendMappingResult(
             cell_type_proportions=cell_type_proportions,
             confidence=confidence,
             upstream_metrics=upstream_metrics,
@@ -217,7 +211,7 @@ class TangramBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: SpatialMappingResult | None,
+        result: BackendMappingResult | None,
     ) -> dict[str, float]:
         """Compute Tangram-specific upstream metrics."""
         if result is None:
@@ -250,7 +244,7 @@ class TangramBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: SpatialMappingResult | None,
+        result: BackendMappingResult | None,
     ) -> pd.Series:
         """
         Estimate confidence from cell type proportion entropy.
@@ -282,7 +276,7 @@ def run_tangram(
     spatial_path: str | Path,
     output_dir: str | Path,
     **kwargs,
-) -> SpatialMappingResult:
+) -> BackendMappingResult:
     """
     Convenience function to run Tangram mapping.
 
@@ -293,7 +287,7 @@ def run_tangram(
         **kwargs: Additional Tangram parameters
 
     Returns:
-        SpatialMappingResult
+        BackendMappingResult
     """
     # Load data
     print(f"Loading snRNA data from {snrna_path}...")
@@ -327,9 +321,7 @@ if __name__ == "__main__":
 
     snrna = ad.AnnData(
         X=np.random.randn(n_cells, n_genes),
-        obs=pd.DataFrame({
-            "cell_type": np.random.choice(["A", "B", "C"], n_cells)
-        }),
+        obs=pd.DataFrame({"cell_type": np.random.choice(["A", "B", "C"], n_cells)}),
         var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)]),
     )
 

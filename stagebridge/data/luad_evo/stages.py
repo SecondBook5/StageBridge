@@ -1,4 +1,5 @@
 """Canonical stage ontology utilities for lung progression modeling."""
+
 from __future__ import annotations
 
 import re
@@ -57,8 +58,7 @@ def stage_to_binary_index(stage: str) -> int:
     group = STAGE_TO_BINARY.get(normalized)
     if group is None:
         raise ValueError(
-            f"Unknown stage '{stage}' (normalized='{normalized}'). "
-            f"Cannot map to binary label."
+            f"Unknown stage '{stage}' (normalized='{normalized}'). Cannot map to binary label."
         )
     return BINARY_STAGE_INDEX[group]
 
@@ -97,9 +97,13 @@ def stage_to_group_label(stage: str) -> str:
 # LUAD/PRIMARY are treated as the same biological stage (primary NSCLC tumor)
 # bridging the early-progression (GSE308103) and brain-mets (GSE223499) datasets.
 EXTENDED_STAGE_ORDER: tuple[str, ...] = (
-    "Normal", "AAH", "AIS", "MIA", "LUAD",  # early progression
-    "BrainMet",                               # brain metastasis
-    "ChestWallMet",                           # chest wall metastasis
+    "Normal",
+    "AAH",
+    "AIS",
+    "MIA",
+    "LUAD",  # early progression
+    "BrainMet",  # brain metastasis
+    "ChestWallMet",  # chest wall metastasis
 )
 
 # Adjacency edges in the extended graph (not necessarily linear).
@@ -175,8 +179,7 @@ def stage_to_index(stage: str, *, extended: bool = False) -> int:
     normalized = normalize_stage_label(stage)
     if normalized not in order:
         raise ValueError(
-            f"Unknown stage '{stage}' (normalized='{normalized}'). "
-            f"Expected one of {order}."
+            f"Unknown stage '{stage}' (normalized='{normalized}'). Expected one of {order}."
         )
     return order.index(normalized)
 
@@ -185,9 +188,7 @@ def index_to_stage(index: int, *, extended: bool = False) -> str:
     """Inverse mapping from stage index to name."""
     order = EXTENDED_STAGE_ORDER if extended else CANONICAL_STAGE_ORDER
     if index < 0 or index >= len(order):
-        raise IndexError(
-            f"Stage index {index} out of range [0, {len(order)-1}]"
-        )
+        raise IndexError(f"Stage index {index} out of range [0, {len(order) - 1}]")
     return order[index]
 
 
@@ -236,15 +237,11 @@ def apply_stage_ontology(
 ) -> pd.DataFrame:
     """Return a copy of ``obs`` with normalized stage and stage index columns."""
     if stage_col not in obs.columns:
-        raise KeyError(
-            f"Missing stage column '{stage_col}'. Found: {list(obs.columns)}"
-        )
+        raise KeyError(f"Missing stage column '{stage_col}'. Found: {list(obs.columns)}")
     out = obs.copy()
     out[stage_col] = normalize_stage_series(out[stage_col])
     out[stage_index_col] = out[stage_col].map(
-        lambda s: CANONICAL_STAGE_ORDER.index(s)
-        if s in CANONICAL_STAGE_ORDER
-        else -1
+        lambda s: CANONICAL_STAGE_ORDER.index(s) if s in CANONICAL_STAGE_ORDER else -1
     )
     return out
 

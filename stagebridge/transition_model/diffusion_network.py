@@ -1,4 +1,5 @@
 """State-dependent diffusion networks for stochastic StageBridge dynamics."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

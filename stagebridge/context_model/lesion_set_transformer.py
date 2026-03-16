@@ -1,4 +1,5 @@
 """Lesion-level Set Transformer and full EA-MIST model."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,8 +10,14 @@ from torch import Tensor, nn
 from stagebridge.context_model.baselines_lesion import LesionModelOutput
 from stagebridge.context_model.evolution_branch import EvolutionBranch
 from stagebridge.context_model.heads import LesionMultitaskHeads
-from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder, LocalNicheTransformerEncoder
-from stagebridge.context_model.prototype_bottleneck import PrototypeBottleneck, PrototypeBottleneckOutput
+from stagebridge.context_model.local_niche_encoder import (
+    LocalNicheMLPEncoder,
+    LocalNicheTransformerEncoder,
+)
+from stagebridge.context_model.prototype_bottleneck import (
+    PrototypeBottleneck,
+    PrototypeBottleneckOutput,
+)
 from stagebridge.context_model.set_encoder import PMA, ISAB, SAB
 from stagebridge.utils.types import LesionBagBatch
 
@@ -69,16 +76,34 @@ class LesionSetTransformerBackbone(nn.Module):
         self.input_proj = nn.Linear(int(input_dim), int(hidden_dim))
         if use_isab:
             self.blocks = nn.ModuleList(
-                [ISAB(dim=int(hidden_dim), num_heads=int(num_heads), num_inducing_points=int(num_inducing_points), dropout=float(dropout)) for _ in range(int(num_layers))]
+                [
+                    ISAB(
+                        dim=int(hidden_dim),
+                        num_heads=int(num_heads),
+                        num_inducing_points=int(num_inducing_points),
+                        dropout=float(dropout),
+                    )
+                    for _ in range(int(num_layers))
+                ]
             )
         else:
             self.blocks = nn.ModuleList(
-                [SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout)) for _ in range(int(num_layers))]
+                [
+                    SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
+                    for _ in range(int(num_layers))
+                ]
             )
-        self.pool = PMA(dim=int(hidden_dim), num_heads=int(num_heads), num_seed_vectors=int(num_pma_seeds), dropout=float(dropout))
+        self.pool = PMA(
+            dim=int(hidden_dim),
+            num_heads=int(num_heads),
+            num_seed_vectors=int(num_pma_seeds),
+            dropout=float(dropout),
+        )
         self.norm = nn.LayerNorm(int(hidden_dim))
 
-    def forward(self, tokens: Tensor, mask: Tensor, *, return_attention: bool = False) -> tuple[Tensor, Tensor | None]:
+    def forward(
+        self, tokens: Tensor, mask: Tensor, *, return_attention: bool = False
+    ) -> tuple[Tensor, Tensor | None]:
         """Encode a lesion bag into one lesion embedding."""
         hidden = self.input_proj(tokens)
         attention = None
@@ -154,12 +179,18 @@ class EAMISTModel(nn.Module):
                 use_atlas_contrast_token=self.use_atlas_contrast_token,
             )
         elif self.local_encoder_type == "mlp":
-            self.local_encoder = LocalNicheMLPEncoder(input_dim=flat_feature_dim, hidden_dim=self.hidden_dim, dropout=dropout)
+            self.local_encoder = LocalNicheMLPEncoder(
+                input_dim=flat_feature_dim, hidden_dim=self.hidden_dim, dropout=dropout
+            )
         else:
             raise ValueError(f"Unsupported local_encoder_type '{local_encoder_type}'.")
 
         self.prototype_bottleneck = (
-            PrototypeBottleneck(self.hidden_dim, num_prototypes=num_prototypes, sparse_assignment=sparse_assignments)
+            PrototypeBottleneck(
+                self.hidden_dim,
+                num_prototypes=num_prototypes,
+                sparse_assignment=sparse_assignments,
+            )
             if self.use_prototypes
             else None
         )
@@ -173,20 +204,45 @@ class EAMISTModel(nn.Module):
             dropout=dropout,
             use_isab=True,
         )
-        self.evolution_branch = None if evolution_dim is None or evolution_dim <= 0 else EvolutionBranch(evolution_dim, self.hidden_dim, mode=evolution_mode, dropout=dropout)
+        self.evolution_branch = (
+            None
+            if evolution_dim is None or evolution_dim <= 0
+            else EvolutionBranch(
+                evolution_dim, self.hidden_dim, mode=evolution_mode, dropout=dropout
+            )
+        )
         # Distribution-aware pooling: per-niche transition score → summary stats
         _num_dist_stats = 7  # mean, std, min, max, q25, median, q75
-        self.niche_transition_head = NicheTransitionScoreHead(self.hidden_dim, dropout=dropout) if self.use_distribution_summary else None
-        head_input_dim = self.hidden_dim + (_num_dist_stats if self.use_distribution_summary else 0)
-        self.heads = LesionMultitaskHeads(head_input_dim, num_stage_classes=num_stage_classes, num_edge_heads=num_edge_heads, dropout=dropout)
+        self.niche_transition_head = (
+            NicheTransitionScoreHead(self.hidden_dim, dropout=dropout)
+            if self.use_distribution_summary
+            else None
+        )
+        head_input_dim = self.hidden_dim + (
+            _num_dist_stats if self.use_distribution_summary else 0
+        )
+        self.heads = LesionMultitaskHeads(
+            head_input_dim,
+            num_stage_classes=num_stage_classes,
+            num_edge_heads=num_edge_heads,
+            dropout=dropout,
+        )
 
     def _resolve_reference_features(self, batch: LesionBagBatch) -> tuple[Tensor, Tensor]:
         hlca = batch.hlca_features
         luca = batch.luca_features
         if hlca is None:
-            hlca = torch.zeros((*batch.receiver_embeddings.shape[:2], 0), dtype=batch.receiver_embeddings.dtype, device=batch.receiver_embeddings.device)
+            hlca = torch.zeros(
+                (*batch.receiver_embeddings.shape[:2], 0),
+                dtype=batch.receiver_embeddings.dtype,
+                device=batch.receiver_embeddings.device,
+            )
         if luca is None:
-            luca = torch.zeros((*batch.receiver_embeddings.shape[:2], 0), dtype=batch.receiver_embeddings.dtype, device=batch.receiver_embeddings.device)
+            luca = torch.zeros(
+                (*batch.receiver_embeddings.shape[:2], 0),
+                dtype=batch.receiver_embeddings.dtype,
+                device=batch.receiver_embeddings.device,
+            )
         if self.reference_feature_mode == "hlca_only" and luca.shape[-1] > 0:
             luca = torch.zeros_like(luca)
         if self.reference_feature_mode == "luca_only" and hlca.shape[-1] > 0:
@@ -198,7 +254,9 @@ class EAMISTModel(nn.Module):
                 luca = torch.zeros_like(luca)
         return hlca, luca
 
-    def encode_local(self, batch: LesionBagBatch, *, return_attention: bool = False) -> tuple[Tensor, Tensor | None]:
+    def encode_local(
+        self, batch: LesionBagBatch, *, return_attention: bool = False
+    ) -> tuple[Tensor, Tensor | None]:
         """Encode each local niche in the batch into one embedding."""
         batch_size, num_instances = batch.receiver_embeddings.shape[:2]
         mask = batch.neighborhood_mask.reshape(batch_size * num_instances)
@@ -207,7 +265,9 @@ class EAMISTModel(nn.Module):
             total = batch_size * num_instances
             flat_receiver = batch.receiver_embeddings.reshape(total, -1)
             flat_state_ids = batch.receiver_state_ids.reshape(total)
-            flat_rings = batch.ring_compositions.reshape(total, batch.ring_compositions.shape[2], batch.ring_compositions.shape[3])
+            flat_rings = batch.ring_compositions.reshape(
+                total, batch.ring_compositions.shape[2], batch.ring_compositions.shape[3]
+            )
             flat_hlca = hlca_features.reshape(total, -1)
             flat_luca = luca_features.reshape(total, -1)
             flat_lr = batch.lr_pathway_summary.reshape(total, -1)
@@ -246,7 +306,9 @@ class EAMISTModel(nn.Module):
                 all_embeddings = torch.cat(chunks, dim=0)
             embeddings = all_embeddings.reshape(batch_size, num_instances, -1)
         else:
-            output = self.local_encoder(batch.flat_features.reshape(batch_size * num_instances, -1))
+            output = self.local_encoder(
+                batch.flat_features.reshape(batch_size * num_instances, -1)
+            )
             embeddings = output.neighborhood_embedding.reshape(batch_size, num_instances, -1)
             local_attention = None
         embeddings = embeddings * batch.neighborhood_mask.unsqueeze(-1).to(embeddings.dtype)
@@ -256,14 +318,20 @@ class EAMISTModel(nn.Module):
 
     def forward(self, batch: LesionBagBatch, *, return_attention: bool = False) -> EAMISTOutput:
         """Run the full EA-MIST forward pass over one lesion batch."""
-        local_embeddings, local_attention = self.encode_local(batch, return_attention=return_attention)
+        local_embeddings, local_attention = self.encode_local(
+            batch, return_attention=return_attention
+        )
         if self.prototype_bottleneck is not None:
-            prototype_output = self.prototype_bottleneck(local_embeddings, mask=batch.neighborhood_mask)
+            prototype_output = self.prototype_bottleneck(
+                local_embeddings, mask=batch.neighborhood_mask
+            )
             lesion_tokens = prototype_output.aligned_embeddings
         else:
             prototype_output = None
             lesion_tokens = local_embeddings
-        lesion_embedding, lesion_attention = self.lesion_backbone(lesion_tokens, batch.neighborhood_mask, return_attention=return_attention)
+        lesion_embedding, lesion_attention = self.lesion_backbone(
+            lesion_tokens, batch.neighborhood_mask, return_attention=return_attention
+        )
         fused_lesion, evolution_embedding = (
             (lesion_embedding, None)
             if self.evolution_branch is None
@@ -273,9 +341,13 @@ class EAMISTModel(nn.Module):
         niche_transition_scores = None
         head_input = fused_lesion
         if self.niche_transition_head is not None:
-            niche_transition_scores = self.niche_transition_head(local_embeddings, batch.neighborhood_mask)
+            niche_transition_scores = self.niche_transition_head(
+                local_embeddings, batch.neighborhood_mask
+            )
             # Compute summary statistics over valid niches
-            valid_scores = niche_transition_scores.masked_fill(~batch.neighborhood_mask, float("nan"))
+            valid_scores = niche_transition_scores.masked_fill(
+                ~batch.neighborhood_mask, float("nan")
+            )
             s_mean = torch.nanmean(valid_scores, dim=-1, keepdim=True)
             # std, min, max, quantiles via sorting valid entries
             # Replace nan with large value for min/sort, small for max
@@ -285,7 +357,11 @@ class EAMISTModel(nn.Module):
             s_min = scores_for_min.min(dim=-1, keepdim=True).values
             s_max = scores_for_max.max(dim=-1, keepdim=True).values
             # std: manual to handle masking
-            counts = batch.neighborhood_mask.sum(dim=-1, keepdim=True).clamp_min(1).to(valid_scores.dtype)
+            counts = (
+                batch.neighborhood_mask.sum(dim=-1, keepdim=True)
+                .clamp_min(1)
+                .to(valid_scores.dtype)
+            )
             diffs = (valid_scores - s_mean).masked_fill(~batch.neighborhood_mask, 0.0)
             s_std = (diffs.pow(2).sum(dim=-1, keepdim=True) / counts.clamp_min(2)).sqrt()
             # quantiles via sorted valid scores

@@ -1,4 +1,5 @@
 """Drift-network components for the transition model."""
+
 from __future__ import annotations
 
 import torch
@@ -44,12 +45,16 @@ class CrossAttentionDrift(nn.Module):
         self.last_context_gate_mean: float = 0.0
         self.last_context_attention_entropy: float = 0.0
 
-    def forward(self, x_t: Tensor, time_emb: Tensor, context_tokens: Tensor, stage_emb: Tensor) -> Tensor:
+    def forward(
+        self, x_t: Tensor, time_emb: Tensor, context_tokens: Tensor, stage_emb: Tensor
+    ) -> Tensor:
         q = self.query_proj(torch.cat([x_t, time_emb], dim=-1)).unsqueeze(1)
         kv_ctx = self.kv_proj(context_tokens)
         stage_tok = self.stage_proj(stage_emb).unsqueeze(1)
         kv = torch.cat([kv_ctx, stage_tok], dim=1)
-        attn_out, attn_weights = self.mha(query=q, key=kv, value=kv, need_weights=True, average_attn_weights=False)
+        attn_out, attn_weights = self.mha(
+            query=q, key=kv, value=kv, need_weights=True, average_attn_weights=False
+        )
         h = self.ln1(q + attn_out)
         h = self.ln2(h + self.ff(h))
         context_only = self.context_out_proj(h.squeeze(1))
@@ -97,7 +102,9 @@ class EdgeConditionedDriftMLP(nn.Module):
         self.time_embedding = SinusoidalTimeEmbedding(int(time_dim))
         self.edge_embedding = nn.Embedding(int(num_edges), int(edge_dim))
         self.network = nn.Sequential(
-            nn.Linear(self.input_dim + self.context_dim + int(time_dim) + int(edge_dim), int(hidden_dim)),
+            nn.Linear(
+                self.input_dim + self.context_dim + int(time_dim) + int(edge_dim), int(hidden_dim)
+            ),
             nn.GELU(),
             nn.Dropout(float(dropout)),
             nn.Linear(int(hidden_dim), int(hidden_dim)),
@@ -191,9 +198,7 @@ class UDEGate(nn.Module):
 
     def __init__(self, num_edges: int, init_logit: float = 0.0) -> None:
         super().__init__()
-        self.gate_logits = nn.Parameter(
-            torch.full((int(num_edges),), float(init_logit))
-        )
+        self.gate_logits = nn.Parameter(torch.full((int(num_edges),), float(init_logit)))
 
     def forward(self, edge_ids: Tensor) -> Tensor:
         if edge_ids.ndim == 0:

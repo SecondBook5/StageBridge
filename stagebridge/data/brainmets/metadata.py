@@ -1,4 +1,5 @@
 """Metadata helpers for the secondary brain metastasis cohort."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

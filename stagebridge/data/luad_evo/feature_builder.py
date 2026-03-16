@@ -1,4 +1,5 @@
 """Compact local niche feature construction for EA-MIST."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -47,9 +48,7 @@ LR_FAMILY_PRIORS: dict[str, tuple[tuple[str, str, float], ...]] = {
         ("COL1A1", "ITGB1", 0.75),
         ("FN1", "ITGB1", 0.82),
     ),
-    "vascular": (
-        ("VEGFA", "KDR", 0.78),
-    ),
+    "vascular": (("VEGFA", "KDR", 0.78),),
 }
 
 RECEIVER_PROGRAMS: dict[str, tuple[str, ...]] = {
@@ -105,7 +104,11 @@ def _build_expression_panel(
     var_index = pd.Index(raw.var_names.astype(str))
     available = [gene for gene in gene_list if gene in var_index]
     gene_rows = var_index.get_indexer(available)
-    dense = _safe_log1p_dense(raw.X[rows][:, gene_rows].toarray() if hasattr(raw.X[rows][:, gene_rows], "toarray") else raw.X[rows][:, gene_rows])
+    dense = _safe_log1p_dense(
+        raw.X[rows][:, gene_rows].toarray()
+        if hasattr(raw.X[rows][:, gene_rows], "toarray")
+        else raw.X[rows][:, gene_rows]
+    )
     frame = pd.DataFrame(dense, index=cell_ids, columns=available, dtype=np.float32)
     for gene in gene_list:
         if gene not in frame.columns:
@@ -138,7 +141,9 @@ def build_expression_templates(
     required_columns = {"cell_id", "donor_id", "stage", "hlca_label"}
     missing = required_columns.difference(obs.columns)
     if missing:
-        raise KeyError(f"Latent cohort is missing required columns for EA-MIST templates: {sorted(missing)}")
+        raise KeyError(
+            f"Latent cohort is missing required columns for EA-MIST templates: {sorted(missing)}"
+        )
 
     epithelial_set = {str(label) for label in (epithelial_labels or DEFAULT_EPITHELIAL_LABELS)}
     mask = obs["hlca_label"].astype(str).isin(epithelial_set).to_numpy()
@@ -150,12 +155,16 @@ def build_expression_templates(
         merged_groups = obs[["donor_id", "stage", "hlca_label"]].copy()
         keep_rows: list[np.ndarray] = []
         rng = np.random.default_rng(int(seed))
-        for indices in merged_groups.groupby(["donor_id", "stage", "hlca_label"], sort=False).indices.values():
+        for indices in merged_groups.groupby(
+            ["donor_id", "stage", "hlca_label"], sort=False
+        ).indices.values():
             rows = np.asarray(indices, dtype=np.int64)
             if rows.shape[0] <= int(max_cells_per_group):
                 keep_rows.append(rows)
                 continue
-            keep_rows.append(np.sort(rng.choice(rows, size=int(max_cells_per_group), replace=False)))
+            keep_rows.append(
+                np.sort(rng.choice(rows, size=int(max_cells_per_group), replace=False))
+            )
         if keep_rows:
             selected_rows = np.sort(np.concatenate(keep_rows))
             obs = obs.iloc[selected_rows].reset_index(drop=True)
@@ -190,7 +199,11 @@ def build_expression_templates(
 
     donor_stage_label = merged.groupby(["donor_id", "stage", "hlca_label"], sort=False).indices
     for key, indices in donor_stage_label.items():
-        expr = expression_panel.iloc[np.asarray(indices, dtype=np.int64)].mean(axis=0).astype(np.float32, copy=False)
+        expr = (
+            expression_panel.iloc[np.asarray(indices, dtype=np.int64)]
+            .mean(axis=0)
+            .astype(np.float32, copy=False)
+        )
         expression_by_donor_stage_label[(str(key[0]), str(key[1]), str(key[2]))] = expr
 
     return ExpressionTemplates(
@@ -215,7 +228,9 @@ def infer_receiver_state(
     weights = np.asarray(center_composition, dtype=np.float32)
     names = [str(name) for name in feature_names]
     if weights.ndim != 1 or weights.shape[0] != len(names):
-        raise ValueError("Receiver-state inference requires a 1D composition vector aligned to feature names.")
+        raise ValueError(
+            "Receiver-state inference requires a 1D composition vector aligned to feature names."
+        )
     epi_cols = epithelial_columns(names)
     if epi_cols:
         chosen_cols = epi_cols
@@ -246,7 +261,9 @@ def summarize_ring_compositions(
     if coords.shape[0] != compositions.shape[0]:
         raise ValueError("coords rows must match composition rows.")
     if center_index < 0 or center_index >= coords.shape[0]:
-        raise IndexError(f"center_index {center_index} is out of bounds for {coords.shape[0]} spots.")
+        raise IndexError(
+            f"center_index {center_index} is out of bounds for {coords.shape[0]} spots."
+        )
     if len(ring_edges) < 2:
         raise ValueError("ring_edges must define at least one ring boundary.")
 
@@ -257,7 +274,11 @@ def summarize_ring_compositions(
     for ring_idx in range(num_rings):
         low = float(ring_edges[ring_idx])
         high = float(ring_edges[ring_idx + 1])
-        mask = (dists >= low) & (dists < high) if ring_idx < num_rings - 1 else (dists >= low) & (dists <= high)
+        mask = (
+            (dists >= low) & (dists < high)
+            if ring_idx < num_rings - 1
+            else (dists >= low) & (dists <= high)
+        )
         if not mask.any():
             summaries[ring_idx] = compositions[center_index]
         else:
@@ -322,7 +343,9 @@ def build_lr_pathway_summary(
     """Build compact LR-family and receiver-program summaries for one niche."""
     names = [str(name) for name in feature_names]
     ring_mean = np.asarray(ring_compositions, dtype=np.float32).mean(axis=0)
-    receiver_expr = _lookup_expression(templates, donor_id=donor_id, stage=stage, label=receiver_label)
+    receiver_expr = _lookup_expression(
+        templates, donor_id=donor_id, stage=stage, label=receiver_label
+    )
     family_scores: list[float] = []
     for family_name, priors in LR_FAMILY_PRIORS.items():
         per_prior: list[float] = []
@@ -415,6 +438,10 @@ def summarize_neighborhood_build(
     return {
         "num_bags": float(num_bags),
         "num_instances": float(num_instances),
-        "mean_neighborhoods_per_bag": float(np.mean(neighborhoods_per_bag)) if neighborhoods_per_bag else 0.0,
-        "median_neighborhoods_per_bag": float(np.median(neighborhoods_per_bag)) if neighborhoods_per_bag else 0.0,
+        "mean_neighborhoods_per_bag": float(np.mean(neighborhoods_per_bag))
+        if neighborhoods_per_bag
+        else 0.0,
+        "median_neighborhoods_per_bag": float(np.median(neighborhoods_per_bag))
+        if neighborhoods_per_bag
+        else 0.0,
     }

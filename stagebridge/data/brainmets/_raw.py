@@ -9,6 +9,7 @@ Three data modalities from Rossi et al.:
 Patient IDs: PA001–PA141, KRAS_6–KRAS_17, STK_1–STK_22, N254/N561/N586
 Tissue types: PRIMARY, BRAIN_METS, CHEST_WALL_MET
 """
+
 from __future__ import annotations
 
 import gzip
@@ -46,12 +47,14 @@ def load_brainmets_metadata(
         tumor_nontumor_major, tumor_nontumor_finer, nCount_RNA, nFeature_RNA, ...
     """
     df = pd.read_csv(csv_path, index_col=0)
-    df = df.rename(columns={
-        "orig.ident": "patient_id_raw",
-        "PRIMARY vs BRAIN_METS vs CHEST_WALL_MET": "tissue_type",
-        "STK11-MUT vs STK11-WT": "stk11_status",
-        "patient": "patient_id",
-    })
+    df = df.rename(
+        columns={
+            "orig.ident": "patient_id_raw",
+            "PRIMARY vs BRAIN_METS vs CHEST_WALL_MET": "tissue_type",
+            "STK11-MUT vs STK11-WT": "stk11_status",
+            "patient": "patient_id",
+        }
+    )
     df.index.name = "barcode"
     df = df.reset_index()
 
@@ -184,7 +187,7 @@ def load_slideseq_sample(
                     raw = fobj.read()
                     # Read header line for barcodes
                     header_end = raw.index(b"\n")
-                    header = gzip.decompress(raw[:max(header_end + 4096, len(raw))])
+                    header = gzip.decompress(raw[: max(header_end + 4096, len(raw))])
                     # Actually, decompress fully — Slide-seq samples are ~50k beads
                     text = gzip.decompress(raw).decode("utf-8")
                     lines = text.split("\n")
@@ -237,23 +240,21 @@ def list_slideseq_samples(tar_path: str | Path) -> list[str]:
 # lpWGS copy-number (GSE223502) — ichorCNA output
 # ---------------------------------------------------------------------------
 
-_LPWGS_CNA_RE = re.compile(
-    r"GSM\d+_NSCLC_(\w+)_lpwgs_\S+_tumor\.cna\.seg\.gz$"
-)
+_LPWGS_CNA_RE = re.compile(r"GSM\d+_NSCLC_(\w+)_lpwgs_\S+_tumor\.cna\.seg\.gz$")
 
 # Chromosome arm lengths (GRCh38, Mb) for normalised CNA features
 _CHROMOSOME_ARMS = 44  # 22 autosomes x 2 arms
 
 # Key oncogene/tumor-suppressor loci for arm-level CNA features
 _CNA_GENE_LOCI: dict[str, tuple[str, int, int]] = {
-    "myc_amp":     ("8",  127_735_434, 127_742_951),   # MYC 8q24
-    "egfr_amp":    ("7",  55_019_017,  55_211_628),    # EGFR 7p11
-    "cdkn2a_del":  ("9",  21_967_751,  21_995_301),    # CDKN2A 9p21
-    "rb1_del":     ("13", 48_303_751,  48_481_890),    # RB1 13q14
-    "pten_del":    ("10", 87_863_113,  87_971_930),    # PTEN 10q23
-    "nkx2_1_amp":  ("14", 36_985_602,  36_989_163),    # NKX2-1/TTF1 14q13
-    "kras_amp":    ("12", 25_205_246,  25_250_929),    # KRAS 12p12
-    "stk11_del":   ("19", 1_205_866,   1_228_675),    # STK11 19p13
+    "myc_amp": ("8", 127_735_434, 127_742_951),  # MYC 8q24
+    "egfr_amp": ("7", 55_019_017, 55_211_628),  # EGFR 7p11
+    "cdkn2a_del": ("9", 21_967_751, 21_995_301),  # CDKN2A 9p21
+    "rb1_del": ("13", 48_303_751, 48_481_890),  # RB1 13q14
+    "pten_del": ("10", 87_863_113, 87_971_930),  # PTEN 10q23
+    "nkx2_1_amp": ("14", 36_985_602, 36_989_163),  # NKX2-1/TTF1 14q13
+    "kras_amp": ("12", 25_205_246, 25_250_929),  # KRAS 12p12
+    "stk11_del": ("19", 1_205_866, 1_228_675),  # STK11 19p13
 }
 
 
@@ -315,10 +316,15 @@ def _compute_cna_features(df: pd.DataFrame, patient_id: str) -> dict[str, Any]:
     total_genome = df["seg_size"].sum()
 
     if total_genome == 0:
-        feats.update({
-            "fga": 0.0, "num_segments": 0, "mean_ploidy": 2.0,
-            "gain_fraction": 0.0, "loss_fraction": 0.0,
-        })
+        feats.update(
+            {
+                "fga": 0.0,
+                "num_segments": 0,
+                "mean_ploidy": 2.0,
+                "gain_fraction": 0.0,
+                "loss_fraction": 0.0,
+            }
+        )
         for locus in _CNA_GENE_LOCI:
             feats[locus] = 0.0
         return feats
@@ -343,8 +349,13 @@ def _compute_cna_features(df: pd.DataFrame, patient_id: str) -> dict[str, Any]:
     # Gain/loss fraction
     if event_col:
         events = df[event_col[0]].astype(str).str.upper()
-        feats["gain_fraction"] = float(df.loc[events.str.contains("GAIN", na=False), "seg_size"].sum() / total_genome)
-        feats["loss_fraction"] = float(df.loc[events.str.contains("LOSS|HLOSS|DEL", na=False), "seg_size"].sum() / total_genome)
+        feats["gain_fraction"] = float(
+            df.loc[events.str.contains("GAIN", na=False), "seg_size"].sum() / total_genome
+        )
+        feats["loss_fraction"] = float(
+            df.loc[events.str.contains("LOSS|HLOSS|DEL", na=False), "seg_size"].sum()
+            / total_genome
+        )
     else:
         feats["gain_fraction"] = 0.0
         feats["loss_fraction"] = 0.0

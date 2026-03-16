@@ -1,4 +1,5 @@
 """Evaluation pipeline entrypoint."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -61,8 +62,12 @@ def run_evaluation(
         edge_id=edge_id,
         num_steps=8,
         stochastic=False,
-        epsilon=float(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("ot_epsilon", 0.05)),
-        sinkhorn_iters=int(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("sinkhorn_iters", 80)),
+        epsilon=float(
+            cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("ot_epsilon", 0.05)
+        ),
+        sinkhorn_iters=int(
+            cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("sinkhorn_iters", 80)
+        ),
     )
     calibration = summarize_transition_calibration(x_src, x_pred, x_tgt)
     context_sensitivity = None
@@ -78,8 +83,16 @@ def run_evaluation(
             edge_id=edge_id,
             num_steps=8,
             stochastic=False,
-            ot_epsilon=float(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("ot_epsilon", 0.05)),
-            sinkhorn_iters=int(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("sinkhorn_iters", 80)),
+            ot_epsilon=float(
+                cfg.get("transition_model", {})
+                .get("schrodinger_bridge", {})
+                .get("ot_epsilon", 0.05)
+            ),
+            sinkhorn_iters=int(
+                cfg.get("transition_model", {})
+                .get("schrodinger_bridge", {})
+                .get("sinkhorn_iters", 80)
+            ),
         )
     trajectory = summarize_edge_trajectory(
         x_src.detach().cpu().numpy(),
@@ -146,7 +159,9 @@ def run_evaluation(
     if transition.get("pretraining_summary") is not None:
         artifact_sources["pretraining_summary.json"] = transition.get("pretraining_summary", {})
     if transition.get("auxiliary_context_shuffle_metrics") is not None:
-        artifact_sources["transformer_auxiliary_metrics.json"] = transition.get("auxiliary_context_shuffle_metrics", {})
+        artifact_sources["transformer_auxiliary_metrics.json"] = transition.get(
+            "auxiliary_context_shuffle_metrics", {}
+        )
     if context_sensitivity is not None:
         artifact_sources["context_sensitivity.json"] = context_sensitivity
     if niche_regimes is not None:

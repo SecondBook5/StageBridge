@@ -65,7 +65,9 @@ class StageBridgeBatch:
             niche_mask=self.niche_mask.to(device),
             wes_features=self.wes_features.to(device) if self.wes_features is not None else None,
             has_wes=self.has_wes.to(device) if self.has_wes is not None else None,
-            niche_influence=self.niche_influence.to(device) if self.niche_influence is not None else None,
+            niche_influence=self.niche_influence.to(device)
+            if self.niche_influence is not None
+            else None,
         )
 
 
@@ -115,10 +117,7 @@ class StageBridgeDatasetOptimized(Dataset):
 
         # Load with selective columns
         if cache:
-            self.cells = cache.read_parquet(
-                self.data_dir / "cells.parquet",
-                columns=required_cols
-            )
+            self.cells = cache.read_parquet(self.data_dir / "cells.parquet", columns=required_cols)
         else:
             self.cells = pd.read_parquet(self.data_dir / "cells.parquet", columns=required_cols)
 
@@ -145,7 +144,9 @@ class StageBridgeDatasetOptimized(Dataset):
         # OPTIMIZATION 2: Pre-extract latent embeddings as numpy arrays
         print("  Pre-extracting latent embeddings...")
         self.latent_matrix = self.cells[latent_cols].values.astype(np.float32)
-        print(f"    Latent matrix: {self.latent_matrix.shape} ({self.latent_matrix.nbytes / 1024 / 1024:.1f} MB)")
+        print(
+            f"    Latent matrix: {self.latent_matrix.shape} ({self.latent_matrix.nbytes / 1024 / 1024:.1f} MB)"
+        )
 
         # OPTIMIZATION 3: Pre-extract WES features
         if load_wes and "tmb" in self.cells.columns:
@@ -161,7 +162,9 @@ class StageBridgeDatasetOptimized(Dataset):
         # OPTIMIZATION 4: Fast cell_id → row index mapping
         print("  Building fast lookup indices...")
         self.cell_id_to_row = {cell_id: idx for idx, cell_id in enumerate(self.cells["cell_id"])}
-        self.nhood_cell_to_row = {cell_id: idx for idx, cell_id in enumerate(self.neighborhoods["cell_id"])}
+        self.nhood_cell_to_row = {
+            cell_id: idx for idx, cell_id in enumerate(self.neighborhoods["cell_id"])
+        }
 
         # OPTIMIZATION 5: Pre-compute niche tokens
         print("  Pre-computing niche tokens...")
@@ -200,20 +203,20 @@ class StageBridgeDatasetOptimized(Dataset):
 
                 if token_type == "receiver":
                     z = token["z_fused"]
-                    niche_array[token_idx, :self.latent_dim] = z[:self.latent_dim]
+                    niche_array[token_idx, : self.latent_dim] = z[: self.latent_dim]
 
                 elif token_type.startswith("ring"):
                     z = token["z_pooled"]
-                    niche_array[token_idx, :self.latent_dim] = z[:self.latent_dim]
+                    niche_array[token_idx, : self.latent_dim] = z[: self.latent_dim]
                     niche_array[token_idx, self.latent_dim] = token.get("n_cells", 0) / 5.0
 
                 elif token_type == "hlca":
                     z = token["z_hlca"]
-                    niche_array[token_idx, :self.latent_dim] = z[:self.latent_dim]
+                    niche_array[token_idx, : self.latent_dim] = z[: self.latent_dim]
 
                 elif token_type == "luca":
                     z = token["z_luca"]
-                    niche_array[token_idx, :self.latent_dim] = z[:self.latent_dim]
+                    niche_array[token_idx, : self.latent_dim] = z[: self.latent_dim]
 
                 elif token_type == "pathway":
                     niche_array[token_idx, 0] = token.get("emt_score", 0.0)
@@ -275,7 +278,9 @@ class StageBridgeDatasetOptimized(Dataset):
         target_stage = self.stage_edges.loc[edge_mask, "target_stage"].iloc[0]
 
         # Sample target cell (vectorized filter)
-        target_mask = (self.cells["stage"] == target_stage) & (self.cells["donor_id"] == source_donor)
+        target_mask = (self.cells["stage"] == target_stage) & (
+            self.cells["donor_id"] == source_donor
+        )
         target_indices = np.where(target_mask.values)[0]
 
         if len(target_indices) == 0:
@@ -319,9 +324,13 @@ class StageBridgeDatasetOptimized(Dataset):
             "z_target": torch.from_numpy(z_target).float(),
             "niche_tokens": torch.from_numpy(niche_tokens).float(),
             "niche_mask": torch.from_numpy(niche_mask).bool(),
-            "wes_features": torch.from_numpy(wes_features).float() if wes_features is not None else None,
+            "wes_features": torch.from_numpy(wes_features).float()
+            if wes_features is not None
+            else None,
             "has_wes": torch.tensor(has_wes).bool(),
-            "niche_influence": torch.tensor(niche_influence).float() if niche_influence is not None else None,
+            "niche_influence": torch.tensor(niche_influence).float()
+            if niche_influence is not None
+            else None,
         }
 
 
@@ -337,11 +346,17 @@ def collate_fn(batch: list[dict]) -> StageBridgeBatch:
         z_target=torch.stack([x["z_target"] for x in batch]),
         niche_tokens=torch.stack([x["niche_tokens"] for x in batch]),
         niche_mask=torch.stack([x["niche_mask"] for x in batch]),
-        wes_features=torch.stack([x["wes_features"] for x in batch if x["wes_features"] is not None])
-                   if any(x["wes_features"] is not None for x in batch) else None,
+        wes_features=torch.stack(
+            [x["wes_features"] for x in batch if x["wes_features"] is not None]
+        )
+        if any(x["wes_features"] is not None for x in batch)
+        else None,
         has_wes=torch.stack([x["has_wes"] for x in batch]),
-        niche_influence=torch.stack([x["niche_influence"] for x in batch if x["niche_influence"] is not None])
-                       if any(x["niche_influence"] is not None for x in batch) else None,
+        niche_influence=torch.stack(
+            [x["niche_influence"] for x in batch if x["niche_influence"] is not None]
+        )
+        if any(x["niche_influence"] is not None for x in batch)
+        else None,
     )
 
 
@@ -374,7 +389,7 @@ def get_dataloader_optimized(
         DataLoader instance
     """
     if shuffle is None:
-        shuffle = (split == "train")
+        shuffle = split == "train"
 
     dataset = StageBridgeDatasetOptimized(
         data_dir=data_dir,
@@ -409,6 +424,7 @@ def get_dataloader(*args, optimized: bool = True, **kwargs):
     else:
         # Fall back to original (not implemented here - would import from loaders.py)
         from .loaders import get_dataloader as get_dataloader_original
+
         return get_dataloader_original(*args, **kwargs)
 
 

@@ -82,3 +82,11 @@ htmlcov/
 # Claude Code
 .claude/
 AGENTS.md
+# Runtime artifacts
+artifacts/
+
+# Working notebooks
+notebooks/
+
+# Archive (working notes)
+archive/

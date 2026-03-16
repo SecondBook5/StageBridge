@@ -1,4 +1,5 @@
 """Build one lesion-level evolution feature row per lesion for EA-MIST."""
+
 from __future__ import annotations
 
 import argparse
@@ -22,16 +23,26 @@ def _load_manifest(wes_path: Path, cleaned_manifest: Path | None) -> pd.DataFram
     if cleaned_manifest is not None and cleaned_manifest.exists():
         manifest = pd.read_csv(cleaned_manifest)
     else:
-        manifest = build_cleaned_cohort_manifest({"data": {"wes_features_path": str(wes_path)}})["cleaned_manifest"]
+        manifest = build_cleaned_cohort_manifest({"data": {"wes_features_path": str(wes_path)}})[
+            "cleaned_manifest"
+        ]
     if manifest.empty:
-        raise ValueError("Cleaned lesion manifest was empty; cannot build lesion-level evolution features.")
+        raise ValueError(
+            "Cleaned lesion manifest was empty; cannot build lesion-level evolution features."
+        )
     if manifest["lesion_id"].duplicated().any():
-        duplicates = manifest.loc[manifest["lesion_id"].duplicated(keep=False), "lesion_id"].drop_duplicates().tolist()
+        duplicates = (
+            manifest.loc[manifest["lesion_id"].duplicated(keep=False), "lesion_id"]
+            .drop_duplicates()
+            .tolist()
+        )
         raise ValueError(f"Duplicate lesion ids detected in manifest: {duplicates[:10]}")
     return manifest.loc[:, ["lesion_id", "sample_id", "patient_id", "donor_id", "stage"]].copy()
 
 
-def _merge_one(base: pd.DataFrame, path: Path | None, *, key: str, columns: list[str]) -> tuple[pd.DataFrame, list[str]]:
+def _merge_one(
+    base: pd.DataFrame, path: Path | None, *, key: str, columns: list[str]
+) -> tuple[pd.DataFrame, list[str]]:
     if path is None or not path.exists():
         return base, []
     frame = pd.read_csv(path) if path.suffix.lower() == ".csv" else pd.read_parquet(path)
@@ -71,14 +82,19 @@ def run(
         raise KeyError(f"WES feature parquet is missing required columns: {sorted(missing_wes)}")
 
     merged = manifest.merge(wes, on=["patient_id", "stage"], how="left", validate="many_to_one")
-    mutation_cols = [column for column in wes.columns if column not in {"patient_id", "stage", "tmb"}]
+    mutation_cols = [
+        column for column in wes.columns if column not in {"patient_id", "stage", "tmb"}
+    ]
     included_features: list[str] = []
     if "tmb" in merged.columns:
         merged["evo_tmb"] = pd.to_numeric(merged["tmb"], errors="coerce").astype(float)
         included_features.append("evo_tmb")
     if mutation_cols:
         merged["evo_driver_burden"] = (
-            merged.loc[:, mutation_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0).sum(axis=1)
+            merged.loc[:, mutation_cols]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0.0)
+            .sum(axis=1)
         ).astype(float)
         included_features.append("evo_driver_burden")
         for column in mutation_cols:
@@ -88,15 +104,39 @@ def run(
     support_specs = [
         (
             _resolve_support_path(cna_summary, "lesion_cna_summary.csv"),
-            ["purity", "ploidy", "fraction_genome_altered", "cna_burden", "num_focal_events", "num_arm_level_events", "allele_specific_imbalance"],
+            [
+                "purity",
+                "ploidy",
+                "fraction_genome_altered",
+                "cna_burden",
+                "num_focal_events",
+                "num_arm_level_events",
+                "allele_specific_imbalance",
+            ],
         ),
         (
             _resolve_support_path(clone_summary, "lesion_clone_summary.csv"),
-            ["num_clonal_clusters", "dominant_clone_fraction", "subclonal_entropy", "shared_cluster_count_with_later_lesions", "private_cluster_count", "driver_cluster_count"],
+            [
+                "num_clonal_clusters",
+                "dominant_clone_fraction",
+                "subclonal_entropy",
+                "shared_cluster_count_with_later_lesions",
+                "private_cluster_count",
+                "driver_cluster_count",
+            ],
         ),
         (
             _resolve_support_path(phylogeny_summary, "lesion_phylogeny_summary.csv"),
-            ["trunk_mutation_burden", "branch_count", "branch_length_mean", "clone_sharing_score", "descendant_sharing_score", "trunk_membership_score", "branch_specificity_score", "evidence_of_progression_link"],
+            [
+                "trunk_mutation_burden",
+                "branch_count",
+                "branch_length_mean",
+                "clone_sharing_score",
+                "descendant_sharing_score",
+                "trunk_membership_score",
+                "branch_specificity_score",
+                "evidence_of_progression_link",
+            ],
         ),
         (
             _resolve_support_path(refined_labels, "lesion_refined_labels.csv"),
@@ -123,16 +163,27 @@ def run(
         merged["evo_branch_complexity"] = merged["evo_branch_count"]
         included_features.append("evo_branch_complexity")
     if {"evo_clone_sharing_score", "evo_trunk_membership_score"}.issubset(merged.columns):
-        merged["evo_trunk_shared_clone_score"] = merged[["evo_clone_sharing_score", "evo_trunk_membership_score"]].mean(axis=1)
+        merged["evo_trunk_shared_clone_score"] = merged[
+            ["evo_clone_sharing_score", "evo_trunk_membership_score"]
+        ].mean(axis=1)
         included_features.append("evo_trunk_shared_clone_score")
 
     included_features = list(dict.fromkeys(included_features))
-    output_columns = ["lesion_id", "sample_id", "patient_id", "donor_id", "stage", *included_features]
+    output_columns = [
+        "lesion_id",
+        "sample_id",
+        "patient_id",
+        "donor_id",
+        "stage",
+        *included_features,
+    ]
     output = merged.loc[:, output_columns].copy()
     if output.empty:
         raise ValueError("Lesion evolution feature table was empty.")
     if not included_features:
-        raise ValueError("No lesion evolution features could be assembled from the available inputs.")
+        raise ValueError(
+            "No lesion evolution features could be assembled from the available inputs."
+        )
     if output[included_features].isna().all(axis=1).all():
         raise ValueError("Every lesion-level evolution feature row was empty after assembly.")
 
@@ -155,12 +206,27 @@ def run(
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wes", type=Path, required=True, help="Path to wes_features.parquet")
-    parser.add_argument("--out", type=Path, required=True, help="Output parquet path for lesion evolution features")
-    parser.add_argument("--cleaned-manifest", type=Path, default=None, help="Optional cleaned cohort manifest CSV")
-    parser.add_argument("--refined-labels", type=Path, default=None, help="Optional lesion_refined_labels.csv")
-    parser.add_argument("--cna-summary", type=Path, default=None, help="Optional lesion_cna_summary.csv")
-    parser.add_argument("--clone-summary", type=Path, default=None, help="Optional lesion_clone_summary.csv")
-    parser.add_argument("--phylogeny-summary", type=Path, default=None, help="Optional lesion_phylogeny_summary.csv")
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Output parquet path for lesion evolution features"
+    )
+    parser.add_argument(
+        "--cleaned-manifest", type=Path, default=None, help="Optional cleaned cohort manifest CSV"
+    )
+    parser.add_argument(
+        "--refined-labels", type=Path, default=None, help="Optional lesion_refined_labels.csv"
+    )
+    parser.add_argument(
+        "--cna-summary", type=Path, default=None, help="Optional lesion_cna_summary.csv"
+    )
+    parser.add_argument(
+        "--clone-summary", type=Path, default=None, help="Optional lesion_clone_summary.csv"
+    )
+    parser.add_argument(
+        "--phylogeny-summary",
+        type=Path,
+        default=None,
+        help="Optional lesion_phylogeny_summary.csv",
+    )
     return parser
 
 

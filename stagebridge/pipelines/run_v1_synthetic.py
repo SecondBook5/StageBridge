@@ -88,6 +88,7 @@ class SimpleWESRegularizer(nn.Module):
         # For synthetic data, we assume all pairs are matched (same donor)
         # So we just minimize -log(sigmoid(compat))
         import torch.nn.functional as F
+
         loss = -torch.mean(F.logsigmoid(compat / self.temperature)[has_wes_mask])
 
         return loss
@@ -124,12 +125,14 @@ class SimpleFlowMatchingTransition(nn.Module):
         input_dim = latent_dim + context_dim + time_embedding_dim
 
         for hidden_dim in hidden_dims:
-            layers.extend([
-                nn.Linear(input_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim),
-                nn.SiLU(),
-                nn.Dropout(0.1),
-            ])
+            layers.extend(
+                [
+                    nn.Linear(input_dim, hidden_dim),
+                    nn.LayerNorm(hidden_dim),
+                    nn.SiLU(),
+                    nn.Dropout(0.1),
+                ]
+            )
             input_dim = hidden_dim
 
         layers.append(nn.Linear(input_dim, latent_dim))
@@ -456,11 +459,13 @@ def train_epoch(
         total_wes += outputs["loss_wes"].item()
         n_batches += 1
 
-        pbar.set_postfix({
-            "loss": total_loss / n_batches,
-            "transition": total_transition / n_batches,
-            "wes": total_wes / n_batches,
-        })
+        pbar.set_postfix(
+            {
+                "loss": total_loss / n_batches,
+                "transition": total_transition / n_batches,
+                "wes": total_wes / n_batches,
+            }
+        )
 
     return {
         "loss": total_loss / n_batches,
@@ -552,10 +557,13 @@ def visualize_transitions(
     ax.scatter(z_targets[:, 0], z_targets[:, 1], c="red", alpha=0.5, label="Target (GT)")
     for i in range(min(50, len(z_sources))):
         ax.arrow(
-            z_sources[i, 0], z_sources[i, 1],
+            z_sources[i, 0],
+            z_sources[i, 1],
             z_targets[i, 0] - z_sources[i, 0],
             z_targets[i, 1] - z_sources[i, 1],
-            alpha=0.3, head_width=0.05, color="gray",
+            alpha=0.3,
+            head_width=0.05,
+            color="gray",
         )
     ax.set_title("Ground Truth Transitions")
     ax.legend()
@@ -567,10 +575,13 @@ def visualize_transitions(
     ax.scatter(z_preds[:, 0], z_preds[:, 1], c="green", alpha=0.5, label="Target (Pred)")
     for i in range(min(50, len(z_sources))):
         ax.arrow(
-            z_sources[i, 0], z_sources[i, 1],
+            z_sources[i, 0],
+            z_sources[i, 1],
             z_preds[i, 0] - z_sources[i, 0],
             z_preds[i, 1] - z_sources[i, 1],
-            alpha=0.3, head_width=0.05, color="gray",
+            alpha=0.3,
+            head_width=0.05,
+            color="gray",
         )
     ax.set_title("Predicted Transitions")
     ax.legend()
@@ -592,7 +603,9 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--wes_weight", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
+    )
     args = parser.parse_args()
 
     # Set seeds
@@ -684,7 +697,9 @@ def main():
         history["val"].append(val_metrics)
 
         print(f"  Train Loss: {train_metrics['loss']:.4f} | Val Loss: {val_metrics['loss']:.4f}")
-        print(f"  Val MSE: {val_metrics['mse']:.4f} | Val W-dist: {val_metrics['wasserstein']:.4f}")
+        print(
+            f"  Val MSE: {val_metrics['mse']:.4f} | Val W-dist: {val_metrics['wasserstein']:.4f}"
+        )
 
         scheduler.step()
 
@@ -699,8 +714,7 @@ def main():
     # Step 6: Visualizations
     print("\n[6/6] Generating visualizations...")
     visualize_transitions(
-        model, test_loader, device,
-        save_path=output_dir / "transitions_visualization.png"
+        model, test_loader, device, save_path=output_dir / "transitions_visualization.png"
     )
 
     # Save results

@@ -5,6 +5,7 @@ The external data root is controlled by the environment variable
 ``STAGEBRIDGE_DATA_ROOT``.  This variable must be set before running
 any data-dependent pipeline.
 """
+
 from __future__ import annotations
 
 import os
@@ -36,8 +37,7 @@ def get_data_root() -> Path:
 
     if not root.exists():
         raise ValueError(
-            f"Data root does not exist: {root}\n"
-            f"Check that {_ENV_VAR} points to a valid directory."
+            f"Data root does not exist: {root}\nCheck that {_ENV_VAR} points to a valid directory."
         )
     if not root.is_dir():
         raise ValueError(
@@ -67,54 +67,71 @@ def ensure_dir(path: Path) -> Path:
 # Canonical sub-paths inside the data root
 # ---------------------------------------------------------------------------
 
+
 def raw_geo_dir() -> Path:
     return resolve_path("data", "raw", "geo")
+
 
 def snrna_extracted_dir() -> Path:
     return resolve_path("data", "raw", "geo", "GSE308103_snrna", "extracted")
 
+
 def spatial_extracted_dir() -> Path:
     return resolve_path("data", "raw", "geo", "GSE307534_spatial", "extracted")
+
 
 def spatial_samples_dir() -> Path:
     return resolve_path("data", "raw", "geo", "GSE307534_spatial", "samples")
 
+
 def interim_snrna_dir() -> Path:
     return resolve_path("interim", "anndata", "snrna")
+
 
 def interim_spatial_dir() -> Path:
     return resolve_path("interim", "anndata", "spatial")
 
+
 def processed_anndata_dir() -> Path:
     return resolve_path("processed", "anndata")
+
 
 def snrna_manifest_csv() -> Path:
     return resolve_path("interim", "anndata", "snrna", "manifest.csv")
 
+
 def spatial_manifest_csv() -> Path:
     return resolve_path("interim", "anndata", "spatial", "manifest.csv")
+
 
 def snrna_merged_h5ad() -> Path:
     return resolve_path("processed", "anndata", "snrna_merged.h5ad")
 
+
 def spatial_merged_h5ad() -> Path:
     return resolve_path("processed", "anndata", "spatial_merged.h5ad")
+
 
 def models_dir() -> Path:
     return resolve_path("models")
 
+
 def scvi_model_dir() -> Path:
     return resolve_path("models", "scvi")
+
 
 def scanvi_model_dir() -> Path:
     return resolve_path("models", "scanvi")
 
+
 def tangram_model_dir() -> Path:
     return resolve_path("models", "tangram")
+
 
 def runs_dir() -> Path:
     """Training run artifacts (checkpoints, history JSON)."""
     return resolve_path("runs")
+
 
 def metrics_dir() -> Path:
     """Saved evaluation metrics and benchmark tables."""

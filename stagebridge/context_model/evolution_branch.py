@@ -1,4 +1,5 @@
 """Lesion-level evolution-aware conditioning for EA-MIST."""
+
 from __future__ import annotations
 
 import torch
@@ -46,7 +47,9 @@ class EvolutionBranch(nn.Module):
             self.gamma = nn.Linear(int(model_dim), int(model_dim))
             self.beta = nn.Linear(int(model_dim), int(model_dim))
 
-    def forward(self, lesion_embedding: Tensor, evolution_features: Tensor | None) -> tuple[Tensor, Tensor | None]:
+    def forward(
+        self, lesion_embedding: Tensor, evolution_features: Tensor | None
+    ) -> tuple[Tensor, Tensor | None]:
         """Fuse lesion embedding with evolution features and return both outputs."""
         if evolution_features is None:
             return lesion_embedding, None

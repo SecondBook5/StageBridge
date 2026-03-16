@@ -2,6 +2,7 @@
 Manifest helpers — shared utilities for building and validating
 sample manifests used by both snRNA and spatial pipelines.
 """
+
 from __future__ import annotations
 
 import json

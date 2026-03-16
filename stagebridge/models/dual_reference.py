@@ -152,9 +152,7 @@ class DualReferenceMapper(nn.Module):
             value_h = self.value_hlca(z_hlca)  # (batch_size, latent_dim)
             value_l = self.value_luca(z_luca)  # (batch_size, latent_dim)
 
-            z_fused = (
-                attn_weights[:, 0:1] * value_h + attn_weights[:, 1:2] * value_l
-            )
+            z_fused = attn_weights[:, 0:1] * value_h + attn_weights[:, 1:2] * value_l
 
         elif self.fusion_mode == "gate":
             # Gated fusion
@@ -198,9 +196,7 @@ class DualReferenceMapper(nn.Module):
         attn_h = torch.sum(query * key_h, dim=-1, keepdim=True)
         attn_l = torch.sum(query * key_l, dim=-1, keepdim=True)
 
-        attn_weights = torch.softmax(
-            torch.cat([attn_h, attn_l], dim=-1), dim=-1
-        )
+        attn_weights = torch.softmax(torch.cat([attn_h, attn_l], dim=-1), dim=-1)
 
         return attn_weights
 

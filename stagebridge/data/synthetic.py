@@ -126,9 +126,7 @@ class SyntheticDataGenerator:
             # Generate latent positions with controlled overlap
             stage_std = noise_level + overlap * 0.3
             z_positions = self.rng.normal(
-                loc=centroid_expanded,
-                scale=stage_std,
-                size=(cells_per_stage, self.latent_dim)
+                loc=centroid_expanded, scale=stage_std, size=(cells_per_stage, self.latent_dim)
             )
 
             # Assign donors with stage enrichment
@@ -144,34 +142,38 @@ class SyntheticDataGenerator:
             tmb = self.rng.gamma(
                 shape=2.0 + stage_idx,  # Higher TMB in advanced stages
                 scale=1.0,
-                size=cells_per_stage
+                size=cells_per_stage,
             )
 
             smoking_sig = self.rng.beta(
-                a=2.0 + stage_idx * 0.5,
-                b=5.0 - stage_idx * 0.3,
-                size=cells_per_stage
+                a=2.0 + stage_idx * 0.5, b=5.0 - stage_idx * 0.3, size=cells_per_stage
             )
 
             uv_sig = self.rng.beta(a=1.5, b=8.0, size=cells_per_stage)
 
             # Create records
             for i in range(cells_per_stage):
-                records.append({
-                    "cell_id": f"cell_{cell_id:06d}",
-                    "donor_id": f"donor_{donor_ids[i]:02d}",
-                    "stage": stage,
-                    "stage_idx": stage_idx,
-                    "z_fused": z_positions[i].tolist(),  # Dual-reference latent (placeholder)
-                    "z_hlca": (z_positions[i] + self.rng.normal(0, 0.05, self.latent_dim)).tolist(),
-                    "z_luca": (z_positions[i] + self.rng.normal(0, 0.05, self.latent_dim)).tolist(),
-                    "cell_type": self._assign_celltype(stage_idx),
-                    "tmb": tmb[i],
-                    "smoking_signature": smoking_sig[i],
-                    "uv_signature": uv_sig[i],
-                    "x_spatial": self.rng.uniform(0, 1000),  # Dummy spatial coords
-                    "y_spatial": self.rng.uniform(0, 1000),
-                })
+                records.append(
+                    {
+                        "cell_id": f"cell_{cell_id:06d}",
+                        "donor_id": f"donor_{donor_ids[i]:02d}",
+                        "stage": stage,
+                        "stage_idx": stage_idx,
+                        "z_fused": z_positions[i].tolist(),  # Dual-reference latent (placeholder)
+                        "z_hlca": (
+                            z_positions[i] + self.rng.normal(0, 0.05, self.latent_dim)
+                        ).tolist(),
+                        "z_luca": (
+                            z_positions[i] + self.rng.normal(0, 0.05, self.latent_dim)
+                        ).tolist(),
+                        "cell_type": self._assign_celltype(stage_idx),
+                        "tmb": tmb[i],
+                        "smoking_signature": smoking_sig[i],
+                        "uv_signature": uv_sig[i],
+                        "x_spatial": self.rng.uniform(0, 1000),  # Dummy spatial coords
+                        "y_spatial": self.rng.uniform(0, 1000),
+                    }
+                )
                 cell_id += 1
 
         df = pd.DataFrame(records)
@@ -187,8 +189,14 @@ class SyntheticDataGenerator:
     def _assign_celltype(self, stage_idx: int) -> str:
         """Assign cell type with stage-dependent distribution."""
         celltypes = [
-            "AT2", "AT1", "Club", "Basal",
-            "Fibroblast", "Macrophage", "T_cell", "Endothelial"
+            "AT2",
+            "AT1",
+            "Club",
+            "Basal",
+            "Fibroblast",
+            "Macrophage",
+            "T_cell",
+            "Endothelial",
         ]
 
         # AT2 enriched in early stages, fibroblasts/immune in late stages
@@ -221,25 +229,27 @@ class SyntheticDataGenerator:
             # Find spatial neighbors (k=4 rings × cells per ring)
             # For synthetic data, randomly sample with distance-based probability
             distances = np.sqrt(
-                (cells["x_spatial"] - cell["x_spatial"])**2 +
-                (cells["y_spatial"] - cell["y_spatial"])**2
+                (cells["x_spatial"] - cell["x_spatial"]) ** 2
+                + (cells["y_spatial"] - cell["y_spatial"]) ** 2
             )
 
             # Sort by distance and take top K neighbors
             k_total = 20  # 5 cells per ring × 4 rings
-            neighbor_indices = np.argsort(distances)[1:k_total+1]  # Exclude self
+            neighbor_indices = np.argsort(distances)[1 : k_total + 1]  # Exclude self
 
             # Build 9-token neighborhood
             tokens = []
 
             # Token 0: Receiver
-            tokens.append({
-                "token_idx": 0,
-                "token_type": "receiver",
-                "cell_id": cell["cell_id"],
-                "cell_type": cell["cell_type"],
-                "z_fused": cell["z_fused"],
-            })
+            tokens.append(
+                {
+                    "token_idx": 0,
+                    "token_type": "receiver",
+                    "cell_id": cell["cell_id"],
+                    "cell_type": cell["cell_type"],
+                    "z_fused": cell["z_fused"],
+                }
+            )
 
             # Tokens 1-4: Rings (5 cells per ring)
             cells_per_ring = 5
@@ -252,27 +262,33 @@ class SyntheticDataGenerator:
                 z_pooled = np.mean([z for z in ring_cells["z_fused"]], axis=0)
                 celltype_counts = ring_cells["cell_type"].value_counts().to_dict()
 
-                tokens.append({
-                    "token_idx": ring + 1,
-                    "token_type": f"ring_{ring+1}",
-                    "z_pooled": z_pooled.tolist(),
-                    "celltype_composition": celltype_counts,
-                    "n_cells": len(ring_cells),
-                })
+                tokens.append(
+                    {
+                        "token_idx": ring + 1,
+                        "token_type": f"ring_{ring + 1}",
+                        "z_pooled": z_pooled.tolist(),
+                        "celltype_composition": celltype_counts,
+                        "n_cells": len(ring_cells),
+                    }
+                )
 
             # Token 5: HLCA reference context
-            tokens.append({
-                "token_idx": 5,
-                "token_type": "hlca",
-                "z_hlca": cell["z_hlca"],
-            })
+            tokens.append(
+                {
+                    "token_idx": 5,
+                    "token_type": "hlca",
+                    "z_hlca": cell["z_hlca"],
+                }
+            )
 
             # Token 6: LuCA disease context
-            tokens.append({
-                "token_idx": 6,
-                "token_type": "luca",
-                "z_luca": cell["z_luca"],
-            })
+            tokens.append(
+                {
+                    "token_idx": 6,
+                    "token_type": "luca",
+                    "z_luca": cell["z_luca"],
+                }
+            )
 
             # Token 7: Pathway activity (simulate niche influence)
             # CAF/immune-enriched niches increase transition probability
@@ -282,30 +298,36 @@ class SyntheticDataGenerator:
 
             pathway_score = niche_influence * (0.6 * caf_frac + 0.4 * immune_frac)
 
-            tokens.append({
-                "token_idx": 7,
-                "token_type": "pathway",
-                "emt_score": pathway_score,
-                "caf_fraction": caf_frac,
-                "immune_fraction": immune_frac,
-            })
+            tokens.append(
+                {
+                    "token_idx": 7,
+                    "token_type": "pathway",
+                    "emt_score": pathway_score,
+                    "caf_fraction": caf_frac,
+                    "immune_fraction": immune_frac,
+                }
+            )
 
             # Token 8: Summary stats
-            tokens.append({
-                "token_idx": 8,
-                "token_type": "stats",
-                "n_neighbors": k_total,
-                "mean_distance": distances[neighbor_indices].mean(),
-                "diversity": len(neighbor_cells["cell_type"].unique()),
-            })
+            tokens.append(
+                {
+                    "token_idx": 8,
+                    "token_type": "stats",
+                    "n_neighbors": k_total,
+                    "mean_distance": distances[neighbor_indices].mean(),
+                    "diversity": len(neighbor_cells["cell_type"].unique()),
+                }
+            )
 
-            records.append({
-                "cell_id": cell["cell_id"],
-                "donor_id": cell["donor_id"],
-                "stage": cell["stage"],
-                "tokens": tokens,
-                "niche_influence": pathway_score,  # Ground truth for evaluation
-            })
+            records.append(
+                {
+                    "cell_id": cell["cell_id"],
+                    "donor_id": cell["donor_id"],
+                    "stage": cell["stage"],
+                    "tokens": tokens,
+                    "niche_influence": pathway_score,  # Ground truth for evaluation
+                }
+            )
 
         return pd.DataFrame(records)
 
@@ -314,15 +336,17 @@ class SyntheticDataGenerator:
         records = []
 
         for source, target in self.stage_edges:
-            records.append({
-                "edge_id": f"{source}_{target}",
-                "source_stage": source,
-                "target_stage": target,
-                "source_idx": self.stages.index(source),
-                "target_idx": self.stages.index(target),
-                "is_forward": True,
-                "pseudotime_delta": 1.0,
-            })
+            records.append(
+                {
+                    "edge_id": f"{source}_{target}",
+                    "source_stage": source,
+                    "target_stage": target,
+                    "source_idx": self.stages.index(source),
+                    "target_idx": self.stages.index(target),
+                    "is_forward": True,
+                    "pseudotime_delta": 1.0,
+                }
+            )
 
         return pd.DataFrame(records)
 
@@ -384,12 +408,14 @@ class SyntheticDataGenerator:
             val_donors = remaining[:n_val]
             train_donors = remaining[n_val:]
 
-            splits["folds"].append({
-                "fold": fold_idx,
-                "train_donors": train_donors,
-                "val_donors": val_donors,
-                "test_donors": list(test_donors),
-            })
+            splits["folds"].append(
+                {
+                    "fold": fold_idx,
+                    "train_donors": train_donors,
+                    "val_donors": val_donors,
+                    "test_donors": list(test_donors),
+                }
+            )
 
         return splits
 

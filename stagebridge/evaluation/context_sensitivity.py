@@ -15,6 +15,7 @@ Biological prediction (Peng et al. 2026, Cancer Cell):
   (peak KAC + IL1B+ macrophage diversity).  Sensitivity should decay at MIA→LUAD
   as the inflammatory niche depletes and the TME becomes more homogeneous.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -149,8 +150,7 @@ def compute_context_sensitivity(
     """
     if latent_key not in adata.obsm:
         raise KeyError(
-            f"latent_key '{latent_key}' not in adata.obsm. "
-            f"Available: {list(adata.obsm.keys())}"
+            f"latent_key '{latent_key}' not in adata.obsm. Available: {list(adata.obsm.keys())}"
         )
 
     if stage_pairs is None:
@@ -172,8 +172,12 @@ def compute_context_sensitivity(
         tgt_mask = stages == normalize_stage_label(stage_tgt)
 
         if src_mask.sum() < 2 or tgt_mask.sum() < 2:
-            log.warning("Skipping %s: insufficient cells (src=%d, tgt=%d)",
-                        key, src_mask.sum(), tgt_mask.sum())
+            log.warning(
+                "Skipping %s: insufficient cells (src=%d, tgt=%d)",
+                key,
+                src_mask.sum(),
+                tgt_mask.sum(),
+            )
             results[key] = float("nan")
             continue
 
@@ -182,7 +186,10 @@ def compute_context_sensitivity(
 
         # Stage pair id for model conditioning
         from stagebridge.data.luad_evo.stages import infer_stage_pair_id
-        pair_id = torch.tensor([infer_stage_pair_id(stage_src, stage_tgt)], dtype=torch.long, device=device)
+
+        pair_id = torch.tensor(
+            [infer_stage_pair_id(stage_src, stage_tgt)], dtype=torch.long, device=device
+        )
 
         real_sinks: list[float] = []
         shuffled_sinks: list[float] = []
@@ -207,7 +214,10 @@ def compute_context_sensitivity(
                 # model._broadcast_condition handles (1,D)→(n_src,D) internally
                 x_pred_real = model.integrate_euler(x_src, c_s_real, pair_id, num_steps=10)
                 d_real = sinkhorn_distance(
-                    x_pred_real, x_tgt, epsilon=ot_epsilon, n_iter=sinkhorn_iters,
+                    x_pred_real,
+                    x_tgt,
+                    epsilon=ot_epsilon,
+                    n_iter=sinkhorn_iters,
                 ).item()
 
                 # --- Shuffled context ---
@@ -219,7 +229,10 @@ def compute_context_sensitivity(
 
                 x_pred_shuf = model.integrate_euler(x_src, c_s_shuf, pair_id, num_steps=10)
                 d_shuffled = sinkhorn_distance(
-                    x_pred_shuf, x_tgt, epsilon=ot_epsilon, n_iter=sinkhorn_iters,
+                    x_pred_shuf,
+                    x_tgt,
+                    epsilon=ot_epsilon,
+                    n_iter=sinkhorn_iters,
                 ).item()
 
                 real_sinks.append(d_real)
@@ -231,7 +244,10 @@ def compute_context_sensitivity(
         results[key] = sensitivity
         log.info(
             "%s: real_sink=%.4f  shuffled_sink=%.4f  sensitivity=%.4f",
-            key, np.mean(real_sinks), np.mean(shuffled_sinks), sensitivity,
+            key,
+            np.mean(real_sinks),
+            np.mean(shuffled_sinks),
+            sensitivity,
         )
 
     return results

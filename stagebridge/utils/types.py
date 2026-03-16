@@ -1,4 +1,5 @@
 """Shared type aliases and dataclasses used across StageBridge."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -42,7 +43,7 @@ class StageBridgeConfig:
     use_stage_embedding: bool = True
 
     # Schrödinger Bridge / stochastic interpolant
-    sigma: float = 0.0              # Brownian bridge noise level; 0.0 = deterministic OT-CFM
+    sigma: float = 0.0  # Brownian bridge noise level; 0.0 = deterministic OT-CFM
     use_stochastic_bridge: bool = False  # Enable SB interpolant during training
 
     # Cross-attention drift transformer
@@ -62,21 +63,21 @@ class StageBridgeConfig:
     # When True, per-(patient, stage) somatic genomic features (TMB, driver
     # mutation flags) are projected and concatenated to the stage embedding.
     use_wes_features: bool = False
-    wes_feature_dim: int = 8    # matches len(WES_FEATURE_COLS)
-    wes_hidden_dim: int = 16    # projection bottleneck
+    wes_feature_dim: int = 8  # matches len(WES_FEATURE_COLS)
+    wes_hidden_dim: int = 16  # projection bottleneck
 
     # ── Tier 3: Ligand-receptor signaling conditioning ──────────────────
     # When True, per-(patient, stage) LR interaction scores are projected
     # and concatenated to the stage embedding (like WES features).
     use_lr_features: bool = False
-    lr_feature_dim: int = 24    # matches len(LUNG_LR_PAIRS)
-    lr_hidden_dim: int = 32     # projection bottleneck
+    lr_feature_dim: int = 24  # matches len(LUNG_LR_PAIRS)
+    lr_hidden_dim: int = 32  # projection bottleneck
 
     # ── Tier 3: Spatial niche composition conditioning ──────────────────
     # When True, per-cell spatial niche composition vectors (from Tangram
     # KNN) are averaged over the source set and fused with pooled context.
     use_spatial_niche: bool = False
-    spatial_niche_dim: int = 20     # number of cell types from Tangram
+    spatial_niche_dim: int = 20  # number of cell types from Tangram
     spatial_niche_hidden: int = 32  # projection hidden dim
 
     # ── Tier 3: Multi-hop skip-stage consistency ────────────────────────
@@ -95,15 +96,15 @@ class StageBridgeConfig:
     # When True, PMA summaries are enriched via graph attention over
     # neighboring (patient, stage) nodes before conditioning the drift.
     use_graph_transformer: bool = False
-    graph_num_layers: int = 2       # number of Graph Transformer blocks
-    graph_num_heads: int = 4        # attention heads in graph attention
+    graph_num_layers: int = 2  # number of Graph Transformer blocks
+    graph_num_heads: int = 4  # attention heads in graph attention
 
     # ── Unified genomic niche encoder (cross-dataset) ─────────────────
     # When True, uses a unified encoder that maps heterogeneous genomic
     # features (WES somatic variants + lpWGS copy-number) into a shared
     # niche embedding for cross-dataset Schrödinger bridge conditioning.
     use_genomic_niche: bool = False
-    genomic_niche_dim: int = 32     # shared niche embedding dimension
+    genomic_niche_dim: int = 32  # shared niche embedding dimension
 
     # Optimization
     learning_rate: float = 1e-3
@@ -151,9 +152,9 @@ class StageBatch:
     sample_id: str | None = None
     wes_features: "torch.Tensor | None" = None  # (wes_feature_dim,) per-patient WES vector
     niche_coords: "torch.Tensor | None" = None  # (m_niche, 2) spatial coords for niche tokens
-    lr_features: "torch.Tensor | None" = None   # (lr_feature_dim,) per-patient LR scores
+    lr_features: "torch.Tensor | None" = None  # (lr_feature_dim,) per-patient LR scores
     spatial_niche: "torch.Tensor | None" = None  # (n_cells, spatial_niche_dim) per-cell niche
-    stage_index: "torch.Tensor | None" = None    # (n_src,) integer stage labels for Dirichlet head
+    stage_index: "torch.Tensor | None" = None  # (n_src,) integer stage labels for Dirichlet head
     genomic_niche: "torch.Tensor | None" = None  # (genomic_niche_dim,) unified niche embedding
 
     def to(self, device: str) -> "StageBatch":
@@ -171,9 +172,13 @@ class StageBatch:
             wes_features=self.wes_features.to(device) if self.wes_features is not None else None,
             niche_coords=self.niche_coords.to(device) if self.niche_coords is not None else None,
             lr_features=self.lr_features.to(device) if self.lr_features is not None else None,
-            spatial_niche=self.spatial_niche.to(device) if self.spatial_niche is not None else None,
+            spatial_niche=self.spatial_niche.to(device)
+            if self.spatial_niche is not None
+            else None,
             stage_index=self.stage_index.to(device) if self.stage_index is not None else None,
-            genomic_niche=self.genomic_niche.to(device) if self.genomic_niche is not None else None,
+            genomic_niche=self.genomic_niche.to(device)
+            if self.genomic_niche is not None
+            else None,
         )
 
 
@@ -334,8 +339,13 @@ class LocalNicheExample:
             slot_dict = state
         else:
             slot_dict = state if isinstance(state, dict) else {}
-        defaults = {"hlca_features": None, "luca_features": None,
-                     "receiver_state_label": None, "receiver_confidence": None, "notes": None}
+        defaults = {
+            "hlca_features": None,
+            "luca_features": None,
+            "receiver_state_label": None,
+            "receiver_confidence": None,
+            "notes": None,
+        }
         for slot in self.__slots__:
             value = slot_dict.get(slot, defaults.get(slot))
             object.__setattr__(self, slot, value)
@@ -388,9 +398,15 @@ class LesionBag:
             slot_dict = state
         else:
             slot_dict = state if isinstance(state, dict) else {}
-        defaults = {"evolution_features": None, "stage_index": None,
-                     "displacement_target": None, "edge_targets": None,
-                     "edge_target_mask": None, "edge_target_labels": None, "notes": None}
+        defaults = {
+            "evolution_features": None,
+            "stage_index": None,
+            "displacement_target": None,
+            "edge_targets": None,
+            "edge_target_mask": None,
+            "edge_target_labels": None,
+            "notes": None,
+        }
         for slot in self.__slots__:
             value = slot_dict.get(slot, defaults.get(slot))
             object.__setattr__(self, slot, value)
@@ -469,9 +485,13 @@ class LesionBagBatch:
             labels=self.labels.to(device),
             label_weights=self.label_weights.to(device),
             stage_indices=None if self.stage_indices is None else self.stage_indices.to(device),
-            displacement_targets=None if self.displacement_targets is None else self.displacement_targets.to(device),
+            displacement_targets=None
+            if self.displacement_targets is None
+            else self.displacement_targets.to(device),
             edge_targets=None if self.edge_targets is None else self.edge_targets.to(device),
-            edge_target_mask=None if self.edge_target_mask is None else self.edge_target_mask.to(device),
+            edge_target_mask=None
+            if self.edge_target_mask is None
+            else self.edge_target_mask.to(device),
             sample_ids=list(self.sample_ids),
             lesion_ids=list(self.lesion_ids),
             donor_ids=list(self.donor_ids),
@@ -479,7 +499,9 @@ class LesionBagBatch:
             stages=list(self.stages),
             label_sources=list(self.label_sources),
             edge_target_labels=tuple(self.edge_target_labels),
-            evolution_features=None if self.evolution_features is None else self.evolution_features.to(device),
+            evolution_features=None
+            if self.evolution_features is None
+            else self.evolution_features.to(device),
         )
 
 

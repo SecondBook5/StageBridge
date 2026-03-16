@@ -1,4 +1,5 @@
 """OT coupling and flow-matching losses for StageBridge training."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -83,7 +84,9 @@ def sample_coupling_pairs(
     return src_idx, tgt_idx
 
 
-def random_pair_indices(n_src: int, n_tgt: int, num_pairs: int, device: torch.device) -> tuple[Tensor, Tensor]:
+def random_pair_indices(
+    n_src: int, n_tgt: int, num_pairs: int, device: torch.device
+) -> tuple[Tensor, Tensor]:
     """Sample random indices for no-OT ablations."""
     src_idx = torch.randint(0, n_src, (num_pairs,), device=device)
     tgt_idx = torch.randint(0, n_tgt, (num_pairs,), device=device)
@@ -199,7 +202,9 @@ def flow_matching_loss(
     lr_features = batch.lr_features
 
     pred = model.forward_vector_field(
-        x_t=x_t, t=t, c_s=c_rep,
+        x_t=x_t,
+        t=t,
+        c_s=c_rep,
         stage_pair_id=stage_pair_id,
         wes_features=wes_features,
         lr_features=lr_features,
@@ -250,6 +255,7 @@ def flow_matching_loss(
 # Multi-hop skip-stage trajectory consistency loss
 # ---------------------------------------------------------------------------
 
+
 def _compose_trajectory(
     model: Any,
     x_src: Tensor,
@@ -283,12 +289,17 @@ def _compose_trajectory(
         s_tgt = stage_sequence[i + 1]
         c_s = model.forward_set_context(x)
         pair_id = model.encode_stage_pair_tensor(
-            stage_src=s_src, stage_tgt=s_tgt,
-            n=x.shape[0], device=x.device,
+            stage_src=s_src,
+            stage_tgt=s_tgt,
+            n=x.shape[0],
+            device=x.device,
         )
         x = model.integrate_euler(
-            x0=x, c_s=c_s, stage_pair_id=pair_id,
-            num_steps=num_steps, wes_features=wes_features,
+            x0=x,
+            c_s=c_s,
+            stage_pair_id=pair_id,
+            num_steps=num_steps,
+            wes_features=wes_features,
         )
     return x
 
@@ -337,17 +348,23 @@ def multihop_consistency_loss(
     # Direct transition: src → tgt in one shot
     c_s_direct = model.forward_set_context(x_src)
     pair_direct = model.encode_stage_pair_tensor(
-        stage_src=stage_src, stage_tgt=stage_tgt,
-        n=x_src.shape[0], device=x_src.device,
+        stage_src=stage_src,
+        stage_tgt=stage_tgt,
+        n=x_src.shape[0],
+        device=x_src.device,
     )
     x_direct = model.integrate_euler(
-        x0=x_src, c_s=c_s_direct, stage_pair_id=pair_direct,
-        num_steps=num_steps, wes_features=wes_features,
+        x0=x_src,
+        c_s=c_s_direct,
+        stage_pair_id=pair_direct,
+        num_steps=num_steps,
+        wes_features=wes_features,
     )
 
     # Chained transition: src → mid₁ → ... → tgt
     x_chained = _compose_trajectory(
-        model=model, x_src=x_src,
+        model=model,
+        x_src=x_src,
         stage_sequence=stage_sequence,
         num_steps=num_steps,
         wes_features=wes_features,

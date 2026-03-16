@@ -1,4 +1,5 @@
 """PhylogicNDT and fallback phylogeny wrappers for label repair."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,7 +33,9 @@ def _cfg_select(cfg: DictConfig | dict[str, Any], dotted: str, default: Any) -> 
     return current
 
 
-def _empty_phylogeny_table(manifest: pd.DataFrame, *, backend: str, qc_status: str, backend_trace: str) -> pd.DataFrame:
+def _empty_phylogeny_table(
+    manifest: pd.DataFrame, *, backend: str, qc_status: str, backend_trace: str
+) -> pd.DataFrame:
     """Return one empty phylogeny row per lesion.
 
     Args:
@@ -52,7 +55,9 @@ def _empty_phylogeny_table(manifest: pd.DataFrame, *, backend: str, qc_status: s
     return frame.loc[:, list(PHYLOGENY_SUMMARY_COLUMNS)]
 
 
-def _normalize_phylogeny_summary(frame: pd.DataFrame, manifest: pd.DataFrame, *, backend: str) -> pd.DataFrame:
+def _normalize_phylogeny_summary(
+    frame: pd.DataFrame, manifest: pd.DataFrame, *, backend: str
+) -> pd.DataFrame:
     """Normalize a parse-only phylogeny summary into the common lesion schema.
 
     Args:
@@ -85,14 +90,24 @@ def _normalize_phylogeny_summary(frame: pd.DataFrame, manifest: pd.DataFrame, *,
         "evidence_of_progression_link",
     ]:
         merged[column] = pd.to_numeric(merged.get(column), errors="coerce")
-    merged["tree_available"] = merged.get("tree_available", pd.Series([True] * merged.shape[0])).fillna(False).astype(bool)
-    merged["phylogeny_qc_flag"] = merged.get("phylogeny_qc_flag", pd.Series(["parsed_existing"] * merged.shape[0]))
+    merged["tree_available"] = (
+        merged.get("tree_available", pd.Series([True] * merged.shape[0]))
+        .fillna(False)
+        .astype(bool)
+    )
+    merged["phylogeny_qc_flag"] = merged.get(
+        "phylogeny_qc_flag", pd.Series(["parsed_existing"] * merged.shape[0])
+    )
     merged["backend_used"] = merged.get("backend_used", pd.Series([backend] * merged.shape[0]))
-    merged["backend_trace"] = merged["backend_used"].astype(str) + ":" + merged["phylogeny_qc_flag"].astype(str)
+    merged["backend_trace"] = (
+        merged["backend_used"].astype(str) + ":" + merged["phylogeny_qc_flag"].astype(str)
+    )
     return merged.loc[:, list(PHYLOGENY_SUMMARY_COLUMNS)]
 
 
-def run_phylogeny_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+def run_phylogeny_backend(
+    cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Run or parse the configured phylogeny backend.
 
     Args:
@@ -115,14 +130,20 @@ def run_phylogeny_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFra
     if summary_path_raw:
         summary_path = Path(str(summary_path_raw))
         if summary_path.exists():
-            parsed = pd.read_parquet(summary_path) if summary_path.suffix.lower() == ".parquet" else pd.read_csv(summary_path)
+            parsed = (
+                pd.read_parquet(summary_path)
+                if summary_path.suffix.lower() == ".parquet"
+                else pd.read_csv(summary_path)
+            )
             return _normalize_phylogeny_summary(parsed, manifest, backend=backend), {
                 "backend": backend,
                 "status": "parsed_existing",
                 "summary_path": str(summary_path),
             }
         if parse_only:
-            raise FileNotFoundError(f"Configured {backend} phylogeny summary does not exist: {summary_path}")
+            raise FileNotFoundError(
+                f"Configured {backend} phylogeny summary does not exist: {summary_path}"
+            )
 
     if parse_only:
         return _empty_phylogeny_table(
@@ -138,7 +159,9 @@ def run_phylogeny_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFra
     command_template = _cfg_select(cfg, command_key, None)
     if not command_template:
         raise ValueError(f"External {backend} mode requires {command_key}.")
-    artifacts_root = Path(str(_cfg_select(cfg, "labels.artifacts_root", "reports/labels/artifacts"))) / backend
+    artifacts_root = (
+        Path(str(_cfg_select(cfg, "labels.artifacts_root", "reports/labels/artifacts"))) / backend
+    )
     result = run_external_command(
         ToolCommand(
             name=backend,

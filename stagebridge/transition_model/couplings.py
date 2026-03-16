@@ -1,4 +1,5 @@
 """Coupling helpers for the transition layer."""
+
 from __future__ import annotations
 
 import torch

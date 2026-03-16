@@ -1,4 +1,5 @@
 """Lightweight durable registries for StageBridge attempts and milestones."""
+
 from __future__ import annotations
 
 import csv
@@ -161,7 +162,9 @@ def upsert_results_registry_row(
     return row
 
 
-def find_results_registry_row(timestamp: str, base_dir: str | Path | None = None) -> dict[str, str] | None:
+def find_results_registry_row(
+    timestamp: str, base_dir: str | Path | None = None
+) -> dict[str, str] | None:
     """Find one results-registry row by timestamp."""
     for row in read_results_registry(base_dir):
         if row.get("timestamp") == timestamp:

@@ -12,6 +12,7 @@ Design principles:
   - All panels export at 300 DPI as both PNG and PDF
   - Text scaled for A0 poster at 40% reduction (~28pt display)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,25 +32,25 @@ log = get_logger(__name__)
 # Poster color system
 # ---------------------------------------------------------------------------
 PALETTE = {
-    "stagebridge": "#0E7490",   # teal — StageBridge primary
-    "baseline":    "#334155",   # slate — baselines
-    "ablation":    "#64748B",   # light slate — ablations
-    "accent":      "#F59E0B",   # amber — highlight / context sensitivity
-    "bg":          "#F8FAFC",   # near-white background
-    "text":        "#0F172A",   # near-black text
-    "grid":        "#CBD5E1",   # subtle grid
+    "stagebridge": "#0E7490",  # teal — StageBridge primary
+    "baseline": "#334155",  # slate — baselines
+    "ablation": "#64748B",  # light slate — ablations
+    "accent": "#F59E0B",  # amber — highlight / context sensitivity
+    "bg": "#F8FAFC",  # near-white background
+    "text": "#0F172A",  # near-black text
+    "grid": "#CBD5E1",  # subtle grid
     # Stage progression colors (Normal→LUAD)
-    "Normal":      "#4ADE80",
-    "AAH":         "#FACC15",
-    "AIS":         "#FB923C",
-    "MIA":         "#F87171",
-    "LUAD":        "#7F1D1D",
+    "Normal": "#4ADE80",
+    "AAH": "#FACC15",
+    "AIS": "#FB923C",
+    "MIA": "#F87171",
+    "LUAD": "#7F1D1D",
 }
 
-FONT_TITLE   = {"fontsize": 15, "fontweight": "bold", "color": PALETTE["text"]}
-FONT_LABEL   = {"fontsize": 12, "color": PALETTE["text"]}
-FONT_TICK    = {"labelsize": 10}
-FONT_ANNOT   = {"fontsize": 9, "color": PALETTE["text"]}
+FONT_TITLE = {"fontsize": 15, "fontweight": "bold", "color": PALETTE["text"]}
+FONT_LABEL = {"fontsize": 12, "color": PALETTE["text"]}
+FONT_TICK = {"labelsize": 10}
+FONT_ANNOT = {"fontsize": 9, "color": PALETTE["text"]}
 
 # Canonical transitions for x-axis labels
 TRANSITIONS = ["Normal→AAH", "AAH→AIS", "AIS→MIA", "MIA→LUAD"]
@@ -68,6 +69,7 @@ def _save(fig: plt.Figure, output_path: Path) -> None:
 # Panel A: Architecture schematic
 # ---------------------------------------------------------------------------
 
+
 def make_panel_a_model_diagram(output_path: Path) -> None:
     """Architecture schematic: cross-sectional set → ISAB/PMA → c_s → OT + FM → predicted cells.
 
@@ -80,57 +82,98 @@ def make_panel_a_model_diagram(output_path: Path) -> None:
     ax.set_xlim(0, 14)
     ax.set_ylim(0, 5.5)
 
-    def _box(cx: float, cy: float, w: float, h: float, label: str, sublabel: str = "",
-             color: str = "#E2E8F0", textcolor: str = PALETTE["text"]) -> None:
+    def _box(
+        cx: float,
+        cy: float,
+        w: float,
+        h: float,
+        label: str,
+        sublabel: str = "",
+        color: str = "#E2E8F0",
+        textcolor: str = PALETTE["text"],
+    ) -> None:
         patch = FancyBboxPatch(
-            (cx - w / 2, cy - h / 2), w, h,
+            (cx - w / 2, cy - h / 2),
+            w,
+            h,
             boxstyle="round,pad=0.05,rounding_size=0.12",
-            linewidth=1.8, edgecolor=PALETTE["text"],
-            facecolor=color, alpha=0.95, zorder=2,
+            linewidth=1.8,
+            edgecolor=PALETTE["text"],
+            facecolor=color,
+            alpha=0.95,
+            zorder=2,
         )
         ax.add_patch(patch)
-        ax.text(cx, cy + (0.18 if sublabel else 0), label,
-                ha="center", va="center", fontsize=11.5, fontweight="bold",
-                color=textcolor, zorder=3)
+        ax.text(
+            cx,
+            cy + (0.18 if sublabel else 0),
+            label,
+            ha="center",
+            va="center",
+            fontsize=11.5,
+            fontweight="bold",
+            color=textcolor,
+            zorder=3,
+        )
         if sublabel:
-            ax.text(cx, cy - 0.32, sublabel, ha="center", va="center",
-                    fontsize=9.5, color=textcolor, style="italic", zorder=3)
+            ax.text(
+                cx,
+                cy - 0.32,
+                sublabel,
+                ha="center",
+                va="center",
+                fontsize=9.5,
+                color=textcolor,
+                style="italic",
+                zorder=3,
+            )
 
     def _arrow(x0: float, y0: float, x1: float, y1: float, label: str = "") -> None:
-        ax.annotate("", xy=(x1, y0), xytext=(x0, y0),
-                    arrowprops=dict(arrowstyle="-|>", lw=2.2, color=PALETTE["text"]),
-                    zorder=4)
+        ax.annotate(
+            "",
+            xy=(x1, y0),
+            xytext=(x0, y0),
+            arrowprops=dict(arrowstyle="-|>", lw=2.2, color=PALETTE["text"]),
+            zorder=4,
+        )
         if label:
             mx = (x0 + x1) / 2
-            ax.text(mx, y0 + 0.28, label, ha="center", va="bottom",
-                    fontsize=8.5, color=PALETTE["text"], style="italic")
+            ax.text(
+                mx,
+                y0 + 0.28,
+                label,
+                ha="center",
+                va="bottom",
+                fontsize=8.5,
+                color=PALETTE["text"],
+                style="italic",
+            )
 
     cy = 2.75
 
     # Block 1: Input sets
-    _box(1.4, cy, 2.2, 2.2,
-         "Source cells", "cross-sectional\n(snRNA-seq)",
-         color="#DBEAFE")
+    _box(1.4, cy, 2.2, 2.2, "Source cells", "cross-sectional\n(snRNA-seq)", color="#DBEAFE")
 
     # Block 2: Set Transformer encoder
-    _box(4.3, cy, 2.4, 2.2,
-         "Set Transformer", "ISAB × 2 + SAB\n+ PMA → c_s",
-         color=PALETTE["stagebridge"], textcolor="white")
+    _box(
+        4.3,
+        cy,
+        2.4,
+        2.2,
+        "Set Transformer",
+        "ISAB × 2 + SAB\n+ PMA → c_s",
+        color=PALETTE["stagebridge"],
+        textcolor="white",
+    )
 
     # Block 3: OT coupling
-    _box(7.1, cy, 2.0, 2.2,
-         "OT coupling", "Sinkhorn\npseudo-pairs",
-         color="#E0F2FE")
+    _box(7.1, cy, 2.0, 2.2, "OT coupling", "Sinkhorn\npseudo-pairs", color="#E0F2FE")
 
     # Block 4: Flow matching
-    _box(9.9, cy, 2.2, 2.2,
-         "Flow matching", "v_φ(x,t,c_s,s)\nFiLM conditioned",
-         color="#FEF3C7")
+    _box(9.9, cy, 2.2, 2.2, "Flow matching", "v_φ(x,t,c_s,s)\nFiLM conditioned", color="#FEF3C7")
 
     # Block 5: Output
-    _box(12.6, cy, 2.2, 2.2,
-         "Predicted cells", "target stage\ndistribution",
-         color="#DCFCE7")
+    _box(12.6, cy, 2.2, 2.2, "Predicted cells", "target stage\ndistribution", color="#DCFCE7")
 
     # Arrows
     _arrow(2.5, cy, 3.1, cy)
@@ -141,26 +184,45 @@ def make_panel_a_model_diagram(output_path: Path) -> None:
     # Context vector annotation
     ax.annotate(
         "context\nvector c_s",
-        xy=(4.3, cy - 1.1), xytext=(4.3, 0.6),
-        arrowprops=dict(arrowstyle="-|>", lw=1.5, color=PALETTE["accent"],
-                        connectionstyle="arc3,rad=0.0"),
-        fontsize=9, color=PALETTE["accent"], ha="center", fontweight="bold",
+        xy=(4.3, cy - 1.1),
+        xytext=(4.3, 0.6),
+        arrowprops=dict(
+            arrowstyle="-|>", lw=1.5, color=PALETTE["accent"], connectionstyle="arc3,rad=0.0"
+        ),
+        fontsize=9,
+        color=PALETTE["accent"],
+        ha="center",
+        fontweight="bold",
         zorder=5,
     )
     # c_s feeds into flow matching
     ax.annotate(
         "",
-        xy=(9.9, cy - 1.1), xytext=(4.3, cy - 1.1),
-        arrowprops=dict(arrowstyle="-|>", lw=1.5, color=PALETTE["accent"],
-                        linestyle="dashed", connectionstyle="arc3,rad=-0.15"),
+        xy=(9.9, cy - 1.1),
+        xytext=(4.3, cy - 1.1),
+        arrowprops=dict(
+            arrowstyle="-|>",
+            lw=1.5,
+            color=PALETTE["accent"],
+            linestyle="dashed",
+            connectionstyle="arc3,rad=-0.15",
+        ),
         zorder=5,
     )
-    ax.text(7.1, 0.55, "population context conditions trajectory", ha="center",
-            fontsize=9, color=PALETTE["accent"], fontstyle="italic")
+    ax.text(
+        7.1,
+        0.55,
+        "population context conditions trajectory",
+        ha="center",
+        fontsize=9,
+        color=PALETTE["accent"],
+        fontstyle="italic",
+    )
 
     ax.set_title(
         "StageBridge: Population-Context-Conditioned OT Flow Matching",
-        **FONT_TITLE, pad=14,
+        **FONT_TITLE,
+        pad=14,
     )
     _save(fig, output_path)
 
@@ -168,6 +230,7 @@ def make_panel_a_model_diagram(output_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Panel B: Benchmark comparison
 # ---------------------------------------------------------------------------
+
 
 def make_panel_b_benchmark(
     results: dict | pd.DataFrame,
@@ -230,11 +293,11 @@ def make_panel_b_benchmark(
         color=colors,
         alpha=0.92,
         capsize=5,
-        edgecolor='white',
+        edgecolor="white",
         linewidth=2,
         width=0.7,
-        error_kw={'linewidth': 2, 'elinewidth': 2, 'alpha': 0.7},
-        zorder=3
+        error_kw={"linewidth": 2, "elinewidth": 2, "alpha": 0.7},
+        zorder=3,
     )
 
     # Add gradient effect to bars
@@ -243,46 +306,80 @@ def make_panel_b_benchmark(
 
     # Highlight best performance
     best_idx = np.argmin(y)  # Lower is better for distance metrics
-    ax.axhline(y[best_idx], color=PALETTE["accent"], linestyle='--',
-              linewidth=2, alpha=0.5, zorder=1, label=f'Best: {y[best_idx]:.4f}')
+    ax.axhline(
+        y[best_idx],
+        color=PALETTE["accent"],
+        linestyle="--",
+        linewidth=2,
+        alpha=0.5,
+        zorder=1,
+        label=f"Best: {y[best_idx]:.4f}",
+    )
 
     # Annotate StageBridge bar value
     sb_idx = [i for i, lbl in enumerate(df["label"].astype(str)) if "stagebridge" in lbl.lower()]
     for i in sb_idx:
-        err_add = (yerr[i] if yerr is not None else 0)
-        ax.text(x[i], y[i] + err_add + 0.005 * (y.max() - y.min()),
-                f"{y[i]:.4f}", ha="center", va="bottom", fontsize=10,
-                color=PALETTE["stagebridge"], fontweight="bold",
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
-                         edgecolor=PALETTE["stagebridge"], alpha=0.8))
+        err_add = yerr[i] if yerr is not None else 0
+        ax.text(
+            x[i],
+            y[i] + err_add + 0.005 * (y.max() - y.min()),
+            f"{y[i]:.4f}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            color=PALETTE["stagebridge"],
+            fontweight="bold",
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                facecolor="white",
+                edgecolor=PALETTE["stagebridge"],
+                alpha=0.8,
+            ),
+        )
 
     # Enhanced axis styling
     ax.set_xticks(x)
-    ax.set_xticklabels(df["label"].astype(str).tolist(), rotation=32, ha="right",
-                       fontsize=11, fontweight='normal')
+    ax.set_xticklabels(
+        df["label"].astype(str).tolist(), rotation=32, ha="right", fontsize=11, fontweight="normal"
+    )
     ax.tick_params(labelsize=10)
-    ax.set_ylabel(primary_metric.replace("_", " ").title(),
-                 fontsize=13, fontweight='bold', color=PALETTE["text"])
-    ax.set_title(title, fontsize=16, fontweight='bold',
-                pad=15, color=PALETTE["text"])
-    ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"], linestyle=':', linewidth=1)
+    ax.set_ylabel(
+        primary_metric.replace("_", " ").title(),
+        fontsize=13,
+        fontweight="bold",
+        color=PALETTE["text"],
+    )
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=15, color=PALETTE["text"])
+    ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"], linestyle=":", linewidth=1)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.spines['left'].set_linewidth(2)
-    ax.spines['bottom'].set_linewidth(2)
+    ax.spines["left"].set_linewidth(2)
+    ax.spines["bottom"].set_linewidth(2)
 
     # Enhanced legend with explanatory text
     legend_patches = [
-        mpatches.Patch(color=PALETTE["stagebridge"], label="StageBridge (ours)",
-                      edgecolor='white', linewidth=1.5),
-        mpatches.Patch(color=PALETTE["baseline"], label="Baselines",
-                      edgecolor='white', linewidth=1.5),
-        mpatches.Patch(color=PALETTE["ablation"], label="Ablations",
-                      edgecolor='white', linewidth=1.5),
+        mpatches.Patch(
+            color=PALETTE["stagebridge"],
+            label="StageBridge (ours)",
+            edgecolor="white",
+            linewidth=1.5,
+        ),
+        mpatches.Patch(
+            color=PALETTE["baseline"], label="Baselines", edgecolor="white", linewidth=1.5
+        ),
+        mpatches.Patch(
+            color=PALETTE["ablation"], label="Ablations", edgecolor="white", linewidth=1.5
+        ),
     ]
-    legend = ax.legend(handles=legend_patches, fontsize=11, framealpha=0.95,
-                      loc='best', fancybox=True, shadow=True)
-    legend.get_frame().set_facecolor('white')
-    legend.get_frame().set_edgecolor('gray')
+    legend = ax.legend(
+        handles=legend_patches,
+        fontsize=11,
+        framealpha=0.95,
+        loc="best",
+        fancybox=True,
+        shadow=True,
+    )
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("gray")
     legend.get_frame().set_linewidth(2)
 
     fig.tight_layout()
@@ -292,6 +389,7 @@ def make_panel_b_benchmark(
 # ---------------------------------------------------------------------------
 # Panel C: Context sensitivity by transition
 # ---------------------------------------------------------------------------
+
 
 def make_panel_c_context_sensitivity(
     sensitivity_dict: dict[str, float],
@@ -339,10 +437,10 @@ def make_panel_c_context_sensitivity(
         scores,
         color=bar_colors,
         alpha=0.92,
-        edgecolor='white',
+        edgecolor="white",
         linewidth=2,
         width=0.7,
-        zorder=3
+        zorder=3,
     )
 
     # Add gradient shading to emphasize
@@ -356,47 +454,58 @@ def make_panel_c_context_sensitivity(
     # Annotate values above bars with significance stars
     for i, (xi, s, norm_s) in enumerate(zip(x, scores, normalized_scores)):
         star = "★ " if s == max_score else ""
-        ax.text(xi, s + scores.max() * 0.025, f"{star}{s:.4f}",
-               ha="center", va="bottom",
-               fontsize=10, color=PALETTE["text"], fontweight="bold",
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
-                        alpha=0.8, edgecolor='gray'))
+        ax.text(
+            xi,
+            s + scores.max() * 0.025,
+            f"{star}{s:.4f}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            color=PALETTE["text"],
+            fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8, edgecolor="gray"),
+        )
 
     # Enhanced axis styling
     ax.set_xticks(x)
-    ax.set_xticklabels(transitions, rotation=25, ha="right",
-                      fontsize=11, fontweight='normal')
+    ax.set_xticklabels(transitions, rotation=25, ha="right", fontsize=11, fontweight="normal")
     ax.tick_params(labelsize=10)
-    ax.set_ylabel("Δ Sinkhorn (real − shuffled context)",
-                 fontsize=13, fontweight='bold', color=PALETTE["text"])
-    ax.set_title(title, fontsize=16, fontweight='bold',
-                pad=15, color=PALETTE["text"])
-    ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"], linestyle=':', linewidth=1)
+    ax.set_ylabel(
+        "Δ Sinkhorn (real − shuffled context)",
+        fontsize=13,
+        fontweight="bold",
+        color=PALETTE["text"],
+    )
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=15, color=PALETTE["text"])
+    ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"], linestyle=":", linewidth=1)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.spines['left'].set_linewidth(2)
-    ax.spines['bottom'].set_linewidth(2)
+    ax.spines["left"].set_linewidth(2)
+    ax.spines["bottom"].set_linewidth(2)
 
     # Biological annotation on peak bar
     peak_idx = np.argmax(scores)
     peak_transition = transitions[peak_idx]
 
     # Add annotation about biological significance
-    annotation_text = (
-        f"Peak sensitivity at {peak_transition}\n"
-        f"indicates strong context dependence"
+    annotation_text = f"Peak sensitivity at {peak_transition}\nindicates strong context dependence"
+    ax.text(
+        0.98,
+        0.95,
+        annotation_text,
+        transform=ax.transAxes,
+        fontsize=10,
+        verticalalignment="top",
+        ha="right",
+        bbox=dict(
+            boxstyle="round", facecolor=PALETTE["accent"], alpha=0.2, edgecolor=PALETTE["accent"]
+        ),
     )
-    ax.text(0.98, 0.95, annotation_text,
-           transform=ax.transAxes,
-           fontsize=10, verticalalignment='top', ha='right',
-           bbox=dict(boxstyle='round', facecolor=PALETTE["accent"],
-                    alpha=0.2, edgecolor=PALETTE["accent"]))
 
     # Add colorbar to show sensitivity scale
-    sm = plt.cm.ScalarMappable(cmap=cmap,
-                              norm=plt.Normalize(vmin=min_score, vmax=max_score))
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=min_score, vmax=max_score))
     sm.set_array([])
     cbar = plt.colorbar(sm, ax=ax, pad=0.02, aspect=25)
-    cbar.set_label('Sensitivity Score', fontsize=11, fontweight='bold')
+    cbar.set_label("Sensitivity Score", fontsize=11, fontweight="bold")
     cbar.ax.tick_params(labelsize=9)
 
     fig.tight_layout()
@@ -408,7 +517,9 @@ def make_panel_c_context_sensitivity(
             xy=(x[peak_idx], scores[peak_idx]),
             xytext=(x[peak_idx] + 0.7, scores[peak_idx] + scores.max() * 0.08),
             arrowprops=dict(arrowstyle="-|>", lw=1.4, color=PALETTE["accent"]),
-            fontsize=8.5, color=PALETTE["accent"], ha="left",
+            fontsize=8.5,
+            color=PALETTE["accent"],
+            ha="left",
         )
 
     fig.tight_layout()
@@ -418,6 +529,7 @@ def make_panel_c_context_sensitivity(
 # ---------------------------------------------------------------------------
 # Panel D: Gene-context correlation heatmap
 # ---------------------------------------------------------------------------
+
 
 def make_panel_d_gene_context_heatmap(
     gene_corr_df: pd.DataFrame,
@@ -472,8 +584,15 @@ def make_panel_d_gene_context_heatmap(
     if mat.shape[0] * mat.shape[1] <= 200:
         for i in range(mat.shape[0]):
             for j in range(mat.shape[1]):
-                ax.text(j, i, f"{mat[i, j]:.2f}", ha="center", va="center",
-                        fontsize=7, color="white" if abs(mat[i, j]) > 0.5 else PALETTE["text"])
+                ax.text(
+                    j,
+                    i,
+                    f"{mat[i, j]:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color="white" if abs(mat[i, j]) > 0.5 else PALETTE["text"],
+                )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.7, pad=0.03)
     cbar.set_label("Pearson r", fontsize=10)
@@ -489,6 +608,7 @@ def make_panel_d_gene_context_heatmap(
 # ---------------------------------------------------------------------------
 # Full 4-panel poster figure assembly
 # ---------------------------------------------------------------------------
+
 
 def make_full_poster(
     panel_paths: dict[str, Path],
@@ -508,8 +628,9 @@ def make_full_poster(
     fig = plt.figure(figsize=(22, 14), facecolor=PALETTE["bg"])
     fig.patch.set_facecolor(PALETTE["bg"])
 
-    gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.08, wspace=0.06,
-                           left=0.02, right=0.98, top=0.94, bottom=0.02)
+    gs = gridspec.GridSpec(
+        2, 2, figure=fig, hspace=0.08, wspace=0.06, left=0.02, right=0.98, top=0.94, bottom=0.02
+    )
 
     panel_labels = [("A", 0, 0), ("B", 0, 1), ("C", 1, 0), ("D", 1, 1)]
     for key, row, col in panel_labels:
@@ -519,18 +640,36 @@ def make_full_poster(
             img = np.asarray(Image.open(panel_paths[key]))
             ax.imshow(img, aspect="auto")
         else:
-            ax.text(0.5, 0.5, f"Panel {key}\n(not yet generated)",
-                    ha="center", va="center", transform=ax.transAxes,
-                    fontsize=14, color="#94A3B8")
+            ax.text(
+                0.5,
+                0.5,
+                f"Panel {key}\n(not yet generated)",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+                fontsize=14,
+                color="#94A3B8",
+            )
         ax.axis("off")
-        ax.text(0.01, 0.99, key, transform=ax.transAxes,
-                fontsize=22, fontweight="bold", va="top", ha="left",
-                color=PALETTE["text"])
+        ax.text(
+            0.01,
+            0.99,
+            key,
+            transform=ax.transAxes,
+            fontsize=22,
+            fontweight="bold",
+            va="top",
+            ha="left",
+            color=PALETTE["text"],
+        )
 
     fig.suptitle(
         "StageBridge: Population-Context-Conditioned Cell-State Transition Modeling\n"
         "Reveals Microenvironmental Drivers of Lung Pre-Cancer Progression",
-        fontsize=16, fontweight="bold", color=PALETTE["text"], y=0.98,
+        fontsize=16,
+        fontweight="bold",
+        color=PALETTE["text"],
+        y=0.98,
     )
     _save(fig, output_path)
     log.info("Full 4-panel poster written: %s", output_path)

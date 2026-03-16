@@ -1,4 +1,5 @@
 """Durable milestone helpers for promoted and archived runs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -49,11 +50,17 @@ def _infer_promoted_slots(metadata: RunMetadata) -> list[str]:
         slots.append("best_rna_only")
     if metadata.context_model_mode == "deep_sets" and not metadata.wes_regularizer_enabled:
         slots.append("best_deep_sets")
-    if metadata.context_model_mode == "deep_sets_transformer_hybrid" and not metadata.wes_regularizer_enabled:
+    if (
+        metadata.context_model_mode == "deep_sets_transformer_hybrid"
+        and not metadata.wes_regularizer_enabled
+    ):
         slots.append("best_deep_sets_transformer_hybrid")
     if metadata.context_model_mode == "set_only" and not metadata.wes_regularizer_enabled:
         slots.append("best_set_only")
-    if metadata.context_model_mode == "typed_hierarchical_transformer" and not metadata.wes_regularizer_enabled:
+    if (
+        metadata.context_model_mode == "typed_hierarchical_transformer"
+        and not metadata.wes_regularizer_enabled
+    ):
         slots.append("best_typed_hierarchical_transformer")
     if metadata.context_model_mode == "graph_of_sets" and not metadata.wes_regularizer_enabled:
         slots.append("best_graph_of_sets")

@@ -1,10 +1,13 @@
 """Calibration diagnostics for edge-wise transition predictions."""
+
 from __future__ import annotations
 
 from torch import Tensor
 
 
-def summarize_transition_calibration(x_src: Tensor, x_pred: Tensor, x_tgt: Tensor) -> dict[str, float]:
+def summarize_transition_calibration(
+    x_src: Tensor, x_pred: Tensor, x_tgt: Tensor
+) -> dict[str, float]:
     """Compare predicted vs observed edge-level displacement magnitudes."""
     n = min(x_src.shape[0], x_pred.shape[0], x_tgt.shape[0])
     pred_shift = x_pred[:n] - x_src[:n]

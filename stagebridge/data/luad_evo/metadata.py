@@ -1,4 +1,5 @@
 """Metadata helpers for the LUAD evolution cohort."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -38,17 +39,80 @@ def _cfg_get(cfg: DictConfig | dict[str, Any], key: str, default: Any = None) ->
 def resolve_luad_evo_paths(cfg: DictConfig | dict[str, Any]) -> LuadEvoPaths:
     """Resolve the active LUAD evolution assets with real-file fallbacks."""
     import os
+
     _env_root = os.environ.get("STAGEBRIDGE_DATA_ROOT", "")
     data_root = Path(str(_cfg_get(cfg, "data.data_root", _env_root))).resolve()
     data_cfg = {
-        "snrna_h5ad": Path(str(_cfg_get(cfg, "data.snrna_h5ad", data_root / "interim/anndata/snrna/snrna_full.h5ad"))),
-        "snrna_latent_h5ad": Path(str(_cfg_get(cfg, "data.snrna_latent_h5ad", data_root / "processed/anndata/snrna_hlca_latent_full.h5ad"))),
-        "hlca_labels_parquet": Path(str(_cfg_get(cfg, "reference.labels_parquet", data_root / "processed/hlca/snrna_full_hlca_labels.parquet"))),
-        "spatial_h5ad": Path(str(_cfg_get(cfg, "data.spatial_h5ad", data_root / "interim/anndata/spatial/spatial_full.h5ad"))),
-        "spatial_tangram_h5ad": Path(str(_cfg_get(cfg, "data.spatial_tangram_h5ad", data_root / "processed/tangram/spatial_tangram_full.h5ad"))),
-        "tangram_scores_parquet": Path(str(_cfg_get(cfg, "data.tangram_scores_parquet", data_root / "processed/tangram/spatial_tangram_celltype_scores.parquet"))),
-        "niche_token_bank_zarr": Path(str(_cfg_get(cfg, "data.niche_token_bank_zarr", data_root / "processed/features/niche_token_bank.zarr"))),
-        "wes_features_path": Path(str(_cfg_get(cfg, "data.wes_features_path", data_root / "processed/features/wes_features.parquet"))),
+        "snrna_h5ad": Path(
+            str(
+                _cfg_get(
+                    cfg, "data.snrna_h5ad", data_root / "interim/anndata/snrna/snrna_full.h5ad"
+                )
+            )
+        ),
+        "snrna_latent_h5ad": Path(
+            str(
+                _cfg_get(
+                    cfg,
+                    "data.snrna_latent_h5ad",
+                    data_root / "processed/anndata/snrna_hlca_latent_full.h5ad",
+                )
+            )
+        ),
+        "hlca_labels_parquet": Path(
+            str(
+                _cfg_get(
+                    cfg,
+                    "reference.labels_parquet",
+                    data_root / "processed/hlca/snrna_full_hlca_labels.parquet",
+                )
+            )
+        ),
+        "spatial_h5ad": Path(
+            str(
+                _cfg_get(
+                    cfg,
+                    "data.spatial_h5ad",
+                    data_root / "interim/anndata/spatial/spatial_full.h5ad",
+                )
+            )
+        ),
+        "spatial_tangram_h5ad": Path(
+            str(
+                _cfg_get(
+                    cfg,
+                    "data.spatial_tangram_h5ad",
+                    data_root / "processed/tangram/spatial_tangram_full.h5ad",
+                )
+            )
+        ),
+        "tangram_scores_parquet": Path(
+            str(
+                _cfg_get(
+                    cfg,
+                    "data.tangram_scores_parquet",
+                    data_root / "processed/tangram/spatial_tangram_celltype_scores.parquet",
+                )
+            )
+        ),
+        "niche_token_bank_zarr": Path(
+            str(
+                _cfg_get(
+                    cfg,
+                    "data.niche_token_bank_zarr",
+                    data_root / "processed/features/niche_token_bank.zarr",
+                )
+            )
+        ),
+        "wes_features_path": Path(
+            str(
+                _cfg_get(
+                    cfg,
+                    "data.wes_features_path",
+                    data_root / "processed/features/wes_features.parquet",
+                )
+            )
+        ),
     }
     hlca_raw = _cfg_get(cfg, "reference.reference_h5ad", _cfg_get(cfg, "data.hlca_h5ad"))
     hlca_path = Path(str(hlca_raw)).resolve() if hlca_raw else None

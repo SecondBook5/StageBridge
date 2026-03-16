@@ -1,4 +1,5 @@
 """CNA backend wrappers for FACETS, CNVkit, and Sequenza."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,7 +42,9 @@ def _normalize_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").astype(float)
 
 
-def _normalize_cna_frame(frame: pd.DataFrame, *, backend: str, manifest: pd.DataFrame) -> pd.DataFrame:
+def _normalize_cna_frame(
+    frame: pd.DataFrame, *, backend: str, manifest: pd.DataFrame
+) -> pd.DataFrame:
     """Map one backend-specific summary table into the normalized CNA schema.
 
     Args:
@@ -66,9 +69,9 @@ def _normalize_cna_frame(frame: pd.DataFrame, *, backend: str, manifest: pd.Data
     normalized = frame.rename(columns=aliases).copy()
     if "lesion_id" not in normalized.columns and "sample_id" in normalized.columns:
         normalized["lesion_id"] = normalized["sample_id"].astype(str)
-    normalized = manifest[
-        ["lesion_id", "sample_id", "patient_id", "donor_id", "stage"]
-    ].merge(normalized, on=["lesion_id"], how="left", suffixes=("", "_parsed"))
+    normalized = manifest[["lesion_id", "sample_id", "patient_id", "donor_id", "stage"]].merge(
+        normalized, on=["lesion_id"], how="left", suffixes=("", "_parsed")
+    )
     if "sample_id_parsed" in normalized.columns:
         normalized["sample_id"] = normalized["sample_id"].fillna(normalized["sample_id_parsed"])
     if "patient_id_parsed" in normalized.columns:
@@ -90,9 +93,15 @@ def _normalize_cna_frame(frame: pd.DataFrame, *, backend: str, manifest: pd.Data
             normalized[target] = normalized[source]
         else:
             normalized[target] = _normalize_numeric(normalized[source])
-    normalized["qc_status"] = normalized.get("qc_status", pd.Series(["missing_backend_output"] * normalized.shape[0]))
-    normalized["backend_used"] = normalized.get("backend_used", pd.Series([backend] * normalized.shape[0]))
-    normalized["backend_trace"] = normalized["backend_used"].astype(str) + ":" + normalized["qc_status"].astype(str)
+    normalized["qc_status"] = normalized.get(
+        "qc_status", pd.Series(["missing_backend_output"] * normalized.shape[0])
+    )
+    normalized["backend_used"] = normalized.get(
+        "backend_used", pd.Series([backend] * normalized.shape[0])
+    )
+    normalized["backend_trace"] = (
+        normalized["backend_used"].astype(str) + ":" + normalized["qc_status"].astype(str)
+    )
     return normalized.loc[:, list(CNA_SUMMARY_COLUMNS)].copy()
 
 
@@ -110,7 +119,9 @@ def _parse_summary_path(path: Path) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
-def run_cna_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+def run_cna_backend(
+    cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Run or parse the configured CNA backend into a normalized summary table.
 
     Args:
@@ -120,7 +131,9 @@ def run_cna_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame) ->
     backend = str(_cfg_select(cfg, "labels.selected_cna_backend", "none")).lower()
     parse_only = bool(_cfg_select(cfg, "labels.parse_only", True))
     dry_run = bool(_cfg_select(cfg, "labels.dry_run", False))
-    artifacts_root = Path(str(_cfg_select(cfg, "labels.artifacts_root", "reports/labels/artifacts")))
+    artifacts_root = Path(
+        str(_cfg_select(cfg, "labels.artifacts_root", "reports/labels/artifacts"))
+    )
     inputs = {
         "facets": _cfg_select(cfg, "labels.inputs.cna.facets_summary_path", None),
         "cnvkit": _cfg_select(cfg, "labels.inputs.cna.cnvkit_summary_path", None),
@@ -147,7 +160,9 @@ def run_cna_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame) ->
                 "summary_path": str(summary_path),
             }
         if parse_only:
-            raise FileNotFoundError(f"Configured {backend} parse-only summary does not exist: {summary_path}")
+            raise FileNotFoundError(
+                f"Configured {backend} parse-only summary does not exist: {summary_path}"
+            )
 
     if parse_only:
         empty = manifest[["lesion_id", "sample_id", "patient_id", "donor_id", "stage"]].copy()
@@ -157,7 +172,10 @@ def run_cna_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame) ->
         empty["qc_status"] = "missing_backend_output"
         empty["backend_used"] = backend
         empty["backend_trace"] = f"{backend}:parse_only_missing"
-        return empty.loc[:, list(CNA_SUMMARY_COLUMNS)], {"backend": backend, "status": "missing_parse_only_input"}
+        return empty.loc[:, list(CNA_SUMMARY_COLUMNS)], {
+            "backend": backend,
+            "status": "missing_parse_only_input",
+        }
 
     executable = str(_cfg_select(cfg, f"labels.external_tools.{backend}_executable", backend))
     command_template = _cfg_select(cfg, f"labels.external_tools.{backend}_command_template", None)
@@ -174,7 +192,9 @@ def run_cna_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame) ->
         retries=int(_cfg_select(cfg, "labels.external_tools.retries", 0)),
         log_path=artifacts_root / backend / "command.log",
     )
-    result = run_external_command(command, dry_run=dry_run, resume=bool(_cfg_select(cfg, "labels.resume", True)))
+    result = run_external_command(
+        command, dry_run=dry_run, resume=bool(_cfg_select(cfg, "labels.resume", True))
+    )
     empty = manifest[["lesion_id", "sample_id", "patient_id", "donor_id", "stage"]].copy()
     for column in CNA_SUMMARY_COLUMNS:
         if column not in empty.columns:

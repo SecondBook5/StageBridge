@@ -3,7 +3,7 @@ Biological Interpretation Tools for StageBridge V1
 
 Extract and visualize biological insights from trained models:
 1. Influence tensors - which niche cells drive transitions
-2. Attention heatmaps - spatial patterns of influence  
+2. Attention heatmaps - spatial patterns of influence
 3. Pathway enrichment - biological processes
 4. Niche characterization - CAF/immune signatures
 5. Cell-type specific effects - differential influence
@@ -22,7 +22,7 @@ from pathlib import Path
 class InfluenceTensorExtractor:
     """
     Extract influence tensors from trained StageBridge model.
-    
+
     Influence tensor: (n_cells, n_neighbor_types) matrix showing
     which neighboring cell types influence each cell's transition.
     """
@@ -67,11 +67,11 @@ class InfluenceTensorExtractor:
     ) -> pd.DataFrame:
         """
         Compute influence tensor for all cells.
-        
+
         Returns DataFrame with columns:
         - cell_id
         - donor_id
-        - stage  
+        - stage
         - cell_type
         - influence_from_{celltype} for each celltype
         """
@@ -89,12 +89,14 @@ class InfluenceTensorExtractor:
             ring_attention = attention[:, 0, 1:5].mean(axis=1)  # Average across rings
 
             for i, cell_id in enumerate(cell_ids):
-                results.append({
-                    "cell_id": cell_id,
-                    "donor_id": batch.donor_ids[i],
-                    "stage": batch.source_stages[i],
-                    "ring_influence": float(ring_attention[i]),
-                })
+                results.append(
+                    {
+                        "cell_id": cell_id,
+                        "donor_id": batch.donor_ids[i],
+                        "stage": batch.source_stages[i],
+                        "ring_influence": float(ring_attention[i]),
+                    }
+                )
 
         return pd.DataFrame(results)
 
@@ -106,7 +108,7 @@ def visualize_niche_influence(
 ):
     """
     Visualize niche influence patterns.
-    
+
     Creates multi-panel figure showing:
     - Influence by stage
     - Influence by cell type
@@ -145,8 +147,7 @@ def visualize_niche_influence(
     # Panel D: Stage comparison boxplot
     ax = axes[1, 1]
     stages = sorted(influence_df["stage"].unique())
-    data = [influence_df[influence_df["stage"] == s]["ring_influence"].values
-            for s in stages]
+    data = [influence_df[influence_df["stage"] == s]["ring_influence"].values for s in stages]
     ax.boxplot(data, labels=stages)
     ax.set_title("Niche Influence by Stage (Distribution)")
     ax.set_ylabel("Influence Score")
@@ -164,7 +165,7 @@ def extract_pathway_signatures(
 ) -> pd.DataFrame:
     """
     Extract pathway signatures from neighborhood composition.
-    
+
     Computes:
     - EMT score (epithelial-mesenchymal transition)
     - CAF enrichment
@@ -188,23 +189,28 @@ def extract_pathway_signatures(
         # Compute signatures
         total_cells = sum(cell_type_counts.values()) or 1
 
-        caf_score = (cell_type_counts.get("Fibroblast", 0) +
-                     cell_type_counts.get("CAF", 0)) / total_cells
+        caf_score = (
+            cell_type_counts.get("Fibroblast", 0) + cell_type_counts.get("CAF", 0)
+        ) / total_cells
 
-        immune_score = (cell_type_counts.get("Macrophage", 0) +
-                       cell_type_counts.get("T_cell", 0) +
-                       cell_type_counts.get("B_cell", 0)) / total_cells
+        immune_score = (
+            cell_type_counts.get("Macrophage", 0)
+            + cell_type_counts.get("T_cell", 0)
+            + cell_type_counts.get("B_cell", 0)
+        ) / total_cells
 
         emt_score = 0.6 * caf_score + 0.4 * immune_score
 
-        results.append({
-            "cell_id": row.cell_id,
-            "donor_id": row.donor_id,
-            "stage": row.stage,
-            "emt_score": emt_score,
-            "caf_score": caf_score,
-            "immune_score": immune_score,
-        })
+        results.append(
+            {
+                "cell_id": row.cell_id,
+                "donor_id": row.donor_id,
+                "stage": row.stage,
+                "emt_score": emt_score,
+                "caf_score": caf_score,
+                "immune_score": immune_score,
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -243,18 +249,24 @@ def generate_biological_summary(
 
     # Find stages with highest niche influence
     max_influence_stage = by_stage["mean"].idxmax()
-    report.append(f"1. Highest niche influence: **{max_influence_stage}** "
-                 f"(mean={by_stage.loc[max_influence_stage, 'mean']:.4f})\n")
+    report.append(
+        f"1. Highest niche influence: **{max_influence_stage}** "
+        f"(mean={by_stage.loc[max_influence_stage, 'mean']:.4f})\n"
+    )
 
     # Find stages with highest EMT
     max_emt_stage = pathway_summary["emt_score"].idxmax()
-    report.append(f"2. Highest EMT signature: **{max_emt_stage}** "
-                 f"(score={pathway_summary.loc[max_emt_stage, 'emt_score']:.4f})\n")
+    report.append(
+        f"2. Highest EMT signature: **{max_emt_stage}** "
+        f"(score={pathway_summary.loc[max_emt_stage, 'emt_score']:.4f})\n"
+    )
 
     # CAF enrichment
     max_caf_stage = pathway_summary["caf_score"].idxmax()
-    report.append(f"3. Highest CAF enrichment: **{max_caf_stage}** "
-                 f"(score={pathway_summary.loc[max_caf_stage, 'caf_score']:.4f})\n")
+    report.append(
+        f"3. Highest CAF enrichment: **{max_caf_stage}** "
+        f"(score={pathway_summary.loc[max_caf_stage, 'caf_score']:.4f})\n"
+    )
 
     # Save report
     with open(output_dir / "biological_summary.md", "w") as f:

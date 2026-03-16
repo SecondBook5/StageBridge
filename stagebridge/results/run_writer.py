@@ -1,4 +1,5 @@
 """Scratch-run writer for the lightweight StageBridge results system."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -49,7 +50,9 @@ def scratch_run_paths(base_dir: str | Path | None = None) -> ScratchRunPaths:
     )
 
 
-def _stage_pipeline_output(pipeline_output: Mapping[str, Any] | None) -> tuple[list[str], list[str]]:
+def _stage_pipeline_output(
+    pipeline_output: Mapping[str, Any] | None,
+) -> tuple[list[str], list[str]]:
     worked: list[str] = []
     failed: list[str] = []
     if not isinstance(pipeline_output, Mapping):
@@ -253,7 +256,9 @@ def write_pipeline_scratch_run(
     steps = pipeline_output.get("steps", {}) if isinstance(pipeline_output, Mapping) else {}
     transition = steps.get("transition_model", {}) if isinstance(steps, Mapping) else {}
     evaluation = steps.get("evaluation", {}) if isinstance(steps, Mapping) else {}
-    status = "complete" if all(bool(steps.get(name, {}).get("ok")) for name in steps) else "partial"
+    status = (
+        "complete" if all(bool(steps.get(name, {}).get("ok")) for name in steps) else "partial"
+    )
     edge = transition.get("edge")
     mode = transition.get("mode")
     heldout = evaluation.get("heldout_metrics", {})
@@ -291,9 +296,8 @@ def write_pipeline_scratch_run(
     return write_scratch_run(
         cfg,
         pipeline_output,
-        experiment_name=experiment_name or str(
-            transition.get("edge", "stagebridge_pipeline_run")
-        ).replace("->", "_to_"),
+        experiment_name=experiment_name
+        or str(transition.get("edge", "stagebridge_pipeline_run")).replace("->", "_to_"),
         mode=str(mode) if mode is not None else None,
         stage_edges=[str(edge)] if edge is not None else None,
         status=status,
@@ -316,7 +320,9 @@ def run_smoke_execution(
     try:
         from stagebridge.pipelines.run_full import run_full
 
-        pipeline_output = run_full(cfg)  # current pipeline entrypoints accept the composed config object
+        pipeline_output = run_full(
+            cfg
+        )  # current pipeline entrypoints accept the composed config object
     except (FileNotFoundError, ModuleNotFoundError) as exc:
         # CI and fresh clones may not include local-only dataset assets; keep smoke checks infrastructure-focused.
         pipeline_output = {
@@ -332,7 +338,9 @@ def run_smoke_execution(
         cfg,
         pipeline_output,
         experiment_name=str(
-            cfg.get("run_name", "stagebridge_smoke") if isinstance(cfg, Mapping) else getattr(cfg, "run_name", "stagebridge_smoke")
+            cfg.get("run_name", "stagebridge_smoke")
+            if isinstance(cfg, Mapping)
+            else getattr(cfg, "run_name", "stagebridge_smoke")
         ),
         mode="smoke_infrastructure",
         status="complete",

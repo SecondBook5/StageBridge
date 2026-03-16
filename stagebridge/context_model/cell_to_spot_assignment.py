@@ -6,6 +6,7 @@ vector of those spots' spatial neighborhoods.  The result is stored as
 ``adata.obsm["X_spatial_niche"]`` and used to condition the set transformer
 context with spatially-aware niche information.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -40,7 +41,9 @@ def select_stage_donor_token_context(
     obs_df = obs if hasattr(obs, "loc") else None
     if obs_df is None:
         raise TypeError("obs must be a pandas DataFrame-like object.")
-    mask = (obs_df["donor_id"].astype(str) == str(donor_id)) & (obs_df["stage"].astype(str) == str(stage))
+    mask = (obs_df["donor_id"].astype(str) == str(donor_id)) & (
+        obs_df["stage"].astype(str) == str(stage)
+    )
     if not mask.any():
         mask = obs_df["stage"].astype(str) == str(stage)
     if not mask.any():
@@ -118,8 +121,11 @@ def build_snrna_spatial_niche_features(
         raise KeyError(f"Donor column '{donor_col}' missing from adata_spatial.obs.")
 
     X_snrna = np.asarray(adata_snrna.obsm[latent_key], dtype=np.float32)
-    X_spatial_latent = np.asarray(adata_spatial.obsm[latent_key], dtype=np.float32) \
-        if latent_key in adata_spatial.obsm else None
+    X_spatial_latent = (
+        np.asarray(adata_spatial.obsm[latent_key], dtype=np.float32)
+        if latent_key in adata_spatial.obsm
+        else None
+    )
     tangram_mat = np.asarray(adata_spatial.obsm[tangram_key], dtype=np.float32)
     n_celltypes = tangram_mat.shape[1]
 
@@ -149,7 +155,7 @@ def build_snrna_spatial_niche_features(
         if X_spatial_latent is not None:
             # KNN in HLCA latent space
             X_sp_donor = X_spatial_latent[spatial_mask]  # (n_spatial, latent_dim)
-            X_sn_donor = X_snrna[snrna_mask]            # (n_snrna, latent_dim)
+            X_sn_donor = X_snrna[snrna_mask]  # (n_snrna, latent_dim)
 
             # Apply optional radius filter (cheap: just prune to candidates)
             if spatial_radius_um is not None and _SPATIAL_KEY in adata_spatial.obsm:
@@ -161,16 +167,14 @@ def build_snrna_spatial_niche_features(
             _, indices = nn.kneighbors(X_sn_donor)  # (n_snrna, k)
         else:
             # No spatial latent: assign all spots from the same donor equally
-            log.debug(
-                "No spatial latent for donor '%s'; assigning mean over all spots.", donor
-            )
+            log.debug("No spatial latent for donor '%s'; assigning mean over all spots.", donor)
             niche_features[snrna_mask] = tang_donor.mean(axis=0)
             assigned_count += n_snrna
             continue
 
         # Aggregate: mean over K nearest spots' cell-type compositions
         # indices: (n_snrna, k) → tang_donor[indices]: (n_snrna, k, n_ct)
-        neighbor_compositions = tang_donor[indices]           # (n_snrna, k, n_ct)
+        neighbor_compositions = tang_donor[indices]  # (n_snrna, k, n_ct)
         niche_features[snrna_mask] = neighbor_compositions.mean(axis=1)  # (n_snrna, n_ct)
         assigned_count += n_snrna
 
@@ -220,9 +224,7 @@ def compute_spatial_neighbor_composition(
     from sklearn.neighbors import NearestNeighbors
 
     if _SPATIAL_KEY not in adata_spatial.obsm:
-        raise KeyError(
-            f"Spatial coordinates key '{_SPATIAL_KEY}' not in adata_spatial.obsm."
-        )
+        raise KeyError(f"Spatial coordinates key '{_SPATIAL_KEY}' not in adata_spatial.obsm.")
     if tangram_key not in adata_spatial.obsm:
         raise KeyError(f"Tangram key '{tangram_key}' not in adata_spatial.obsm.")
 

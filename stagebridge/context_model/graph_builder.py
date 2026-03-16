@@ -39,6 +39,7 @@ For the GoST, each spot's "set" is either:
 Both work — Tangram gives richer cell-type composition, while direct spot
 embedding is simpler and avoids Tangram as a dependency.
 """
+
 from __future__ import annotations
 
 import logging
@@ -68,6 +69,7 @@ class SpatialGraph:
     node_dataset : list[str] — dataset source per node ("peng" or "rossi")
     coords : (N, 2) float tensor — spatial coordinates per node
     """
+
     edge_index: Tensor
     edge_type: Tensor
     edge_dist: Tensor
@@ -307,7 +309,9 @@ def add_cross_dataset_bridges(
                     # Random sample bridges
                     rng = np.random.default_rng(42)
                     for global_i in nodes_a:
-                        chosen = rng.choice(nodes_b, size=min(k_bridge, len(nodes_b)), replace=False)
+                        chosen = rng.choice(
+                            nodes_b, size=min(k_bridge, len(nodes_b)), replace=False
+                        )
                         for global_j in chosen:
                             extra_src.extend([global_i, int(global_j)])
                             extra_tgt.extend([int(global_j), global_i])

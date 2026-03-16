@@ -1,4 +1,5 @@
 """Reporting pipeline for EA-MIST benchmark outputs."""
+
 from __future__ import annotations
 
 import json
@@ -48,7 +49,11 @@ def _collect_auxiliary_edge_tables(benchmark_root: Path) -> pd.DataFrame:
     for metric_path in benchmark_root.glob("*/*/fold_*/seed_*/auxiliary_edge_metrics.json"):
         payload = json.loads(metric_path.read_text(encoding="utf-8"))
         artifact_dir = metric_path.parent
-        split_summary = json.loads((artifact_dir / "split_summary.json").read_text(encoding="utf-8")) if (artifact_dir / "split_summary.json").exists() else {}
+        split_summary = (
+            json.loads((artifact_dir / "split_summary.json").read_text(encoding="utf-8"))
+            if (artifact_dir / "split_summary.json").exists()
+            else {}
+        )
         for metric_name, metric_value in payload.items():
             rows.append(
                 {
@@ -64,13 +69,17 @@ def _collect_auxiliary_edge_tables(benchmark_root: Path) -> pd.DataFrame:
 
 def run_eamist_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     """Generate active EA-MIST tables and figures from saved run outputs."""
-    reports_root = _ensure_dir(Path(str(_cfg_select(cfg, "eamist_report.reports_root", "reports"))))
+    reports_root = _ensure_dir(
+        Path(str(_cfg_select(cfg, "eamist_report.reports_root", "reports")))
+    )
     benchmark_root = Path(
         str(
             _cfg_select(
                 cfg,
                 "eamist_report.benchmark_root",
-                Path(str(_cfg_select(cfg, "output_dir", "outputs/scratch"))) / str(_cfg_select(cfg, "run_name", "stagebridge_v1")) / "eamist_benchmark",
+                Path(str(_cfg_select(cfg, "output_dir", "outputs/scratch")))
+                / str(_cfg_select(cfg, "run_name", "stagebridge_v1"))
+                / "eamist_benchmark",
             )
         )
     )
@@ -80,7 +89,11 @@ def run_eamist_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
         raise FileNotFoundError(f"EA-MIST benchmark summary not found: {benchmark_summary_path}")
 
     benchmark_summary = pd.read_csv(benchmark_summary_path)
-    model_family_summary = pd.read_csv(model_family_summary_path) if model_family_summary_path.exists() else pd.DataFrame()
+    model_family_summary = (
+        pd.read_csv(model_family_summary_path)
+        if model_family_summary_path.exists()
+        else pd.DataFrame()
+    )
     build_result = build_lesion_bags_from_config(cfg)
 
     tables_root = _ensure_dir(reports_root / "tables" / "eamist")
@@ -98,7 +111,9 @@ def run_eamist_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
         .sort_values("stage")
         .reset_index(drop=True)
     )
-    stage_support["interpretation_note"] = np.where(stage_support["stage"].isin(["Normal", "MIA"]), "exploratory_low_support", "core_stage")
+    stage_support["interpretation_note"] = np.where(
+        stage_support["stage"].isin(["Normal", "MIA"]), "exploratory_low_support", "core_stage"
+    )
     dataset_table.to_csv(tables_root / "table1_dataset_composition.csv", index=False)
     stage_support.to_csv(tables_root / "table1b_stage_support.csv", index=False)
     benchmark_summary.to_csv(tables_root / "table2_benchmark_results.csv", index=False)
@@ -109,7 +124,9 @@ def run_eamist_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
         frame = pd.read_parquet(prototype_path).copy()
         frame["artifact_dir"] = str(prototype_path.parent)
         prototype_frames.append(frame)
-    prototype_table = pd.concat(prototype_frames, ignore_index=True) if prototype_frames else pd.DataFrame()
+    prototype_table = (
+        pd.concat(prototype_frames, ignore_index=True) if prototype_frames else pd.DataFrame()
+    )
     if not prototype_table.empty:
         prototype_enrichment = (
             prototype_table.groupby(["stage", "prototype"], as_index=False)["occupancy"]
@@ -124,20 +141,42 @@ def run_eamist_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
 
     acceptance_rows: list[dict[str, object]] = []
     if not benchmark_summary.empty:
-        grouped = benchmark_summary.groupby(["reference_feature_mode", "model_family"], as_index=False).agg(
+        grouped = benchmark_summary.groupby(
+            ["reference_feature_mode", "model_family"], as_index=False
+        ).agg(
             stage_macro_f1_mean=("stage_macro_f1", "mean"),
             displacement_spearman_mean=("displacement_spearman", "mean"),
         )
-        for reference_mode in sorted(grouped["reference_feature_mode"].dropna().astype(str).unique().tolist()):
+        for reference_mode in sorted(
+            grouped["reference_feature_mode"].dropna().astype(str).unique().tolist()
+        ):
             mode_frame = grouped[grouped["reference_feature_mode"] == reference_mode]
-            pooled_f1 = float(mode_frame.loc[mode_frame["model_family"] == "pooled", "stage_macro_f1_mean"].iloc[0]) if (mode_frame["model_family"] == "pooled").any() else float("nan")
-            eamist_f1 = float(mode_frame.loc[mode_frame["model_family"] == "eamist", "stage_macro_f1_mean"].iloc[0]) if (mode_frame["model_family"] == "eamist").any() else float("nan")
+            pooled_f1 = (
+                float(
+                    mode_frame.loc[
+                        mode_frame["model_family"] == "pooled", "stage_macro_f1_mean"
+                    ].iloc[0]
+                )
+                if (mode_frame["model_family"] == "pooled").any()
+                else float("nan")
+            )
+            eamist_f1 = (
+                float(
+                    mode_frame.loc[
+                        mode_frame["model_family"] == "eamist", "stage_macro_f1_mean"
+                    ].iloc[0]
+                )
+                if (mode_frame["model_family"] == "eamist").any()
+                else float("nan")
+            )
             acceptance_rows.append(
                 {
                     "reference_feature_mode": reference_mode,
                     "pooled_stage_macro_f1": pooled_f1,
                     "eamist_stage_macro_f1": eamist_f1,
-                    "eamist_beats_pooled": bool(np.isfinite(pooled_f1) and np.isfinite(eamist_f1) and eamist_f1 > pooled_f1),
+                    "eamist_beats_pooled": bool(
+                        np.isfinite(pooled_f1) and np.isfinite(eamist_f1) and eamist_f1 > pooled_f1
+                    ),
                 }
             )
         acceptance_frame = pd.DataFrame(acceptance_rows)
@@ -145,25 +184,63 @@ def run_eamist_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
 
     save_method_overview_figure(figures_root / "figure1_method_overview.png")
 
-    embedding_candidates = sorted((benchmark_root.parent / "eamist_pretrain").glob("neighborhood_embeddings.parquet"))
+    embedding_candidates = sorted(
+        (benchmark_root.parent / "eamist_pretrain").glob("neighborhood_embeddings.parquet")
+    )
     if embedding_candidates:
         embeddings = pd.read_parquet(embedding_candidates[0])
-        save_embedding_diagnostics_figure(embeddings, figures_root / "figure2_embedding_diagnostics.png", color_column="stage")
+        save_embedding_diagnostics_figure(
+            embeddings, figures_root / "figure2_embedding_diagnostics.png", color_column="stage"
+        )
 
-    save_benchmark_comparison_figure(benchmark_summary, figures_root / "figure3_benchmark_comparison.png")
+    save_benchmark_comparison_figure(
+        benchmark_summary, figures_root / "figure3_benchmark_comparison.png"
+    )
 
     if not prototype_table.empty:
-        save_prototype_interpretation_figure(prototype_table, figures_root / "figure4_prototypes_attention.png")
+        save_prototype_interpretation_figure(
+            prototype_table, figures_root / "figure4_prototypes_attention.png"
+        )
 
     ablation_rows: list[dict[str, object]] = []
     mode_frame = (
-        benchmark_summary.groupby(["reference_feature_mode", "model_family"], as_index=False)["stage_macro_f1"]
+        benchmark_summary.groupby(["reference_feature_mode", "model_family"], as_index=False)[
+            "stage_macro_f1"
+        ]
         .mean()
         .sort_values(["reference_feature_mode", "stage_macro_f1"], ascending=[True, False])
     )
-    for reference_mode in sorted(mode_frame["reference_feature_mode"].dropna().astype(str).unique().tolist()):
-        pooled_value = float(mode_frame.loc[(mode_frame["reference_feature_mode"] == reference_mode) & (mode_frame["model_family"] == "pooled"), "stage_macro_f1"].iloc[0]) if ((mode_frame["reference_feature_mode"] == reference_mode) & (mode_frame["model_family"] == "pooled")).any() else float("nan")
-        eamist_value = float(mode_frame.loc[(mode_frame["reference_feature_mode"] == reference_mode) & (mode_frame["model_family"] == "eamist"), "stage_macro_f1"].iloc[0]) if ((mode_frame["reference_feature_mode"] == reference_mode) & (mode_frame["model_family"] == "eamist")).any() else float("nan")
+    for reference_mode in sorted(
+        mode_frame["reference_feature_mode"].dropna().astype(str).unique().tolist()
+    ):
+        pooled_value = (
+            float(
+                mode_frame.loc[
+                    (mode_frame["reference_feature_mode"] == reference_mode)
+                    & (mode_frame["model_family"] == "pooled"),
+                    "stage_macro_f1",
+                ].iloc[0]
+            )
+            if (
+                (mode_frame["reference_feature_mode"] == reference_mode)
+                & (mode_frame["model_family"] == "pooled")
+            ).any()
+            else float("nan")
+        )
+        eamist_value = (
+            float(
+                mode_frame.loc[
+                    (mode_frame["reference_feature_mode"] == reference_mode)
+                    & (mode_frame["model_family"] == "eamist"),
+                    "stage_macro_f1",
+                ].iloc[0]
+            )
+            if (
+                (mode_frame["reference_feature_mode"] == reference_mode)
+                & (mode_frame["model_family"] == "eamist")
+            ).any()
+            else float("nan")
+        )
         if np.isfinite(pooled_value) and np.isfinite(eamist_value):
             ablation_rows.append(
                 {
@@ -190,7 +267,9 @@ def run_eamist_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
         "dataset_rows": int(dataset_table.shape[0]),
         "benchmark_rows": int(benchmark_summary.shape[0]),
     }
-    (reports_root / "eamist_report_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (reports_root / "eamist_report_manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
     return {
         "ok": True,
         "pipeline": "run_eamist_reporting",

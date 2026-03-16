@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 
-from .base import SpatialBackend, SpatialMappingResult, compute_cell_type_entropy, compute_sparsity
+from .base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy, compute_sparsity
 
 
 class TACCOBackend(SpatialBackend):
@@ -42,7 +42,7 @@ class TACCOBackend(SpatialBackend):
         snrna: ad.AnnData,
         spatial: ad.AnnData,
         output_dir: Path | None = None,
-    ) -> SpatialMappingResult:
+    ) -> BackendMappingResult:
         """Run TACCO mapping."""
         # Validate and preprocess
         self.validate_inputs(snrna, spatial)
@@ -52,9 +52,7 @@ class TACCOBackend(SpatialBackend):
         try:
             import tacco as tc
         except ImportError:
-            raise ImportError(
-                "TACCO not installed. Install with: pip install tacco"
-            ) from None
+            raise ImportError("TACCO not installed. Install with: pip install tacco") from None
 
         print(f"Running TACCO with method={self.method}...")
 
@@ -99,9 +97,7 @@ class TACCOBackend(SpatialBackend):
         confidence = self.estimate_confidence(snrna, spatial, None)
 
         # Compute upstream metrics
-        upstream_metrics = self.compute_upstream_metrics(
-            snrna, spatial, None
-        )
+        upstream_metrics = self.compute_upstream_metrics(snrna, spatial, None)
 
         # Save if output_dir provided
         if output_dir:
@@ -109,7 +105,7 @@ class TACCOBackend(SpatialBackend):
             output_dir.mkdir(parents=True, exist_ok=True)
             spatial.write_h5ad(output_dir / "tacco_annotated_spatial.h5ad")
 
-        result = SpatialMappingResult(
+        result = BackendMappingResult(
             cell_type_proportions=cell_type_proportions,
             confidence=confidence,
             upstream_metrics=upstream_metrics,
@@ -127,7 +123,7 @@ class TACCOBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: SpatialMappingResult | None,
+        result: BackendMappingResult | None,
     ) -> dict[str, float]:
         """Compute TACCO-specific upstream metrics."""
         if result is None:
@@ -159,7 +155,7 @@ class TACCOBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: SpatialMappingResult | None,
+        result: BackendMappingResult | None,
     ) -> pd.Series:
         """
         Estimate confidence from proportion certainty.
@@ -190,7 +186,7 @@ def run_tacco(
     spatial_path: str | Path,
     output_dir: str | Path,
     **kwargs,
-) -> SpatialMappingResult:
+) -> BackendMappingResult:
     """
     Convenience function to run TACCO mapping.
 
@@ -201,7 +197,7 @@ def run_tacco(
         **kwargs: Additional TACCO parameters
 
     Returns:
-        SpatialMappingResult
+        BackendMappingResult
     """
     # Load data
     print(f"Loading snRNA data from {snrna_path}...")

@@ -1,4 +1,5 @@
 """Assemble model-ready lesion bags for EA-MIST from existing StageBridge assets."""
+
 from __future__ import annotations
 
 import argparse
@@ -42,8 +43,14 @@ from stagebridge.transition_model.disease_edges import edge_id_map
 log = get_logger(__name__)
 
 
-def _assert_consistent_niche_metadata(base: pd.DataFrame, feature_df: pd.DataFrame, *, source: str) -> None:
-    compare_columns = [column for column in ("sample_id", "donor_id", "patient_id", "stage") if column in feature_df.columns and column in base.columns]
+def _assert_consistent_niche_metadata(
+    base: pd.DataFrame, feature_df: pd.DataFrame, *, source: str
+) -> None:
+    compare_columns = [
+        column
+        for column in ("sample_id", "donor_id", "patient_id", "stage")
+        if column in feature_df.columns and column in base.columns
+    ]
     if not compare_columns:
         return
     merged = base.loc[:, ["lesion_id", "niche_id", *compare_columns]].merge(
@@ -57,10 +64,18 @@ def _assert_consistent_niche_metadata(base: pd.DataFrame, feature_df: pd.DataFra
         other = f"{column}__source"
         if other not in merged.columns:
             continue
-        mismatch = merged[other].notna() & (merged[column].astype(str) != merged[other].astype(str))
+        mismatch = merged[other].notna() & (
+            merged[column].astype(str) != merged[other].astype(str)
+        )
         if mismatch.any():
-            example = merged.loc[mismatch, ["lesion_id", "niche_id", column, other]].head(5).to_dict(orient="records")
-            raise ValueError(f"Inconsistent {column} values between niche parquet and {source}, examples={example}")
+            example = (
+                merged.loc[mismatch, ["lesion_id", "niche_id", column, other]]
+                .head(5)
+                .to_dict(orient="records")
+            )
+            raise ValueError(
+                f"Inconsistent {column} values between niche parquet and {source}, examples={example}"
+            )
 
 
 def _load_optional_labels(path: Path | None) -> pd.DataFrame | None:
@@ -78,11 +93,17 @@ def _resolve_viable_edge_labels(viability: dict[str, Any]) -> tuple[str, ...]:
     if not isinstance(edges, dict):
         return ()
     ordered = edge_id_map()
-    viable = [str(label) for label, payload in edges.items() if isinstance(payload, dict) and bool(payload.get("binary_viable", False))]
+    viable = [
+        str(label)
+        for label, payload in edges.items()
+        if isinstance(payload, dict) and bool(payload.get("binary_viable", False))
+    ]
     return tuple(sorted(viable, key=lambda label: (ordered.get(str(label), 10_000), str(label))))
 
 
-def _validate_zarr_against_niches(zarr_path: Path | None, niche_df: pd.DataFrame) -> dict[str, Any]:
+def _validate_zarr_against_niches(
+    zarr_path: Path | None, niche_df: pd.DataFrame
+) -> dict[str, Any]:
     if zarr_path is None:
         return {"checked": False}
     zarr_path = Path(zarr_path).resolve()
@@ -143,20 +164,50 @@ def run(
     if luca_df.empty:
         raise ValueError("LuCA niche feature table was empty; EA-MIST requires luca_features.")
 
-    merge_base = niche_df.loc[:, ["lesion_id", "sample_id", "niche_id", "donor_id", "patient_id", "stage", "x", "y", *token_columns]].copy()
+    merge_base = niche_df.loc[
+        :,
+        [
+            "lesion_id",
+            "sample_id",
+            "niche_id",
+            "donor_id",
+            "patient_id",
+            "stage",
+            "x",
+            "y",
+            *token_columns,
+        ],
+    ].copy()
     _assert_consistent_niche_metadata(merge_base, hlca_df, source="HLCA niche features")
     _assert_consistent_niche_metadata(merge_base, luca_df, source="LuCA niche features")
     merge_base = align_feature_rows(merge_base, hlca_df, source="HLCA niche features")
     merge_base = align_feature_rows(merge_base, luca_df, source="LuCA niche features")
     if evo_df["lesion_id"].duplicated().any():
-        duplicates = evo_df.loc[evo_df["lesion_id"].duplicated(keep=False), "lesion_id"].drop_duplicates().tolist()
-        raise ValueError(f"Detected duplicate lesion ids in lesion evolution features: {duplicates[:10]}")
-    merged = merge_base.merge(evo_df, on="lesion_id", how="left", validate="many_to_one", suffixes=("", "__evo"))
+        duplicates = (
+            evo_df.loc[evo_df["lesion_id"].duplicated(keep=False), "lesion_id"]
+            .drop_duplicates()
+            .tolist()
+        )
+        raise ValueError(
+            f"Detected duplicate lesion ids in lesion evolution features: {duplicates[:10]}"
+        )
+    merged = merge_base.merge(
+        evo_df, on="lesion_id", how="left", validate="many_to_one", suffixes=("", "__evo")
+    )
     if "stage__evo" in merged.columns:
-        stage_mismatch = merged["stage__evo"].notna() & (merged["stage"].astype(str) != merged["stage__evo"].astype(str))
+        stage_mismatch = merged["stage__evo"].notna() & (
+            merged["stage"].astype(str) != merged["stage__evo"].astype(str)
+        )
         if stage_mismatch.any():
-            example = merged.loc[stage_mismatch, ["lesion_id", "stage", "stage__evo"]].drop_duplicates().head(5).to_dict(orient="records")
-            raise ValueError(f"Inconsistent stage labels between niche inputs and lesion evo features, examples={example}")
+            example = (
+                merged.loc[stage_mismatch, ["lesion_id", "stage", "stage__evo"]]
+                .drop_duplicates()
+                .head(5)
+                .to_dict(orient="records")
+            )
+            raise ValueError(
+                f"Inconsistent stage labels between niche inputs and lesion evo features, examples={example}"
+            )
     total_lesions = int(merged["lesion_id"].astype(str).nunique())
     total_niches_expected = int(merged.shape[0])
     log.info(
@@ -167,7 +218,11 @@ def run(
 
     hlca_feature_cols = numeric_feature_columns(hlca_df, "hlca_")
     luca_feature_cols = numeric_feature_columns(luca_df, "luca_")
-    evo_feature_cols = [column for column in evo_df.columns if str(column).startswith("evo_") and pd.api.types.is_numeric_dtype(evo_df[column])]
+    evo_feature_cols = [
+        column
+        for column in evo_df.columns
+        if str(column).startswith("evo_") and pd.api.types.is_numeric_dtype(evo_df[column])
+    ]
     if not hlca_feature_cols:
         raise ValueError("HLCA feature table did not contain numeric 'hlca_' feature columns.")
     if not luca_feature_cols:
@@ -175,12 +230,22 @@ def run(
     if not evo_feature_cols:
         raise ValueError("Lesion evolution feature table did not contain numeric 'evo_' columns.")
 
-    refined_labels = refined_labels.resolve() if refined_labels is not None else (default_reports_tables_dir() / "lesion_refined_labels.csv").resolve()
+    refined_labels = (
+        refined_labels.resolve()
+        if refined_labels is not None
+        else (default_reports_tables_dir() / "lesion_refined_labels.csv").resolve()
+    )
     refined = _load_optional_labels(refined_labels)
     if refined is not None and refined["lesion_id"].duplicated().any():
         raise ValueError("Refined label table contains duplicate lesion ids.")
-    refined_lookup = {} if refined is None else refined.set_index("lesion_id").to_dict(orient="index")
-    viability_path = viability_report.resolve() if viability_report is not None else default_viability_report_path().resolve()
+    refined_lookup = (
+        {} if refined is None else refined.set_index("lesion_id").to_dict(orient="index")
+    )
+    viability_path = (
+        viability_report.resolve()
+        if viability_report is not None
+        else default_viability_report_path().resolve()
+    )
     viability = load_json_if_exists(viability_path) or {"edges": {}}
     active_edge_labels = _resolve_viable_edge_labels(viability)
     active_edge_lookup = {label: idx for idx, label in enumerate(active_edge_labels)}
@@ -192,7 +257,9 @@ def run(
         cfg.setdefault("data", {})["snrna_latent_h5ad"] = str(Path(snrna_latent).resolve())
     log.info("Loading snRNA latent cohort and building expression templates.")
     snrna = load_luad_evo_snrna_latent(cfg)
-    templates = build_expression_templates(snrna, raw_h5ad_path=None if snrna_raw is None else str(Path(snrna_raw).resolve()))
+    templates = build_expression_templates(
+        snrna, raw_h5ad_path=None if snrna_raw is None else str(Path(snrna_raw).resolve())
+    )
     log.info(
         "Built expression templates from %d snRNA cells across %d template labels.",
         int(snrna.obs.shape[0]),
@@ -208,7 +275,9 @@ def run(
     total_niches = 0
     evo_nan_fill_count = 0
 
-    for lesion_index, (lesion_id, lesion_df) in enumerate(merged.groupby("lesion_id", sort=True), start=1):
+    for lesion_index, (lesion_id, lesion_df) in enumerate(
+        merged.groupby("lesion_id", sort=True), start=1
+    ):
         lesion_started = perf_counter()
         lesion_df = lesion_df.sort_values("niche_id").reset_index(drop=True)
         donor_ids = lesion_df["donor_id"].astype(str).unique().tolist()
@@ -261,7 +330,9 @@ def run(
                 token_labels,
                 templates,
             )
-            receiver_state_id = token_labels.index(receiver_label) if receiver_label in token_labels else -1
+            receiver_state_id = (
+                token_labels.index(receiver_label) if receiver_label in token_labels else -1
+            )
             ring_compositions = summarize_ring_compositions(
                 compositions,
                 coords,
@@ -298,9 +369,13 @@ def run(
 
         receiver_dim = len(receiver_features[0]) if receiver_features else receiver_dim
         ring_shape = (
-            len(ring_features[0]),
-            len(ring_features[0][0]) if ring_features and ring_features[0] else 0,
-        ) if ring_features else ring_shape
+            (
+                len(ring_features[0]),
+                len(ring_features[0][0]) if ring_features and ring_features[0] else 0,
+            )
+            if ring_features
+            else ring_shape
+        )
         pathway_dim = len(pathway_features_values[0]) if pathway_features_values else pathway_dim
         stats_dim = len(niche_stats_features[0]) if niche_stats_features else stats_dim
         max_niches = max(max_niches, int(lesion_df.shape[0]))
@@ -378,7 +453,9 @@ def run(
     if output["lesion_id"].duplicated().any():
         raise ValueError("Duplicate lesion ids were produced during EA-MIST bag assembly.")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    log.info("Writing EA-MIST bag parquet with %d lesion rows to %s", int(output.shape[0]), out_path)
+    log.info(
+        "Writing EA-MIST bag parquet with %d lesion rows to %s", int(output.shape[0]), out_path
+    )
     output.to_parquet(out_path, index=False)
 
     audit = {
@@ -411,7 +488,8 @@ def run(
         "viability_report_used": str(viability_path) if viability else None,
         "evo_nan_values_filled_with_zero": int(evo_nan_fill_count),
         "zarr_validation": zarr_audit,
-        "hlca_state_column": hlca_audit.get("chosen_hlca_state_column") or hlca_audit.get("chosen_state_column"),
+        "hlca_state_column": hlca_audit.get("chosen_hlca_state_column")
+        or hlca_audit.get("chosen_state_column"),
         "luca_state_column": luca_audit.get("chosen_luca_state_column"),
         "luca_scoring_space": luca_audit.get("chosen_scoring_space"),
     }
@@ -422,16 +500,39 @@ def run(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--niche-bank", type=Path, default=None, help="Optional niche_token_bank.zarr for validation")
-    parser.add_argument("--niche-parquet", type=Path, required=True, help="Path to niche_tokens_full.parquet")
-    parser.add_argument("--hlca-features", type=Path, required=True, help="Path to niche_hlca_features.parquet")
-    parser.add_argument("--luca-features", type=Path, required=True, help="Path to niche_luca_features.parquet")
-    parser.add_argument("--evo-features", type=Path, required=True, help="Path to lesion_evo_features.parquet")
-    parser.add_argument("--out", type=Path, required=True, help="Output parquet path for lesion bags")
-    parser.add_argument("--snrna-latent", type=Path, default=None, help="Optional override for snRNA latent h5ad")
-    parser.add_argument("--snrna-raw", type=Path, default=None, help="Optional override for raw snRNA h5ad")
-    parser.add_argument("--refined-labels", type=Path, default=None, help="Optional lesion_refined_labels.csv")
-    parser.add_argument("--viability-report", type=Path, default=None, help="Optional split_viability_report.json")
+    parser.add_argument(
+        "--niche-bank",
+        type=Path,
+        default=None,
+        help="Optional niche_token_bank.zarr for validation",
+    )
+    parser.add_argument(
+        "--niche-parquet", type=Path, required=True, help="Path to niche_tokens_full.parquet"
+    )
+    parser.add_argument(
+        "--hlca-features", type=Path, required=True, help="Path to niche_hlca_features.parquet"
+    )
+    parser.add_argument(
+        "--luca-features", type=Path, required=True, help="Path to niche_luca_features.parquet"
+    )
+    parser.add_argument(
+        "--evo-features", type=Path, required=True, help="Path to lesion_evo_features.parquet"
+    )
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Output parquet path for lesion bags"
+    )
+    parser.add_argument(
+        "--snrna-latent", type=Path, default=None, help="Optional override for snRNA latent h5ad"
+    )
+    parser.add_argument(
+        "--snrna-raw", type=Path, default=None, help="Optional override for raw snRNA h5ad"
+    )
+    parser.add_argument(
+        "--refined-labels", type=Path, default=None, help="Optional lesion_refined_labels.csv"
+    )
+    parser.add_argument(
+        "--viability-report", type=Path, default=None, help="Optional split_viability_report.json"
+    )
     return parser
 
 

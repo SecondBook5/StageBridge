@@ -3,6 +3,7 @@ Basic quality-control metrics for single-cell / spatial data.
 
 All functions add columns to ``adata.obs`` in place.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -108,9 +109,7 @@ def filter_cells(
     """
     for col in ("n_genes_by_counts", "total_counts", "pct_counts_mt"):
         if col not in adata.obs.columns:
-            raise KeyError(
-                f"'{col}' not in adata.obs.  Run compute_basic_qc() first."
-            )
+            raise KeyError(f"'{col}' not in adata.obs.  Run compute_basic_qc() first.")
 
     mask = adata.obs["n_genes_by_counts"] >= min_genes
     if max_genes is not None:
@@ -121,6 +120,8 @@ def filter_cells(
     n_removed = (~mask).sum()
     log.info(
         "filter_cells: keeping %d / %d cells  (removed %d)",
-        mask.sum(), len(mask), n_removed,
+        mask.sum(),
+        len(mask),
+        n_removed,
     )
     return adata[mask].copy()

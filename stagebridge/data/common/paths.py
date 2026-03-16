@@ -13,6 +13,7 @@ Usage
 All methods return ``pathlib.Path`` objects and create parent directories
 only when ``mkdir=True`` is passed explicitly.
 """
+
 from __future__ import annotations
 
 import os
@@ -25,6 +26,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _resolve_data_root(cfg_data_root: str | None = None) -> Path:
     """
@@ -124,6 +126,7 @@ def resolve_run_paths(cfg: object, run_id: str | None = None) -> RunPaths:
 # ---------------------------------------------------------------------------
 # Main resolver
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class StageBridgePaths:

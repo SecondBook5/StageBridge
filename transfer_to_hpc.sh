@@ -5,10 +5,10 @@
 
 set -e
 
-# CONFIGURE THESE
-HPC_USER="USERNAME"
-HPC_HOST="hpc-login.university.edu"
-HPC_PATH="~/StageBridge"
+# CONFIGURE THESE - UPDATE WITH YOUR INFO
+HPC_USER="YOUR_MSK_USERNAME"
+HPC_HOST="isxfer01.mskcc.org"  # Transfer server for Iris
+HPC_PATH="~/StageBridge"  # Or use /data/your_labname/StageBridge for more space
 
 echo "=========================================="
 echo "Transferring StageBridge to HPC"

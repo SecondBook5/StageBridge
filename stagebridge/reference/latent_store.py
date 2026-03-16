@@ -4,6 +4,7 @@ Provides a single entry-point ``build_latent`` that wraps PCA-based and
 HLCA-aligned strategies.  The HLCA strategy gracefully falls back to PCA when
 no reference is available so it never blocks training.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -32,7 +33,9 @@ class LatentStore:
             "source_path": str(self.cohort.source_path),
             "latent_key": self.cohort.latent_key,
             "shape": [int(self.cohort.n_obs), int(self.cohort.n_vars)],
-            "feature_names": list(self.cohort.feature_names[: min(5, len(self.cohort.feature_names))]),
+            "feature_names": list(
+                self.cohort.feature_names[: min(5, len(self.cohort.feature_names))]
+            ),
         }
 
 
@@ -91,9 +94,7 @@ def build_latent(
             reference=hlca_reference,
         )
     else:
-        raise ValueError(
-            f"Unknown method '{method}'. Choose from: 'pca', 'hlca'."
-        )
+        raise ValueError(f"Unknown method '{method}'. Choose from: 'pca', 'hlca'.")
 
 
 def _build_pca_latent(

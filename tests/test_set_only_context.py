@@ -1,4 +1,5 @@
 """Mission 3 tests for the set-only context encoder."""
+
 from __future__ import annotations
 
 import torch
@@ -94,9 +95,18 @@ def test_set_only_context_responds_to_spatial_coordinates_and_confidence() -> No
     )
     encoder.eval()
 
-    out_a = encoder(tokens, token_coords=coords_a, token_confidence=confidence, return_attention=True)
-    out_b = encoder(tokens, token_coords=coords_b, token_confidence=confidence, return_attention=True)
-    out_low_conf = encoder(tokens, token_coords=coords_a, token_confidence=torch.zeros_like(confidence), return_attention=True)
+    out_a = encoder(
+        tokens, token_coords=coords_a, token_confidence=confidence, return_attention=True
+    )
+    out_b = encoder(
+        tokens, token_coords=coords_b, token_confidence=confidence, return_attention=True
+    )
+    out_low_conf = encoder(
+        tokens,
+        token_coords=coords_a,
+        token_confidence=torch.zeros_like(confidence),
+        return_attention=True,
+    )
 
     assert not torch.allclose(out_a.pooled_context, out_b.pooled_context)
     assert not torch.allclose(out_a.pooled_context, out_low_conf.pooled_context)

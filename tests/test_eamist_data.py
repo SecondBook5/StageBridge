@@ -2,13 +2,22 @@ from __future__ import annotations
 
 import numpy as np
 
-from stagebridge.data.luad_evo.bag_dataset import LesionBagDataset, NeighborhoodPretrainDataset, collate_lesion_bags
-from stagebridge.data.luad_evo.neighborhood_builder import _canonical_sample_key, _resolve_local_neighborhood_geometry
+from stagebridge.data.luad_evo.bag_dataset import (
+    LesionBagDataset,
+    NeighborhoodPretrainDataset,
+    collate_lesion_bags,
+)
+from stagebridge.data.luad_evo.neighborhood_builder import (
+    _canonical_sample_key,
+    _resolve_local_neighborhood_geometry,
+)
 from stagebridge.data.luad_evo.splits import assert_no_split_leakage, build_lesion_folds
 from stagebridge.utils.types import LesionBag, LocalNicheExample
 
 
-def _make_bag(sample_id: str, donor_id: str, edge_label: str, label: float, shift: float) -> LesionBag:
+def _make_bag(
+    sample_id: str, donor_id: str, edge_label: str, label: float, shift: float
+) -> LesionBag:
     neighborhoods = []
     for idx in range(3):
         receiver = np.asarray([1.0 + shift, 0.5 + idx * 0.1, label], dtype=np.float32)
@@ -39,7 +48,9 @@ def _make_bag(sample_id: str, donor_id: str, edge_label: str, label: float, shif
                 ring_compositions=rings,
                 lr_pathway_summary=lr,
                 neighborhood_stats=stats,
-                flat_features=np.concatenate([receiver, rings.reshape(-1), hlca, luca, lr, stats]).astype(np.float32),
+                flat_features=np.concatenate(
+                    [receiver, rings.reshape(-1), hlca, luca, lr, stats]
+                ).astype(np.float32),
                 center_coord=np.asarray([float(idx), float(idx + 1)], dtype=np.float32),
                 hlca_features=hlca,
                 luca_features=luca,
@@ -64,8 +75,16 @@ def _make_bag(sample_id: str, donor_id: str, edge_label: str, label: float, shif
         evolution_features=np.asarray([0.1 + shift, label], dtype=np.float32),
         stage_index=stage_index,
         displacement_target=float(stage_index) / 4.0,
-        edge_targets=np.asarray([1.0 if edge_label == "AAH->AIS" else 0.0, float(label) if edge_label == "AIS->MIA" else 0.0], dtype=np.float32),
-        edge_target_mask=np.asarray([edge_label == "AAH->AIS", edge_label == "AIS->MIA"], dtype=bool),
+        edge_targets=np.asarray(
+            [
+                1.0 if edge_label == "AAH->AIS" else 0.0,
+                float(label) if edge_label == "AIS->MIA" else 0.0,
+            ],
+            dtype=np.float32,
+        ),
+        edge_target_mask=np.asarray(
+            [edge_label == "AAH->AIS", edge_label == "AIS->MIA"], dtype=bool
+        ),
         edge_target_labels=("AAH->AIS", "AIS->MIA"),
     )
 
@@ -119,7 +138,9 @@ def test_build_lesion_folds_rejects_single_negative_donor_for_cv() -> None:
         message = str(exc)
         assert "not possible" in message or "insufficient" in message or "missing label" in message
     else:
-        raise AssertionError("Expected build_lesion_folds to reject unsupported donor-held-out CV.")
+        raise AssertionError(
+            "Expected build_lesion_folds to reject unsupported donor-held-out CV."
+        )
 
 
 def test_canonical_sample_key_normalizes_curated_and_spatial_ids() -> None:

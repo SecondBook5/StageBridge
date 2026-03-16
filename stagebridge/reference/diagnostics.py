@@ -1,4 +1,5 @@
 """Reference-layer diagnostic helpers."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -47,7 +48,9 @@ def stage_preservation_diagnostics(
     stage_names = sorted(centroids)
     for i, src in enumerate(stage_names):
         for tgt in stage_names[i + 1 :]:
-            centroid_distances[f"{src}->{tgt}"] = float(np.linalg.norm(centroids[src] - centroids[tgt]))
+            centroid_distances[f"{src}->{tgt}"] = float(
+                np.linalg.norm(centroids[src] - centroids[tgt])
+            )
 
     probe = _stage_probe_diagnostics(
         arr,
@@ -255,7 +258,9 @@ def stage_label_alignment(
     frame[stage_col] = frame[stage_col].astype(str)
     frame[label_col] = frame[label_col].astype(str)
     top_labels = frame[label_col].value_counts().head(int(top_n_labels)).index.astype(str).tolist()
-    table = pd.crosstab(frame[stage_col], frame[label_col]).reindex(columns=top_labels, fill_value=0)
+    table = pd.crosstab(frame[stage_col], frame[label_col]).reindex(
+        columns=top_labels, fill_value=0
+    )
     row_norm = table.div(table.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
     dominant = {
         str(stage): {
@@ -298,7 +303,11 @@ def reference_alignment_gate(
         np.isfinite(balanced)
         and np.isfinite(chance)
         and balanced >= chance + 0.15
-        and (not np.isfinite(donor_acc) or not np.isfinite(donor_chance) or donor_acc <= donor_chance + 0.20)
+        and (
+            not np.isfinite(donor_acc)
+            or not np.isfinite(donor_chance)
+            or donor_acc <= donor_chance + 0.20
+        )
         and (not np.isfinite(coverage) or coverage >= 0.90)
         and (not np.isfinite(overlap) or overlap >= 0.50)
         and (not np.isfinite(nn_agreement) or nn_agreement >= 0.45)

@@ -72,7 +72,11 @@ def test_hybrid_encoder_responds_to_spatial_layout() -> None:
     )
     coords_b = torch.flip(coords_a, dims=[0])
 
-    out_a = encoder(tokens, token_type_ids=token_type_ids, token_coords=coords_a, token_confidence=confidence)
-    out_b = encoder(tokens, token_type_ids=token_type_ids, token_coords=coords_b, token_confidence=confidence)
+    out_a = encoder(
+        tokens, token_type_ids=token_type_ids, token_coords=coords_a, token_confidence=confidence
+    )
+    out_b = encoder(
+        tokens, token_type_ids=token_type_ids, token_coords=coords_b, token_confidence=confidence
+    )
 
     assert not torch.allclose(out_a.pooled_context, out_b.pooled_context)

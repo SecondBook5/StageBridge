@@ -15,6 +15,7 @@ Or via the step API:
     from stagebridge.pipelines.run_data_prep import run_data_prep
     result = run_data_prep(cfg)
 """
+
 from __future__ import annotations
 
 import json
@@ -57,6 +58,7 @@ DEFAULT_MIN_COUNTS = 500
 # Archive extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_tar_archive(tar_path: Path, dest_dir: Path, *, force: bool = False) -> bool:
     """Extract a .tar or .tar.gz archive to dest_dir.
 
@@ -84,6 +86,7 @@ def extract_tar_archive(tar_path: Path, dest_dir: Path, *, force: bool = False) 
 # snRNA processing
 # ---------------------------------------------------------------------------
 
+
 def process_snrna(
     raw_dir: Path,
     output_dir: Path,
@@ -104,9 +107,9 @@ def process_snrna(
     if not force and merged_path.exists():
         log.info("snRNA merged file exists (skipping): %s", merged_path)
         # Read shape from h5ad without loading data into memory
-        with h5py.File(merged_path, 'r') as f:
-            n_cells = f['obs'].shape[0]
-            n_genes = f['var'].shape[0]
+        with h5py.File(merged_path, "r") as f:
+            n_cells = f["obs"].shape[0]
+            n_genes = f["var"].shape[0]
         manifest = pd.read_csv(manifest_path) if manifest_path.exists() else pd.DataFrame()
         return {
             "ok": True,
@@ -164,6 +167,7 @@ def process_snrna(
 # Spatial processing
 # ---------------------------------------------------------------------------
 
+
 def process_spatial(
     raw_dir: Path,
     output_dir: Path,
@@ -185,9 +189,9 @@ def process_spatial(
     if not force and merged_path.exists():
         log.info("Spatial merged file exists (skipping): %s", merged_path)
         # Read shape from h5ad without loading data into memory
-        with h5py.File(merged_path, 'r') as f:
-            n_spots = f['obs'].shape[0]
-            n_genes = f['var'].shape[0]
+        with h5py.File(merged_path, "r") as f:
+            n_spots = f["obs"].shape[0]
+            n_genes = f["var"].shape[0]
         manifest = pd.read_csv(manifest_path) if manifest_path.exists() else pd.DataFrame()
         return {
             "ok": True,
@@ -274,6 +278,7 @@ def process_spatial(
 # WES processing
 # ---------------------------------------------------------------------------
 
+
 def process_wes(
     tar_path: Path,
     output_dir: Path,
@@ -310,7 +315,9 @@ def process_wes(
 
     # Save
     df.to_parquet(output_path, index=False)
-    log.info("WES features: %d samples x %d features -> %s", len(df), len(WES_FEATURE_COLS), output_path)
+    log.info(
+        "WES features: %d samples x %d features -> %s", len(df), len(WES_FEATURE_COLS), output_path
+    )
 
     return {
         "ok": True,
@@ -324,6 +331,7 @@ def process_wes(
 # ---------------------------------------------------------------------------
 # QC and normalization
 # ---------------------------------------------------------------------------
+
 
 def apply_qc_filtering(
     adata: anndata.AnnData,
@@ -342,13 +350,7 @@ def apply_qc_filtering(
 
     # Calculate QC metrics
     adata.var["mt"] = adata.var_names.str.startswith(("MT-", "mt-"))
-    sc.pp.calculate_qc_metrics(
-        adata,
-        qc_vars=["mt"],
-        percent_top=None,
-        log1p=False,
-        inplace=True
-    )
+    sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True)
 
     # Filter cells
     sc.pp.filter_cells(adata, min_genes=min_genes)
@@ -381,8 +383,12 @@ def apply_qc_filtering(
 
     log.info(
         "QC filtering: %d -> %d cells (-%d), %d -> %d genes (-%d)",
-        n_before, n_after, n_before - n_after,
-        n_genes_before, n_genes_after, n_genes_before - n_genes_after,
+        n_before,
+        n_after,
+        n_before - n_after,
+        n_genes_before,
+        n_genes_after,
+        n_genes_before - n_genes_after,
     )
 
     return adata, summary
@@ -423,6 +429,7 @@ def apply_normalization(
 # Main pipeline
 # ---------------------------------------------------------------------------
 
+
 def run_data_prep(
     cfg: DictConfig | None = None,
     *,
@@ -458,6 +465,7 @@ def run_data_prep(
     # Resolve data root
     if data_root is not None:
         import os
+
         os.environ["STAGEBRIDGE_DATA_ROOT"] = str(data_root)
 
     try:
@@ -557,6 +565,7 @@ def run_data_prep(
     # ---------------------------------------------------------------------------
     if not skip_qc or not skip_normalization:
         import gc
+
         log.info("-" * 60)
         log.info("Applying QC and normalization...")
 
@@ -566,34 +575,35 @@ def run_data_prep(
         snrna_merged_path = processed_dir / "snrna_merged.h5ad"
         if snrna_merged_path.exists():
             log.info("Loading snRNA data in backed mode to save memory...")
-            adata_snrna = anndata.read_h5ad(snrna_merged_path, backed='r')
+            adata_snrna = anndata.read_h5ad(snrna_merged_path, backed="r")
 
             # Calculate QC metrics on backed data
             log.info("Calculating QC metrics...")
             adata_snrna.var["mt"] = adata_snrna.var_names.str.startswith(("MT-", "mt-"))
             sc.pp.calculate_qc_metrics(
-                adata_snrna,
-                qc_vars=["mt"],
-                percent_top=None,
-                log1p=False,
-                inplace=True
+                adata_snrna, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
             )
 
             # Get filter masks
             cell_mask = (
-                (adata_snrna.obs['n_genes_by_counts'] >= DEFAULT_MIN_GENES_PER_CELL) &
-                (adata_snrna.obs['total_counts'] >= DEFAULT_MIN_COUNTS) &
-                (adata_snrna.obs['pct_counts_mt'] < DEFAULT_MAX_PCT_MITO)
+                (adata_snrna.obs["n_genes_by_counts"] >= DEFAULT_MIN_GENES_PER_CELL)
+                & (adata_snrna.obs["total_counts"] >= DEFAULT_MIN_COUNTS)
+                & (adata_snrna.obs["pct_counts_mt"] < DEFAULT_MAX_PCT_MITO)
             )
-            gene_mask = adata_snrna.var['n_cells_by_counts'] >= DEFAULT_MIN_CELLS_PER_GENE
+            gene_mask = adata_snrna.var["n_cells_by_counts"] >= DEFAULT_MIN_CELLS_PER_GENE
 
             n_cells_before = adata_snrna.n_obs
             n_genes_before = adata_snrna.n_vars
             n_cells_after = cell_mask.sum()
             n_genes_after = gene_mask.sum()
 
-            log.info("Loading filtered subset (%d/%d cells, %d/%d genes)...",
-                     n_cells_after, n_cells_before, n_genes_after, n_genes_before)
+            log.info(
+                "Loading filtered subset (%d/%d cells, %d/%d genes)...",
+                n_cells_after,
+                n_cells_before,
+                n_genes_after,
+                n_genes_before,
+            )
 
             # Load only filtered data into memory
             adata_snrna_filtered = adata_snrna[cell_mask, gene_mask].to_memory()
@@ -640,17 +650,15 @@ def run_data_prep(
         if spatial_merged_path.exists():
             log.info("Loading spatial data in backed mode to save memory...")
             # Read in backed mode - keeps data on disk
-            adata_spatial_backed = anndata.read_h5ad(spatial_merged_path, backed='r')
+            adata_spatial_backed = anndata.read_h5ad(spatial_merged_path, backed="r")
 
             # Calculate QC metrics on backed data (doesn't load into memory)
             log.info("Calculating QC metrics on backed data...")
-            adata_spatial_backed.var["mt"] = adata_spatial_backed.var_names.str.startswith(("MT-", "mt-"))
+            adata_spatial_backed.var["mt"] = adata_spatial_backed.var_names.str.startswith(
+                ("MT-", "mt-")
+            )
             sc.pp.calculate_qc_metrics(
-                adata_spatial_backed,
-                qc_vars=["mt"],
-                percent_top=None,
-                log1p=False,
-                inplace=True
+                adata_spatial_backed, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
             )
 
             # Get boolean mask for cells/genes to keep (still no data loaded)
@@ -660,20 +668,25 @@ def run_data_prep(
             min_cells = DEFAULT_MIN_CELLS_PER_GENE
 
             cell_mask = (
-                (adata_spatial_backed.obs['n_genes_by_counts'] >= min_genes) &
-                (adata_spatial_backed.obs['total_counts'] >= min_counts) &
-                (adata_spatial_backed.obs['pct_counts_mt'] < max_pct_mito)
+                (adata_spatial_backed.obs["n_genes_by_counts"] >= min_genes)
+                & (adata_spatial_backed.obs["total_counts"] >= min_counts)
+                & (adata_spatial_backed.obs["pct_counts_mt"] < max_pct_mito)
             )
 
-            gene_mask = adata_spatial_backed.var['n_cells_by_counts'] >= min_cells
+            gene_mask = adata_spatial_backed.var["n_cells_by_counts"] >= min_cells
 
             n_spots_before = adata_spatial_backed.n_obs
             n_genes_before = adata_spatial_backed.n_vars
             n_spots_after = cell_mask.sum()
             n_genes_after = gene_mask.sum()
 
-            log.info("Loading only filtered subset into memory (%d/%d spots, %d/%d genes)...",
-                     n_spots_after, n_spots_before, n_genes_after, n_genes_before)
+            log.info(
+                "Loading only filtered subset into memory (%d/%d spots, %d/%d genes)...",
+                n_spots_after,
+                n_spots_before,
+                n_genes_after,
+                n_genes_before,
+            )
 
             # Now load ONLY the filtered subset into memory
             adata_spatial = adata_spatial_backed[cell_mask, gene_mask].to_memory()
@@ -714,7 +727,9 @@ def run_data_prep(
 
         elif spatial_batch_manifest.exists():
             # Batched mode - skip QC here, can be done per-batch during training
-            log.info("Spatial data is batched - QC/normalization will be applied per-batch during training")
+            log.info(
+                "Spatial data is batched - QC/normalization will be applied per-batch during training"
+            )
             qc_results["spatial_note"] = "Batched mode - QC deferred to training time"
 
         results["qc_normalization"] = qc_results
@@ -752,7 +767,11 @@ def run_data_prep(
         "snrna": "ok" if snrna_ok else "failed",
         "spatial": "ok" if spatial_ok else "failed",
         "wes": "ok" if wes_ok else "failed",
-        "overall": "ok" if (snrna_ok and spatial_ok) else "partial" if (snrna_ok or spatial_ok) else "failed",
+        "overall": "ok"
+        if (snrna_ok and spatial_ok)
+        else "partial"
+        if (snrna_ok or spatial_ok)
+        else "failed",
     }
 
     # Save audit report
@@ -778,6 +797,7 @@ def run_data_prep(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _build_parser():
     import argparse

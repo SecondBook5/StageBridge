@@ -1,4 +1,5 @@
 """Generate benchmark summaries and poster-ready figures for the active StageBridge story."""
+
 from __future__ import annotations
 
 import json
@@ -173,7 +174,9 @@ def _write_text(path: Path, text: str) -> None:
 
 
 def run_story_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
-    report_cfg = cfg.get("story_report", {}) if isinstance(cfg, DictConfig) else cfg.get("story_report", {})
+    report_cfg = (
+        cfg.get("story_report", {}) if isinstance(cfg, DictConfig) else cfg.get("story_report", {})
+    )
     reports_root = Path(_cfg(report_cfg, "reports_root", "reports"))
     transition_source = Path(
         _cfg(
@@ -211,12 +214,16 @@ def run_story_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
         )
     )
 
-    transition_raw = pd.read_csv(transition_source) if transition_source.exists() else pd.DataFrame()
+    transition_raw = (
+        pd.read_csv(transition_source) if transition_source.exists() else pd.DataFrame()
+    )
     communication_ais_raw = _read_many(communication_ais_sources)
     communication_combined_raw = _read_many(communication_combined_sources)
 
     transition_plot, transition_winners = _summarize_transition_core(transition_raw)
-    communication_ais_summary, communication_ais_shuffle = _summarize_communication(communication_ais_raw)
+    communication_ais_summary, communication_ais_shuffle = _summarize_communication(
+        communication_ais_raw
+    )
     communication_combined_summary, _ = _summarize_communication(communication_combined_raw)
     label_balance = _label_balance(manifest_path)
     story_df = _story_table(transition_plot, communication_ais_summary)
@@ -229,11 +236,27 @@ def run_story_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     poster_fig_root = _ensure_dir(poster_root / "figures")
 
     if not transition_plot.empty:
-        _write_table(transition_plot, transition_root / "core_mode_comparison.csv", transition_root / "core_mode_comparison.md")
-        _write_table(transition_winners, transition_root / "winning_modes_by_edge.csv", transition_root / "winning_modes_by_edge.md")
+        _write_table(
+            transition_plot,
+            transition_root / "core_mode_comparison.csv",
+            transition_root / "core_mode_comparison.md",
+        )
+        _write_table(
+            transition_winners,
+            transition_root / "winning_modes_by_edge.csv",
+            transition_root / "winning_modes_by_edge.md",
+        )
     if not communication_ais_summary.empty:
-        _write_table(communication_ais_summary, communication_root / "ais_model_family_summary.csv", communication_root / "ais_model_family_summary.md")
-        _write_table(communication_ais_shuffle, communication_root / "ais_context_shuffle_summary.csv", communication_root / "ais_context_shuffle_summary.md")
+        _write_table(
+            communication_ais_summary,
+            communication_root / "ais_model_family_summary.csv",
+            communication_root / "ais_model_family_summary.md",
+        )
+        _write_table(
+            communication_ais_shuffle,
+            communication_root / "ais_context_shuffle_summary.csv",
+            communication_root / "ais_context_shuffle_summary.md",
+        )
     if not communication_combined_summary.empty:
         _write_table(
             communication_combined_summary,
@@ -241,22 +264,43 @@ def run_story_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
             communication_root / "combined_model_family_summary.md",
         )
     if not label_balance.empty:
-        _write_table(label_balance, communication_root / "label_balance_summary.csv", communication_root / "label_balance_summary.md")
+        _write_table(
+            label_balance,
+            communication_root / "label_balance_summary.csv",
+            communication_root / "label_balance_summary.md",
+        )
     if not story_df.empty:
-        _write_table(story_df, story_root / "transition_vs_communication_story.csv", story_root / "transition_vs_communication_story.md")
+        _write_table(
+            story_df,
+            story_root / "transition_vs_communication_story.csv",
+            story_root / "transition_vs_communication_story.md",
+        )
 
     if not transition_plot.empty and not communication_ais_summary.empty:
-        transition_ais = transition_plot.loc[transition_plot["edge"] == "AIS->MIA", ["mode", "primary_metric"]].copy()
-        plot_transition_vs_communication(transition_ais, communication_ais_summary, poster_fig_root / "figure_transition_vs_communication_story.png")
+        transition_ais = transition_plot.loc[
+            transition_plot["edge"] == "AIS->MIA", ["mode", "primary_metric"]
+        ].copy()
+        plot_transition_vs_communication(
+            transition_ais,
+            communication_ais_summary,
+            poster_fig_root / "figure_transition_vs_communication_story.png",
+        )
     if not communication_ais_summary.empty:
-        plot_communication_metric_panels(communication_ais_summary, poster_fig_root / "figure_communication_benchmark_metrics.png")
-        plot_context_shuffle_deltas(communication_ais_shuffle, poster_fig_root / "figure_context_shuffle_delta.png")
+        plot_communication_metric_panels(
+            communication_ais_summary,
+            poster_fig_root / "figure_communication_benchmark_metrics.png",
+        )
+        plot_context_shuffle_deltas(
+            communication_ais_shuffle, poster_fig_root / "figure_context_shuffle_delta.png"
+        )
     if not label_balance.empty:
         plot_label_balance(label_balance, poster_fig_root / "figure_label_balance.png")
 
     if not communication_ais_summary.empty:
         top_row = communication_ais_summary.iloc[0]
-        stagebridge_row = communication_ais_summary.loc[communication_ais_summary["model_name"] == "stagebridge"]
+        stagebridge_row = communication_ais_summary.loc[
+            communication_ais_summary["model_name"] == "stagebridge"
+        ]
         stagebridge_row = stagebridge_row.iloc[0] if not stagebridge_row.empty else None
         abstract_text = f"""# HCA General Meeting Poster Abstract Draft
 
@@ -264,7 +308,7 @@ def run_story_reporting(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
 Task-dependent transformer benefit in early LUAD: compact niche attention helps transition modeling while richer communication-relay attention does not yet beat pooled summaries
 
 ## Abstract
-We studied early lung adenocarcinoma progression as a donor-held-out, niche-conditioned learning problem on matched snRNA-seq, Visium spatial transcriptomics, and WES from the precursor ladder. In the original StageBridge transition benchmark, compact Set Transformer context gave the best active transformer result on the clinically important AIS->MIA edge, improving Sinkhorn transition fidelity over pooled and graph-augmented context encoders. We then extended StageBridge into a focal-receiver communication-relay transformer that reasons over sender cells, ligand-receptor proposals, receiver-response programs, and relay-memory tokens to predict progression-competent precursor niches. Under paper-derived clonal-proxy supervision for the AIS proxy task, however, pooled communication summaries were the strongest model family (mean AUROC {top_row['auroc_mean']:.3f}, mean AUPRC {top_row['auprc_mean']:.3f}), while the full communication-relay transformer underperformed (mean AUROC {float(stagebridge_row['auroc_mean']) if stagebridge_row is not None else float('nan'):.3f}). These results show that transformer benefit in early LUAD is task-dependent: attention helps when the target is edge-specific transition transport with compact typed context, but richer relation-heavy communication transformers likely require denser supervision or larger cohorts. The benchmark contributes a practical boundary for transformer use in spatially conditioned cancer progression modeling.
+We studied early lung adenocarcinoma progression as a donor-held-out, niche-conditioned learning problem on matched snRNA-seq, Visium spatial transcriptomics, and WES from the precursor ladder. In the original StageBridge transition benchmark, compact Set Transformer context gave the best active transformer result on the clinically important AIS->MIA edge, improving Sinkhorn transition fidelity over pooled and graph-augmented context encoders. We then extended StageBridge into a focal-receiver communication-relay transformer that reasons over sender cells, ligand-receptor proposals, receiver-response programs, and relay-memory tokens to predict progression-competent precursor niches. Under paper-derived clonal-proxy supervision for the AIS proxy task, however, pooled communication summaries were the strongest model family (mean AUROC {top_row["auroc_mean"]:.3f}, mean AUPRC {top_row["auprc_mean"]:.3f}), while the full communication-relay transformer underperformed (mean AUROC {float(stagebridge_row["auroc_mean"]) if stagebridge_row is not None else float("nan"):.3f}). These results show that transformer benefit in early LUAD is task-dependent: attention helps when the target is edge-specific transition transport with compact typed context, but richer relation-heavy communication transformers likely require denser supervision or larger cohorts. The benchmark contributes a practical boundary for transformer use in spatially conditioned cancer progression modeling.
 """
         _write_text(poster_root / "ABSTRACT.md", abstract_text)
 
@@ -309,7 +353,9 @@ The repo supports a stronger story than “the biggest transformer won.” The b
         "ok": True,
         "transition_source": str(transition_source),
         "communication_ais_sources": [str(Path(path)) for path in communication_ais_sources],
-        "communication_combined_sources": [str(Path(path)) for path in communication_combined_sources],
+        "communication_combined_sources": [
+            str(Path(path)) for path in communication_combined_sources
+        ],
         "reports_root": str(reports_root),
         "poster_root": str(poster_root),
     }

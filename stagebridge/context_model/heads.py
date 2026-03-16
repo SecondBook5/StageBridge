@@ -1,4 +1,5 @@
 """Prediction heads for lesion-level EA-MIST models."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,5 @@
 """Result-card rendering helpers for scratch and milestone runs."""
+
 from __future__ import annotations
 
 from typing import Sequence

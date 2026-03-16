@@ -1,4 +1,5 @@
 """Normalized schemas for the StageBridge label-repair workflow."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

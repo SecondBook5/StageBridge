@@ -1,17 +1,22 @@
 #!/bin/bash
 ################################################################################
-# HPC Setup Script for StageBridge V1
+# HPC Setup Script for StageBridge V1 on Iris Cluster
 ################################################################################
 
 set -e
 
 echo "=========================================="
-echo "StageBridge HPC Environment Setup"
+echo "StageBridge HPC Environment Setup (Iris)"
 echo "=========================================="
+
+# Load miniforge module (Iris-specific)
+echo ""
+echo "[0/7] Loading miniforge module..."
+module load miniforge3
 
 # 1. Create conda environment
 echo ""
-echo "[1/6] Creating conda environment..."
+echo "[1/7] Creating conda environment..."
 if conda env list | grep -q "stagebridge"; then
     echo "  Environment 'stagebridge' already exists. Activating..."
 else
@@ -19,33 +24,39 @@ else
     conda create -n stagebridge python=3.11 -y
 fi
 
-source $(conda info --base)/etc/profile.d/conda.sh
+eval "$(conda shell.bash hook)"
 conda activate stagebridge
 
 # 2. Install PyTorch with GPU support
 echo ""
-echo "[2/6] Installing PyTorch with CUDA..."
+echo "[2/7] Installing PyTorch with CUDA..."
 conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y
 
 # 3. Install core scientific packages
 echo ""
-echo "[3/6] Installing scientific packages..."
+echo "[3/7] Installing scientific packages..."
 conda install numpy pandas scipy scikit-learn matplotlib seaborn -c conda-forge -y
 
 # 4. Install single-cell analysis tools
 echo ""
-echo "[4/6] Installing single-cell tools..."
+echo "[4/7] Installing single-cell tools..."
 pip install anndata scanpy scvi-tools squidpy
 
 # 5. Install spatial mapping backends
 echo ""
-echo "[5/6] Installing spatial backends..."
+echo "[5/7] Installing spatial backends..."
 pip install tangram-sc scvi-tools tacco
 
 # 6. Install additional dependencies
 echo ""
-echo "[6/6] Installing additional packages..."
+echo "[6/7] Installing additional packages..."
 pip install umap-learn phate networkx pot tqdm pyyaml
+
+# 7. Install Jupyter kernel support (for Open OnDemand)
+echo ""
+echo "[7/7] Installing Jupyter kernel support..."
+conda install ipykernel -y
+python -m ipykernel install --user --name=stagebridge --display-name "StageBridge (Python 3.11)"
 
 # Install StageBridge in development mode
 echo ""
@@ -57,5 +68,13 @@ echo "=========================================="
 echo " HPC Environment Setup Complete!"
 echo "=========================================="
 echo ""
-echo "To activate: conda activate stagebridge"
+echo "To activate: module load miniforge3 && conda activate stagebridge"
+echo ""
+echo "For Jupyter (Open OnDemand):"
+echo "  1. Go to Iris Open OnDemand"
+echo "  2. Launch Jupyter"
+echo "  3. In Environment Setup field, add:"
+echo "     module load miniforge3"
+echo "     conda activate stagebridge"
+echo "  4. Select 'StageBridge (Python 3.11)' kernel"
 echo ""

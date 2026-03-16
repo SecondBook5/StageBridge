@@ -38,9 +38,9 @@ def maximum_mean_discrepancy(pred: np.ndarray, target: np.ndarray, sigma: float 
     n_pred = pred.shape[0]
     n_target = target.shape[0]
 
-    xx = np.exp(-cdist(pred, pred, "sqeuclidean") / (2 * sigma ** 2))
-    yy = np.exp(-cdist(target, target, "sqeuclidean") / (2 * sigma ** 2))
-    xy = np.exp(-cdist(pred, target, "sqeuclidean") / (2 * sigma ** 2))
+    xx = np.exp(-cdist(pred, pred, "sqeuclidean") / (2 * sigma**2))
+    yy = np.exp(-cdist(target, target, "sqeuclidean") / (2 * sigma**2))
+    xy = np.exp(-cdist(pred, target, "sqeuclidean") / (2 * sigma**2))
 
     mmd_sq = (
         xx.sum() / (n_pred * (n_pred - 1))
@@ -51,7 +51,9 @@ def maximum_mean_discrepancy(pred: np.ndarray, target: np.ndarray, sigma: float 
     return np.sqrt(max(mmd_sq, 0))
 
 
-def expected_calibration_error(confidences: np.ndarray, accuracies: np.ndarray, n_bins: int = 10) -> float:
+def expected_calibration_error(
+    confidences: np.ndarray, accuracies: np.ndarray, n_bins: int = 10
+) -> float:
     """Compute Expected Calibration Error."""
     bin_edges = np.linspace(0, 1, n_bins + 1)
     ece = 0.0
@@ -68,7 +70,9 @@ def expected_calibration_error(confidences: np.ndarray, accuracies: np.ndarray, 
     return ece
 
 
-def compute_all_metrics(pred_embeddings: np.ndarray, target_embeddings: np.ndarray) -> dict[str, float]:
+def compute_all_metrics(
+    pred_embeddings: np.ndarray, target_embeddings: np.ndarray
+) -> dict[str, float]:
     """Compute all standard metrics."""
     return {
         "wasserstein": wasserstein_nd_distance(pred_embeddings, target_embeddings),
@@ -80,6 +84,7 @@ def compute_all_metrics(pred_embeddings: np.ndarray, target_embeddings: np.ndarr
 
 class MetricsTracker:
     """Track metrics across folds and ablations."""
+
     def __init__(self):
         self.data = []
 
@@ -106,7 +111,9 @@ class MetricsTracker:
 
 
 # Legacy EA-MIST functions (deprecated - use V1 pipeline)
-def rollout_edge_transition(model, x_src, context=None, context_tokens=None, edge_id=0, num_steps=8, stochastic=False):
+def rollout_edge_transition(
+    model, x_src, context=None, context_tokens=None, edge_id=0, num_steps=8, stochastic=False
+):
     """
     Legacy function for EA-MIST compatibility.
 
@@ -128,8 +135,16 @@ def rollout_edge_transition(model, x_src, context=None, context_tokens=None, edg
 
 
 def heldout_transition_metrics(
-    model, x_src, x_tgt, context=None, context_tokens=None, edge_id=0,
-    num_steps=8, stochastic=False, epsilon=0.05, sinkhorn_iters=80
+    model,
+    x_src,
+    x_tgt,
+    context=None,
+    context_tokens=None,
+    edge_id=0,
+    num_steps=8,
+    stochastic=False,
+    epsilon=0.05,
+    sinkhorn_iters=80,
 ):
     """
     Legacy function for EA-MIST compatibility.

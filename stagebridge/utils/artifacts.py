@@ -1,4 +1,5 @@
 """Run artifact management: save/load config, metrics, and model summaries."""
+
 from __future__ import annotations
 
 import json
@@ -29,6 +30,7 @@ class RunArtifacts:
 
         with (d / "config.yaml").open("w") as f:
             import yaml
+
             yaml.dump(self.config, f, default_flow_style=False, sort_keys=False)
 
         with (d / "metrics.json").open("w") as f:

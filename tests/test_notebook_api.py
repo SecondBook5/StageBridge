@@ -119,13 +119,24 @@ def test_build_reference_evaluation_table() -> None:
     table = build_reference_evaluation_table(reference_output)
 
     assert "stage_probe_accuracy" in table["metric"].tolist()
-    assert round(float(table.loc[table["metric"] == "mean_stage_centroid_distance", "value"].iloc[0]), 3) == 1.8
+    assert (
+        round(
+            float(table.loc[table["metric"] == "mean_stage_centroid_distance", "value"].iloc[0]), 3
+        )
+        == 1.8
+    )
 
 
 def test_dataset_preprocessing_tables_and_figures() -> None:
     data_output = {
         "snrna": {
-            "obs": __import__("pandas").DataFrame({"stage": ["AAH", "AIS", "AIS"], "donor_id": ["P1", "P2", "P3"], "sample_id": ["S1", "S2", "S3"]}),
+            "obs": __import__("pandas").DataFrame(
+                {
+                    "stage": ["AAH", "AIS", "AIS"],
+                    "donor_id": ["P1", "P2", "P3"],
+                    "sample_id": ["S1", "S2", "S3"],
+                }
+            ),
             "latent": [[0.0, 0.0, 0.2], [1.0, 0.5, 0.1], [1.2, 0.6, 0.2]],
             "pca_embedding": [[0.0, 0.0], [1.0, 0.5], [1.2, 0.6]],
             "umap_embedding": [[0.1, 0.0], [0.9, 0.4], [1.3, 0.7]],
@@ -135,11 +146,15 @@ def test_dataset_preprocessing_tables_and_figures() -> None:
             "n_donors": 3,
             "n_samples": 3,
             "stage_counts": {"AAH": 1, "AIS": 2},
-            "sample_stage_counts": __import__("pandas").DataFrame({"AAH": [1, 0], "AIS": [0, 2]}, index=["S1", "S2"]),
+            "sample_stage_counts": __import__("pandas").DataFrame(
+                {"AAH": [1, 0], "AIS": [0, 2]}, index=["S1", "S2"]
+            ),
             "top_labels": [("AT2", 2), ("Basal", 1)],
         },
         "spatial": {
-            "obs": __import__("pandas").DataFrame({"stage": ["AAH", "AIS"], "donor_id": ["P1", "P2"], "sample_id": ["V1", "V2"]}),
+            "obs": __import__("pandas").DataFrame(
+                {"stage": ["AAH", "AIS"], "donor_id": ["P1", "P2"], "sample_id": ["V1", "V2"]}
+            ),
             "coords": [[0.0, 0.0], [1.0, 1.0]],
             "source_path": "/tmp/spatial.h5ad",
             "n_spots": 2,
@@ -234,9 +249,14 @@ def test_provider_benchmark_and_selected_provider(monkeypatch) -> None:
         }
 
     def _fake_run_context_model(cfg, spatial_output=None):
-        return {"typed_tokens": {"placeholder": True}, "context_model": {"mode": str(cfg.context_model.mode)}}
+        return {
+            "typed_tokens": {"placeholder": True},
+            "context_model": {"mode": str(cfg.context_model.mode)},
+        }
 
-    def _fake_run_transition_model(cfg, reference_output=None, spatial_output=None, context_output=None):
+    def _fake_run_transition_model(
+        cfg, reference_output=None, spatial_output=None, context_output=None
+    ):
         method = str(cfg.spatial_mapping.method)
         mode = str(cfg.context_model.mode)
         edge = "->".join(cfg.transition_model.active_edge)
@@ -281,7 +301,9 @@ def test_provider_benchmark_and_selected_provider(monkeypatch) -> None:
     monkeypatch.setattr("stagebridge.notebook_api.run_reference", _fake_run_reference)
     monkeypatch.setattr("stagebridge.notebook_api.run_spatial_mapping", _fake_run_spatial_mapping)
     monkeypatch.setattr("stagebridge.notebook_api.run_context_model", _fake_run_context_model)
-    monkeypatch.setattr("stagebridge.notebook_api.run_transition_model", _fake_run_transition_model)
+    monkeypatch.setattr(
+        "stagebridge.notebook_api.run_transition_model", _fake_run_transition_model
+    )
     monkeypatch.setattr("stagebridge.notebook_api.run_evaluation", _fake_run_evaluation)
 
     cfg = OmegaConf.create(
@@ -419,7 +441,9 @@ def test_run_spatial_provider_ladder_and_summary_table(monkeypatch) -> None:
             "spatial_mapping": {"method": "tangram", "show_progress": False},
         }
     )
-    results = run_spatial_provider_ladder(cfg, methods=["tangram", "tacco", "destvi"], use_tqdm=False)
+    results = run_spatial_provider_ladder(
+        cfg, methods=["tangram", "tacco", "destvi"], use_tqdm=False
+    )
     table = build_spatial_provider_table(results)
 
     assert seen_calls == [
@@ -449,7 +473,13 @@ def test_spatial_provider_metric_and_agreement_tables_and_maps() -> None:
                     "feature_names": ("A", "B", "C"),
                 },
             )(),
-            "spatial_mapping": {"status": "complete", "execution_mode": "force_rebuild", "n_spots": 2, "n_features": 3, "provider_version": "x"},
+            "spatial_mapping": {
+                "status": "complete",
+                "execution_mode": "force_rebuild",
+                "n_spots": 2,
+                "n_features": 3,
+                "provider_version": "x",
+            },
         },
         "tacco": {
             "status": "complete",
@@ -463,7 +493,13 @@ def test_spatial_provider_metric_and_agreement_tables_and_maps() -> None:
                     "feature_names": ("A", "B", "C"),
                 },
             )(),
-            "spatial_mapping": {"status": "complete", "execution_mode": "force_rebuild", "n_spots": 2, "n_features": 3, "provider_version": "y"},
+            "spatial_mapping": {
+                "status": "complete",
+                "execution_mode": "force_rebuild",
+                "n_spots": 2,
+                "n_features": 3,
+                "provider_version": "y",
+            },
         },
         "destvi": {
             "status": "complete",
@@ -477,16 +513,26 @@ def test_spatial_provider_metric_and_agreement_tables_and_maps() -> None:
                     "feature_names": ("A", "B", "C"),
                 },
             )(),
-            "spatial_mapping": {"status": "complete", "execution_mode": "force_rebuild", "n_spots": 2, "n_features": 3, "provider_version": "z"},
+            "spatial_mapping": {
+                "status": "complete",
+                "execution_mode": "force_rebuild",
+                "n_spots": 2,
+                "n_features": 3,
+                "provider_version": "z",
+            },
         },
     }
 
     metric_table = build_spatial_provider_metric_table(provider_outputs)
     agreement_table = build_spatial_provider_agreement_table(provider_outputs)
 
-    assert {"method", "qc_heuristic_score", "rows_close_to_one_frac", "dominant_feature"} <= set(metric_table.columns)
+    assert {"method", "qc_heuristic_score", "rows_close_to_one_frac", "dominant_feature"} <= set(
+        metric_table.columns
+    )
     assert len(metric_table) == 3
-    assert {"left_method", "right_method", "winner_agreement", "mean_abs_diff"} <= set(agreement_table.columns)
+    assert {"left_method", "right_method", "winner_agreement", "mean_abs_diff"} <= set(
+        agreement_table.columns
+    )
     assert len(agreement_table) == 3
 
     fig = plot_spatial_provider_maps_frontend(provider_outputs)
