@@ -41,7 +41,7 @@ class TACCOBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
     ) -> SpatialMappingResult:
         """Run TACCO mapping."""
         # Validate and preprocess
@@ -54,7 +54,7 @@ class TACCOBackend(SpatialBackend):
         except ImportError:
             raise ImportError(
                 "TACCO not installed. Install with: pip install tacco"
-            )
+            ) from None
 
         print(f"Running TACCO with method={self.method}...")
 
@@ -127,8 +127,8 @@ class TACCOBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: Optional[SpatialMappingResult],
-    ) -> Dict[str, float]:
+        result: SpatialMappingResult | None,
+    ) -> dict[str, float]:
         """Compute TACCO-specific upstream metrics."""
         if result is None:
             return {}
@@ -159,7 +159,7 @@ class TACCOBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: Optional[SpatialMappingResult],
+        result: SpatialMappingResult | None,
     ) -> pd.Series:
         """
         Estimate confidence from proportion certainty.

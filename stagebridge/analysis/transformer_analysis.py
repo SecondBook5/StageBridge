@@ -64,9 +64,9 @@ class AttentionExtractor:
 
     def extract_attention(
         self,
-        batch: Dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
         aggregate: bool = True,
-    ) -> Dict[str, np.ndarray]:
+    ) -> dict[str, np.ndarray]:
         """
         Extract attention weights for a batch.
 
@@ -101,7 +101,7 @@ class AttentionExtractor:
 
 
 def analyze_attention_entropy(
-    attention_weights: Dict[str, np.ndarray],
+    attention_weights: dict[str, np.ndarray],
 ) -> pd.DataFrame:
     """
     Compute entropy of attention distributions.
@@ -149,7 +149,7 @@ def _interpret_entropy(entropy: float) -> str:
 
 def analyze_multihead_specialization(
     attention_weights: np.ndarray,
-    head_names: Optional[List[str]] = None,
+    head_names: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Analyze what different attention heads learn.
@@ -217,7 +217,7 @@ def _classify_head_specialization(entropy: float, diagonal: float) -> str:
 
 def rank_token_importance(
     attention_weights: np.ndarray,
-    token_names: Optional[List[str]] = None,
+    token_names: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Rank which tokens (niche positions) are most attended to.
@@ -253,9 +253,9 @@ def rank_token_importance(
 
 
 def visualize_attention_patterns(
-    attention_weights: Dict[str, np.ndarray],
+    attention_weights: dict[str, np.ndarray],
     output_dir: Path,
-    token_names: Optional[List[str]] = None,
+    token_names: list[str] | None = None,
 ):
     """
     Visualize attention patterns for all layers.
@@ -343,7 +343,7 @@ def visualize_multihead_attention(
 def correlate_attention_with_influence(
     attention_weights: np.ndarray,
     influence_scores: np.ndarray,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Correlate attention patterns with biological influence.
 
@@ -392,7 +392,7 @@ def generate_transformer_report(
     model: torch.nn.Module,
     test_loader: torch.utils.data.DataLoader,
     output_dir: Path,
-    influence_df: Optional[pd.DataFrame] = None,
+    influence_df: pd.DataFrame | None = None,
 ):
     """
     Generate comprehensive transformer analysis report.

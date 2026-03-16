@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# ruff: noqa: F403, F405
 """
 Extract data from trained model and generate publication-quality individual plots
 """
@@ -189,7 +190,7 @@ def main():
     print("\nLoading trained model data...")
     data = load_trained_model_data(model_dir)
 
-    print(f"\nData loaded:")
+    print("\nData loaded:")
     print(f"  Embeddings: {data['embeddings'].shape if data['embeddings'] is not None else 'None'}")
     print(f"  Labels: {len(data['labels']) if data['labels'] is not None else 'None'}")
     print(f"  Results keys: {list(data['results'].keys())}")

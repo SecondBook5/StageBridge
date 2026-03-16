@@ -314,7 +314,7 @@ class StageBridgeV1Model(nn.Module):
         self,
         batch: StageBridgeBatch,
         return_trajectory: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """
         Forward pass through all layers.
 
@@ -424,7 +424,7 @@ def train_epoch(
     optimizer: optim.Optimizer,
     device: torch.device,
     wes_weight: float = 0.1,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Train for one epoch."""
     model.train()
 
@@ -474,7 +474,7 @@ def evaluate(
     model: StageBridgeV1Model,
     loader: torch.utils.data.DataLoader,
     device: torch.device,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Evaluate model."""
     model.eval()
 

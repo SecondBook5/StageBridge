@@ -30,7 +30,7 @@ class TangramBackend(SpatialBackend):
     def __init__(
         self,
         mode: str = "clusters",
-        marker_genes: str | List[str] = "auto",
+        marker_genes: str | list[str] = "auto",
         density_prior: float = 1.0,
         n_epochs: int = 1000,
         device: str = "cpu",
@@ -48,7 +48,7 @@ class TangramBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
     ) -> SpatialMappingResult:
         """Run Tangram mapping."""
         # Validate and preprocess
@@ -61,7 +61,7 @@ class TangramBackend(SpatialBackend):
         except ImportError:
             raise ImportError(
                 "Tangram not installed. Install with: pip install tangram-sc"
-            )
+            ) from None
 
         # Select marker genes if needed
         if self.marker_genes == "auto":
@@ -133,7 +133,7 @@ class TangramBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         n_genes: int = 100,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Select marker genes using differential expression.
 
@@ -217,8 +217,8 @@ class TangramBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: Optional[SpatialMappingResult],
-    ) -> Dict[str, float]:
+        result: SpatialMappingResult | None,
+    ) -> dict[str, float]:
         """Compute Tangram-specific upstream metrics."""
         if result is None:
             # Called before result is fully constructed
@@ -250,7 +250,7 @@ class TangramBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: Optional[SpatialMappingResult],
+        result: SpatialMappingResult | None,
     ) -> pd.Series:
         """
         Estimate confidence from cell type proportion entropy.

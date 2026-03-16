@@ -18,7 +18,7 @@ def hash_array(arr: np.ndarray) -> str:
 
 @lru_cache(maxsize=8)
 def compute_pca_cached(embeddings_hash: str, n_samples: int, n_features: int,
-                       n_components: int = 2, random_state: int = 42) -> Tuple[np.ndarray, np.ndarray]:
+                       n_components: int = 2, random_state: int = 42) -> tuple[np.ndarray, np.ndarray]:
     """Cached PCA computation
 
     Note: This is a cache key function. Actual computation happens in caller
@@ -70,7 +70,7 @@ class DimensionalityReductionCache:
         param_str = '_'.join(f"{k}={v}" for k, v in sorted(kwargs.items()))
         return f"{method}_{data_hash}_{param_str}"
 
-    def get_or_compute_pca(self, embeddings: np.ndarray, n_components: int = 2) -> Tuple[np.ndarray, np.ndarray]:
+    def get_or_compute_pca(self, embeddings: np.ndarray, n_components: int = 2) -> tuple[np.ndarray, np.ndarray]:
         """Get cached PCA or compute if not cached"""
         key = self._make_key('pca', embeddings, n_components=n_components)
 
@@ -80,9 +80,9 @@ class DimensionalityReductionCache:
             X_reduced = pca.fit_transform(embeddings)
             variance_ratio = pca.explained_variance_ratio_
             self._cache[key] = (X_reduced, variance_ratio)
-            print(f"      [Cache MISS] Computed PCA")
+            print("      [Cache MISS] Computed PCA")
         else:
-            print(f"      [Cache HIT] Loaded PCA from cache")
+            print("      [Cache HIT] Loaded PCA from cache")
 
         return self._cache[key]
 
@@ -97,9 +97,9 @@ class DimensionalityReductionCache:
             tsne = TSNE(n_components=2, random_state=random_state, perplexity=perplexity)
             X_reduced = tsne.fit_transform(embeddings)
             self._cache[key] = X_reduced
-            print(f"      [Cache MISS] Computed t-SNE (~30s)")
+            print("      [Cache MISS] Computed t-SNE (~30s)")
         else:
-            print(f"      [Cache HIT] Loaded t-SNE from cache")
+            print("      [Cache HIT] Loaded t-SNE from cache")
 
         return self._cache[key]
 
@@ -113,12 +113,12 @@ class DimensionalityReductionCache:
                 reducer = umap.UMAP(random_state=random_state)
                 X_reduced = reducer.fit_transform(embeddings)
                 self._cache[key] = X_reduced
-                print(f"      [Cache MISS] Computed UMAP (~20s)")
+                print("      [Cache MISS] Computed UMAP (~20s)")
             except ImportError:
                 print("      [SKIPPED] UMAP not available - pip install umap-learn")
                 return None
         else:
-            print(f"      [Cache HIT] Loaded UMAP from cache")
+            print("      [Cache HIT] Loaded UMAP from cache")
 
         return self._cache[key]
 
@@ -132,12 +132,12 @@ class DimensionalityReductionCache:
                 phate_op = phate.PHATE(random_state=random_state)
                 X_reduced = phate_op.fit_transform(embeddings)
                 self._cache[key] = X_reduced
-                print(f"      [Cache MISS] Computed PHATE (~40s)")
+                print("      [Cache MISS] Computed PHATE (~40s)")
             except ImportError:
                 print("      [SKIPPED] PHATE not available - pip install phate")
                 return None
         else:
-            print(f"      [Cache HIT] Loaded PHATE from cache")
+            print("      [Cache HIT] Loaded PHATE from cache")
 
         return self._cache[key]
 

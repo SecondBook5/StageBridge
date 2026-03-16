@@ -36,9 +36,9 @@ def run_backend_comparison(
     snrna_path: Path,
     spatial_path: Path,
     output_dir: Path,
-    backends: List[str] = None,
+    backends: list[str] = None,
     quick: bool = False,
-) -> Dict:
+) -> dict:
     """
     Run comparison of all spatial backends.
 
@@ -134,9 +134,9 @@ def run_backend_comparison(
 
 
 def compare_backends(
-    results: Dict,
+    results: dict,
     output_dir: Path,
-) -> Dict:
+) -> dict:
     """
     Compare backend results across multiple metrics.
 
@@ -362,9 +362,9 @@ def run_comprehensive_benchmark(
     snrna_path: Path,
     spatial_path: Path,
     output_dir: Path,
-    backends: List[str] = None,
+    backends: list[str] = None,
     quick: bool = False,
-) -> Dict:
+) -> dict:
     """
     Wrapper function for comprehensive backend benchmark.
 

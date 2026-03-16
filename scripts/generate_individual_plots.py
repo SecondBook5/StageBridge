@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# ruff: noqa: F403, F405
 """
 Generate individual publication-quality plots from training data
 

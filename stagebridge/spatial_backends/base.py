@@ -29,16 +29,16 @@ class SpatialMappingResult:
     confidence: pd.Series  # (n_spots,) - per-spot confidence
 
     # Upstream quality metrics
-    upstream_metrics: Dict[str, float]
+    upstream_metrics: dict[str, float]
 
     # Backend-specific metadata
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
     # Optional: Cell-level assignments (if backend supports)
-    cell_assignments: Optional[pd.DataFrame] = None  # (n_cells, n_spots) or None
+    cell_assignments: pd.DataFrame | None = None  # (n_cells, n_spots) or None
 
     # Optional: Gene expression reconstruction
-    reconstructed_expression: Optional[pd.DataFrame] = None  # (n_spots, n_genes)
+    reconstructed_expression: pd.DataFrame | None = None  # (n_spots, n_genes)
 
     def save(self, output_dir: Path):
         """Save results to standardized format."""
@@ -157,7 +157,7 @@ class SpatialBackend(ABC):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
     ) -> SpatialMappingResult:
         """
         Run spatial mapping.
@@ -178,7 +178,7 @@ class SpatialBackend(ABC):
         snrna: ad.AnnData,
         spatial: ad.AnnData,
         result: SpatialMappingResult,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Compute upstream quality metrics.
 
@@ -253,7 +253,7 @@ class SpatialBackend(ABC):
             import warnings
             warnings.warn(
                 f"Low gene overlap: {overlap_frac:.1%} "
-                f"({len(common_genes)}/{len(snrna.var_names)} genes)"
+                f"({len(common_genes)}/{len(snrna.var_names)} genes)", stacklevel=2
             )
 
     def preprocess(

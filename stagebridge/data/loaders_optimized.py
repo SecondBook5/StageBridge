@@ -28,13 +28,13 @@ class StageBridgeBatch:
     """Container for a batch of transition data."""
 
     # Cell identifiers
-    cell_ids: List[str]
-    donor_ids: List[str]
+    cell_ids: list[str]
+    donor_ids: list[str]
 
     # Stage information
-    source_stages: List[str]
-    target_stages: List[str]
-    edge_ids: List[str]
+    source_stages: list[str]
+    target_stages: list[str]
+    edge_ids: list[str]
 
     # Latent embeddings
     z_source: torch.Tensor  # (batch_size, latent_dim)
@@ -45,11 +45,11 @@ class StageBridgeBatch:
     niche_mask: torch.Tensor  # (batch_size, 9)
 
     # Evolutionary features (optional)
-    wes_features: Optional[torch.Tensor] = None
-    has_wes: Optional[torch.Tensor] = None
+    wes_features: torch.Tensor | None = None
+    has_wes: torch.Tensor | None = None
 
     # Ground truth (for synthetic data)
-    niche_influence: Optional[torch.Tensor] = None
+    niche_influence: torch.Tensor | None = None
 
     def to(self, device: torch.device):
         """Move all tensors to device."""
@@ -254,7 +254,7 @@ class StageBridgeDatasetOptimized(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> Dict:
+    def __getitem__(self, idx: int) -> dict:
         """
         Get a single transition example (OPTIMIZED).
 
@@ -325,7 +325,7 @@ class StageBridgeDatasetOptimized(Dataset):
         }
 
 
-def collate_fn(batch: List[Dict]) -> StageBridgeBatch:
+def collate_fn(batch: list[dict]) -> StageBridgeBatch:
     """Collate function for DataLoader (same as original)."""
     return StageBridgeBatch(
         cell_ids=[x["cell_id"] for x in batch],

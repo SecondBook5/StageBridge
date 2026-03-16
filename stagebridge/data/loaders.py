@@ -27,13 +27,13 @@ class StageBridgeBatch:
     """Container for a batch of transition data."""
 
     # Cell identifiers
-    cell_ids: List[str]
-    donor_ids: List[str]
+    cell_ids: list[str]
+    donor_ids: list[str]
 
     # Stage information
-    source_stages: List[str]
-    target_stages: List[str]
-    edge_ids: List[str]
+    source_stages: list[str]
+    target_stages: list[str]
+    edge_ids: list[str]
 
     # Latent embeddings
     z_source: torch.Tensor  # (batch_size, latent_dim)
@@ -44,11 +44,11 @@ class StageBridgeBatch:
     niche_mask: torch.Tensor  # (batch_size, 9) - boolean mask for valid tokens
 
     # Evolutionary features (optional)
-    wes_features: Optional[torch.Tensor] = None  # (batch_size, n_wes_features)
-    has_wes: Optional[torch.Tensor] = None  # (batch_size,) - boolean mask
+    wes_features: torch.Tensor | None = None  # (batch_size, n_wes_features)
+    has_wes: torch.Tensor | None = None  # (batch_size,) - boolean mask
 
     # Ground truth (for synthetic data)
-    niche_influence: Optional[torch.Tensor] = None  # (batch_size,)
+    niche_influence: torch.Tensor | None = None  # (batch_size,)
 
     def to(self, device: torch.device):
         """Move all tensors to device."""
@@ -150,7 +150,7 @@ class StageBridgeDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> Dict:
+    def __getitem__(self, idx: int) -> dict:
         """Get a single transition example."""
         edge_id, cell_idx = self.samples[idx]
 
@@ -218,7 +218,7 @@ class StageBridgeDataset(Dataset):
             "niche_influence": torch.tensor(niche_influence).float() if niche_influence is not None else None,
         }
 
-    def _parse_niche_tokens(self, niche: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
+    def _parse_niche_tokens(self, niche: pd.Series) -> tuple[np.ndarray, np.ndarray]:
         """
         Parse 9-token niche structure into tensor.
 
@@ -274,7 +274,7 @@ class StageBridgeDataset(Dataset):
         return niche_array, mask
 
 
-def collate_fn(batch: List[Dict]) -> StageBridgeBatch:
+def collate_fn(batch: list[dict]) -> StageBridgeBatch:
     """Collate function for DataLoader."""
     return StageBridgeBatch(
         cell_ids=[x["cell_id"] for x in batch],
@@ -366,7 +366,7 @@ class NegativeControlDataset(Dataset):
     def __len__(self) -> int:
         return len(self.base_dataset)
 
-    def __getitem__(self, idx: int) -> Dict:
+    def __getitem__(self, idx: int) -> dict:
         """Get negative control sample."""
         # Get base sample
         sample = self.base_dataset[idx]

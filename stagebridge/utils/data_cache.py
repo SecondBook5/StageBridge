@@ -25,7 +25,7 @@ class DataCache:
     """Singleton cache for expensive data loading operations."""
 
     _instance: Optional['DataCache'] = None
-    _cache: Dict[str, pd.DataFrame] = {}
+    _cache: dict[str, pd.DataFrame] = {}
     _verbose: bool = True
 
     def __new__(cls):
@@ -35,7 +35,7 @@ class DataCache:
             cls._instance._verbose = True
         return cls._instance
 
-    def read_parquet(self, path: Path | str, columns: Optional[list] = None,
+    def read_parquet(self, path: Path | str, columns: list | None = None,
                      use_cache: bool = True, **kwargs) -> pd.DataFrame:
         """
         Read parquet with caching.
@@ -125,7 +125,7 @@ class DataCache:
         )
         return total_bytes / (1024 * 1024)
 
-    def info(self) -> Dict[str, Any]:
+    def info(self) -> dict[str, Any]:
         """Get cache statistics."""
         return {
             'n_items': len(self._cache),
@@ -152,6 +152,6 @@ def clear_data_cache():
     _global_cache.clear()
 
 
-def cache_info() -> Dict[str, Any]:
+def cache_info() -> dict[str, Any]:
     """Get global cache info."""
     return _global_cache.info()

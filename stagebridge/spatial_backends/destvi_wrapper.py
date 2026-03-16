@@ -44,7 +44,7 @@ class DestVIBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
     ) -> SpatialMappingResult:
         """Run DestVI mapping."""
         # Validate and preprocess
@@ -57,7 +57,7 @@ class DestVIBackend(SpatialBackend):
         except ImportError:
             raise ImportError(
                 "scvi-tools not installed. Install with: pip install scvi-tools"
-            )
+            ) from None
 
         print(f"Running DestVI with {len(snrna)} cells, {len(spatial)} spots...")
 
@@ -122,8 +122,8 @@ class DestVIBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: Optional[SpatialMappingResult],
-    ) -> Dict[str, float]:
+        result: SpatialMappingResult | None,
+    ) -> dict[str, float]:
         """Compute DestVI-specific upstream metrics."""
         if result is None:
             return {}
@@ -154,7 +154,7 @@ class DestVIBackend(SpatialBackend):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: Optional[SpatialMappingResult],
+        result: SpatialMappingResult | None,
     ) -> pd.Series:
         """
         Estimate confidence from proportion variance.
