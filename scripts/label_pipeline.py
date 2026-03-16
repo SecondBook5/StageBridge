@@ -85,7 +85,7 @@ Examples:
     if args.command in ['support', 'refine', 'clonal', 'cna', 'phylogeny', 'all']:
         print("\nBuilding cleaned cohort manifest (shared cache)...")
         manifest_cache = build_cleaned_cohort_manifest(cfg)
-        print(f"  Manifest cached for downstream steps")
+        print("  Manifest cached for downstream steps")
 
     # Execute command
     print(f"\nExecuting: {args.command}")

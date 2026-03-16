@@ -77,7 +77,7 @@ class SyntheticDataGenerator:
         noise_level: float = 0.1,
         niche_influence: float = 0.5,
         overlap: float = 0.2,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Generate complete synthetic dataset.
 
@@ -178,9 +178,9 @@ class SyntheticDataGenerator:
 
         # Add latent dimension columns
         for dim in range(self.latent_dim):
-            df[f"z_fused_{dim}"] = df["z_fused"].apply(lambda x: x[dim])
-            df[f"z_hlca_{dim}"] = df["z_hlca"].apply(lambda x: x[dim])
-            df[f"z_luca_{dim}"] = df["z_luca"].apply(lambda x: x[dim])
+            df[f"z_fused_{dim}"] = df["z_fused"].apply(lambda x, d=dim: x[d])
+            df[f"z_hlca_{dim}"] = df["z_hlca"].apply(lambda x, d=dim: x[d])
+            df[f"z_luca_{dim}"] = df["z_luca"].apply(lambda x, d=dim: x[d])
 
         return df
 
@@ -360,7 +360,7 @@ class SyntheticDataGenerator:
         with open(output_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
 
-    def _generate_splits(self, cells: pd.DataFrame) -> Dict:
+    def _generate_splits(self, cells: pd.DataFrame) -> dict:
         """Generate donor-held-out cross-validation splits."""
         donors = sorted(cells["donor_id"].unique())
         n_donors = len(donors)

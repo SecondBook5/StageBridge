@@ -9,14 +9,15 @@ Performance improvements over original:
 Each function creates ONE standalone, high-quality plot.
 """
 
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional
-import warnings
-warnings.filterwarnings('ignore')
 
 from .plot_cache import get_cache
+
+warnings.filterwarnings('ignore')
 
 
 def plot_pca_with_variance(embeddings: np.ndarray, labels: np.ndarray,
@@ -130,7 +131,7 @@ def plot_phate(embeddings: np.ndarray, labels: np.ndarray,
     plt.close()
 
 
-def plot_loss_curve(train_loss: list, val_loss: Optional[list],
+def plot_loss_curve(train_loss: list, val_loss: list | None,
                    output_path: Path, dpi: int = 300):
     """Individual loss curve plot (no caching needed - fast)"""
     plt.figure(figsize=(10, 6))
@@ -195,7 +196,7 @@ def plot_pr_curve(precision: np.ndarray, recall: np.ndarray, ap_score: float,
     plt.close()
 
 
-def plot_accuracy_curve(train_acc: list, val_acc: Optional[list],
+def plot_accuracy_curve(train_acc: list, val_acc: list | None,
                        output_path: Path, dpi: int = 300):
     """Individual accuracy curve plot"""
     plt.figure(figsize=(10, 6))

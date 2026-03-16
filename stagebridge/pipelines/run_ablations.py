@@ -106,12 +106,12 @@ ABLATION_CONFIGS = {
 
 def run_single_ablation(
     ablation_name: str,
-    config: Dict,
+    config: dict,
     data_dir: Path,
     fold: int,
     output_dir: Path,
-    base_args: Dict,
-) -> Dict:
+    base_args: dict,
+) -> dict:
     """Run single ablation experiment."""
     print(f"\n{'='*80}")
     print(f"Running: {ablation_name} (fold {fold})")
@@ -173,8 +173,8 @@ def run_all_ablations(
     data_dir: Path,
     output_base_dir: Path,
     n_folds: int = 5,
-    base_args: Dict = None,
-    ablations: List[str] = None,
+    base_args: dict = None,
+    ablations: list[str] = None,
 ) -> pd.DataFrame:
     """Run all ablations across all folds."""
     output_base_dir = Path(output_base_dir)

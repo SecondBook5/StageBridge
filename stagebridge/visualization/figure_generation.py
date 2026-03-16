@@ -1196,7 +1196,7 @@ def generate_flow_matching_dynamics(model, test_loader, cells_df, output_path):
             ax.plot(x_range, density, color=color, linewidth=3,
                    label=f't={t:.1f}', alpha=0.8)
             ax.fill_between(x_range, density, alpha=0.2, color=color)
-        except:
+        except Exception:
             pass
 
     ax.set_xlabel('Latent Position', fontweight='bold', fontsize=11)

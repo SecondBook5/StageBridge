@@ -292,7 +292,7 @@ def plot_embedding_manifolds(out: Path) -> None:
     fig.tight_layout()
     fig.savefig(out.parent / "panel_D_embedding_stage.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved: panel_D_embedding_stage.png")
+    print("  Saved: panel_D_embedding_stage.png")
 
     # Try UMAP if available
     try:
@@ -313,7 +313,7 @@ def plot_embedding_manifolds(out: Path) -> None:
         fig.tight_layout()
         fig.savefig(out.parent / "panel_D_umap_stage.png", dpi=200, bbox_inches="tight")
         plt.close(fig)
-        print(f"  Saved: panel_D_umap_stage.png")
+        print("  Saved: panel_D_umap_stage.png")
     except ImportError:
         print("  Skipping UMAP: umap-learn not installed")
 
@@ -574,7 +574,7 @@ def plot_reference_feature_heatmap(out: Path) -> None:
     for _, row in bags_df.iterrows():
         stage = str(row["stage_label"])
         hlca = np.stack([np.asarray(h, dtype=np.float32) for h in row["hlca_features"]])
-        luca = np.stack([np.asarray(l, dtype=np.float32) for l in row["luca_features"]])
+        luca = np.stack([np.asarray(luca_item, dtype=np.float32) for luca_item in row["luca_features"]])
         stage_hlca.setdefault(stage, []).append(hlca.mean(axis=0))
         stage_luca.setdefault(stage, []).append(luca.mean(axis=0))
 

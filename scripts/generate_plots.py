@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# ruff: noqa: E402
 """
 Unified Plot Generation Script
 
@@ -62,7 +63,7 @@ from stagebridge.visualization.professional_figures import (
 )
 
 
-def load_trained_model_data(model_dir: Path) -> Dict[str, Any]:
+def load_trained_model_data(model_dir: Path) -> dict[str, Any]:
     """Load all data from trained model checkpoint and cells.parquet"""
     print(f"Loading trained model data from {model_dir}...")
 
@@ -73,7 +74,7 @@ def load_trained_model_data(model_dir: Path) -> Dict[str, Any]:
     if results_path.exists():
         with open(results_path) as f:
             data['results'] = json.load(f)
-        print(f"  ✓ Loaded results.json")
+        print("  ✓ Loaded results.json")
     else:
         raise FileNotFoundError(f"results.json not found in {model_dir}")
 
@@ -100,12 +101,12 @@ def load_trained_model_data(model_dir: Path) -> Dict[str, Any]:
 
             print(f"  ✓ Loaded {len(data['embeddings'])} cell embeddings ({len(embedding_cols)}-dim)")
         else:
-            print(f"  ⚠ No z_fused embeddings found")
+            print("  ⚠ No z_fused embeddings found")
             data['embeddings'] = None
             data['stages'] = None
             data['labels'] = None
     else:
-        print(f"  ⚠ cells.parquet not found")
+        print("  ⚠ cells.parquet not found")
         data['embeddings'] = None
         data['stages'] = None
         data['labels'] = None
@@ -113,7 +114,7 @@ def load_trained_model_data(model_dir: Path) -> Dict[str, Any]:
     return data
 
 
-def generate_demo_data(n_samples: int = 1000, seed: int = 42) -> Dict[str, Any]:
+def generate_demo_data(n_samples: int = 1000, seed: int = 42) -> dict[str, Any]:
     """Generate realistic demo data for visualization testing"""
     print(f"Generating demo data ({n_samples} samples, seed={seed})...")
     np.random.seed(seed)
@@ -203,7 +204,7 @@ def generate_demo_data(n_samples: int = 1000, seed: int = 42) -> Dict[str, Any]:
     # Vectorized renormalization
     attention = attention / attention.sum(axis=2, keepdims=True)
 
-    print(f"  ✓ Generated demo data")
+    print("  ✓ Generated demo data")
 
     return {
         'embeddings': embeddings,
@@ -235,7 +236,7 @@ def generate_demo_data(n_samples: int = 1000, seed: int = 42) -> Dict[str, Any]:
     }
 
 
-def generate_individual_plots(data: Dict[str, Any], output_dir: Path, dpi: int = 300):
+def generate_individual_plots(data: dict[str, Any], output_dir: Path, dpi: int = 300):
     """Generate all individual publication-quality plots"""
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -326,7 +327,7 @@ def generate_individual_plots(data: Dict[str, Any], output_dir: Path, dpi: int =
     return plots_generated
 
 
-def generate_multi_panel_figures(data: Dict[str, Any], output_dir: Path, dpi: int = 300):
+def generate_multi_panel_figures(data: dict[str, Any], output_dir: Path, dpi: int = 300):
     """Generate multi-panel publication figures"""
     output_dir.mkdir(parents=True, exist_ok=True)
 

@@ -37,7 +37,7 @@ class InfluenceTensorExtractor:
     def extract_attention_weights(
         self,
         batch,
-    ) -> Tuple[np.ndarray, List[str]]:
+    ) -> tuple[np.ndarray, list[str]]:
         """
         Extract attention weights from niche encoder.
 
@@ -63,7 +63,7 @@ class InfluenceTensorExtractor:
     def compute_influence_tensor(
         self,
         dataloader,
-        cell_type_mapping: Dict[str, int],
+        cell_type_mapping: dict[str, int],
     ) -> pd.DataFrame:
         """
         Compute influence tensor for all cells.
@@ -102,7 +102,7 @@ class InfluenceTensorExtractor:
 def visualize_niche_influence(
     influence_df: pd.DataFrame,
     output_path: Path,
-    figsize: Tuple[int, int] = (12, 8),
+    figsize: tuple[int, int] = (12, 8),
 ):
     """
     Visualize niche influence patterns.

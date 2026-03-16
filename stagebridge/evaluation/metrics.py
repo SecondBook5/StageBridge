@@ -68,7 +68,7 @@ def expected_calibration_error(confidences: np.ndarray, accuracies: np.ndarray, 
     return ece
 
 
-def compute_all_metrics(pred_embeddings: np.ndarray, target_embeddings: np.ndarray) -> Dict[str, float]:
+def compute_all_metrics(pred_embeddings: np.ndarray, target_embeddings: np.ndarray) -> dict[str, float]:
     """Compute all standard metrics."""
     return {
         "wasserstein": wasserstein_nd_distance(pred_embeddings, target_embeddings),
@@ -83,7 +83,7 @@ class MetricsTracker:
     def __init__(self):
         self.data = []
 
-    def add(self, metrics: Dict[str, float], fold: Optional[int] = None, ablation: Optional[str] = None):
+    def add(self, metrics: dict[str, float], fold: int | None = None, ablation: str | None = None):
         self.data.append({"metrics": metrics, "fold": fold, "ablation": ablation})
 
     def summarize(self):

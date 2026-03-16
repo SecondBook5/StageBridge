@@ -38,13 +38,13 @@ def generate_figure2_dimensionality_reduction(
     try:
         import umap
         has_umap = True
-    except:
+    except ImportError:
         has_umap = False
 
     try:
         import phate
         has_phate = True
-    except:
+    except ImportError:
         has_phate = False
 
     fig = plt.figure(figsize=(20, 10))
@@ -178,8 +178,8 @@ def generate_figure2_dimensionality_reduction(
 
 
 def generate_figure4_model_performance(
-    training_history: Dict,
-    test_metrics: Dict,
+    training_history: dict,
+    test_metrics: dict,
     output_path: Path
 ):
     """

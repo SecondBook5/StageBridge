@@ -146,8 +146,8 @@ def generate_mock_but_realistic_data(n_samples=1000):
         'confusion_matrix': cm,
         'f1_per_class': f1_per_class,
         'accuracy': (y_pred == y_true).mean(),
-        'precision': precision.mean(),
-        'recall': recall.mean(),
+        'precision_mean': precision.mean(),
+        'recall_mean': recall.mean(),
         'f1': 2 * (precision.mean() * recall.mean()) / (precision.mean() + recall.mean()),
     }
 

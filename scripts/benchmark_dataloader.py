@@ -197,7 +197,7 @@ def print_comparison(original, optimized):
     original_50_epochs = original['mean_epoch_time'] * 50
     optimized_50_epochs = optimized['mean_epoch_time'] * 50
 
-    print(f"\n50-epoch training (synthetic data):")
+    print("\n50-epoch training (synthetic data):")
     print(f"  Original:  {original_50_epochs/60:6.2f} minutes")
     print(f"  Optimized: {optimized_50_epochs/60:6.2f} minutes")
     print(f"  Saved:     {(original_50_epochs - optimized_50_epochs)/60:6.2f} minutes per run")
@@ -207,7 +207,7 @@ def print_comparison(original, optimized):
     original_full = original_50_epochs * n_runs
     optimized_full = optimized_50_epochs * n_runs
 
-    print(f"\nFull ablation suite (5 folds × 8 ablations):")
+    print("\nFull ablation suite (5 folds × 8 ablations):")
     print(f"  Original:  {original_full/3600:6.2f} hours")
     print(f"  Optimized: {optimized_full/3600:6.2f} hours")
     print(f"  Saved:     {(original_full - optimized_full)/3600:6.2f} hours")

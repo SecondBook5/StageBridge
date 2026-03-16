@@ -21,7 +21,7 @@ from typing import List, Dict, Tuple
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def find_iterrows_usage(root_dir: Path) -> List[Dict]:
+def find_iterrows_usage(root_dir: Path) -> list[dict]:
     """Find all .iterrows() usage in Python files."""
     results = []
 
@@ -72,7 +72,7 @@ def find_iterrows_usage(root_dir: Path) -> List[Dict]:
     return results
 
 
-def suggest_optimization(entry: Dict) -> str:
+def suggest_optimization(entry: dict) -> str:
     """Suggest vectorized replacement for iterrows usage."""
     code = entry['code']
     pattern = entry['pattern']
@@ -103,7 +103,7 @@ result = df.apply(process_row, axis=1)
         return "See pandas vectorization docs"
 
 
-def print_report(results: List[Dict]):
+def print_report(results: list[dict]):
     """Print detailed optimization report."""
     print("=" * 80)
     print("ITERROWS OPTIMIZATION REPORT")
@@ -132,7 +132,7 @@ def print_report(results: List[Dict]):
         for i, entry in enumerate(entries, 1):
             print(f"\n[{i}] {entry['file']}:{entry['line']}")
             print(f"    Impact: {entry['impact']} | Pattern: {entry['pattern']}")
-            print(f"\n    Context:")
+            print("\n    Context:")
             for line in entry['context'].split('\n'):
                 if '.iterrows()' in line:
                     print(f"    >>> {line}")  # Highlight the problematic line
@@ -173,10 +173,10 @@ def print_report(results: List[Dict]):
 
     total_slowdown = sum(impact_multipliers.get(e['impact'], 1) for e in results)
     print(f"\nTotal estimated slowdown: {total_slowdown}× operations")
-    print(f"If each iterrows processes 1000 rows:")
+    print("If each iterrows processes 1000 rows:")
     print(f"  Current: ~{total_slowdown * 10:.0f} seconds wasted")
     print(f"  Optimized: ~{total_slowdown * 0.1:.0f} seconds")
-    print(f"  Speedup: 100× for each fixed instance")
+    print("  Speedup: 100× for each fixed instance")
 
 
 def main():

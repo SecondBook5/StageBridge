@@ -30,7 +30,7 @@ def generate_canonical_artifacts(
     wes_features_path: Path,
     spatial_backend_dir: Path,
     output_dir: Path,
-    stage_definitions: Dict[str, List[str]],
+    stage_definitions: dict[str, list[str]],
     n_folds: int = 5,
 ):
     """
@@ -121,7 +121,7 @@ def generate_cells_table(
     snrna: ad.AnnData,
     spatial: ad.AnnData,
     wes_df: pd.DataFrame,
-    stage_definitions: Dict[str, List[str]],
+    stage_definitions: dict[str, list[str]],
 ) -> pd.DataFrame:
     """
     Generate cells.parquet with all required fields.
@@ -372,7 +372,7 @@ def generate_neighborhoods_table(
     return pd.DataFrame(records)
 
 
-def generate_stage_edges_table(stage_definitions: Dict[str, List[str]]) -> pd.DataFrame:
+def generate_stage_edges_table(stage_definitions: dict[str, list[str]]) -> pd.DataFrame:
     """
     Generate stage_edges.parquet with valid transitions.
 
@@ -398,7 +398,7 @@ def generate_stage_edges_table(stage_definitions: Dict[str, List[str]]) -> pd.Da
     return pd.DataFrame(edges)
 
 
-def generate_cv_splits(cells_df: pd.DataFrame, n_folds: int = 5) -> Dict:
+def generate_cv_splits(cells_df: pd.DataFrame, n_folds: int = 5) -> dict:
     """
     Generate donor-held-out cross-validation splits.
 
@@ -435,7 +435,7 @@ def generate_cv_splits(cells_df: pd.DataFrame, n_folds: int = 5) -> Dict:
     return splits
 
 
-def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame) -> Dict:
+def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame) -> dict:
     """Generate feature specifications for documentation."""
     return {
         "cells": {

@@ -227,9 +227,9 @@ class PrecomputedDualReference(nn.Module):
 
     def forward(
         self,
-        z_fused: Optional[torch.Tensor] = None,
-        z_hlca: Optional[torch.Tensor] = None,
-        z_luca: Optional[torch.Tensor] = None,
+        z_fused: torch.Tensor | None = None,
+        z_hlca: torch.Tensor | None = None,
+        z_luca: torch.Tensor | None = None,
         return_intermediates: bool = False,
     ) -> torch.Tensor:
         """
@@ -322,7 +322,7 @@ class DualReferenceAligner(nn.Module):
         self,
         z_hlca: torch.Tensor,
         z_luca: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Align HLCA and LuCA embeddings.
 
