@@ -109,7 +109,7 @@ def plot_transition_trajectory(eval_df: pd.DataFrame, output_path: Path) -> None
 
 
 def plot_metric_heatmap(
-    metrics_df: pd.DataFrame, 
+    metrics_df: pd.DataFrame,
     output_path: Path,
     cluster_rows: bool = True,
     cluster_cols: bool = False,
@@ -142,19 +142,19 @@ def plot_metric_heatmap(
         raise ValueError("metrics_df lacks required aggregate metric columns")
 
     mat = metrics_df[metric_cols].astype(float).values
-    
+
     # z-score by metric column for comparability across scales.
     mu = mat.mean(axis=0, keepdims=True)
     sd = mat.std(axis=0, keepdims=True) + 1e-8
     z = (mat - mu) / sd
-    
+
     # Hierarchical clustering
     row_labels = metrics_df["label"].astype(str).tolist()
     col_labels = [c.replace('_mean', '').replace('_', ' ').title() for c in metric_cols]
-    
+
     row_order = np.arange(len(row_labels))
     col_order = np.arange(len(col_labels))
-    
+
     if cluster_rows and len(row_labels) > 2:
         try:
             row_linkage = linkage(pdist(z, metric='euclidean'), method='average')
@@ -162,7 +162,7 @@ def plot_metric_heatmap(
             row_order = row_dendrogram['leaves']
         except Exception as e:
             log.debug(f"Could not cluster rows: {e}")
-    
+
     if cluster_cols and len(col_labels) > 2:
         try:
             col_linkage = linkage(pdist(z.T, metric='euclidean'), method='average')
@@ -170,28 +170,28 @@ def plot_metric_heatmap(
             col_order = col_dendrogram['leaves']
         except Exception as e:
             log.debug(f"Could not cluster columns: {e}")
-    
+
     # Reorder data
     z_ordered = z[row_order][:, col_order]
     row_labels_ordered = [row_labels[i] for i in row_order]
     col_labels_ordered = [col_labels[i] for i in col_order]
-    
+
     # Set up publication-quality figure with dendrogram space
     fig = plt.figure(figsize=figsize, dpi=150)
     fig.patch.set_facecolor('white')
-    
+
     # Create grid for heatmap and dendrograms
     if cluster_rows:
         from matplotlib.gridspec import GridSpec
         gs = GridSpec(1, 2, width_ratios=[0.15, 0.85], wspace=0.02)
         ax_dendro = fig.add_subplot(gs[0])
         ax_heatmap = fig.add_subplot(gs[1])
-        
+
         # Draw row dendrogram
         if len(row_labels) > 2:
             try:
                 row_linkage = linkage(pdist(z, metric='euclidean'), method='average')
-                dendrogram(row_linkage, ax=ax_dendro, orientation='left', 
+                dendrogram(row_linkage, ax=ax_dendro, orientation='left',
                           color_threshold=0, above_threshold_color='gray')
                 ax_dendro.set_xticks([])
                 ax_dendro.set_yticks([])
@@ -200,30 +200,30 @@ def plot_metric_heatmap(
                 ax_dendro.axis('off')
     else:
         ax_heatmap = fig.add_subplot(111)
-    
+
     # Draw heatmap with improved colormap
-    im = ax_heatmap.imshow(z_ordered, cmap="RdBu_r", aspect="auto", 
+    im = ax_heatmap.imshow(z_ordered, cmap="RdBu_r", aspect="auto",
                           vmin=-2, vmax=2, interpolation='nearest')
-    
+
     # Add grid lines
     for i in range(len(row_labels_ordered) + 1):
         ax_heatmap.axhline(i - 0.5, color='white', linewidth=1.5)
     for j in range(len(col_labels_ordered) + 1):
         ax_heatmap.axvline(j - 0.5, color='white', linewidth=1.5)
-    
+
     # Set ticks and labels
     ax_heatmap.set_xticks(np.arange(len(col_labels_ordered)))
     ax_heatmap.set_xticklabels(col_labels_ordered, rotation=35, ha="right", fontsize=11)
     ax_heatmap.set_yticks(np.arange(len(row_labels_ordered)))
     ax_heatmap.set_yticklabels(row_labels_ordered, fontsize=11)
-    ax_heatmap.set_title("Model Performance Heatmap (Z-scored Metrics)", 
+    ax_heatmap.set_title("Model Performance Heatmap (Z-scored Metrics)",
                         fontsize=15, fontweight='bold', pad=15)
-    
+
     # Colorbar
     cbar = fig.colorbar(im, ax=ax_heatmap, shrink=0.8, pad=0.02)
     cbar.set_label("Z-score", fontsize=12, fontweight='bold')
     cbar.ax.tick_params(labelsize=10)
-    
+
     # Annotate cells with values
     if show_values:
         for i in range(z_ordered.shape[0]):
@@ -231,10 +231,10 @@ def plot_metric_heatmap(
                 val = z_ordered[i, j]
                 # Use white text for extreme values, black for moderate
                 text_color = "white" if abs(val) > 1.5 else "black"
-                ax_heatmap.text(j, i, f"{val:.2f}", 
-                              ha="center", va="center", fontsize=9, 
+                ax_heatmap.text(j, i, f"{val:.2f}",
+                              ha="center", va="center", fontsize=9,
                               color=text_color, fontweight='bold')
-    
+
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
@@ -318,7 +318,7 @@ def plot_spatial_stage_map(
     fig, ax = plt.subplots(figsize=(9, 8.5), dpi=150)
     ax.set_facecolor('#F8F8F8')
     fig.patch.set_facecolor('white')
-    
+
     ordered = list(CANONICAL_STAGE_ORDER) + [s for s in np.unique(stages) if s not in CANONICAL_STAGE_ORDER]
     for stage in ordered:
         mask = stages == stage
@@ -327,7 +327,7 @@ def plot_spatial_stage_map(
         ax.scatter(
             px_x[mask], -px_y[mask],
             c=_STAGE_COLORS.get(stage, "#999999"),
-            s=spot_size, alpha=alpha, label=stage, 
+            s=spot_size, alpha=alpha, label=stage,
             rasterized=True, edgecolors='white', linewidths=0.2
         )
 
@@ -336,39 +336,39 @@ def plot_spatial_stage_map(
     ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
     ax.set_xlabel("Spatial X (μm)", fontsize=12, fontweight='bold')
     ax.set_ylabel("Spatial Y (μm, inverted)", fontsize=12, fontweight='bold')
-    
+
     # Improved legend with stage counts
     stage_counts = {stage: np.sum(stages == stage) for stage in ordered if np.sum(stages == stage) > 0}
     legend_labels = [f"{stage} (n={stage_counts[stage]})" for stage in ordered if stage in stage_counts]
-    handles = [plt.scatter([], [], s=50, c=_STAGE_COLORS.get(stage, "#999999"), 
-                          edgecolors='white', linewidths=0.5, alpha=alpha) 
+    handles = [plt.scatter([], [], s=50, c=_STAGE_COLORS.get(stage, "#999999"),
+                          edgecolors='white', linewidths=0.5, alpha=alpha)
               for stage in ordered if stage in stage_counts]
-    legend = ax.legend(handles, legend_labels, markerscale=2, 
+    legend = ax.legend(handles, legend_labels, markerscale=2,
                       framealpha=0.95, fontsize=11, loc='best',
                       title='Cancer Stage', title_fontsize=12)
     legend.get_frame().set_facecolor('white')
     legend.get_frame().set_edgecolor('gray')
     legend.get_frame().set_linewidth(1.5)
-    
+
     # Add scale bar if requested
     if show_scale_bar:
         x_range = px_x.max() - px_x.min()
         scale_length = x_range * 0.15  # 15% of width
         scale_x = px_x.min() + x_range * 0.75
         scale_y = -px_y.max() + (px_y.max() - px_y.min()) * 0.08
-        ax.plot([scale_x, scale_x + scale_length], [scale_y, scale_y], 
+        ax.plot([scale_x, scale_x + scale_length], [scale_y, scale_y],
                'k-', linewidth=3)
         ax.text(scale_x + scale_length/2, scale_y - (px_y.max() - px_y.min()) * 0.03,
-               f'{int(scale_length)} μm', ha='center', va='top', 
+               f'{int(scale_length)} μm', ha='center', va='top',
                fontsize=10, fontweight='bold')
-    
+
     ax.set_aspect("equal", adjustable="datalim")
     ax.grid(alpha=0.15, linestyle=':', linewidth=0.5)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_linewidth(1.5)
     ax.spines['bottom'].set_linewidth(1.5)
-    
+
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
@@ -431,50 +431,50 @@ def plot_spatial_context_score(
     fig, ax = plt.subplots(figsize=(9, 8.5), dpi=150)
     ax.set_facecolor('#F8F8F8')
     fig.patch.set_facecolor('white')
-    
+
     # Robust percentile-based color scaling
     vmin = np.percentile(scores, 2)
     vmax = np.percentile(scores, 98)
-    
+
     # Main scatter plot
     sc = ax.scatter(
         px_x, -px_y,
-        c=scores, cmap=cmap, s=spot_size, alpha=alpha, 
+        c=scores, cmap=cmap, s=spot_size, alpha=alpha,
         rasterized=True, vmin=vmin, vmax=vmax,
         edgecolors='white', linewidths=0.2
     )
-    
+
     # Add contour lines if requested
     if add_contours and len(scores) > 20:
         try:
             from scipy.interpolate import griddata
-            
+
             # Create grid for interpolation
             grid_x = np.linspace(px_x.min(), px_x.max(), 100)
             grid_y = np.linspace(-px_y.max(), -px_y.min(), 100)
             grid_X, grid_Y = np.meshgrid(grid_x, grid_y)
-            
+
             # Interpolate scores to grid
             grid_Z = griddata((px_x, -px_y), scores, (grid_X, grid_Y), method='cubic')
-            
+
             # Draw contours
-            contours = ax.contour(grid_X, grid_Y, grid_Z, levels=6, 
+            contours = ax.contour(grid_X, grid_Y, grid_Z, levels=6,
                                  colors='white', alpha=0.4, linewidths=1)
             ax.clabel(contours, inline=True, fontsize=8, fmt='%.2f')
         except Exception as e:
             log.debug(f"Could not draw contours: {e}")
-    
+
     # Enhanced colorbar
     cbar = fig.colorbar(sc, ax=ax, shrink=0.75, pad=0.02, aspect=25)
     cbar.set_label("Context Score ‖c_s‖", fontsize=12, fontweight='bold')
     cbar.ax.tick_params(labelsize=10)
-    
+
     # Title and labels
     title = f"Spatial Context Score — {sample_id}" if sample_id else "Spatial Context Score"
     ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
     ax.set_xlabel("Spatial X (μm)", fontsize=12, fontweight='bold')
     ax.set_ylabel("Spatial Y (μm, inverted)", fontsize=12, fontweight='bold')
-    
+
     # Summary statistics annotation
     stats_text = (f"Mean: {scores.mean():.3f}\n"
                  f"Median: {np.median(scores):.3f}\n"
@@ -482,26 +482,26 @@ def plot_spatial_context_score(
     ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
            fontsize=9, verticalalignment='top',
            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray'))
-    
+
     # Add scale bar if requested
     if show_scale_bar:
         x_range = px_x.max() - px_x.min()
         scale_length = x_range * 0.15
         scale_x = px_x.min() + x_range * 0.75
         scale_y = -px_y.max() + (px_y.max() - px_y.min()) * 0.08
-        ax.plot([scale_x, scale_x + scale_length], [scale_y, scale_y], 
+        ax.plot([scale_x, scale_x + scale_length], [scale_y, scale_y],
                'k-', linewidth=3)
         ax.text(scale_x + scale_length/2, scale_y - (px_y.max() - px_y.min()) * 0.03,
-               f'{int(scale_length)} μm', ha='center', va='top', 
+               f'{int(scale_length)} μm', ha='center', va='top',
                fontsize=10, fontweight='bold')
-    
+
     ax.set_aspect("equal", adjustable="datalim")
     ax.grid(alpha=0.15, linestyle=':', linewidth=0.5)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_linewidth(1.5)
     ax.spines['bottom'].set_linewidth(1.5)
-    
+
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')

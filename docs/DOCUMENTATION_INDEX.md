@@ -10,12 +10,12 @@
 
 | Document Category | Purpose | Files |
 |-------------------|---------|-------|
-| **📋 Start Here** | Overview and getting started | README.md, AGENTS.md |
-| **🔬 Methods** | Technical specification | methods/v1_methods_overview.md, data_model_specification.md, evaluation_protocol.md |
-| **📊 Publication** | Paper planning and figures | publication/paper_outline.md, figure_table_specifications.md, evidence_matrix.md |
-| **🏗️ Architecture** | Layer-by-layer design | architecture/*.md |
-| **🧬 Biology** | Biological context and hypotheses | biology/*.md |
-| **⚙️ Implementation** | Status and infrastructure | implementation_roadmap.md, system_architecture.md |
+| ** Start Here** | Overview and getting started | README.md, AGENTS.md |
+| ** Methods** | Technical specification | methods/v1_methods_overview.md, data_model_specification.md, evaluation_protocol.md |
+| ** Publication** | Paper planning and figures | publication/paper_outline.md, figure_table_specifications.md, evidence_matrix.md |
+| ** Architecture** | Layer-by-layer design | architecture/*.md |
+| ** Biology** | Biological context and hypotheses | biology/*.md |
+| ** Implementation** | Status and infrastructure | implementation_roadmap.md, system_architecture.md |
 
 ---
 
@@ -66,34 +66,34 @@
 
 ```
 docs/
-├── DOCUMENTATION_INDEX.md           ← You are here
-├── implementation_roadmap.md        ← Status tracking
-├── system_architecture.md           ← Technical infrastructure
-│
-├── methods/                         ← Technical specification
-│   ├── v1_methods_overview.md       ← **PRIMARY METHODS DOC**
-│   ├── data_model_specification.md  ← Data schemas
-│   └── evaluation_protocol.md       ← Evaluation framework
-│
-├── publication/                     ← Paper planning
-│   ├── paper_outline.md             ← **PRIMARY PAPER DOC**
-│   ├── figure_table_specifications.md
-│   └── evidence_matrix.md
-│
-├── architecture/                    ← Layer designs
-│   ├── reference_latent_mapping.md  ← Layer A
-│   ├── typed_niche_context_model.md ← Layer B
-│   ├── eamist_block_diagram.md      ← Layer C
-│   ├── stochastic_transition_model.md ← Layer D
-│   ├── spatial_mapping_layer.md     ← Spatial backends
-│   ├── rescue_ablation_design.md    ← Ablations
-│   └── tissue_level_interpretation.md
-│
-└── biology/                         ← Biological context
-    ├── luad_initiation_problem.md
-    ├── niche_gating_hypothesis.md
-    ├── tissue_dynamics_outputs.md
-    └── wes_regularization_rationale.md
+ DOCUMENTATION_INDEX.md           ← You are here
+ implementation_roadmap.md        ← Status tracking
+ system_architecture.md           ← Technical infrastructure
+
+ methods/                         ← Technical specification
+    v1_methods_overview.md       ← **PRIMARY METHODS DOC**
+    data_model_specification.md  ← Data schemas
+    evaluation_protocol.md       ← Evaluation framework
+
+ publication/                     ← Paper planning
+    paper_outline.md             ← **PRIMARY PAPER DOC**
+    figure_table_specifications.md
+    evidence_matrix.md
+
+ architecture/                    ← Layer designs
+    reference_latent_mapping.md  ← Layer A
+    typed_niche_context_model.md ← Layer B
+    eamist_block_diagram.md      ← Layer C
+    stochastic_transition_model.md ← Layer D
+    spatial_mapping_layer.md     ← Spatial backends
+    rescue_ablation_design.md    ← Ablations
+    tissue_level_interpretation.md
+
+ biology/                         ← Biological context
+     luad_initiation_problem.md
+     niche_gating_hypothesis.md
+     tissue_dynamics_outputs.md
+     wes_regularization_rationale.md
 ```
 
 ---
@@ -456,11 +456,11 @@ docs/
 ### 4.1 For Paper Writing (Tomorrow)
 
 **Priority Order:**
-1. ✅ **paper_outline.md** - Get structure
-2. ✅ **evidence_matrix.md** - Validate claims
-3. ✅ **figure_table_specifications.md** - Plan visuals
-4. ✅ **v1_methods_overview.md** - Write Methods
-5. ✅ **evaluation_protocol.md** - Write Evaluation
+1.  **paper_outline.md** - Get structure
+2.  **evidence_matrix.md** - Validate claims
+3.  **figure_table_specifications.md** - Plan visuals
+4.  **v1_methods_overview.md** - Write Methods
+5.  **evaluation_protocol.md** - Write Evaluation
 
 **Estimated Time:** 2-3 hours to review, then start writing
 
@@ -469,11 +469,11 @@ docs/
 ### 4.2 For Implementation
 
 **Priority Order:**
-1. ✅ **implementation_roadmap.md** - See status
-2. ✅ **system_architecture.md** - Understand infrastructure
-3. ✅ **data_model_specification.md** - Understand data flow
-4. ✅ **v1_methods_overview.md** - Understand layers
-5. ✅ **AGENTS.md** - Full context
+1.  **implementation_roadmap.md** - See status
+2.  **system_architecture.md** - Understand infrastructure
+3.  **data_model_specification.md** - Understand data flow
+4.  **v1_methods_overview.md** - Understand layers
+5.  **AGENTS.md** - Full context
 
 **Estimated Time:** 4-6 hours for deep read
 
@@ -482,10 +482,10 @@ docs/
 ### 4.3 For Code Review
 
 **Priority Order:**
-1. ✅ **v1_methods_overview.md** - Understand architecture
-2. ✅ **system_architecture.md** - Understand implementation
-3. ✅ **data_model_specification.md** - Understand interfaces
-4. ✅ **evaluation_protocol.md** - Understand metrics
+1.  **v1_methods_overview.md** - Understand architecture
+2.  **system_architecture.md** - Understand implementation
+3.  **data_model_specification.md** - Understand interfaces
+4.  **evaluation_protocol.md** - Understand metrics
 
 **Estimated Time:** 2-3 hours
 
@@ -494,10 +494,10 @@ docs/
 ### 4.4 For Grant Writing / Presentations
 
 **Priority Order:**
-1. ✅ **README.md** - High-level overview
-2. ✅ **AGENTS.md** (Sections 0-1) - Vision and scope
-3. ✅ **paper_outline.md** (Abstract + Intro) - Key messages
-4. ✅ **figure_table_specifications.md** (Figure 1) - Overview figure
+1.  **README.md** - High-level overview
+2.  **AGENTS.md** (Sections 0-1) - Vision and scope
+3.  **paper_outline.md** (Abstract + Intro) - Key messages
+4.  **figure_table_specifications.md** (Figure 1) - Overview figure
 
 **Estimated Time:** 1 hour
 
@@ -521,16 +521,16 @@ docs/
 
 | Document Type | Status | Notes |
 |---------------|--------|-------|
-| **Methods Specification** | ✅ Complete | Publication-ready |
-| **Paper Outline** | ✅ Complete | Ready for writing |
-| **Figure Specifications** | ✅ Complete | All 8 figures detailed |
-| **Evidence Matrix** | ✅ Complete | All claims mapped |
-| **Implementation Roadmap** | ✅ Complete | Status tracked |
-| **System Architecture** | ✅ Complete | Full technical spec |
-| **Architecture Docs** | ✅ Complete | All layers documented |
-| **Biology Docs** | ✅ Complete | Context provided |
+| **Methods Specification** |  Complete | Publication-ready |
+| **Paper Outline** |  Complete | Ready for writing |
+| **Figure Specifications** |  Complete | All 8 figures detailed |
+| **Evidence Matrix** |  Complete | All claims mapped |
+| **Implementation Roadmap** |  Complete | Status tracked |
+| **System Architecture** |  Complete | Full technical spec |
+| **Architecture Docs** |  Complete | All layers documented |
+| **Biology Docs** |  Complete | Context provided |
 
-**Overall Status:** ✅ **100% Complete for V1 Publication Planning**
+**Overall Status:**  **100% Complete for V1 Publication Planning**
 
 ---
 
@@ -539,12 +539,12 @@ docs/
 ### 6.1 Key Claims (from Evidence Matrix)
 
 1. Dual-reference geometry improves structure (d=0.5-0.6)
-2. Niche context significantly improves quality (d=1.2) ⭐
-3. Stochastic flow enables calibrated uncertainty (ECE<0.1) ⭐
-4. Genomic constraints reduce implausible transitions (40%) ⭐
+2. Niche context significantly improves quality (d=1.2) 
+3. Stochastic flow enables calibrated uncertainty (ECE<0.1) 
+4. Genomic constraints reduce implausible transitions (40%) 
 5. Hierarchical set transformer enables aggregation (d=0.5)
-6. Results robust across spatial backends (r>0.78) ⭐
-7. Niche-gated AT2 transitions in LUAD (3× higher) ⭐
+6. Results robust across spatial backends (r>0.78) 
+7. Niche-gated AT2 transitions in LUAD (3× higher) 
 
 ### 6.2 Key Metrics
 
@@ -553,8 +553,8 @@ docs/
 - MMD: 0.12 ± 0.02
 
 **Uncertainty:**
-- ECE: 0.08 (target: <0.1) ✓
-- Coverage: 0.89 (target: 0.90) ✓
+- ECE: 0.08 (target: <0.1) 
+- Coverage: 0.89 (target: 0.90) 
 
 **Compatibility:**
 - Matched vs shuffled gap: 0.42 (p<0.001)
@@ -567,30 +567,30 @@ docs/
 
 1. **Figure 1** - Conceptual Overview
 2. **Figure 2** - EA-MIST Absorption
-3. **Figure 3** - Niche Influence (⭐ KEY)
+3. **Figure 3** - Niche Influence ( KEY)
 4. **Figure 4** - Transition Dynamics
-5. **Figure 5** - Evolutionary Compatibility (⭐ KEY)
-6. **Figure 6** - Spatial Backend Benchmark (⭐ KEY)
+5. **Figure 5** - Evolutionary Compatibility ( KEY)
+6. **Figure 6** - Spatial Backend Benchmark ( KEY)
 7. **Figure 7** - Ablation Heatmap
 8. **Figure 8** - Flagship Biology
 
 ### 6.4 Implementation Status
 
 **Complete:**
-- ✅ Layer B (Local Niche Encoder)
-- ✅ Layer C (Set Transformer)
-- ✅ Documentation (all)
+-  Layer B (Local Niche Encoder)
+-  Layer C (Set Transformer)
+-  Documentation (all)
 
 **In Progress:**
-- 🔄 Layer A (Reference alignment)
-- 🔄 Layer D (Flow matching)
-- 🔄 Layer F (Compatibility)
-- 🔄 Step 0 (Data pipeline)
+-  Layer A (Reference alignment)
+-  Layer D (Flow matching)
+-  Layer F (Compatibility)
+-  Step 0 (Data pipeline)
 
 **Planned:**
-- 📝 Spatial backend integration
-- 📝 Training infrastructure
-- 📝 Evaluation harness
+-  Spatial backend integration
+-  Training infrastructure
+-  Evaluation harness
 
 ---
 
@@ -622,21 +622,21 @@ docs/
 ### 7.2 What You Can Write Now
 
 **Can write immediately (stable):**
-- ✅ Introduction (background, motivation, gaps)
-- ✅ Methods - Architecture (Layers A-F)
-- ✅ Methods - Training Protocol
-- ✅ Methods - Evaluation Protocol
-- ✅ Figure 1 (conceptual overview)
-- ✅ Figure 2 (EA-MIST absorption)
+-  Introduction (background, motivation, gaps)
+-  Methods - Architecture (Layers A-F)
+-  Methods - Training Protocol
+-  Methods - Evaluation Protocol
+-  Figure 1 (conceptual overview)
+-  Figure 2 (EA-MIST absorption)
 
 **Need results first:**
-- ❌ Results section (requires experiments)
-- ❌ Discussion (requires results)
-- ❌ Figures 3-8 (require data)
-- ❌ All tables (require metrics)
+-  Results section (requires experiments)
+-  Discussion (requires results)
+-  Figures 3-8 (require data)
+-  All tables (require metrics)
 
 **Write last:**
-- ❌ Abstract (after everything else)
+-  Abstract (after everything else)
 
 ---
 
@@ -659,9 +659,9 @@ docs/
 ### 8.2 Version Control
 
 All documentation is:
-- ✅ Under git version control
-- ✅ On branch `docs/v1-architecture-update`
-- ✅ Ready for commit when you're ready
+-  Under git version control
+-  On branch `docs/v1-architecture-update`
+-  Ready for commit when you're ready
 
 ---
 
@@ -696,15 +696,15 @@ Before starting paper writing, verify:
 - [x] Architecture is fully specified
 - [x] Data model is standardized
 
-**Status:** ✅ **Ready for paper writing**
+**Status:**  **Ready for paper writing**
 
 ---
 
 **End of Documentation Index**
 
 **Quick Links:**
-- 📋 [README](../README.md)
-- 🎯 [AGENTS](../AGENTS.md)
-- 🔬 [Methods Overview](methods/v1_methods_overview.md)
-- 📊 [Paper Outline](publication/paper_outline.md)
-- ⚙️ [Implementation Roadmap](implementation_roadmap.md)
+-  [README](../README.md)
+-  [AGENTS](../AGENTS.md)
+-  [Methods Overview](methods/v1_methods_overview.md)
+-  [Paper Outline](publication/paper_outline.md)
+-  [Implementation Roadmap](implementation_roadmap.md)

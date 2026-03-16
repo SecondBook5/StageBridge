@@ -19,8 +19,7 @@ For V1 real data: Will use reference mapping (scanvi, scVI, etc.)
 
 import torch
 import torch.nn as nn
-import numpy as np
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 
 class DualReferenceMapper(nn.Module):
@@ -409,4 +408,4 @@ if __name__ == "__main__":
     z_hlca_aligned, z_luca_out = aligner(z_hlca_in, z_luca_in)
     print(f"Aligned HLCA shape: {z_hlca_aligned.shape}")
 
-    print("\n✓ All tests passed!")
+    print("\n All tests passed!")

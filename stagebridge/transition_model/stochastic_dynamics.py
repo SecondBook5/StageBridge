@@ -283,7 +283,6 @@ class StageBridgeModel(nn.Module):
         Tensor
             Shape ``(1, D)`` (MLP mode) or ``(1, K, D)`` (cross-attn mode).
         """
-        from stagebridge.context_model.graph_of_sets import SetGraph as _SG  # noqa: F811
 
         if self.graph_transformer is None:
             # Fallback: just encode the query node's set directly

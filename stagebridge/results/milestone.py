@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 from stagebridge.results.manifest import (
     PROMOTED_RESULT_KEYS,

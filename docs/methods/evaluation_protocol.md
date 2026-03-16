@@ -936,16 +936,16 @@ if __name__ == "__main__":
 
 V1 evaluation is complete and publication-ready when:
 
-- ✅ All 5 evaluation axes show positive results
-- ✅ All baselines are outperformed significantly (p < 0.01)
-- ✅ Effect sizes > 0.5 for key comparisons
-- ✅ Uncertainty is calibrated (ECE < 0.1, coverage correct)
-- ✅ Evolutionary compatibility shows matched > shuffled (p < 0.01)
-- ✅ Results hold across all 3 spatial backends
-- ✅ All negative controls behave as expected
-- ✅ Statistical tests are properly corrected
-- ✅ All artifacts are saved and version-controlled
-- ✅ Evidence matrix is complete (every claim has evidence)
+-  All 5 evaluation axes show positive results
+-  All baselines are outperformed significantly (p < 0.01)
+-  Effect sizes > 0.5 for key comparisons
+-  Uncertainty is calibrated (ECE < 0.1, coverage correct)
+-  Evolutionary compatibility shows matched > shuffled (p < 0.01)
+-  Results hold across all 3 spatial backends
+-  All negative controls behave as expected
+-  Statistical tests are properly corrected
+-  All artifacts are saved and version-controlled
+-  Evidence matrix is complete (every claim has evidence)
 
 ---
 

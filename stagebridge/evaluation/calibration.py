@@ -1,7 +1,6 @@
 """Calibration diagnostics for edge-wise transition predictions."""
 from __future__ import annotations
 
-import torch
 from torch import Tensor
 
 

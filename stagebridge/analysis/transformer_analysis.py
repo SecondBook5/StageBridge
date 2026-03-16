@@ -15,9 +15,8 @@ influence state transitions, providing interpretable biological mechanism.
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 import torch
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from pathlib import Path
 
 
@@ -489,8 +488,8 @@ def generate_transformer_report(
         f.write("# Transformer Architecture Analysis\n\n")
         f.write("## Model Overview\n\n")
         f.write(f"- Layers analyzed: {len(attention_weights)}\n")
-        f.write(f"- Attention heads: Variable per layer\n")
-        f.write(f"- Token structure: 9-token niche encoding\n\n")
+        f.write("- Attention heads: Variable per layer\n")
+        f.write("- Token structure: 9-token niche encoding\n\n")
 
         f.write("## Attention Patterns\n\n")
         f.write("### Entropy Analysis\n\n")
@@ -508,7 +507,7 @@ def generate_transformer_report(
                 f.write(f"- `{p.name}`\n")
 
     print(f"Saved: {output_dir / 'transformer_summary.md'}")
-    print("\n✓ Transformer analysis report complete")
+    print("\n Transformer analysis report complete")
 
 
 # Example usage

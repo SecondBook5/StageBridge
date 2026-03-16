@@ -22,7 +22,7 @@
 
 ## 1. Data Pipeline (Step 0)
 
-### 1.1 Core Pipeline ✅ PARTIALLY COMPLETE
+### 1.1 Core Pipeline  PARTIALLY COMPLETE
 
 - [x] Extract tar archives
 - [x] Basic QC filtering
@@ -97,7 +97,7 @@ class StageEdgeBatchLoader(DataLoader):
 
 ## 2. Model Layers
 
-### 2.1 Layer A: Dual-Reference Latent 🔄 IN PROGRESS
+### 2.1 Layer A: Dual-Reference Latent  IN PROGRESS
 
 ```python
 # File: stagebridge/models/dual_reference.py
@@ -120,7 +120,7 @@ class DualReferenceLatentMapper(nn.Module):
 - [ ] Test on small cell subset
 - [ ] Validate latent space quality (UMAP visualization)
 
-### 2.2 Layer B: Local Niche Encoder ✅ COMPLETE
+### 2.2 Layer B: Local Niche Encoder  COMPLETE
 
 - [x] `LocalNicheTransformerEncoder` implemented
 - [x] 9-token tokenizer implemented
@@ -132,7 +132,7 @@ class DualReferenceLatentMapper(nn.Module):
       pass
   ```
 
-### 2.3 Layer C: Hierarchical Set Transformer ✅ COMPLETE
+### 2.3 Layer C: Hierarchical Set Transformer  COMPLETE
 
 - [x] ISAB, SAB, PMA blocks implemented
 - [ ] **Add set membership tracking**
@@ -143,7 +143,7 @@ class DualReferenceLatentMapper(nn.Module):
       pass
   ```
 
-### 2.4 Layer D: Flow Matching 🔄 IN PROGRESS (HIGH PRIORITY)
+### 2.4 Layer D: Flow Matching  IN PROGRESS (HIGH PRIORITY)
 
 ```python
 # File: stagebridge/models/flow_matching.py
@@ -182,7 +182,7 @@ class OTCFMTransitionModel(nn.Module):
 - [ ] Test on synthetic 2D data (ground truth available)
 - [ ] Validate on one LUAD edge (AIS → MIA)
 
-### 2.5 Layer F: Evolutionary Compatibility 🔄 IN PROGRESS
+### 2.5 Layer F: Evolutionary Compatibility  IN PROGRESS
 
 ```python
 # File: stagebridge/models/evolution_compat.py
@@ -675,10 +675,10 @@ V1 implementation is complete when:
 - [ ] Code is documented
 
 ### Scientific
-- [ ] Wasserstein distance: 0.45 ± 0.05 ✓
-- [ ] ECE < 0.1 ✓
-- [ ] Compatibility gap > 0.3 ✓
-- [ ] Backend correlation > 0.7 ✓
+- [ ] Wasserstein distance: 0.45 ± 0.05 
+- [ ] ECE < 0.1 
+- [ ] Compatibility gap > 0.3 
+- [ ] Backend correlation > 0.7 
 - [ ] All ablations show expected patterns
 
 ### Publication

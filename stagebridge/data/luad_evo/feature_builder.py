@@ -7,7 +7,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from stagebridge.data.common.schema import LatentCohort, SpatialCohort
+from stagebridge.data.common.schema import LatentCohort
 
 DEFAULT_EPITHELIAL_LABELS: tuple[str, ...] = (
     "AT2",

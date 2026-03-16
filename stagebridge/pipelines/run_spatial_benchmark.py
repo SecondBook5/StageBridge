@@ -21,7 +21,6 @@ import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 import anndata as ad
 from typing import Dict, List
 import time
@@ -30,7 +29,6 @@ from stagebridge.spatial_backends import (
     TangramBackend,
     DestVIBackend,
     TACCOBackend,
-    SpatialMappingResult,
 )
 
 
@@ -108,10 +106,10 @@ def run_backend_comparison(
                 "error": None,
             }
 
-            print(f"✓ {backend_name} completed in {runtime:.1f}s")
+            print(f" {backend_name} completed in {runtime:.1f}s")
 
         except Exception as e:
-            print(f"✗ {backend_name} failed: {e}")
+            print(f" {backend_name} failed: {e}")
             results[backend_name] = {
                 "result": None,
                 "runtime_seconds": time.time() - start_time,
@@ -130,7 +128,7 @@ def run_backend_comparison(
     with open(output_dir / "backend_comparison.json", "w") as f:
         json.dump(comparison, f, indent=2)
 
-    print(f"\n✓ Benchmark complete. Results saved to {output_dir}")
+    print(f"\n Benchmark complete. Results saved to {output_dir}")
 
     return comparison
 

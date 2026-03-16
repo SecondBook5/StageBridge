@@ -25,7 +25,6 @@ from typing import Any
 
 import anndata
 import h5py
-import numpy as np
 import pandas as pd
 import scanpy as sc
 from omegaconf import DictConfig
@@ -34,10 +33,6 @@ from stagebridge.logging_utils import get_logger
 from stagebridge.config import (
     get_data_root,
     ensure_dir,
-    raw_geo_dir,
-    interim_snrna_dir,
-    interim_spatial_dir,
-    processed_anndata_dir,
 )
 
 log = get_logger(__name__)

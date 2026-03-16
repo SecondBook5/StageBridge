@@ -24,11 +24,11 @@ This notebook runs the complete Stage Bridge V1 pipeline:
 6. Figure generation for publication
 
 **Key Features:**
-- ✅ Complete end-to-end automation
-- ✅ Quality control at every step
-- ✅ Biological interpretation tools
-- ✅ Publication-ready figures
-- ✅ Novel biological discoveries
+-  Complete end-to-end automation
+-  Quality control at every step
+-  Biological interpretation tools
+-  Publication-ready figures
+-  Novel biological discoveries
 
 **Mode Selection:**
 - `SYNTHETIC_MODE = True`: Fast testing with synthetic data (~10 min)
@@ -90,20 +90,20 @@ Generate or process data depending on mode.
         latent_dim=32,
         seed=42,
     )
-    print(f"✓ Synthetic data ready: {data_path}")
+    print(f" Synthetic data ready: {data_path}")
 else:
     print("Processing real data...")
     from stagebridge.pipelines.complete_data_prep import generate_canonical_artifacts
     
     # This requires raw data to be downloaded first
-    print("⚠️  Make sure raw data is downloaded:")
+    print("  Make sure raw data is downloaded:")
     print("  - GSE308103_RAW.tar (snRNA)")
     print("  - GSE307534_RAW.tar (Visium)")
     print("  - GSE307529_RAW.tar (WES)")
     
     # Uncomment when ready:
     # generate_canonical_artifacts(...)
-    print("✓ Real data processing complete")
+    print(" Real data processing complete")
 
 # Quality Control
 cells_df = pd.read_parquet(Path(DATA_DIR) / "cells.parquet")
@@ -131,7 +131,7 @@ plt.tight_layout()
 plt.savefig(Path(OUTPUT_DIR) / "qc_stage_distribution.png", dpi=150, bbox_inches='tight')
 plt.show()
 
-print("✓ QC passed")
+print(" QC passed")
 """),
 
     # Step 2: Spatial Backend Benchmark
@@ -197,9 +197,9 @@ for fold in range(N_FOLDS):
         with open(fold_output / "results.json") as f:
             fold_results = json.load(f)
         results.append(fold_results["test_metrics"])
-        print(f"✓ Fold {fold}: W-dist = {fold_results['test_metrics']['wasserstein']:.4f}")
+        print(f" Fold {fold}: W-dist = {fold_results['test_metrics']['wasserstein']:.4f}")
     else:
-        print(f"✗ Fold {fold} failed")
+        print(f" Fold {fold} failed")
         print(result.stderr[-500:])
 
 # Aggregate results
@@ -208,7 +208,7 @@ print(f"\\nOverall Results (mean ± std):")
 print(results_df.describe().loc[['mean', 'std']])
 
 results_df.to_csv(Path(OUTPUT_DIR) / "training_results.csv", index=False)
-print(f"\\n✓ Training complete")
+print(f"\\n Training complete")
 """),
 
     # Step 4: Ablations
@@ -231,14 +231,14 @@ Run all ablations to validate each component.
     result = subprocess.run(cmd, capture_output=True, text=True)
     
     if result.returncode == 0:
-        print("✓ Ablations complete")
+        print(" Ablations complete")
         
         # Load Table 3
         table3 = pd.read_csv(Path(OUTPUT_DIR) / "ablations" / "table3_main_results.csv")
         print("\\nTable 3: Main Results")
         print(table3.to_string(index=False))
     else:
-        print("✗ Ablations failed")
+        print(" Ablations failed")
 else:
     print("Skipping ablations (synthetic mode)")
 """),
@@ -320,7 +320,7 @@ if model_path.exists():
         output_dir=Path(OUTPUT_DIR) / "biology",
     )
     
-    print("✓ Biological interpretation complete")
+    print(" Biological interpretation complete")
     
     # Display key findings
     summary_path = Path(OUTPUT_DIR) / "biology" / "biological_summary.md"
@@ -328,7 +328,7 @@ if model_path.exists():
         with open(summary_path) as f:
             print("\\n" + f.read())
 else:
-    print(f"⚠️  Model not found: {model_path}")
+    print(f"  Model not found: {model_path}")
     print("Run training first")
 """),
 
@@ -369,15 +369,15 @@ if 'influence_df' in locals() and 'pathway_df' in locals():
         output_path=fig_dir / "figure8_flagship_biology.png",
     )
     
-    print("✓ Figures generated")
+    print(" Figures generated")
 else:
-    print("⚠️  Run biological interpretation first")
+    print("  Run biological interpretation first")
 """),
 
     # Summary
     nbf.v4.new_markdown_cell("""## Summary & Key Findings
 
-**Pipeline Complete! 🎉**
+**Pipeline Complete! **
 
 ### Key Biological Discoveries
 
@@ -418,8 +418,8 @@ for p in Path(OUTPUT_DIR).rglob("*"):
     if p.is_file() and p.suffix in [".png", ".pdf", ".csv", ".json", ".md"]:
         print(f"  {p.relative_to(OUTPUT_DIR)}")
 
-print("\\n✓ All analyses complete!")
-print("✓ Ready for biological discovery and manuscript writing!")
+print("\\n All analyses complete!")
+print(" Ready for biological discovery and manuscript writing!")
 """),
 ]
 
@@ -429,4 +429,4 @@ nb["cells"] = cells
 with open("StageBridge_V1_Master.ipynb", "w") as f:
     nbf.write(nb, f)
 
-print("✓ Master notebook created: StageBridge_V1_Master.ipynb")
+print(" Master notebook created: StageBridge_V1_Master.ipynb")

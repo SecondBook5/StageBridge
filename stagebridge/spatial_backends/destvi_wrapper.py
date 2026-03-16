@@ -216,6 +216,6 @@ def run_destvi(
     # Save result
     result.save(output_dir)
 
-    print(f"✓ DestVI mapping complete. Results saved to {output_dir}")
+    print(f" DestVI mapping complete. Results saved to {output_dir}")
 
     return result

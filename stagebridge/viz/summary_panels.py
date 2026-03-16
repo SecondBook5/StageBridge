@@ -243,7 +243,7 @@ def make_panel_b_benchmark(
 
     # Highlight best performance
     best_idx = np.argmin(y)  # Lower is better for distance metrics
-    ax.axhline(y[best_idx], color=PALETTE["accent"], linestyle='--', 
+    ax.axhline(y[best_idx], color=PALETTE["accent"], linestyle='--',
               linewidth=2, alpha=0.5, zorder=1, label=f'Best: {y[best_idx]:.4f}')
 
     # Annotate StageBridge bar value
@@ -253,7 +253,7 @@ def make_panel_b_benchmark(
         ax.text(x[i], y[i] + err_add + 0.005 * (y.max() - y.min()),
                 f"{y[i]:.4f}", ha="center", va="bottom", fontsize=10,
                 color=PALETTE["stagebridge"], fontweight="bold",
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                          edgecolor=PALETTE["stagebridge"], alpha=0.8))
 
     # Enhanced axis styling
@@ -261,9 +261,9 @@ def make_panel_b_benchmark(
     ax.set_xticklabels(df["label"].astype(str).tolist(), rotation=32, ha="right",
                        fontsize=11, fontweight='normal')
     ax.tick_params(labelsize=10)
-    ax.set_ylabel(primary_metric.replace("_", " ").title(), 
+    ax.set_ylabel(primary_metric.replace("_", " ").title(),
                  fontsize=13, fontweight='bold', color=PALETTE["text"])
-    ax.set_title(title, fontsize=16, fontweight='bold', 
+    ax.set_title(title, fontsize=16, fontweight='bold',
                 pad=15, color=PALETTE["text"])
     ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"], linestyle=':', linewidth=1)
     ax.spines[["top", "right"]].set_visible(False)
@@ -272,14 +272,14 @@ def make_panel_b_benchmark(
 
     # Enhanced legend with explanatory text
     legend_patches = [
-        mpatches.Patch(color=PALETTE["stagebridge"], label="StageBridge (ours)", 
+        mpatches.Patch(color=PALETTE["stagebridge"], label="StageBridge (ours)",
                       edgecolor='white', linewidth=1.5),
-        mpatches.Patch(color=PALETTE["baseline"], label="Baselines", 
+        mpatches.Patch(color=PALETTE["baseline"], label="Baselines",
                       edgecolor='white', linewidth=1.5),
-        mpatches.Patch(color=PALETTE["ablation"], label="Ablations", 
+        mpatches.Patch(color=PALETTE["ablation"], label="Ablations",
                       edgecolor='white', linewidth=1.5),
     ]
-    legend = ax.legend(handles=legend_patches, fontsize=11, framealpha=0.95, 
+    legend = ax.legend(handles=legend_patches, fontsize=11, framealpha=0.95,
                       loc='best', fancybox=True, shadow=True)
     legend.get_frame().set_facecolor('white')
     legend.get_frame().set_edgecolor('gray')
@@ -323,12 +323,12 @@ def make_panel_c_context_sensitivity(
     ax.set_facecolor(PALETTE["bg"])
 
     x = np.arange(len(transitions))
-    
+
     # Color bars by significance - gradient from low to high
     max_score = scores.max()
     min_score = scores.min()
     normalized_scores = (scores - min_score) / (max_score - min_score + 1e-8)
-    
+
     # Use colormap for gradient effect
     cmap = plt.cm.YlOrRd
     bar_colors = [cmap(0.3 + 0.7 * norm_score) for norm_score in normalized_scores]
@@ -356,20 +356,20 @@ def make_panel_c_context_sensitivity(
     # Annotate values above bars with significance stars
     for i, (xi, s, norm_s) in enumerate(zip(x, scores, normalized_scores)):
         star = "★ " if s == max_score else ""
-        ax.text(xi, s + scores.max() * 0.025, f"{star}{s:.4f}", 
+        ax.text(xi, s + scores.max() * 0.025, f"{star}{s:.4f}",
                ha="center", va="bottom",
                fontsize=10, color=PALETTE["text"], fontweight="bold",
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                         alpha=0.8, edgecolor='gray'))
 
     # Enhanced axis styling
     ax.set_xticks(x)
-    ax.set_xticklabels(transitions, rotation=25, ha="right", 
+    ax.set_xticklabels(transitions, rotation=25, ha="right",
                       fontsize=11, fontweight='normal')
     ax.tick_params(labelsize=10)
-    ax.set_ylabel("Δ Sinkhorn (real − shuffled context)", 
+    ax.set_ylabel("Δ Sinkhorn (real − shuffled context)",
                  fontsize=13, fontweight='bold', color=PALETTE["text"])
-    ax.set_title(title, fontsize=16, fontweight='bold', 
+    ax.set_title(title, fontsize=16, fontweight='bold',
                 pad=15, color=PALETTE["text"])
     ax.grid(axis="y", alpha=0.3, color=PALETTE["grid"], linestyle=':', linewidth=1)
     ax.spines[["top", "right"]].set_visible(False)
@@ -379,20 +379,20 @@ def make_panel_c_context_sensitivity(
     # Biological annotation on peak bar
     peak_idx = np.argmax(scores)
     peak_transition = transitions[peak_idx]
-    
+
     # Add annotation about biological significance
     annotation_text = (
         f"Peak sensitivity at {peak_transition}\n"
         f"indicates strong context dependence"
     )
-    ax.text(0.98, 0.95, annotation_text, 
+    ax.text(0.98, 0.95, annotation_text,
            transform=ax.transAxes,
            fontsize=10, verticalalignment='top', ha='right',
-           bbox=dict(boxstyle='round', facecolor=PALETTE["accent"], 
+           bbox=dict(boxstyle='round', facecolor=PALETTE["accent"],
                     alpha=0.2, edgecolor=PALETTE["accent"]))
-    
+
     # Add colorbar to show sensitivity scale
-    sm = plt.cm.ScalarMappable(cmap=cmap, 
+    sm = plt.cm.ScalarMappable(cmap=cmap,
                               norm=plt.Normalize(vmin=min_score, vmax=max_score))
     sm.set_array([])
     cbar = plt.colorbar(sm, ax=ax, pad=0.02, aspect=25)

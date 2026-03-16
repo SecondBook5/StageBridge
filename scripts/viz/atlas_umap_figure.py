@@ -25,7 +25,7 @@ import pandas as pd
 import umap
 from matplotlib.colors import LinearSegmentedColormap
 
-# ── Feature indices ──────────────────────────────────────────────────────────
+#  Feature indices 
 # HLCA (13-dim)
 HLCA_NORMAL_LIKENESS = 5       # cosine sim to Normal-stage baseline distribution
 HLCA_DEVIATION = 6             # 1 - normal_likeness
@@ -46,7 +46,7 @@ LUCA_STROMAL = 12             # mean sim to stromal states
 LUCA_EPITHELIAL = 13          # mean sim to epithelial states
 LUCA_STATE_COUNT = 14         # constant=51, drop
 
-# ── Stage configuration ─────────────────────────────────────────────────────
+#  Stage configuration 
 STAGE_ORDER = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
 STAGE_COLORS = {
     "Normal": "#2ca02c",   # green
@@ -215,7 +215,7 @@ def make_figure(hlca, luca, stages, lesion_ids, n_sample=20000, output_path=None
     print(f"Computing LuCA-only UMAP ({luca_s_trim.shape[1]}d → 2d)...")
     umap_luca = compute_umap(luca_s_trim)
 
-    # ── Build figure ─────────────────────────────────────────────────────
+    #  Build figure 
     fig = plt.figure(figsize=(20, 16), dpi=150, facecolor="white")
     gs = gridspec.GridSpec(3, 4, hspace=0.30, wspace=0.30,
                            left=0.05, right=0.95, top=0.94, bottom=0.05)

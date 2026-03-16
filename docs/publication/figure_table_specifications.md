@@ -64,30 +64,30 @@ Introduce StageBridge V1 architecture and workflow at a high level.
 ```
     Input Data
         ↓
-┌─────────────────────────────────┐
-│  Layer A: Dual-Reference Latent │
-│  (HLCA + LuCA, Euclidean)       │
-└─────────────────────────────────┘
+
+  Layer A: Dual-Reference Latent 
+  (HLCA + LuCA, Euclidean)       
+
         ↓
-┌─────────────────────────────────┐
-│  Layer B: Local Niche Encoder   │
-│  (9-token EA-MIST transformer)  │
-└─────────────────────────────────┘
+
+  Layer B: Local Niche Encoder   
+  (9-token EA-MIST transformer)  
+
         ↓
-┌─────────────────────────────────┐
-│  Layer C: Hierarchical Set      │
-│  (ISAB/SAB/PMA pooling)         │
-└─────────────────────────────────┘
+
+  Layer C: Hierarchical Set      
+  (ISAB/SAB/PMA pooling)         
+
         ↓
-┌─────────────────────────────────┐
-│  Layer D: Flow Matching         │
-│  (OT-CFM stochastic dynamics)   │
-└─────────────────────────────────┘
+
+  Layer D: Flow Matching         
+  (OT-CFM stochastic dynamics)   
+
         ↓
-┌─────────────────────────────────┐
-│  Layer F: Evo. Compatibility    │
-│  (WES regularizer)              │
-└─────────────────────────────────┘
+
+  Layer F: Evo. Compatibility    
+  (WES regularizer)              
+
         ↓
     Outputs: Transitions + Uncertainty
 ```
@@ -152,8 +152,8 @@ Cells → Layer A (Dual-Ref) → Layer B (Niche) → Layer C (Set) → Layer D (
 | Output | Stage label | State distribution + uncertainty |
 
 **Panel D: Module Reuse**
-- LocalNicheTransformerEncoder → Layer B ✓
-- ISAB/SAB/PMA → Layer C ✓
+- LocalNicheTransformerEncoder → Layer B 
+- ISAB/SAB/PMA → Layer C 
 - LesionMultitaskHeads → Auxiliary only (optional)
 
 ### 3.3 Visual Style
@@ -532,20 +532,20 @@ Define which modules are active in each model variant.
 ### 12.2 Columns
 | Variant | Layer A (Dual-Ref) | Layer B (Niche) | Layer C (Set) | Layer D (Flow) | Layer F (Evo) | Purpose |
 |---------|-------------------|-----------------|---------------|----------------|---------------|---------|
-| **Full Model** | ✓ HLCA+LuCA | ✓ 9-token | ✓ Hierarchical | ✓ OT-CFM | ✓ Regularizer | V1 flagship |
-| Deterministic | ✓ | ✓ | ✓ | ✗ Regression | ✓ | Ablation 1 |
-| No Niche | ✓ | ✗ | ✓ | ✓ | ✓ | Ablation 2a |
-| Pooled Niche | ✓ | ⊗ Mean-pool | ✓ | ✓ | ✓ | Ablation 2b |
-| No Genomics | ✓ | ✓ | ✓ | ✓ | ✗ | Ablation 3a |
-| Genomics as Feature | ✓ | ✓ | ✓ | ✓ | ⊗ Concat | Ablation 3b |
-| Flat Pooling | ✓ | ✓ | ⊗ Mean-pool | ✓ | ✓ | Ablation 4 |
-| HLCA Only | ⊗ HLCA only | ✓ | ✓ | ✓ | ✓ | Ablation 5a |
-| LuCA Only | ⊗ LuCA only | ✓ | ✓ | ✓ | ✓ | Ablation 5b |
-| Alt. Backend | ✓ | ✓ | ✓ | ✓ | ✓ | Ablation 6 |
+| **Full Model** |  HLCA+LuCA |  9-token |  Hierarchical |  OT-CFM |  Regularizer | V1 flagship |
+| Deterministic |  |  |  |  Regression |  | Ablation 1 |
+| No Niche |  |  |  |  |  | Ablation 2a |
+| Pooled Niche |  | ⊗ Mean-pool |  |  |  | Ablation 2b |
+| No Genomics |  |  |  |  |  | Ablation 3a |
+| Genomics as Feature |  |  |  |  | ⊗ Concat | Ablation 3b |
+| Flat Pooling |  |  | ⊗ Mean-pool |  |  | Ablation 4 |
+| HLCA Only | ⊗ HLCA only |  |  |  |  | Ablation 5a |
+| LuCA Only | ⊗ LuCA only |  |  |  |  | Ablation 5b |
+| Alt. Backend |  |  |  |  |  | Ablation 6 |
 
 ### 12.3 Symbol Key
-- ✓ : Module active with default configuration
-- ✗ : Module disabled
+-  : Module active with default configuration
+-  : Module disabled
 - ⊗ : Module active with modification specified
 
 ---
@@ -595,9 +595,9 @@ Detailed uncertainty quantification metrics.
 ### 14.3 Negative Controls
 | Control | ECE | NLL | Coverage | Expected Behavior |
 |---------|-----|-----|----------|-------------------|
-| Wrong-Stage Edges | 0.12 ± 0.02 | 2.34 ± 0.28 | 0.65 ± 0.08 | Higher uncertainty ✓ |
-| Shuffled Neighborhoods | 0.10 ± 0.02 | 1.67 ± 0.20 | 0.79 ± 0.05 | Higher uncertainty ✓ |
-| Held-Out Donors | 0.09 ± 0.01 | 1.35 ± 0.17 | 0.87 ± 0.04 | Slightly higher ✓ |
+| Wrong-Stage Edges | 0.12 ± 0.02 | 2.34 ± 0.28 | 0.65 ± 0.08 | Higher uncertainty  |
+| Shuffled Neighborhoods | 0.10 ± 0.02 | 1.67 ± 0.20 | 0.79 ± 0.05 | Higher uncertainty  |
+| Held-Out Donors | 0.09 ± 0.01 | 1.35 ± 0.17 | 0.87 ± 0.04 | Slightly higher  |
 
 ### 14.4 Footer Notes
 - ECE: Expected Calibration Error (10 bins)
@@ -624,9 +624,9 @@ Compare spatial mapping backends quantitatively.
 ### 15.3 Ablation Consistency Check
 | Ablation | Effect Size (Tangram) | Effect Size (DestVI) | Effect Size (TACCO) | Consistent? |
 |----------|----------------------|----------------------|---------------------|-------------|
-| No Niche | d = 1.2 | d = 1.1 | d = 1.3 | ✓ Yes |
-| No Genomics | d = 0.3 | d = 0.4 | d = 0.3 | ✓ Yes |
-| Pooled Niche | d = 0.6 | d = 0.7 | d = 0.6 | ✓ Yes |
+| No Niche | d = 1.2 | d = 1.1 | d = 1.3 |  Yes |
+| No Genomics | d = 0.3 | d = 0.4 | d = 0.3 |  Yes |
+| Pooled Niche | d = 0.6 | d = 0.7 | d = 0.6 |  Yes |
 
 ### 15.4 Footer Notes
 - Moran's I: Spatial autocorrelation (higher = more coherent)

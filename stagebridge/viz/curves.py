@@ -11,10 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
-from matplotlib.patches import Rectangle
 
 
 def build_metrics_dataframe(metrics_payload: dict) -> pd.DataFrame:
@@ -84,25 +82,25 @@ def plot_benchmark_bars(
     fig, ax = plt.subplots(figsize=(11, 6.5), dpi=150)
     ax.set_facecolor('#FAFAFA')
     fig.patch.set_facecolor('white')
-    
+
     # Determine if lower is better (typical for distance metrics)
     lower_is_better = any(word in metric_col.lower() for word in ['distance', 'loss', 'mmd', 'sinkhorn'])
     best_idx = np.argmin(y) if lower_is_better else np.argmax(y)
-    
+
     # Color bars
     colors = [_get_model_color(lbl) for lbl in df["label"]]
     if highlight_best:
         colors[best_idx] = "#D97706"  # Amber for best model
-    
+
     # Draw bars with gradient effect
-    bars = ax.bar(x, y, yerr=yerr, color=colors, alpha=0.85, 
+    bars = ax.bar(x, y, yerr=yerr, color=colors, alpha=0.85,
                   capsize=5, error_kw={'linewidth': 2, 'elinewidth': 2, 'alpha': 0.7},
                   edgecolor='white', linewidth=2)
-    
+
     # Add a subtle gradient to bars
     for bar in bars:
         bar.set_zorder(3)
-    
+
     # Annotate values on bars
     if show_values:
         for i, (bar, val) in enumerate(zip(bars, y)):
@@ -111,30 +109,30 @@ def plot_benchmark_bars(
             ax.text(bar.get_x() + bar.get_width() / 2., height + err + 0.02 * (y.max() - y.min()),
                    f'{val:.3f}',
                    ha='center', va='bottom', fontsize=9, fontweight='bold')
-    
+
     # Add reference line for best performance
     if highlight_best:
-        ax.axhline(y[best_idx], color='#D97706', linestyle='--', linewidth=1.5, 
+        ax.axhline(y[best_idx], color='#D97706', linestyle='--', linewidth=1.5,
                   alpha=0.5, zorder=1, label=f'Best: {df["label"].iloc[best_idx]}')
-    
+
     # Enhanced styling
     ax.set_xticks(x)
-    ax.set_xticklabels(df["label"].astype(str).tolist(), rotation=35, ha="right", 
+    ax.set_xticklabels(df["label"].astype(str).tolist(), rotation=35, ha="right",
                       fontsize=11, fontweight='normal')
     ax.set_ylabel(metric_col.replace('_', ' ').title(), fontsize=13, fontweight='bold')
     ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
     ax.grid(axis="y", alpha=0.3, linestyle=':', linewidth=1, zorder=0)
-    
+
     # Remove top and right spines
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_linewidth(1.5)
     ax.spines['bottom'].set_linewidth(1.5)
-    
+
     # Add legend if highlighting best
     if highlight_best:
         ax.legend(loc='best', framealpha=0.95, fontsize=10)
-    
+
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
@@ -166,10 +164,10 @@ def plot_training_curves(
     fig, ax = plt.subplots(figsize=(10, 6.5), dpi=150)
     ax.set_facecolor('#FAFAFA')
     fig.patch.set_facecolor('white')
-    
+
     # Color palette for multiple runs
     colors = plt.cm.Set2(np.linspace(0, 1, max(len(history_payloads), 1)))
-    
+
     total_points = 0
     for idx, payload in enumerate(history_payloads):
         name = str(payload.get("name", "run"))
@@ -187,21 +185,21 @@ def plot_training_curves(
         train_loss = train_loss[mask]
         val_loss = val_loss[mask]
         total_points += int(epochs.size)
-        
+
         color = colors[idx % len(colors)]
         marker = "o" if epochs.size <= 5 else None
         markersize = 6 if epochs.size <= 5 else 4
-        
+
         # Plot training loss
-        train_line, = ax.plot(epochs, train_loss, label=f"{name} (train)", 
+        train_line, = ax.plot(epochs, train_loss, label=f"{name} (train)",
                              alpha=0.75, marker=marker, markersize=markersize,
                              color=color, linewidth=2.5, linestyle='-')
-        
+
         # Plot validation loss
-        val_line, = ax.plot(epochs, val_loss, label=f"{name} (val)", 
+        val_line, = ax.plot(epochs, val_loss, label=f"{name} (val)",
                            alpha=0.75, marker=marker, markersize=markersize,
                            color=color, linewidth=2.5, linestyle='--')
-        
+
         # Add smoothed curves if requested and data is noisy
         if show_smoothed and epochs.size > 10:
             from scipy.ndimage import uniform_filter1d
@@ -210,7 +208,7 @@ def plot_training_curves(
             val_smooth = uniform_filter1d(val_loss, size=window, mode='nearest')
             ax.plot(epochs, train_smooth, color=color, linewidth=3, alpha=0.3, linestyle='-')
             ax.plot(epochs, val_smooth, color=color, linewidth=3, alpha=0.3, linestyle='--')
-    
+
     # Find and mark best validation loss
     all_val_losses = []
     all_epochs = []
@@ -220,11 +218,11 @@ def plot_training_curves(
             if np.isfinite(row.get("val_loss", np.nan)):
                 all_val_losses.append(row.get("val_loss"))
                 all_epochs.append(row.get("epoch"))
-    
+
     if all_val_losses:
         best_idx = np.argmin(all_val_losses)
-        ax.scatter([all_epochs[best_idx]], [all_val_losses[best_idx]], 
-                  s=200, marker='*', color='gold', edgecolors='black', 
+        ax.scatter([all_epochs[best_idx]], [all_val_losses[best_idx]],
+                  s=200, marker='*', color='gold', edgecolors='black',
                   linewidths=2, zorder=5, label=f'Best val ({all_val_losses[best_idx]:.4f})')
 
     # Enhanced styling
@@ -235,26 +233,26 @@ def plot_training_curves(
         title += " (early stopping / smoke test)"
     ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
     ax.grid(alpha=0.3, linestyle=':', linewidth=1)
-    
+
     # Logarithmic scale if loss spans multiple orders of magnitude
     if all_val_losses:
         val_range = max(all_val_losses) / (min(all_val_losses) + 1e-8)
         if val_range > 100:
             ax.set_yscale('log')
             ax.set_ylabel("Loss (log scale)", fontsize=13, fontweight='bold')
-    
+
     # Legend
-    legend = ax.legend(loc="best", fontsize=10, framealpha=0.95, 
+    legend = ax.legend(loc="best", fontsize=10, framealpha=0.95,
                       fancybox=True, shadow=True)
     legend.get_frame().set_facecolor('white')
     legend.get_frame().set_edgecolor('gray')
     legend.get_frame().set_linewidth(1.5)
-    
+
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_linewidth(1.5)
     ax.spines['bottom'].set_linewidth(1.5)
-    
+
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
@@ -287,72 +285,72 @@ def plot_metric_violin(
     """
     if df.empty or metric_col not in df.columns or group_col not in df.columns:
         raise ValueError(f"Missing required columns: {metric_col} or {group_col}")
-    
+
     # Try to import seaborn for violin plots
     try:
         import seaborn as sns
-        
+
         # Set up publication-quality figure
         fig, ax = plt.subplots(figsize=(11, 6.5), dpi=150)
         ax.set_facecolor('#FAFAFA')
         fig.patch.set_facecolor('white')
-        
+
         # Create violin plot
-        sns.violinplot(data=df, x=group_col, y=metric_col, ax=ax, 
+        sns.violinplot(data=df, x=group_col, y=metric_col, ax=ax,
                       palette='Set2', inner='box', linewidth=1.5)
-        
+
         # Overlay individual points
-        sns.swarmplot(data=df, x=group_col, y=metric_col, ax=ax, 
+        sns.swarmplot(data=df, x=group_col, y=metric_col, ax=ax,
                      color='black', alpha=0.5, size=4)
-        
+
         # Enhanced styling
         ax.set_xlabel(group_col.replace('_', ' ').title(), fontsize=13, fontweight='bold')
         ax.set_ylabel(metric_col.replace('_', ' ').title(), fontsize=13, fontweight='bold')
         ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
         ax.grid(axis="y", alpha=0.3, linestyle=':', linewidth=1)
-        
+
         plt.xticks(rotation=35, ha='right', fontsize=11)
-        
+
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_linewidth(1.5)
         ax.spines['bottom'].set_linewidth(1.5)
-        
+
         fig.tight_layout()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         if output_path.suffix.lower() != ".pdf":
             fig.savefig(output_path.with_suffix(".pdf"), bbox_inches='tight')
         plt.close(fig)
-        
+
     except ImportError:
         # Fallback to box plot if seaborn not available
         fig, ax = plt.subplots(figsize=(11, 6.5), dpi=150)
         ax.set_facecolor('#FAFAFA')
         fig.patch.set_facecolor('white')
-        
+
         # Create box plot
         groups = df[group_col].unique()
         data_by_group = [df[df[group_col] == g][metric_col].values for g in groups]
-        
+
         bp = ax.boxplot(data_by_group, labels=groups, patch_artist=True,
                        showmeans=True, meanline=True,
                        boxprops=dict(facecolor='lightblue', alpha=0.7),
                        medianprops=dict(color='red', linewidth=2),
                        meanprops=dict(color='green', linewidth=2))
-        
+
         ax.set_xlabel(group_col.replace('_', ' ').title(), fontsize=13, fontweight='bold')
         ax.set_ylabel(metric_col.replace('_', ' ').title(), fontsize=13, fontweight='bold')
         ax.set_title(title + " (Box Plot)", fontsize=15, fontweight='bold', pad=15)
         ax.grid(axis="y", alpha=0.3, linestyle=':', linewidth=1)
-        
+
         plt.xticks(rotation=35, ha='right', fontsize=11)
-        
+
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_linewidth(1.5)
         ax.spines['bottom'].set_linewidth(1.5)
-        
+
         fig.tight_layout()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')

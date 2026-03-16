@@ -5,7 +5,6 @@ import argparse
 from pathlib import Path
 
 import anndata
-import pandas as pd
 
 from .eamist_common import (
     choose_best_embedding,

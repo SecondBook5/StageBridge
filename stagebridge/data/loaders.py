@@ -464,7 +464,7 @@ if __name__ == "__main__":
 
     # Test one batch
     batch = next(iter(loader))
-    print(f"\nSample batch:")
+    print("\nSample batch:")
     print(f"  z_source shape: {batch.z_source.shape}")
     print(f"  z_target shape: {batch.z_target.shape}")
     print(f"  niche_tokens shape: {batch.niche_tokens.shape}")
@@ -472,4 +472,4 @@ if __name__ == "__main__":
     if batch.wes_features is not None:
         print(f"  wes_features shape: {batch.wes_features.shape}")
 
-    print("\n✓ Data loading works!")
+    print("\n Data loading works!")

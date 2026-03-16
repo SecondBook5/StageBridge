@@ -1,7 +1,6 @@
 """TACCO provider wrapper for raw snRNA -> spatial mapping."""
 from __future__ import annotations
 
-from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +14,6 @@ from stagebridge.spatial_mapping.base import SpatialMappingResult
 from stagebridge.spatial_mapping.qc import summarize_mapping_qc
 from stagebridge.spatial_mapping.tangram_mapper import (
     _aligned_label_series_from_sources,
-    _coerce_csr_float32,
     _read_h5ad_csr_rows,
     _mapping_cache_root,
     _normalize_obs_fields,

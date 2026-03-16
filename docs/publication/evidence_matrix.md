@@ -37,7 +37,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 - Effect size moderate (d=0.5-0.6)
 - Latent space shows interpretable structure with dual reference
 
-**Strength:** ★★★★☆ (Strong, consistent evidence)
+**Strength:**  (Strong, consistent evidence)
 
 ---
 
@@ -61,7 +61,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 - Shuffle control shows 25% metric degradation
 - Attention patterns biologically interpretable
 
-**Strength:** ★★★★★ (Very strong, multiple lines of evidence)
+**Strength:**  (Very strong, multiple lines of evidence)
 
 ---
 
@@ -85,7 +85,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 - Uncertainty higher on negative controls (appropriate)
 - Stochastic improves calibration over deterministic
 
-**Strength:** ★★★★★ (Very strong, meets quantitative targets)
+**Strength:**  (Very strong, meets quantitative targets)
 
 ---
 
@@ -109,7 +109,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 - Large effect size (d=0.9) for constraint vs feature
 - Shuffle control abolishes separation (validates mechanism)
 
-**Strength:** ★★★★★ (Very strong, large effect, negative controls)
+**Strength:**  (Very strong, large effect, negative controls)
 
 ---
 
@@ -129,7 +129,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 - Effect moderate but consistent
 - Computational cost is reasonable (inducing points)
 
-**Strength:** ★★★☆☆ (Moderate, consistent but smaller effect)
+**Strength:**  (Moderate, consistent but smaller effect)
 
 ---
 
@@ -153,7 +153,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 - Ablation effect sizes consistent across backends
 - Degraded backend control shows sensitivity to quality
 
-**Strength:** ★★★★★ (Very strong, critical robustness claim)
+**Strength:**  (Very strong, critical robustness claim)
 
 ---
 
@@ -176,7 +176,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 - Consistent with literature on CAF-mediated EMT
 - Visualized on multiple tissue sections
 
-**Strength:** ★★★★☆ (Strong, biologically interpretable)
+**Strength:**  (Strong, biologically interpretable)
 
 ---
 
@@ -190,7 +190,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 | Figure | Figure 7 | Ablation heatmap | Visual comparison |
 | Statistics | Methods section | Paired t-tests, Holm corrected | All significant |
 
-**Strength:** ★★★★★
+**Strength:** 
 
 ---
 
@@ -201,7 +201,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 | Quantitative | Table 4, negative controls | All higher uncertainty | As expected |
 | Figure | Supp Fig 7 | Control results | All behave correctly |
 
-**Strength:** ★★★★☆
+**Strength:** 
 
 ---
 
@@ -213,7 +213,7 @@ All p-values, effect sizes, and confidence intervals must be documented.
 | Code | GitHub repo | Configurable stage graphs | YAML-based |
 | Discussion | Future work | Applicability to other cancers | Reasoning provided |
 
-**Strength:** ★★★☆☆ (Conceptual, not empirically tested in V1)
+**Strength:**  (Conceptual, not empirically tested in V1)
 
 ---
 
@@ -221,32 +221,32 @@ All p-values, effect sizes, and confidence intervals must be documented.
 
 ### Five-Star Rating System
 
-**★★★★★ Excellent:**
+** Excellent:**
 - Multiple independent lines of evidence
 - Large effect sizes (d > 0.8)
 - Highly significant (p < 0.001)
 - Negative controls behave as expected
 - Replicated across conditions
 
-**★★★★☆ Strong:**
+** Strong:**
 - Clear quantitative support
 - Moderate to large effect sizes (d > 0.5)
 - Significant (p < 0.01)
 - Consistent across donors/folds
 
-**★★★☆☆ Moderate:**
+** Moderate:**
 - Quantitative support present
 - Moderate effect sizes (d > 0.3)
 - Significant (p < 0.05)
 - May have some variability
 
-**★★☆☆☆ Weak:**
+** Weak:**
 - Limited quantitative support
 - Small effect sizes (d < 0.3)
 - Marginal significance (p < 0.1)
 - Inconsistent across conditions
 
-**★☆☆☆☆ Very Weak:**
+** Very Weak:**
 - Mostly qualitative
 - No statistical testing
 - Anecdotal observations
@@ -383,7 +383,7 @@ Before submission, verify:
 | **Documentation** | Methods section | Step-by-step instructions |
 | **Artifacts** | Zenodo | All checkpoints and outputs |
 
-**Strength:** ★★★★★ (Comprehensive reproducibility)
+**Strength:**  (Comprehensive reproducibility)
 
 ---
 
@@ -393,10 +393,10 @@ Before submission, verify:
 
 | Claim Type | Count | Avg. Strength | Status |
 |------------|-------|---------------|--------|
-| **Primary (1-7)** | 7 | ★★★★☆ | ✅ All supported |
-| **Secondary (S1-S3)** | 3 | ★★★★☆ | ✅ All supported |
-| **Reproducibility** | 1 | ★★★★★ | ✅ Comprehensive |
-| **Total** | 11 | ★★★★☆ | ✅ Ready |
+| **Primary (1-7)** | 7 |  |  All supported |
+| **Secondary (S1-S3)** | 3 |  |  All supported |
+| **Reproducibility** | 1 |  |  Comprehensive |
+| **Total** | 11 |  |  Ready |
 
 ### Coverage by Evidence Type
 
@@ -411,9 +411,9 @@ Before submission, verify:
 
 ### Readiness Assessment
 
-✅ **Evidence matrix is publication-ready**
+ **Evidence matrix is publication-ready**
 
-- All primary claims have strong evidence (≥★★★★☆)
+- All primary claims have strong evidence (≥)
 - Multiple lines of evidence for key claims
 - Negative controls planned for critical tests
 - No unsupported claims identified

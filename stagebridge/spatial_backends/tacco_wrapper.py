@@ -219,6 +219,6 @@ def run_tacco(
     # Save result
     result.save(output_dir)
 
-    print(f"✓ TACCO mapping complete. Results saved to {output_dir}")
+    print(f" TACCO mapping complete. Results saved to {output_dir}")
 
     return result

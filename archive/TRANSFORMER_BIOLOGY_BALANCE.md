@@ -1,6 +1,6 @@
 # StageBridge V1: Transformer Architecture + Biological Discovery
 
-**Status**: ✅ COMPLETE - Balanced framework ready for publication
+**Status**:  COMPLETE - Balanced framework ready for publication
 
 ---
 
@@ -279,10 +279,10 @@ The master notebook now balances both aspects:
 
 | Architecture | W-distance | MSE | MAE | Interpretable? |
 |--------------|------------|-----|-----|----------------|
-| **Full Transformer** | **0.74 ± 0.05** | **0.37 ± 0.03** | **0.29 ± 0.02** | ✅ Yes |
-| Pooled Niche (mean) | 0.89 ± 0.07 | 0.45 ± 0.04 | 0.36 ± 0.03 | ❌ No |
-| No Hierarchy | 0.85 ± 0.06 | 0.42 ± 0.03 | 0.34 ± 0.02 | ❌ No |
-| MLP Encoder | 0.91 ± 0.08 | 0.47 ± 0.05 | 0.38 ± 0.04 | ❌ No |
+| **Full Transformer** | **0.74 ± 0.05** | **0.37 ± 0.03** | **0.29 ± 0.02** |  Yes |
+| Pooled Niche (mean) | 0.89 ± 0.07 | 0.45 ± 0.04 | 0.36 ± 0.03 |  No |
+| No Hierarchy | 0.85 ± 0.06 | 0.42 ± 0.03 | 0.34 ± 0.02 |  No |
+| MLP Encoder | 0.91 ± 0.08 | 0.47 ± 0.05 | 0.38 ± 0.04 |  No |
 
 **Conclusion**: Transformer provides:
 - ~20% better performance (lower W-distance)
@@ -294,11 +294,11 @@ The master notebook now balances both aspects:
 
 | Feature | Transformer | MLP |
 |---------|-------------|-----|
-| Attention weights | ✅ Extractable | ❌ Not available |
-| Biological influence | ✅ Via attention | ❌ Post-hoc only |
-| Token importance | ✅ Ranked | ❌ Cannot rank |
-| Multi-head analysis | ✅ Specialized heads | ❌ N/A |
-| Mechanism insight | ✅ Direct | ❌ Indirect |
+| Attention weights |  Extractable |  Not available |
+| Biological influence |  Via attention |  Post-hoc only |
+| Token importance |  Ranked |  Cannot rank |
+| Multi-head analysis |  Specialized heads |  N/A |
+| Mechanism insight |  Direct |  Indirect |
 
 **Conclusion**: Transformer is essential for both performance AND interpretability.
 
@@ -391,27 +391,27 @@ The master notebook now balances both aspects:
 ## Testing Status
 
 ### Transformer Analysis
-- ✅ AttentionExtractor: Tested, captures attention correctly
-- ✅ Entropy analysis: Implemented and validated
-- ✅ Multi-head analysis: Detects specialization
-- ✅ Token importance: Rankings make biological sense
-- ✅ Visualization: All plots generate correctly
+-  AttentionExtractor: Tested, captures attention correctly
+-  Entropy analysis: Implemented and validated
+-  Multi-head analysis: Detects specialization
+-  Token importance: Rankings make biological sense
+-  Visualization: All plots generate correctly
 
 ### Biological Interpretation
-- ✅ InfluenceTensorExtractor: Uses attention weights
-- ✅ Pathway signatures: EMT/CAF/immune computed
-- ✅ Niche influence: Multi-panel visualization working
-- ✅ Biological summary: Generates comprehensive reports
+-  InfluenceTensorExtractor: Uses attention weights
+-  Pathway signatures: EMT/CAF/immune computed
+-  Niche influence: Multi-panel visualization working
+-  Biological summary: Generates comprehensive reports
 
 ### Integration
-- ✅ Correlation analysis: Validates attention = influence
-- ✅ Integrated visualizations: Three-panel figure working
-- ✅ Workflow: End-to-end pipeline tested on synthetic
+-  Correlation analysis: Validates attention = influence
+-  Integrated visualizations: Three-panel figure working
+-  Workflow: End-to-end pipeline tested on synthetic
 
 ### Real Data
-- 🔄 Requires HLCA/LuCA integration (next step)
-- 🔄 Full ablation suite on real data (pending)
-- 🔄 Publication figures with real results (pending)
+-  Requires HLCA/LuCA integration (next step)
+-  Full ablation suite on real data (pending)
+-  Publication figures with real results (pending)
 
 ---
 
@@ -550,11 +550,11 @@ print(f"High-influence cells: {len(high_influence)} ({len(high_influence)/len(in
 ## Next Steps
 
 ### Immediate (This Week)
-1. ✅ Complete transformer analysis tools
-2. ✅ Complete biological interpretation tools
-3. ✅ Balance notebook: architecture + biology
-4. 🔄 Test notebook end-to-end on synthetic data
-5. 🔄 Download and integrate HLCA/LuCA references
+1.  Complete transformer analysis tools
+2.  Complete biological interpretation tools
+3.  Balance notebook: architecture + biology
+4.  Test notebook end-to-end on synthetic data
+5.  Download and integrate HLCA/LuCA references
 
 ### Short-Term (Next 2 Weeks)
 1. Run full pipeline on real LUAD data
@@ -594,6 +594,6 @@ This framework is now **bulletproof** for both technical evaluation and biologic
 
 ---
 
-**Status**: ✅ COMPLETE - Ready for real data and publication
+**Status**:  COMPLETE - Ready for real data and publication
 
 **Next milestone**: Real data integration and manuscript writing

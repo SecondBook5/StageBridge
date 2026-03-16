@@ -1,7 +1,7 @@
 """Hybrid provider benchmarking for Tangram, TACCO, and DestVI."""
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any, Mapping
 
 import numpy as np

@@ -9,10 +9,10 @@
 ## 1. Overview
 
 This document tracks implementation status for StageBridge V1. Each component is categorized as:
-- ✅ **Complete** - Fully implemented and tested
-- 🔄 **In Progress** - Partially implemented, actively being worked on
-- 📝 **Planned** - Designed but not yet implemented
-- ⏸️ **Deferred** - Pushed to V2/V3
+-  **Complete** - Fully implemented and tested
+-  **In Progress** - Partially implemented, actively being worked on
+-  **Planned** - Designed but not yet implemented
+- ⏸ **Deferred** - Pushed to V2/V3
 
 ---
 
@@ -22,15 +22,15 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **Raw data extraction** | ✅ Complete | snRNA, Visium, WES tarballs | - |
-| **QC filtering** | 🔄 In Progress | Memory-efficient backed mode implemented | **HIGH** |
-| **Normalization** | ✅ Complete | log1p, scaling | - |
-| **Merge operations** | 🔄 In Progress | snRNA done, spatial backed-mode | **HIGH** |
-| **Spatial backend - Tangram** | 📝 Planned | Integration script needed | **HIGH** |
-| **Spatial backend - DestVI** | 📝 Planned | Integration script needed | **HIGH** |
-| **Spatial backend - TACCO** | 📝 Planned | Integration script needed | **HIGH** |
-| **Canonical artifacts generation** | 📝 Planned | cells.parquet, neighborhoods.parquet, etc. | **HIGH** |
-| **Audit report** | 📝 Planned | QC summary and provenance | MEDIUM |
+| **Raw data extraction** |  Complete | snRNA, Visium, WES tarballs | - |
+| **QC filtering** |  In Progress | Memory-efficient backed mode implemented | **HIGH** |
+| **Normalization** |  Complete | log1p, scaling | - |
+| **Merge operations** |  In Progress | snRNA done, spatial backed-mode | **HIGH** |
+| **Spatial backend - Tangram** |  Planned | Integration script needed | **HIGH** |
+| **Spatial backend - DestVI** |  Planned | Integration script needed | **HIGH** |
+| **Spatial backend - TACCO** |  Planned | Integration script needed | **HIGH** |
+| **Canonical artifacts generation** |  Planned | cells.parquet, neighborhoods.parquet, etc. | **HIGH** |
+| **Audit report** |  Planned | QC summary and provenance | MEDIUM |
 
 **Blocking Issues:**
 - Need HPC resources for full spatial data processing (35GB+ files)
@@ -48,12 +48,12 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **HLCA reference alignment** | 🔄 In Progress | scVI integration scaffolded | **HIGH** |
-| **LuCA reference alignment** | 🔄 In Progress | scVI integration scaffolded | **HIGH** |
-| **Euclidean embedding** | 🔄 In Progress | Basic implementation exists | **HIGH** |
-| **Latent fusion** | 📝 Planned | Concatenation or learned fusion | MEDIUM |
-| **Batch correction** | 📝 Planned | Harmony at reference level | MEDIUM |
-| **Contrastive pretraining** | 📝 Planned | Optional, may skip for V1 | LOW |
+| **HLCA reference alignment** |  In Progress | scVI integration scaffolded | **HIGH** |
+| **LuCA reference alignment** |  In Progress | scVI integration scaffolded | **HIGH** |
+| **Euclidean embedding** |  In Progress | Basic implementation exists | **HIGH** |
+| **Latent fusion** |  Planned | Concatenation or learned fusion | MEDIUM |
+| **Batch correction** |  Planned | Harmony at reference level | MEDIUM |
+| **Contrastive pretraining** |  Planned | Optional, may skip for V1 | LOW |
 
 **Blocking Issues:**
 - Need to download/process HLCA and LuCA reference atlases
@@ -70,12 +70,12 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **LocalNicheTransformerEncoder** | ✅ Complete | EA-MIST implementation | - |
-| **9-token tokenizer** | ✅ Complete | All tokens implemented | - |
-| **Neighborhood graph builder** | 🔄 In Progress | K-NN and radius modes | MEDIUM |
-| **Distance binning** | ✅ Complete | 4 rings implemented | - |
-| **Attention mechanism** | ✅ Complete | Self-attention over tokens | - |
-| **Influence tensor extraction** | 📝 Planned | For interpretability | MEDIUM |
+| **LocalNicheTransformerEncoder** |  Complete | EA-MIST implementation | - |
+| **9-token tokenizer** |  Complete | All tokens implemented | - |
+| **Neighborhood graph builder** |  In Progress | K-NN and radius modes | MEDIUM |
+| **Distance binning** |  Complete | 4 rings implemented | - |
+| **Attention mechanism** |  Complete | Self-attention over tokens | - |
+| **Influence tensor extraction** |  Planned | For interpretability | MEDIUM |
 
 **Blocking Issues:**
 - None major
@@ -91,11 +91,11 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **ISAB block** | ✅ Complete | EA-MIST implementation | - |
-| **SAB block** | ✅ Complete | EA-MIST implementation | - |
-| **PMA block** | ✅ Complete | EA-MIST implementation | - |
-| **Hierarchical pooling** | ✅ Complete | Cell → Lesion → Stage | - |
-| **Set membership tracking** | 📝 Planned | For evaluation | LOW |
+| **ISAB block** |  Complete | EA-MIST implementation | - |
+| **SAB block** |  Complete | EA-MIST implementation | - |
+| **PMA block** |  Complete | EA-MIST implementation | - |
+| **Hierarchical pooling** |  Complete | Cell → Lesion → Stage | - |
+| **Set membership tracking** |  Planned | For evaluation | LOW |
 
 **Blocking Issues:**
 - None
@@ -110,12 +110,12 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **OT-CFM algorithm** | 🔄 In Progress | Scaffolded in stochastic_dynamics.py | **HIGH** |
-| **Sinkhorn coupling** | 🔄 In Progress | Implementation exists | **HIGH** |
-| **Flow interpolation** | 🔄 In Progress | Basic interpolant | **HIGH** |
-| **Conditional flow network** | 📝 Planned | MLP conditioned on niche context | **HIGH** |
-| **Stochastic sampling** | 📝 Planned | Euler-Maruyama integration | **HIGH** |
-| **Uncertainty estimation** | 📝 Planned | MC sampling | MEDIUM |
+| **OT-CFM algorithm** |  In Progress | Scaffolded in stochastic_dynamics.py | **HIGH** |
+| **Sinkhorn coupling** |  In Progress | Implementation exists | **HIGH** |
+| **Flow interpolation** |  In Progress | Basic interpolant | **HIGH** |
+| **Conditional flow network** |  Planned | MLP conditioned on niche context | **HIGH** |
+| **Stochastic sampling** |  Planned | Euler-Maruyama integration | **HIGH** |
+| **Uncertainty estimation** |  Planned | MC sampling | MEDIUM |
 
 **Blocking Issues:**
 - Need to integrate with Layers A-C outputs
@@ -133,11 +133,11 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **WES feature extraction** | ✅ Complete | TMB, signatures, clones | - |
-| **Compatibility scoring** | 🔄 In Progress | Scaffolded | MEDIUM |
-| **Contrastive loss** | 📝 Planned | Margin-based | MEDIUM |
-| **Regularization integration** | 📝 Planned | Into transition loss | MEDIUM |
-| **Matched/shuffled controls** | 📝 Planned | For evaluation | MEDIUM |
+| **WES feature extraction** |  Complete | TMB, signatures, clones | - |
+| **Compatibility scoring** |  In Progress | Scaffolded | MEDIUM |
+| **Contrastive loss** |  Planned | Margin-based | MEDIUM |
+| **Regularization integration** |  Planned | Into transition loss | MEDIUM |
+| **Matched/shuffled controls** |  Planned | For evaluation | MEDIUM |
 
 **Blocking Issues:**
 - Need WES data processed and linked to cells
@@ -154,13 +154,13 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **Data loaders** | 🔄 In Progress | Cell and edge loaders scaffolded | **HIGH** |
-| **Training loop** | 📝 Planned | Full end-to-end training | **HIGH** |
-| **Loss composition** | 📝 Planned | Flow + compatibility + aux | **HIGH** |
-| **Optimizer setup** | 📝 Planned | AdamW with scheduling | MEDIUM |
-| **Checkpoint management** | 📝 Planned | Save/load/resume | MEDIUM |
-| **Logging** | 🔄 In Progress | Basic logging exists | MEDIUM |
-| **Config system** | ✅ Complete | Hydra-based | - |
+| **Data loaders** |  In Progress | Cell and edge loaders scaffolded | **HIGH** |
+| **Training loop** |  Planned | Full end-to-end training | **HIGH** |
+| **Loss composition** |  Planned | Flow + compatibility + aux | **HIGH** |
+| **Optimizer setup** |  Planned | AdamW with scheduling | MEDIUM |
+| **Checkpoint management** |  Planned | Save/load/resume | MEDIUM |
+| **Logging** |  In Progress | Basic logging exists | MEDIUM |
+| **Config system** |  Complete | Hydra-based | - |
 
 **Next Steps:**
 1. Implement data loaders for canonical artifacts
@@ -174,14 +174,14 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **Donor-held-out CV** | 📝 Planned | Split generation and evaluation | **HIGH** |
-| **Transition quality metrics** | 📝 Planned | Wasserstein, MMD, KL | **HIGH** |
-| **Uncertainty metrics** | 📝 Planned | ECE, NLL, Coverage | **HIGH** |
-| **Compatibility metrics** | 📝 Planned | Matched vs shuffled gap | MEDIUM |
-| **Backend comparison** | 📝 Planned | Across Tangram/DestVI/TACCO | MEDIUM |
-| **Ablation runner** | 📝 Planned | Automated ablation execution | MEDIUM |
-| **Statistical testing** | 📝 Planned | Paired tests, corrections | MEDIUM |
-| **Artifact logging** | 📝 Planned | All outputs tracked | MEDIUM |
+| **Donor-held-out CV** |  Planned | Split generation and evaluation | **HIGH** |
+| **Transition quality metrics** |  Planned | Wasserstein, MMD, KL | **HIGH** |
+| **Uncertainty metrics** |  Planned | ECE, NLL, Coverage | **HIGH** |
+| **Compatibility metrics** |  Planned | Matched vs shuffled gap | MEDIUM |
+| **Backend comparison** |  Planned | Across Tangram/DestVI/TACCO | MEDIUM |
+| **Ablation runner** |  Planned | Automated ablation execution | MEDIUM |
+| **Statistical testing** |  Planned | Paired tests, corrections | MEDIUM |
+| **Artifact logging** |  Planned | All outputs tracked | MEDIUM |
 
 **Next Steps:**
 1. Implement evaluation metrics
@@ -195,12 +195,12 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **UMAP visualization** | 📝 Planned | Latent space + stage colors | MEDIUM |
-| **Attention heatmaps** | 📝 Planned | Niche influence patterns | MEDIUM |
-| **Trajectory plots** | 📝 Planned | Flow field and paths | MEDIUM |
-| **Calibration curves** | 📝 Planned | Uncertainty visualization | MEDIUM |
-| **Spatial overlays** | 📝 Planned | Attention on tissue images | LOW |
-| **Publication figures** | 📝 Planned | Per figure specs | LOW |
+| **UMAP visualization** |  Planned | Latent space + stage colors | MEDIUM |
+| **Attention heatmaps** |  Planned | Niche influence patterns | MEDIUM |
+| **Trajectory plots** |  Planned | Flow field and paths | MEDIUM |
+| **Calibration curves** |  Planned | Uncertainty visualization | MEDIUM |
+| **Spatial overlays** |  Planned | Attention on tissue images | LOW |
+| **Publication figures** |  Planned | Per figure specs | LOW |
 
 **Next Steps:**
 1. Implement core plotting utilities
@@ -213,11 +213,11 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **Unit tests** | 📝 Planned | Per-module tests | MEDIUM |
-| **Integration tests** | 📝 Planned | End-to-end smoke tests | **HIGH** |
-| **Synthetic benchmarks** | 📝 Planned | Ground truth recovery | MEDIUM |
-| **Negative controls** | 📝 Planned | Shuffle, wrong-stage, etc. | MEDIUM |
-| **Reproducibility tests** | 📝 Planned | Seed consistency | MEDIUM |
+| **Unit tests** |  Planned | Per-module tests | MEDIUM |
+| **Integration tests** |  Planned | End-to-end smoke tests | **HIGH** |
+| **Synthetic benchmarks** |  Planned | Ground truth recovery | MEDIUM |
+| **Negative controls** |  Planned | Shuffle, wrong-stage, etc. | MEDIUM |
+| **Reproducibility tests** |  Planned | Seed consistency | MEDIUM |
 
 **Next Steps:**
 1. Write unit tests for completed modules
@@ -230,15 +230,15 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **README** | ✅ Complete | Updated for V1 | - |
-| **Architecture docs** | ✅ Complete | All layers documented | - |
-| **Methods overview** | ✅ Complete | v1_methods_overview.md | - |
-| **Data model spec** | ✅ Complete | data_model_specification.md | - |
-| **Evaluation protocol** | ✅ Complete | evaluation_protocol.md | - |
-| **Figure specs** | ✅ Complete | figure_table_specifications.md | - |
-| **Paper outline** | ✅ Complete | paper_outline.md | - |
-| **API documentation** | 📝 Planned | Docstrings and examples | LOW |
-| **Tutorial notebooks** | 📝 Planned | Getting started guides | LOW |
+| **README** |  Complete | Updated for V1 | - |
+| **Architecture docs** |  Complete | All layers documented | - |
+| **Methods overview** |  Complete | v1_methods_overview.md | - |
+| **Data model spec** |  Complete | data_model_specification.md | - |
+| **Evaluation protocol** |  Complete | evaluation_protocol.md | - |
+| **Figure specs** |  Complete | figure_table_specifications.md | - |
+| **Paper outline** |  Complete | paper_outline.md | - |
+| **API documentation** |  Planned | Docstrings and examples | LOW |
+| **Tutorial notebooks** |  Planned | Getting started guides | LOW |
 
 **Status:** Documentation is publication-ready for V1 scope
 
@@ -248,12 +248,12 @@ This document tracks implementation status for StageBridge V1. Each component is
 
 | Component | Status | Notes | Priority |
 |-----------|--------|-------|----------|
-| **HPC setup** | 📝 Planned | Configuration for cluster | **HIGH** |
-| **Docker container** | 📝 Planned | Reproducibility | MEDIUM |
-| **Environment spec** | ✅ Complete | requirements.txt / conda env | - |
-| **CI/CD pipeline** | 📝 Planned | GitHub Actions | LOW |
-| **Code release** | 📝 Planned | Public GitHub repo | MEDIUM |
-| **Data release** | 📝 Planned | Zenodo upload | MEDIUM |
+| **HPC setup** |  Planned | Configuration for cluster | **HIGH** |
+| **Docker container** |  Planned | Reproducibility | MEDIUM |
+| **Environment spec** |  Complete | requirements.txt / conda env | - |
+| **CI/CD pipeline** |  Planned | GitHub Actions | LOW |
+| **Code release** |  Planned | Public GitHub repo | MEDIUM |
+| **Data release** |  Planned | Zenodo upload | MEDIUM |
 
 **Next Steps:**
 1. Set up HPC access and configuration
@@ -265,49 +265,49 @@ This document tracks implementation status for StageBridge V1. Each component is
 ## 9. Milestones and Timeline
 
 ### Milestone 0: Infrastructure Setup (Week 1-2)
-- ✅ Documentation complete
-- 🔄 Data pipeline on HPC
-- 📝 Spatial backend integration
-- 📝 Reference atlas processing
+-  Documentation complete
+-  Data pipeline on HPC
+-  Spatial backend integration
+-  Reference atlas processing
 
 **Status:** 60% complete
 
 ### Milestone 1: End-to-End Training (Week 3-4)
-- 📝 All layers integrated
-- 📝 Full training loop
-- 📝 Checkpoint management
-- 📝 Basic evaluation
+-  All layers integrated
+-  Full training loop
+-  Checkpoint management
+-  Basic evaluation
 
 **Status:** 30% complete
 
 ### Milestone 2: Evaluation Harness (Week 5-6)
-- 📝 Donor-held-out CV
-- 📝 All metrics implemented
-- 📝 Statistical testing
-- 📝 Artifact logging
+-  Donor-held-out CV
+-  All metrics implemented
+-  Statistical testing
+-  Artifact logging
 
 **Status:** 10% complete
 
 ### Milestone 3: Synthetic Validation (Week 7)
-- 📝 Synthetic data generator
-- 📝 Ground truth recovery tests
-- 📝 Negative controls
+-  Synthetic data generator
+-  Ground truth recovery tests
+-  Negative controls
 
 **Status:** 0% complete
 
 ### Milestone 4: Real Data Experiments (Week 8-10)
-- 📝 Full model training
-- 📝 Ablation suite (Tier 1)
-- 📝 Backend comparison
-- 📝 All figures generated
+-  Full model training
+-  Ablation suite (Tier 1)
+-  Backend comparison
+-  All figures generated
 
 **Status:** 0% complete
 
 ### Milestone 5: Paper Writing (Week 11-12)
-- 📝 Methods section
-- 📝 Results section
-- 📝 Discussion section
-- 📝 Final figures and tables
+-  Methods section
+-  Results section
+-  Discussion section
+-  Final figures and tables
 
 **Status:** 20% complete (intro/methods can start early)
 
@@ -482,32 +482,32 @@ This document tracks implementation status for StageBridge V1. Each component is
 ## 14. Success Criteria for V1 Completion
 
 ### Technical Criteria
-- ✅ All layers implemented and tested
-- ✅ Full training pipeline runs end-to-end
-- ✅ Donor-held-out CV implemented
-- ✅ All Tier 1 ablations complete
-- ✅ Spatial backend robustness demonstrated
-- ✅ Uncertainty calibrated (ECE < 0.1)
-- ✅ Code passes integration tests
-- ✅ Results reproducible with saved seeds
+-  All layers implemented and tested
+-  Full training pipeline runs end-to-end
+-  Donor-held-out CV implemented
+-  All Tier 1 ablations complete
+-  Spatial backend robustness demonstrated
+-  Uncertainty calibrated (ECE < 0.1)
+-  Code passes integration tests
+-  Results reproducible with saved seeds
 
 ### Scientific Criteria
-- ✅ Full model outperforms all baselines (p < 0.01)
-- ✅ Niche influence effect size > 0.5
-- ✅ Genomic compatibility separates matched vs shuffled (p < 0.01)
-- ✅ Results hold across all 3 spatial backends
-- ✅ Negative controls behave as expected
-- ✅ At least one clear biological insight from LUAD data
+-  Full model outperforms all baselines (p < 0.01)
+-  Niche influence effect size > 0.5
+-  Genomic compatibility separates matched vs shuffled (p < 0.01)
+-  Results hold across all 3 spatial backends
+-  Negative controls behave as expected
+-  At least one clear biological insight from LUAD data
 
 ### Publication Criteria
-- ✅ All figures complete and polished
-- ✅ All tables complete
-- ✅ Methods section complete
-- ✅ Results section complete
-- ✅ Discussion section complete
-- ✅ Evidence matrix complete (all claims supported)
-- ✅ Supplementary materials complete
-- ✅ Code and data release ready
+-  All figures complete and polished
+-  All tables complete
+-  Methods section complete
+-  Results section complete
+-  Discussion section complete
+-  Evidence matrix complete (all claims supported)
+-  Supplementary materials complete
+-  Code and data release ready
 
 ---
 
