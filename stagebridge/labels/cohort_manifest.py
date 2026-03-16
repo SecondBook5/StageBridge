@@ -1,4 +1,5 @@
 """Cohort normalization and manifest building for label repair."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -49,7 +50,9 @@ def _stage_has_later_progression(patient_rows: pd.DataFrame, stage: str) -> bool
     """
     order = {"Normal": 0, "AAH": 1, "AIS": 2, "MIA": 3, "LUAD": 4}
     current_rank = order.get(str(stage), -1)
-    return bool((patient_rows["stage"].map(lambda value: order.get(str(value), -1)) > current_rank).any())
+    return bool(
+        (patient_rows["stage"].map(lambda value: order.get(str(value), -1)) > current_rank).any()
+    )
 
 
 def build_cleaned_cohort_manifest(cfg: DictConfig | dict[str, Any]) -> dict[str, pd.DataFrame]:
@@ -69,7 +72,9 @@ def build_cleaned_cohort_manifest(cfg: DictConfig | dict[str, Any]) -> dict[str,
         .reset_index(drop=True)
     )
     lesion_obs["sample_id"] = lesion_obs["lesion_id"].astype(str)
-    spot_counts = spatial.obs.groupby("sample_id", sort=False).size().rename("num_spots").reset_index()
+    spot_counts = (
+        spatial.obs.groupby("sample_id", sort=False).size().rename("num_spots").reset_index()
+    )
     lesion_obs = lesion_obs.merge(spot_counts, on="sample_id", how="left")
     lesion_obs["num_spots"] = lesion_obs["num_spots"].fillna(0).astype(int)
 
@@ -131,7 +136,9 @@ def build_cleaned_cohort_manifest(cfg: DictConfig | dict[str, Any]) -> dict[str,
         parts = [
             "spatial" if bool(row.has_spatial) else "no_spatial",
             "wes" if bool(row.has_wes) else "no_wes",
-            "curated_label" if str(row.original_label_source).startswith("peng_") else "non_curated_label",
+            "curated_label"
+            if str(row.original_label_source).startswith("peng_")
+            else "non_curated_label",
             "later_stage" if has_later_stage else "no_later_stage",
             "phylogeny_ready" if bool(row.can_support_phylogeny) else "single_stage_patient",
         ]
@@ -139,37 +146,46 @@ def build_cleaned_cohort_manifest(cfg: DictConfig | dict[str, Any]) -> dict[str,
     merged["availability_trace"] = availability_trace
 
     cleaned_manifest = merged.loc[:, list(COHORT_MANIFEST_COLUMNS)].copy()
-    sample_to_lesion = cleaned_manifest.loc[:, ["sample_id", "lesion_id", "patient_id", "donor_id", "stage", "edge_label"]].copy()
+    sample_to_lesion = cleaned_manifest.loc[
+        :, ["sample_id", "lesion_id", "patient_id", "donor_id", "stage", "edge_label"]
+    ].copy()
     sample_to_lesion = sample_to_lesion.loc[:, list(SAMPLE_TO_LESION_COLUMNS)]
-    donor_summary = (
-        cleaned_manifest.groupby(["patient_id", "donor_id"], as_index=False)
-        .agg(
-            n_lesions=("lesion_id", "nunique"),
-            n_stages=("stage", "nunique"),
-            n_labeled_lesions=("original_label", lambda values: int(pd.notna(values).sum())),
-            n_wes_supported=("has_wes", lambda values: int(pd.Series(values).sum())),
-            n_phylogeny_ready=("can_support_phylogeny", lambda values: int(pd.Series(values).sum())),
-        )
+    donor_summary = cleaned_manifest.groupby(["patient_id", "donor_id"], as_index=False).agg(
+        n_lesions=("lesion_id", "nunique"),
+        n_stages=("stage", "nunique"),
+        n_labeled_lesions=("original_label", lambda values: int(pd.notna(values).sum())),
+        n_wes_supported=("has_wes", lambda values: int(pd.Series(values).sum())),
+        n_phylogeny_ready=("can_support_phylogeny", lambda values: int(pd.Series(values).sum())),
     )
     availability_matrix = cleaned_manifest.loc[
         :,
         ["lesion_id", "has_spatial", "has_wes", "original_label_source", "can_support_phylogeny"],
     ].copy()
-    availability_matrix["has_curated_label"] = availability_matrix["original_label_source"].astype(str).str.startswith("peng_")
-    availability_matrix["has_heuristic_label"] = availability_matrix["original_label_source"].astype(str).eq("heuristic_edge_expansion")
+    availability_matrix["has_curated_label"] = (
+        availability_matrix["original_label_source"].astype(str).str.startswith("peng_")
+    )
+    availability_matrix["has_heuristic_label"] = (
+        availability_matrix["original_label_source"].astype(str).eq("heuristic_edge_expansion")
+    )
     availability_matrix = availability_matrix.drop(columns=["original_label_source"])
     availability_matrix = availability_matrix.loc[:, list(DATA_AVAILABILITY_COLUMNS)]
 
     if cleaned_manifest.empty:
         raise ValueError("Label-repair cohort manifest is empty after normalization.")
     if cleaned_manifest["lesion_id"].duplicated().any():
-        duplicates = cleaned_manifest.loc[cleaned_manifest["lesion_id"].duplicated(keep=False), "lesion_id"].tolist()
-        raise ValueError(f"Detected duplicated lesion identifiers in cleaned manifest: {sorted(set(duplicates))}")
+        duplicates = cleaned_manifest.loc[
+            cleaned_manifest["lesion_id"].duplicated(keep=False), "lesion_id"
+        ].tolist()
+        raise ValueError(
+            f"Detected duplicated lesion identifiers in cleaned manifest: {sorted(set(duplicates))}"
+        )
 
     return {
         "cleaned_manifest": cleaned_manifest,
         "sample_to_lesion": sample_to_lesion,
         "donor_summary": donor_summary,
         "availability_matrix": availability_matrix,
-        "wes_features": wes.frame.copy() if not wes.frame.empty else empty_frame(tuple(wes.frame.columns)),
+        "wes_features": wes.frame.copy()
+        if not wes.frame.empty
+        else empty_frame(tuple(wes.frame.columns)),
     }

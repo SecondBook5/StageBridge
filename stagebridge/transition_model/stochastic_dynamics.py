@@ -1,4 +1,5 @@
 """StageBridge transformer-first progression model."""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -94,6 +95,7 @@ class StageBridgeModel(nn.Module):
         # Graph-of-Sets Transformer for inter-set context propagation
         if config.use_graph_transformer:
             from stagebridge.context_model.graph_of_sets import GraphOfSetsTransformer
+
             self.graph_transformer = GraphOfSetsTransformer(
                 dim=config.hidden_dim,
                 num_graph_layers=config.graph_num_layers,
@@ -105,7 +107,11 @@ class StageBridgeModel(nn.Module):
 
         # Unified genomic niche encoder (cross-dataset WES + lpWGS)
         if config.use_genomic_niche:
-            from stagebridge.transition_model.wes_regularizer import GenomicNicheConfig, GenomicNicheEncoder
+            from stagebridge.transition_model.wes_regularizer import (
+                GenomicNicheConfig,
+                GenomicNicheEncoder,
+            )
+
             self.genomic_niche_encoder = GenomicNicheEncoder(
                 GenomicNicheConfig(niche_dim=config.genomic_niche_dim)
             )
@@ -140,10 +146,7 @@ class StageBridgeModel(nn.Module):
         else:
             # Original MLP drift.
             vf_input_dim = (
-                config.input_dim
-                + config.time_embedding_dim
-                + config.hidden_dim
-                + _eff_stage_dim
+                config.input_dim + config.time_embedding_dim + config.hidden_dim + _eff_stage_dim
             )
             self.vector_field = nn.Sequential(
                 nn.Linear(vf_input_dim, config.vector_field_hidden_dim),
@@ -215,7 +218,11 @@ class StageBridgeModel(nn.Module):
             n_total = x_set.shape[1]
             n_src = n_total - m_niche
             B = x_set.shape[0]
-            nc = niche_coords if niche_coords.ndim == 3 else niche_coords.unsqueeze(0).expand(B, -1, -1)
+            nc = (
+                niche_coords
+                if niche_coords.ndim == 3
+                else niche_coords.unsqueeze(0).expand(B, -1, -1)
+            )
             src_zeros = torch.zeros(B, n_src, 2, device=x_set.device, dtype=x_set.dtype)
             coords_3d = torch.cat([src_zeros, nc.to(dtype=x_set.dtype)], dim=1)  # (B, n_total, 2)
 
@@ -225,10 +232,14 @@ class StageBridgeModel(nn.Module):
         pooled = self.pma(h, mask=mask)  # (B, k, D)
 
         if self.config.use_cross_attn_drift:
-            context = self.context_head(pooled)   # (B, k, D) — applied token-wise
+            context = self.context_head(pooled)  # (B, k, D) — applied token-wise
 
             # Fuse spatial niche: project mean niche vector → (B, 1, D) and add
-            if self.config.use_spatial_niche and spatial_niche is not None and self.spatial_niche_proj is not None:
+            if (
+                self.config.use_spatial_niche
+                and spatial_niche is not None
+                and self.spatial_niche_proj is not None
+            ):
                 sn = spatial_niche if spatial_niche.ndim == 3 else spatial_niche.unsqueeze(0)
                 niche_mean = sn.mean(dim=1, keepdim=True)  # (B, 1, niche_dim)
                 niche_ctx = self.spatial_niche_proj(niche_mean)  # (B, 1, hidden_dim)
@@ -241,7 +252,11 @@ class StageBridgeModel(nn.Module):
             context = self.context_head(pooled[:, 0, :])  # (B, D)
 
             # Fuse spatial niche: project mean niche vector → (B, D) and add
-            if self.config.use_spatial_niche and spatial_niche is not None and self.spatial_niche_proj is not None:
+            if (
+                self.config.use_spatial_niche
+                and spatial_niche is not None
+                and self.spatial_niche_proj is not None
+            ):
                 sn = spatial_niche if spatial_niche.ndim == 3 else spatial_niche.unsqueeze(0)
                 niche_mean = sn.mean(dim=1)  # (B, niche_dim)
                 niche_ctx = self.spatial_niche_proj(niche_mean)  # (B, hidden_dim)
@@ -355,7 +370,9 @@ class StageBridgeModel(nn.Module):
         ``genomic_niche``: optional ``(B, genomic_niche_dim)`` unified niche embedding.
         """
         n = x_t.shape[0]
-        c_s, stage_pair_id = self._broadcast_condition(c_s=c_s, stage_pair_id=stage_pair_id, batch_size=n)
+        c_s, stage_pair_id = self._broadcast_condition(
+            c_s=c_s, stage_pair_id=stage_pair_id, batch_size=n
+        )
 
         stage_emb = self.stage_pair_embedding(stage_pair_id)
         if not self.config.use_stage_embedding:
@@ -364,7 +381,9 @@ class StageBridgeModel(nn.Module):
         # Optionally augment stage_emb with projected WES features
         if self.config.use_wes_features:
             if wes_features is None:
-                wes_h = torch.zeros(n, self.config.wes_hidden_dim, device=x_t.device, dtype=x_t.dtype)
+                wes_h = torch.zeros(
+                    n, self.config.wes_hidden_dim, device=x_t.device, dtype=x_t.dtype
+                )
             else:
                 if wes_features.ndim == 1:
                     wes_features = wes_features.unsqueeze(0).expand(n, -1)
@@ -374,7 +393,9 @@ class StageBridgeModel(nn.Module):
         # Optionally augment stage_emb with projected LR signaling features
         if self.config.use_lr_features:
             if lr_features is None:
-                lr_h = torch.zeros(n, self.config.lr_hidden_dim, device=x_t.device, dtype=x_t.dtype)
+                lr_h = torch.zeros(
+                    n, self.config.lr_hidden_dim, device=x_t.device, dtype=x_t.dtype
+                )
             else:
                 if lr_features.ndim == 1:
                     lr_features = lr_features.unsqueeze(0).expand(n, -1)
@@ -384,7 +405,9 @@ class StageBridgeModel(nn.Module):
         # Optionally augment with unified genomic niche embedding
         if self.config.use_genomic_niche:
             if genomic_niche is None:
-                niche_h = torch.zeros(n, self.config.genomic_niche_dim, device=x_t.device, dtype=x_t.dtype)
+                niche_h = torch.zeros(
+                    n, self.config.genomic_niche_dim, device=x_t.device, dtype=x_t.dtype
+                )
             else:
                 if genomic_niche.ndim == 1:
                     genomic_niche = genomic_niche.unsqueeze(0).expand(n, -1)
@@ -423,8 +446,12 @@ class StageBridgeModel(nn.Module):
         for k in range(num_steps):
             t = torch.full((x.shape[0],), (k + 0.5) * dt, device=x.device, dtype=x.dtype)
             v = self.forward_vector_field(
-                x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id,
-                wes_features=wes_features, lr_features=lr_features,
+                x_t=x,
+                t=t,
+                c_s=c_s,
+                stage_pair_id=stage_pair_id,
+                wes_features=wes_features,
+                lr_features=lr_features,
             )
             x = x + dt * v
         return x
@@ -446,12 +473,16 @@ class StageBridgeModel(nn.Module):
         """
         x = x0
         dt = 1.0 / float(num_steps)
-        sqrt_dt = dt ** 0.5
+        sqrt_dt = dt**0.5
         for k in range(num_steps):
             t = torch.full((x.shape[0],), (k + 0.5) * dt, device=x.device, dtype=x.dtype)
             v = self.forward_vector_field(
-                x_t=x, t=t, c_s=c_s, stage_pair_id=stage_pair_id,
-                wes_features=wes_features, lr_features=lr_features,
+                x_t=x,
+                t=t,
+                c_s=c_s,
+                stage_pair_id=stage_pair_id,
+                wes_features=wes_features,
+                lr_features=lr_features,
             )
             x = x + dt * v
             if sigma > 0.0:
@@ -473,8 +504,10 @@ class StageBridgeModel(nn.Module):
     ) -> Tensor:
         """Convenience forward path for training objectives."""
         c_s = self.forward_set_context(
-            x_set=x_set, mask=mask,
-            niche_coords=niche_coords, spatial_niche=spatial_niche,
+            x_set=x_set,
+            mask=mask,
+            niche_coords=niche_coords,
+            spatial_niche=spatial_niche,
         )
         stage_pair = self.encode_stage_pair_tensor(
             stage_src=stage_src,
@@ -483,8 +516,12 @@ class StageBridgeModel(nn.Module):
             device=x_t.device,
         )
         return self.forward_vector_field(
-            x_t=x_t, t=t, c_s=c_s, stage_pair_id=stage_pair,
-            wes_features=wes_features, lr_features=lr_features,
+            x_t=x_t,
+            t=t,
+            c_s=c_s,
+            stage_pair_id=stage_pair,
+            wes_features=wes_features,
+            lr_features=lr_features,
         )
 
 
@@ -550,9 +587,7 @@ class EdgeWiseStochasticDynamics(nn.Module):
             else None
         )
         self.ude_gate = (
-            UDEGate(num_edges=num_edges, init_logit=float(ude_gate_init))
-            if self.use_ude
-            else None
+            UDEGate(num_edges=num_edges, init_logit=float(ude_gate_init)) if self.use_ude else None
         )
         self.diffusion = StateDependentDiffusionNetwork(
             input_dim=input_dim,
@@ -604,7 +639,9 @@ class EdgeWiseStochasticDynamics(nn.Module):
 
     @staticmethod
     def _prepare_context_tokens(
-        context: Tensor, context_tokens: Tensor | None, batch_size: int,
+        context: Tensor,
+        context_tokens: Tensor | None,
+        batch_size: int,
     ) -> Tensor:
         """Reshape context into 3-D token tensor for cross-attention drift."""
         if context_tokens is None:
@@ -620,7 +657,9 @@ class EdgeWiseStochasticDynamics(nn.Module):
             context_tokens = context_tokens.expand(batch_size, -1, -1)
         return context_tokens
 
-    def forward_diffusion(self, x_t: Tensor, t: Tensor, context: Tensor, edge_ids: Tensor) -> Tensor:
+    def forward_diffusion(
+        self, x_t: Tensor, t: Tensor, context: Tensor, edge_ids: Tensor
+    ) -> Tensor:
         return self.diffusion(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
 
     def sample_step(
@@ -635,7 +674,9 @@ class EdgeWiseStochasticDynamics(nn.Module):
         noise: Tensor | None = None,
         stochastic: bool = True,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        drift = self.forward_drift(x_t=x_t, t=t, context=context, edge_ids=edge_ids, context_tokens=context_tokens)
+        drift = self.forward_drift(
+            x_t=x_t, t=t, context=context, edge_ids=edge_ids, context_tokens=context_tokens
+        )
         diffusion = self.forward_diffusion(x_t=x_t, t=t, context=context, edge_ids=edge_ids)
         x_next = x_t + float(dt) * drift
         if stochastic:

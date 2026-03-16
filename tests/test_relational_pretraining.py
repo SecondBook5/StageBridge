@@ -125,6 +125,12 @@ def test_relational_auxiliary_losses_include_provider_and_transfer_terms() -> No
     )
 
     assert float(total.item()) >= 0.0
-    assert set(losses) >= {"masked_token", "ranking", "provider_consistency", "coordinate_corruption", "group_relation"}
+    assert set(losses) >= {
+        "masked_token",
+        "ranking",
+        "provider_consistency",
+        "coordinate_corruption",
+        "group_relation",
+    }
     assert summary.group_summary_tokens is not None
     assert metrics["provider_views_used"] == 1

@@ -1,4 +1,5 @@
 """Common external-tool execution helpers for label-repair wrappers."""
+
 from __future__ import annotations
 
 import os

@@ -1,4 +1,5 @@
 """Communication-relay classification benchmark for StageBridge."""
+
 from __future__ import annotations
 
 import copy
@@ -87,22 +88,33 @@ def _bag_batches(
 
 
 def _prior_targets(batch: CommunicationBatch) -> tuple[Tensor, Tensor]:
-    lr_query = (batch.lr_token_features[:, :, 2] * batch.lr_mask.to(batch.lr_token_features.dtype)).sum(dim=1)
+    lr_query = (
+        batch.lr_token_features[:, :, 2] * batch.lr_mask.to(batch.lr_token_features.dtype)
+    ).sum(dim=1)
     lr_query = lr_query / batch.lr_mask.to(batch.lr_token_features.dtype).sum(dim=1).clamp_min(1.0)
-    response_query = (batch.response_token_features[:, :, 0] * batch.response_mask.to(batch.response_token_features.dtype)).sum(dim=1)
-    response_query = response_query / batch.response_mask.to(batch.response_token_features.dtype).sum(dim=1).clamp_min(1.0)
+    response_query = (
+        batch.response_token_features[:, :, 0]
+        * batch.response_mask.to(batch.response_token_features.dtype)
+    ).sum(dim=1)
+    response_query = response_query / batch.response_mask.to(
+        batch.response_token_features.dtype
+    ).sum(dim=1).clamp_min(1.0)
     lr_bag = []
     response_bag = []
     for bag_idx in range(len(batch.sample_ids)):
         mask = batch.bag_index == int(bag_idx)
         lr_bag.append(lr_query[mask].mean() if torch.any(mask) else lr_query.new_tensor(0.0))
-        response_bag.append(response_query[mask].mean() if torch.any(mask) else response_query.new_tensor(0.0))
+        response_bag.append(
+            response_query[mask].mean() if torch.any(mask) else response_query.new_tensor(0.0)
+        )
     lr_target = torch.stack(lr_bag, dim=0)
     response_target = torch.stack(response_bag, dim=0)
     if lr_target.numel() > 0:
         lr_target = (lr_target - lr_target.min()) / (lr_target.max() - lr_target.min() + 1e-6)
     if response_target.numel() > 0:
-        response_target = (response_target - response_target.min()) / (response_target.max() - response_target.min() + 1e-6)
+        response_target = (response_target - response_target.min()) / (
+            response_target.max() - response_target.min() + 1e-6
+        )
     return lr_target, response_target
 
 
@@ -115,15 +127,23 @@ def _criterion(
     response_loss_weight: float,
 ) -> tuple[Tensor, dict[str, float]]:
     bag_logits = output.bag_logits
-    label_loss = torch.nn.functional.binary_cross_entropy_with_logits(bag_logits, batch.weak_labels)
+    label_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+        bag_logits, batch.weak_labels
+    )
     loss = label_loss
-    aux = {"label_loss": float(label_loss.detach().item()), "lr_prior_loss": 0.0, "response_prior_loss": 0.0}
+    aux = {
+        "label_loss": float(label_loss.detach().item()),
+        "lr_prior_loss": 0.0,
+        "response_prior_loss": 0.0,
+    }
     if isinstance(model, StageBridgeCommunicationModel):
         lr_target, response_target = _prior_targets(batch)
         prob = torch.sigmoid(bag_logits)
         lr_loss = torch.nn.functional.mse_loss(prob, lr_target)
         response_loss = torch.nn.functional.mse_loss(prob, response_target)
-        loss = loss + float(prior_loss_weight) * lr_loss + float(response_loss_weight) * response_loss
+        loss = (
+            loss + float(prior_loss_weight) * lr_loss + float(response_loss_weight) * response_loss
+        )
         aux["lr_prior_loss"] = float(lr_loss.detach().item())
         aux["response_prior_loss"] = float(response_loss.detach().item())
     return loss, aux
@@ -165,13 +185,21 @@ def _history_frame(history: list[dict[str, Any]], prefix: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _bag_logits_and_labels(prediction_batches: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray]:
-    logits = np.concatenate([item["forward"].bag_logits.detach().cpu().numpy() for item in prediction_batches], axis=0)
-    labels = np.concatenate([item["batch"].weak_labels.detach().cpu().numpy() for item in prediction_batches], axis=0)
+def _bag_logits_and_labels(
+    prediction_batches: list[dict[str, Any]],
+) -> tuple[np.ndarray, np.ndarray]:
+    logits = np.concatenate(
+        [item["forward"].bag_logits.detach().cpu().numpy() for item in prediction_batches], axis=0
+    )
+    labels = np.concatenate(
+        [item["batch"].weak_labels.detach().cpu().numpy() for item in prediction_batches], axis=0
+    )
     return logits, labels
 
 
-def _sample_prediction_frame(prediction_batches: list[dict[str, Any]], scaler: TemperatureScaler) -> pd.DataFrame:
+def _sample_prediction_frame(
+    prediction_batches: list[dict[str, Any]], scaler: TemperatureScaler
+) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for batch_payload in prediction_batches:
         batch = batch_payload["batch"]
@@ -194,18 +222,30 @@ def _sample_prediction_frame(prediction_batches: list[dict[str, Any]], scaler: T
     return pd.DataFrame(rows)
 
 
-def _edge_metrics(sample_predictions: pd.DataFrame, *, threshold: float) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
-    overall = binary_classification_metrics(sample_predictions["bag_probability"].to_numpy(), sample_predictions["label"].to_numpy(), threshold=threshold)
+def _edge_metrics(
+    sample_predictions: pd.DataFrame, *, threshold: float
+) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    overall = binary_classification_metrics(
+        sample_predictions["bag_probability"].to_numpy(),
+        sample_predictions["label"].to_numpy(),
+        threshold=threshold,
+    )
     by_edge: dict[str, dict[str, float]] = {}
     for edge_label, frame in sample_predictions.groupby("edge_label", sort=True):
-        by_edge[str(edge_label)] = binary_classification_metrics(frame["bag_probability"].to_numpy(), frame["label"].to_numpy(), threshold=threshold)
+        by_edge[str(edge_label)] = binary_classification_metrics(
+            frame["bag_probability"].to_numpy(), frame["label"].to_numpy(), threshold=threshold
+        )
     return overall, by_edge
 
 
 def _per_donor_metrics(sample_predictions: pd.DataFrame, *, threshold: float) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
-    for (edge_label, donor_id), frame in sample_predictions.groupby(["edge_label", "donor_id"], sort=True):
-        metrics = binary_classification_metrics(frame["bag_probability"].to_numpy(), frame["label"].to_numpy(), threshold=threshold)
+    for (edge_label, donor_id), frame in sample_predictions.groupby(
+        ["edge_label", "donor_id"], sort=True
+    ):
+        metrics = binary_classification_metrics(
+            frame["bag_probability"].to_numpy(), frame["label"].to_numpy(), threshold=threshold
+        )
         metrics["edge_label"] = str(edge_label)
         metrics["donor_id"] = str(donor_id)
         metrics["n_samples"] = int(frame.shape[0])
@@ -213,13 +253,18 @@ def _per_donor_metrics(sample_predictions: pd.DataFrame, *, threshold: float) ->
     return pd.DataFrame(rows)
 
 
-def _module_tables(prediction_batches: list[dict[str, Any]], scaler: TemperatureScaler) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _module_tables(
+    prediction_batches: list[dict[str, Any]], scaler: TemperatureScaler
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     lr_rows: list[dict[str, Any]] = []
     program_rows: list[dict[str, Any]] = []
     for batch_payload in prediction_batches:
         batch = batch_payload["batch"]
         query_probs = torch.sigmoid(
-            torch.tensor(scaler.apply(batch_payload["forward"].query_logits.detach().cpu().numpy()), dtype=torch.float32)
+            torch.tensor(
+                scaler.apply(batch_payload["forward"].query_logits.detach().cpu().numpy()),
+                dtype=torch.float32,
+            )
         ).numpy()
         query_ptr = 0
         for bag in batch_payload["bags"]:
@@ -227,7 +272,11 @@ def _module_tables(prediction_batches: list[dict[str, Any]], scaler: Temperature
                 prob = float(query_probs[query_ptr])
                 if example.lr_token_names is not None:
                     for idx, name in enumerate(example.lr_token_names):
-                        score = 0.0 if example.lr_token_features.shape[0] <= idx else float(example.lr_token_features[idx, 2])
+                        score = (
+                            0.0
+                            if example.lr_token_features.shape[0] <= idx
+                            else float(example.lr_token_features[idx, 2])
+                        )
                         lr_rows.append(
                             {
                                 "edge_label": bag.edge_label,
@@ -240,7 +289,11 @@ def _module_tables(prediction_batches: list[dict[str, Any]], scaler: Temperature
                         )
                 if example.response_token_names is not None:
                     for idx, name in enumerate(example.response_token_names):
-                        score = 0.0 if example.response_token_features.shape[0] <= idx else float(example.response_token_features[idx, 0])
+                        score = (
+                            0.0
+                            if example.response_token_features.shape[0] <= idx
+                            else float(example.response_token_features[idx, 0])
+                        )
                         program_rows.append(
                             {
                                 "edge_label": bag.edge_label,
@@ -253,17 +306,25 @@ def _module_tables(prediction_batches: list[dict[str, Any]], scaler: Temperature
                         )
                 query_ptr += 1
     lr_table = (
-        pd.DataFrame(lr_rows)
-        .groupby(["edge_label", "module"], as_index=False)["importance"]
-        .mean()
-        .sort_values(["edge_label", "importance"], ascending=[True, False])
-    ) if lr_rows else pd.DataFrame(columns=["edge_label", "module", "importance"])
+        (
+            pd.DataFrame(lr_rows)
+            .groupby(["edge_label", "module"], as_index=False)["importance"]
+            .mean()
+            .sort_values(["edge_label", "importance"], ascending=[True, False])
+        )
+        if lr_rows
+        else pd.DataFrame(columns=["edge_label", "module", "importance"])
+    )
     program_table = (
-        pd.DataFrame(program_rows)
-        .groupby(["edge_label", "program"], as_index=False)["importance"]
-        .mean()
-        .sort_values(["edge_label", "importance"], ascending=[True, False])
-    ) if program_rows else pd.DataFrame(columns=["edge_label", "program", "importance"])
+        (
+            pd.DataFrame(program_rows)
+            .groupby(["edge_label", "program"], as_index=False)["importance"]
+            .mean()
+            .sort_values(["edge_label", "importance"], ascending=[True, False])
+        )
+        if program_rows
+        else pd.DataFrame(columns=["edge_label", "program", "importance"])
+    )
     return lr_table, program_table
 
 
@@ -300,11 +361,17 @@ def _write_fold_artifacts(
         "fn": metrics["overall"]["fn"],
         "threshold": metrics["overall"]["threshold"],
     }
-    (artifact_dir / "confusion_matrix.json").write_text(json.dumps(_jsonable(confusion_payload), indent=2), encoding="utf-8")
-    (artifact_dir / "metrics.json").write_text(json.dumps(_jsonable(metrics), indent=2), encoding="utf-8")
+    (artifact_dir / "confusion_matrix.json").write_text(
+        json.dumps(_jsonable(confusion_payload), indent=2), encoding="utf-8"
+    )
+    (artifact_dir / "metrics.json").write_text(
+        json.dumps(_jsonable(metrics), indent=2), encoding="utf-8"
+    )
 
 
-def _query_predictions_frame(prediction_batches: list[dict[str, Any]], scaler: TemperatureScaler) -> pd.DataFrame:
+def _query_predictions_frame(
+    prediction_batches: list[dict[str, Any]], scaler: TemperatureScaler
+) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for batch_payload in prediction_batches:
         batch = batch_payload["batch"]
@@ -333,16 +400,40 @@ def _evaluate_predictions(
     *,
     scaler: TemperatureScaler,
     threshold: float,
-) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any], pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    dict[str, Any],
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+]:
     sample_predictions = _sample_prediction_frame(prediction_batches, scaler)
     query_predictions = _query_predictions_frame(prediction_batches, scaler)
     overall, by_edge = _edge_metrics(sample_predictions, threshold=threshold)
-    roc_curve, pr_curve = curve_tables(sample_predictions["bag_probability"].to_numpy(), sample_predictions["label"].to_numpy())
-    calibration_curve = calibration_curve_table(sample_predictions["bag_probability"].to_numpy(), sample_predictions["label"].to_numpy())
+    roc_curve, pr_curve = curve_tables(
+        sample_predictions["bag_probability"].to_numpy(), sample_predictions["label"].to_numpy()
+    )
+    calibration_curve = calibration_curve_table(
+        sample_predictions["bag_probability"].to_numpy(), sample_predictions["label"].to_numpy()
+    )
     per_donor = _per_donor_metrics(sample_predictions, threshold=threshold)
     top_lr_modules, top_receiver_programs = _module_tables(prediction_batches, scaler)
     metrics = {"overall": overall, "by_edge": by_edge}
-    return sample_predictions, query_predictions, metrics, roc_curve, pr_curve, calibration_curve, per_donor, top_lr_modules, top_receiver_programs
+    return (
+        sample_predictions,
+        query_predictions,
+        metrics,
+        roc_curve,
+        pr_curve,
+        calibration_curve,
+        per_donor,
+        top_lr_modules,
+        top_receiver_programs,
+    )
 
 
 def _shuffle_context_batch(batch: CommunicationBatch) -> CommunicationBatch:
@@ -374,9 +465,21 @@ def _shuffle_context_batch(batch: CommunicationBatch) -> CommunicationBatch:
     )
 
 
-def _context_shuffle_metrics(model: torch.nn.Module, bags: list[CommunicationBag], *, device: torch.device, batch_size: int, scaler: TemperatureScaler, threshold: float) -> dict[str, float]:
-    real_batches = _predict(model, bags, device=device, batch_size=batch_size, return_attention=False)["batches"]
-    _sample_real, _, metrics_real, _, _, _, _, _, _ = _evaluate_predictions(real_batches, scaler=scaler, threshold=threshold)
+def _context_shuffle_metrics(
+    model: torch.nn.Module,
+    bags: list[CommunicationBag],
+    *,
+    device: torch.device,
+    batch_size: int,
+    scaler: TemperatureScaler,
+    threshold: float,
+) -> dict[str, float]:
+    real_batches = _predict(
+        model, bags, device=device, batch_size=batch_size, return_attention=False
+    )["batches"]
+    _sample_real, _, metrics_real, _, _, _, _, _, _ = _evaluate_predictions(
+        real_batches, scaler=scaler, threshold=threshold
+    )
     shuffled_rows: list[pd.DataFrame] = []
     model.eval()
     with torch.no_grad():
@@ -389,7 +492,9 @@ def _context_shuffle_metrics(model: torch.nn.Module, bags: list[CommunicationBag
                 scaler,
             )
             shuffled_rows.append(frame)
-    sample_shuffled = pd.concat(shuffled_rows, ignore_index=True) if shuffled_rows else pd.DataFrame()
+    sample_shuffled = (
+        pd.concat(shuffled_rows, ignore_index=True) if shuffled_rows else pd.DataFrame()
+    )
     metrics_shuffled, _ = _edge_metrics(sample_shuffled, threshold=threshold)
     return {
         "real_auroc": float(metrics_real["overall"]["auroc"]),
@@ -401,9 +506,15 @@ def _context_shuffle_metrics(model: torch.nn.Module, bags: list[CommunicationBag
     }
 
 
-def _trial_hparams(base_hidden: int, base_dropout: float, base_lr: float, trial_idx: int) -> dict[str, float]:
+def _trial_hparams(
+    base_hidden: int, base_dropout: float, base_lr: float, trial_idx: int
+) -> dict[str, float]:
     hidden_candidates = [base_hidden, max(32, base_hidden // 2), base_hidden + 32]
-    dropout_candidates = [base_dropout, min(0.3, base_dropout + 0.05), max(0.0, base_dropout - 0.03)]
+    dropout_candidates = [
+        base_dropout,
+        min(0.3, base_dropout + 0.05),
+        max(0.0, base_dropout - 0.03),
+    ]
     lr_candidates = [base_lr, base_lr * 0.5, base_lr * 1.5]
     idx = int(trial_idx) % 3
     return {
@@ -413,7 +524,13 @@ def _trial_hparams(base_hidden: int, base_dropout: float, base_lr: float, trial_
     }
 
 
-def _instantiate_model(model_name: str, batch: CommunicationBatch, cfg: DictConfig, trial_params: dict[str, float], num_edges: int) -> torch.nn.Module:
+def _instantiate_model(
+    model_name: str,
+    batch: CommunicationBatch,
+    cfg: DictConfig,
+    trial_params: dict[str, float],
+    num_edges: int,
+) -> torch.nn.Module:
     return build_communication_model(
         model_name,
         receiver_dim=int(batch.receiver_embedding.shape[1]),
@@ -469,7 +586,9 @@ def _train_one_trial(
         train_losses: list[float] = []
         train_lr_losses: list[float] = []
         train_response_losses: list[float] = []
-        for bag_group in _bag_batches(train_bags, batch_size=batch_size, seed=seed + epoch, shuffle=True):
+        for bag_group in _bag_batches(
+            train_bags, batch_size=batch_size, seed=seed + epoch, shuffle=True
+        ):
             batch = collate_communication_bags(bag_group).to(str(device))
             optimizer.zero_grad()
             output = model(batch, return_attention=False)
@@ -481,7 +600,9 @@ def _train_one_trial(
                 response_loss_weight=response_loss_weight,
             )
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), float(_cfg(cfg, "grad_clip_norm", 1.0)))
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), float(_cfg(cfg, "grad_clip_norm", 1.0))
+            )
             optimizer.step()
             train_losses.append(float(loss.detach().item()))
             train_lr_losses.append(float(aux["lr_prior_loss"]))
@@ -491,10 +612,14 @@ def _train_one_trial(
                 "epoch": epoch,
                 "loss": float(np.mean(train_losses)) if train_losses else float("nan"),
                 "lr_prior_loss": float(np.mean(train_lr_losses)) if train_lr_losses else 0.0,
-                "response_prior_loss": float(np.mean(train_response_losses)) if train_response_losses else 0.0,
+                "response_prior_loss": float(np.mean(train_response_losses))
+                if train_response_losses
+                else 0.0,
             }
         )
-        val_pred = _predict(model, val_bags, device=device, batch_size=batch_size, return_attention=False)["batches"]
+        val_pred = _predict(
+            model, val_bags, device=device, batch_size=batch_size, return_attention=False
+        )["batches"]
         if not val_pred:
             continue
         val_bag_logits, val_labels = _bag_logits_and_labels(val_pred)
@@ -502,7 +627,9 @@ def _train_one_trial(
         sample_predictions, _, metrics, _, _, _, _, _, _ = _evaluate_predictions(
             val_pred,
             scaler=scaler,
-            threshold=choose_threshold(1.0 / (1.0 + np.exp(-scaler.apply(val_bag_logits))), val_labels),
+            threshold=choose_threshold(
+                1.0 / (1.0 + np.exp(-scaler.apply(val_bag_logits))), val_labels
+            ),
         )
         val_loss = torch.nn.functional.binary_cross_entropy_with_logits(
             torch.tensor(sample_predictions["bag_logit"].to_numpy(), dtype=torch.float32),
@@ -554,7 +681,15 @@ def run_communication_benchmark(cfg: DictConfig) -> dict[str, Any]:
         seed=int(cfg.get("seed", 42)),
     )
     wes = load_luad_evo_wes_features(cfg, stages=stages)
-    label_manifest_path = Path(str(_cfg(relay_cfg, "curated_manifest_path", "stagebridge/data/luad_evo/curated_progression_labels.csv")))
+    label_manifest_path = Path(
+        str(
+            _cfg(
+                relay_cfg,
+                "curated_manifest_path",
+                "stagebridge/data/luad_evo/curated_progression_labels.csv",
+            )
+        )
+    )
     bags, bag_table = build_communication_bags(
         snrna,
         spatial,
@@ -578,11 +713,34 @@ def run_communication_benchmark(cfg: DictConfig) -> dict[str, Any]:
         n_folds=int(_cfg(relay_cfg, "outer_folds", 3)),
         seed=int(cfg.get("seed", 42)),
     )
-    model_families = list(_cfg(relay_cfg, "model_families", ["focal_only", "pooled", "deep_sets", "graphsage", "transformer_no_priors", "transformer_no_relay", "stagebridge"]))
+    model_families = list(
+        _cfg(
+            relay_cfg,
+            "model_families",
+            [
+                "focal_only",
+                "pooled",
+                "deep_sets",
+                "graphsage",
+                "transformer_no_priors",
+                "transformer_no_relay",
+                "stagebridge",
+            ],
+        )
+    )
     seeds = [int(item) for item in _cfg(relay_cfg, "seeds", [int(cfg.get("seed", 42))])]
     num_trials = int(_cfg(relay_cfg, "num_trials", 1))
-    output_root = _ensure_dir(Path(str(cfg.get("output_dir", "outputs/scratch"))) / str(cfg.get("run_name", "stagebridge_v1")) / str(_cfg(relay_cfg, "output_subdir", "communication_relay")))
-    device = torch.device("cuda" if torch.cuda.is_available() and str(_cfg(relay_cfg, "device", cfg.get("device", "cuda"))).startswith("cuda") else "cpu")
+    output_root = _ensure_dir(
+        Path(str(cfg.get("output_dir", "outputs/scratch")))
+        / str(cfg.get("run_name", "stagebridge_v1"))
+        / str(_cfg(relay_cfg, "output_subdir", "communication_relay"))
+    )
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        and str(_cfg(relay_cfg, "device", cfg.get("device", "cuda"))).startswith("cuda")
+        else "cpu"
+    )
 
     fold_results: list[dict[str, Any]] = []
     for model_name in model_families:
@@ -612,24 +770,51 @@ def run_communication_benchmark(cfg: DictConfig) -> dict[str, Any]:
                         num_edges=max(edge_id_map().values()) + 1,
                     )
                     if best_trial is None or trained["best_metric"] > best_trial["best_metric"]:
-                        best_trial = {**trained, "trial_params": trial_params, "trial_idx": trial_idx}
+                        best_trial = {
+                            **trained,
+                            "trial_params": trial_params,
+                            "trial_idx": trial_idx,
+                        }
                 assert best_trial is not None
                 model = best_trial["model"]
                 batch_size = int(_cfg(relay_cfg, "batch_size_bags", 4))
-                val_pred = _predict(model, val_bags, device=device, batch_size=batch_size, return_attention=False)["batches"]
+                val_pred = _predict(
+                    model, val_bags, device=device, batch_size=batch_size, return_attention=False
+                )["batches"]
                 val_bag_logits, val_labels = _bag_logits_and_labels(val_pred)
                 scaler = fit_temperature_scaler(val_bag_logits, val_labels)
                 val_probs = 1.0 / (1.0 + np.exp(-scaler.apply(val_bag_logits)))
                 threshold = choose_threshold(val_probs, val_labels)
-                test_pred = _predict(model, test_bags, device=device, batch_size=batch_size, return_attention=True)["batches"]
-                sample_predictions, query_predictions, metrics, roc_curve, pr_curve, calibration_curve, per_donor, top_lr_modules, top_receiver_programs = _evaluate_predictions(
+                test_pred = _predict(
+                    model, test_bags, device=device, batch_size=batch_size, return_attention=True
+                )["batches"]
+                (
+                    sample_predictions,
+                    query_predictions,
+                    metrics,
+                    roc_curve,
+                    pr_curve,
+                    calibration_curve,
+                    per_donor,
+                    top_lr_modules,
+                    top_receiver_programs,
+                ) = _evaluate_predictions(
                     test_pred,
                     scaler=scaler,
                     threshold=threshold,
                 )
-                shuffle_metrics = _context_shuffle_metrics(model, test_bags, device=device, batch_size=batch_size, scaler=scaler, threshold=threshold)
+                shuffle_metrics = _context_shuffle_metrics(
+                    model,
+                    test_bags,
+                    device=device,
+                    batch_size=batch_size,
+                    scaler=scaler,
+                    threshold=threshold,
+                )
                 metrics["context_shuffle"] = shuffle_metrics
-                artifact_dir = output_root / model_name / f"fold_{fold_idx:02d}" / f"seed_{seed:03d}"
+                artifact_dir = (
+                    output_root / model_name / f"fold_{fold_idx:02d}" / f"seed_{seed:03d}"
+                )
                 _write_fold_artifacts(
                     artifact_dir,
                     train_history=_history_frame(best_trial["train_history"], "train"),
@@ -678,7 +863,11 @@ def run_communication_benchmark(cfg: DictConfig) -> dict[str, Any]:
             }
         )
     if summary_rows:
-        summary_table = pd.DataFrame(summary_rows).sort_values(["model_name", "fold", "seed"]).reset_index(drop=True)
+        summary_table = (
+            pd.DataFrame(summary_rows)
+            .sort_values(["model_name", "fold", "seed"])
+            .reset_index(drop=True)
+        )
     else:
         summary_table = pd.DataFrame(
             columns=[
@@ -707,7 +896,9 @@ def run_communication_benchmark(cfg: DictConfig) -> dict[str, Any]:
         "fold_results": fold_results,
         "summary_path": str(summary_path),
     }
-    (output_root / "benchmark_summary.json").write_text(json.dumps(_jsonable(payload), indent=2), encoding="utf-8")
+    (output_root / "benchmark_summary.json").write_text(
+        json.dumps(_jsonable(payload), indent=2), encoding="utf-8"
+    )
     return payload
 
 

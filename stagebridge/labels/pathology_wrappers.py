@@ -1,4 +1,5 @@
 """Optional pathology and region-level evidence ingestion for label repair."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,7 +32,9 @@ def _cfg_select(cfg: DictConfig | dict[str, Any], dotted: str, default: Any) -> 
     return current
 
 
-def run_pathology_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+def run_pathology_backend(
+    cfg: DictConfig | dict[str, Any], manifest: pd.DataFrame
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Parse optional QuPath or QuST lesion summaries.
 
     Args:
@@ -47,19 +50,29 @@ def run_pathology_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFra
         frame["pathology_qc_flag"] = "backend_not_requested"
         frame["backend_used"] = "none"
         frame["backend_trace"] = "none:not_requested"
-        return frame.loc[:, list(PATHOLOGY_SUMMARY_COLUMNS)], {"backend": "none", "status": "skipped"}
+        return frame.loc[:, list(PATHOLOGY_SUMMARY_COLUMNS)], {
+            "backend": "none",
+            "status": "skipped",
+        }
 
     summary_path_raw = _cfg_select(cfg, f"labels.inputs.pathology.{backend}_summary_path", None)
     if not summary_path_raw:
         frame["pathology_qc_flag"] = "missing_backend_output"
         frame["backend_used"] = backend
         frame["backend_trace"] = f"{backend}:parse_only_missing"
-        return frame.loc[:, list(PATHOLOGY_SUMMARY_COLUMNS)], {"backend": backend, "status": "missing_parse_only_input"}
+        return frame.loc[:, list(PATHOLOGY_SUMMARY_COLUMNS)], {
+            "backend": backend,
+            "status": "missing_parse_only_input",
+        }
 
     summary_path = Path(str(summary_path_raw))
     if not summary_path.exists():
         raise FileNotFoundError(f"Configured pathology summary does not exist: {summary_path}")
-    parsed = pd.read_parquet(summary_path) if summary_path.suffix.lower() == ".parquet" else pd.read_csv(summary_path)
+    parsed = (
+        pd.read_parquet(summary_path)
+        if summary_path.suffix.lower() == ".parquet"
+        else pd.read_csv(summary_path)
+    )
     aliases = {
         "sample": "sample_id",
         "lesion": "lesion_id",
@@ -79,7 +92,15 @@ def run_pathology_backend(cfg: DictConfig | dict[str, Any], manifest: pd.DataFra
         "angiogenic_support_score",
     ]:
         merged[column] = pd.to_numeric(merged.get(column), errors="coerce")
-    merged["pathology_qc_flag"] = merged.get("pathology_qc_flag", pd.Series(["parsed_existing"] * merged.shape[0]))
+    merged["pathology_qc_flag"] = merged.get(
+        "pathology_qc_flag", pd.Series(["parsed_existing"] * merged.shape[0])
+    )
     merged["backend_used"] = merged.get("backend_used", pd.Series([backend] * merged.shape[0]))
-    merged["backend_trace"] = merged["backend_used"].astype(str) + ":" + merged["pathology_qc_flag"].astype(str)
-    return merged.loc[:, list(PATHOLOGY_SUMMARY_COLUMNS)], {"backend": backend, "status": "parsed_existing", "summary_path": str(summary_path)}
+    merged["backend_trace"] = (
+        merged["backend_used"].astype(str) + ":" + merged["pathology_qc_flag"].astype(str)
+    )
+    return merged.loc[:, list(PATHOLOGY_SUMMARY_COLUMNS)], {
+        "backend": backend,
+        "status": "parsed_existing",
+        "summary_path": str(summary_path),
+    }

@@ -1,25 +1,66 @@
-"""Active context-model exports for the EA-MIST lesion-level architecture."""
+"""Context model exports for StageBridge.
 
-from .baselines_lesion import DeepSetsLesionBaseline, LesionSetTransformerBaseline, PooledLesionBaseline
-from .evolution_branch import EvolutionBranch
+This module provides:
+- Receiver-centered niche encoder (doctrine-compliant, preferred)
+- Legacy local niche encoders (for backward compatibility)
+- Bag-level baselines (computational containers)
+- Evolution branch for transition modeling
+"""
+
+# Receiver-centered niche encoder (PREFERRED - per doctrine)
+from .receiver_niche_encoder import (
+    ReceiverCenteredNicheEncoder,
+    ReceiverNicheEncoderWithDualReference,
+    ReceiverCenteredAttention,
+    ReceiverNicheOutput,
+    DistanceEncoding,
+    SparsityType,
+)
+
+# Legacy local niche encoders (for backward compatibility)
+from .local_niche_encoder import (
+    LocalNicheMLPEncoder,
+    LocalNicheTokenizer,
+    LocalNicheTransformerEncoder,
+)
+
+# Bag-level aggregation (computational containers, not scientific center)
+from .baselines_lesion import (
+    DeepSetsLesionBaseline,
+    LesionSetTransformerBaseline,
+    PooledLesionBaseline,
+)
 from .heads import LesionMultitaskHeads, LesionTaskHeadOutput
 from .lesion_set_transformer import EAMISTModel, EAMISTOutput, LesionSetTransformerBackbone
-from .local_niche_encoder import LocalNicheMLPEncoder, LocalNicheTokenizer, LocalNicheTransformerEncoder
+
+# Other components
+from .evolution_branch import EvolutionBranch
 from .prototype_bottleneck import PrototypeBottleneck, PrototypeBottleneckOutput
 
 __all__ = [
-    "DeepSetsLesionBaseline",
-    "EAMISTModel",
-    "EAMISTOutput",
-    "EvolutionBranch",
-    "LesionMultitaskHeads",
-    "LesionSetTransformerBackbone",
-    "LesionSetTransformerBaseline",
-    "LesionTaskHeadOutput",
+    # Receiver-centered niche encoder (PREFERRED)
+    "ReceiverCenteredNicheEncoder",
+    "ReceiverNicheEncoderWithDualReference",
+    "ReceiverCenteredAttention",
+    "ReceiverNicheOutput",
+    "DistanceEncoding",
+    "SparsityType",
+    # Legacy niche encoders
     "LocalNicheMLPEncoder",
     "LocalNicheTokenizer",
     "LocalNicheTransformerEncoder",
+    # Bag-level baselines
+    "DeepSetsLesionBaseline",
+    "LesionSetTransformerBaseline",
     "PooledLesionBaseline",
+    # Heads and outputs
+    "LesionMultitaskHeads",
+    "LesionTaskHeadOutput",
+    "EAMISTModel",
+    "EAMISTOutput",
+    "LesionSetTransformerBackbone",
+    # Other
+    "EvolutionBranch",
     "PrototypeBottleneck",
     "PrototypeBottleneckOutput",
 ]

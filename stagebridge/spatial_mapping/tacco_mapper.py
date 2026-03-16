@@ -1,4 +1,5 @@
 """TACCO provider wrapper for raw snRNA -> spatial mapping."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -81,7 +82,9 @@ def _write_reference_subset_h5ad(
         var=pd.DataFrame(index=read_h5ad_var_index(snrna_h5ad_path)),
     )
     try:
-        subset.layers["counts"] = _read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="layers/counts")
+        subset.layers["counts"] = _read_h5ad_csr_rows(
+            snrna_h5ad_path, rows, group_name="layers/counts"
+        )
     except Exception:
         pass
     subset.write_h5ad(subset_h5ad_path, compression="lzf")
@@ -103,7 +106,11 @@ def _tacco_cache_bundle(
     seed: int,
 ) -> dict[str, Path]:
     paths = resolve_luad_evo_paths(cfg)
-    provider_cfg = dict(cfg.get("spatial_mapping", {})) if hasattr(cfg, "get") else dict(cfg["spatial_mapping"])
+    provider_cfg = (
+        dict(cfg.get("spatial_mapping", {}))
+        if hasattr(cfg, "get")
+        else dict(cfg["spatial_mapping"])
+    )
     cache_key = _stable_hash(
         {
             "method": "tacco",
@@ -171,12 +178,20 @@ def run_tacco(
     max_spots_per_stage: int | None = None,
     seed: int = 42,
 ) -> SpatialMappingResult:
-    provider_cfg = dict(cfg.get("spatial_mapping", {})) if hasattr(cfg, "get") else dict(cfg["spatial_mapping"])
+    provider_cfg = (
+        dict(cfg.get("spatial_mapping", {}))
+        if hasattr(cfg, "get")
+        else dict(cfg["spatial_mapping"])
+    )
     execution_mode = str(provider_cfg.get("execution_mode", "rebuild_cached"))
     provider_version = _provider_version("tacco")
 
     precomputed_path = provider_cfg.get("precomputed_h5ad")
-    if precomputed_path and Path(str(precomputed_path)).exists() and execution_mode == "load_precomputed":
+    if (
+        precomputed_path
+        and Path(str(precomputed_path)).exists()
+        and execution_mode == "load_precomputed"
+    ):
         return _load_tacco_mapping(
             cfg,
             mapping_h5ad_path=Path(str(precomputed_path)),

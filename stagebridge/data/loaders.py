@@ -64,7 +64,9 @@ class StageBridgeBatch:
             niche_mask=self.niche_mask.to(device),
             wes_features=self.wes_features.to(device) if self.wes_features is not None else None,
             has_wes=self.has_wes.to(device) if self.has_wes is not None else None,
-            niche_influence=self.niche_influence.to(device) if self.niche_influence is not None else None,
+            niche_influence=self.niche_influence.to(device)
+            if self.niche_influence is not None
+            else None,
         )
 
 
@@ -163,8 +165,8 @@ class StageBridgeDataset(Dataset):
 
         # Sample a target cell from target stage (same donor for matched pairs)
         target_candidates = self.cells[
-            (self.cells["stage"] == target_stage) &
-            (self.cells["donor_id"] == source_cell["donor_id"])
+            (self.cells["stage"] == target_stage)
+            & (self.cells["donor_id"] == source_cell["donor_id"])
         ]
 
         if len(target_candidates) == 0:
@@ -183,9 +185,7 @@ class StageBridgeDataset(Dataset):
         z_target = np.array([target_cell[f"z_fused_{i}"] for i in range(self.latent_dim)])
 
         # Get niche context (9 tokens)
-        niche = self.neighborhoods[
-            self.neighborhoods["cell_id"] == source_cell["cell_id"]
-        ].iloc[0]
+        niche = self.neighborhoods[self.neighborhoods["cell_id"] == source_cell["cell_id"]].iloc[0]
 
         niche_tokens, niche_mask = self._parse_niche_tokens(niche)
 
@@ -193,11 +193,13 @@ class StageBridgeDataset(Dataset):
         wes_features = None
         has_wes = False
         if self.load_wes and "tmb" in source_cell:
-            wes_features = np.array([
-                source_cell["tmb"],
-                source_cell.get("smoking_signature", 0.0),
-                source_cell.get("uv_signature", 0.0),
-            ])
+            wes_features = np.array(
+                [
+                    source_cell["tmb"],
+                    source_cell.get("smoking_signature", 0.0),
+                    source_cell.get("uv_signature", 0.0),
+                ]
+            )
             has_wes = True
 
         # Ground truth niche influence (for synthetic data only)
@@ -213,9 +215,13 @@ class StageBridgeDataset(Dataset):
             "z_target": torch.from_numpy(z_target).float(),
             "niche_tokens": torch.from_numpy(niche_tokens).float(),
             "niche_mask": torch.from_numpy(niche_mask).bool(),
-            "wes_features": torch.from_numpy(wes_features).float() if wes_features is not None else None,
+            "wes_features": torch.from_numpy(wes_features).float()
+            if wes_features is not None
+            else None,
             "has_wes": torch.tensor(has_wes).bool(),
-            "niche_influence": torch.tensor(niche_influence).float() if niche_influence is not None else None,
+            "niche_influence": torch.tensor(niche_influence).float()
+            if niche_influence is not None
+            else None,
         }
 
     def _parse_niche_tokens(self, niche: pd.Series) -> tuple[np.ndarray, np.ndarray]:
@@ -241,24 +247,24 @@ class StageBridgeDataset(Dataset):
             if token["token_type"] == "receiver":
                 # Receiver: use z_fused
                 z = token["z_fused"]
-                niche_array[idx, :self.latent_dim] = z[:self.latent_dim]
+                niche_array[idx, : self.latent_dim] = z[: self.latent_dim]
 
             elif token["token_type"].startswith("ring"):
                 # Ring: use pooled embedding
                 z = token["z_pooled"]
-                niche_array[idx, :self.latent_dim] = z[:self.latent_dim]
+                niche_array[idx, : self.latent_dim] = z[: self.latent_dim]
                 # Add diversity as extra feature
                 niche_array[idx, self.latent_dim] = token.get("n_cells", 0) / 5.0
 
             elif token["token_type"] == "hlca":
                 # HLCA reference
                 z = token["z_hlca"]
-                niche_array[idx, :self.latent_dim] = z[:self.latent_dim]
+                niche_array[idx, : self.latent_dim] = z[: self.latent_dim]
 
             elif token["token_type"] == "luca":
                 # LuCA reference
                 z = token["z_luca"]
-                niche_array[idx, :self.latent_dim] = z[:self.latent_dim]
+                niche_array[idx, : self.latent_dim] = z[: self.latent_dim]
 
             elif token["token_type"] == "pathway":
                 # Pathway activity
@@ -287,10 +293,12 @@ def collate_fn(batch: list[dict]) -> StageBridgeBatch:
         niche_tokens=torch.stack([x["niche_tokens"] for x in batch]),
         niche_mask=torch.stack([x["niche_mask"] for x in batch]),
         wes_features=torch.stack([x["wes_features"] for x in batch])
-        if batch[0]["wes_features"] is not None else None,
+        if batch[0]["wes_features"] is not None
+        else None,
         has_wes=torch.stack([x["has_wes"] for x in batch]),
         niche_influence=torch.stack([x["niche_influence"] for x in batch])
-        if batch[0]["niche_influence"] is not None else None,
+        if batch[0]["niche_influence"] is not None
+        else None,
     )
 
 
@@ -375,20 +383,22 @@ class NegativeControlDataset(Dataset):
             # Replace target with invalid stage
             valid_stages = self.base_dataset.cells["stage"].unique()
             invalid_stages = [
-                s for s in valid_stages
+                s
+                for s in valid_stages
                 if s != sample["source_stage"] and s != sample["target_stage"]
             ]
 
             if len(invalid_stages) > 0:
                 wrong_stage = self.rng.choice(invalid_stages)
-                wrong_target = self.base_dataset.cells[
-                    self.base_dataset.cells["stage"] == wrong_stage
-                ].sample(n=1, random_state=idx).iloc[0]
+                wrong_target = (
+                    self.base_dataset.cells[self.base_dataset.cells["stage"] == wrong_stage]
+                    .sample(n=1, random_state=idx)
+                    .iloc[0]
+                )
 
-                z_target = np.array([
-                    wrong_target[f"z_fused_{i}"]
-                    for i in range(self.base_dataset.latent_dim)
-                ])
+                z_target = np.array(
+                    [wrong_target[f"z_fused_{i}"] for i in range(self.base_dataset.latent_dim)]
+                )
                 sample["z_target"] = torch.from_numpy(z_target).float()
                 sample["target_stage"] = wrong_stage
 
@@ -414,11 +424,13 @@ class NegativeControlDataset(Dataset):
 
                 if len(other_cells) > 0:
                     wrong_cell = other_cells.sample(n=1, random_state=idx).iloc[0]
-                    wes_wrong = np.array([
-                        wrong_cell["tmb"],
-                        wrong_cell.get("smoking_signature", 0.0),
-                        wrong_cell.get("uv_signature", 0.0),
-                    ])
+                    wes_wrong = np.array(
+                        [
+                            wrong_cell["tmb"],
+                            wrong_cell.get("smoking_signature", 0.0),
+                            wrong_cell.get("uv_signature", 0.0),
+                        ]
+                    )
                     sample["wes_features"] = torch.from_numpy(wes_wrong).float()
 
         return sample

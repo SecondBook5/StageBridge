@@ -1,4 +1,5 @@
 """Transition-model pipeline entrypoint."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -9,7 +10,10 @@ from omegaconf import DictConfig, OmegaConf
 
 from stagebridge.context_model.graph_builder import build_spatial_knn_graph
 from stagebridge.context_model.graph_encoder import GraphOfSetsContextEncoder
-from stagebridge.context_model.hierarchical_transformer import TypedHierarchicalTransformerEncoder, dataset_name_to_id
+from stagebridge.context_model.hierarchical_transformer import (
+    TypedHierarchicalTransformerEncoder,
+    dataset_name_to_id,
+)
 from stagebridge.context_model.set_encoder import (
     DeepSetsContextEncoder,
     DeepSetsTransformerHybridEncoder,
@@ -21,7 +25,11 @@ from stagebridge.data.common.schema import LatentCohort
 from stagebridge.data.luad_evo.wes import build_wes_feature_lookup, load_luad_evo_wes_features
 from stagebridge.pipelines.run_reference import run_reference
 from stagebridge.pipelines.run_spatial_mapping import run_spatial_mapping
-from stagebridge.transition_model.disease_edges import edge_id_map, edge_label, resolve_disease_edge
+from stagebridge.transition_model.disease_edges import (
+    edge_id_map,
+    edge_label,
+    resolve_disease_edge,
+)
 from stagebridge.transition_model.stochastic_dynamics import EdgeWiseStochasticDynamics
 from stagebridge.transition_model.relational_pretraining import RelationalPretrainingConfig
 from stagebridge.transition_model.train import (
@@ -44,10 +52,16 @@ def _build_shuffled_control_tokens(
     rng = np.random.default_rng(int(seed))
     shuffled_tokens = np.asarray(tokens, dtype=np.float32).copy()
     for col_idx in range(shuffled_tokens.shape[1]):
-        shuffled_tokens[:, col_idx] = shuffled_tokens[rng.permutation(shuffled_tokens.shape[0]), col_idx]
+        shuffled_tokens[:, col_idx] = shuffled_tokens[
+            rng.permutation(shuffled_tokens.shape[0]), col_idx
+        ]
     shuffled_coords = np.asarray(coords, dtype=np.float32)[rng.permutation(coords.shape[0])].copy()
-    shuffled_confidence = np.asarray(confidence, dtype=np.float32)[rng.permutation(confidence.shape[0])].copy()
-    shuffled_token_type_ids = np.asarray(token_type_ids, dtype=np.int64)[rng.permutation(token_type_ids.shape[0])].copy()
+    shuffled_confidence = np.asarray(confidence, dtype=np.float32)[
+        rng.permutation(confidence.shape[0])
+    ].copy()
+    shuffled_token_type_ids = np.asarray(token_type_ids, dtype=np.int64)[
+        rng.permutation(token_type_ids.shape[0])
+    ].copy()
     return shuffled_tokens, shuffled_coords, shuffled_confidence, shuffled_token_type_ids
 
 
@@ -64,7 +78,9 @@ def _select_context_rows(
     chosen_donor = ""
     fallback = False
     for donor_id in donor_candidates:
-        mask = (obs["donor_id"].astype(str) == str(donor_id)) & (obs["stage"].astype(str) == str(stage))
+        mask = (obs["donor_id"].astype(str) == str(donor_id)) & (
+            obs["stage"].astype(str) == str(stage)
+        )
         rows = np.flatnonzero(mask.to_numpy())
         if rows.size > 0:
             chosen_rows = rows
@@ -155,7 +171,9 @@ def _build_optional_negative_control(
 
 
 def _spot_alignment_keys(obs: Any) -> list[str]:
-    sample_ids = obs["sample_id"].astype(str) if "sample_id" in obs.columns else obs.index.astype(str)
+    sample_ids = (
+        obs["sample_id"].astype(str) if "sample_id" in obs.columns else obs.index.astype(str)
+    )
     if "spot_id" in obs.columns:
         spot_ids = obs["spot_id"].astype(str)
     elif "barcode" in obs.columns:
@@ -165,7 +183,9 @@ def _spot_alignment_keys(obs: Any) -> list[str]:
     stages = obs["stage"].astype(str) if "stage" in obs.columns else ["unknown"] * len(obs)
     return [
         f"{sample_id}|{spot_id}|{stage}"
-        for sample_id, spot_id, stage in zip(sample_ids.tolist(), spot_ids.tolist(), list(stages), strict=False)
+        for sample_id, spot_id, stage in zip(
+            sample_ids.tolist(), spot_ids.tolist(), list(stages), strict=False
+        )
     ]
 
 
@@ -177,7 +197,11 @@ def _build_cross_provider_views(
     edge_id: int,
     selected_method: str | None,
 ) -> list[dict[str, Any]]:
-    methods = list(cfg.get("context_model", {}).get("pretraining", {}).get("provider_methods", ["tangram", "tacco", "destvi"]))
+    methods = list(
+        cfg.get("context_model", {})
+        .get("pretraining", {})
+        .get("provider_methods", ["tangram", "tacco", "destvi"])
+    )
     if not methods:
         return []
     reference_obs = typed.obs.iloc[chosen_rows].reset_index(drop=True)
@@ -199,7 +223,12 @@ def _build_cross_provider_views(
         except Exception:
             continue
         alt_result = alt_spatial.get("mapping_result")
-        if alt_result is None or alt_result.compositions is None or alt_result.coords is None or alt_result.obs is None:
+        if (
+            alt_result is None
+            or alt_result.compositions is None
+            or alt_result.coords is None
+            or alt_result.obs is None
+        ):
             continue
         alt_typed = build_typed_spot_tokens(
             alt_result.compositions,
@@ -218,8 +247,12 @@ def _build_cross_provider_views(
                 "method": method_name,
                 "tokens": torch.tensor(alt_typed.tokens[matched], dtype=torch.float32),
                 "coords": torch.tensor(alt_typed.coords[matched], dtype=torch.float32),
-                "confidence": torch.tensor(alt_typed.token_confidence[matched], dtype=torch.float32),
-                "token_type_ids": torch.tensor(alt_typed.token_type_ids[matched], dtype=torch.long),
+                "confidence": torch.tensor(
+                    alt_typed.token_confidence[matched], dtype=torch.float32
+                ),
+                "token_type_ids": torch.tensor(
+                    alt_typed.token_type_ids[matched], dtype=torch.long
+                ),
                 "dataset_ids": dataset_ids.clone(),
                 "edge_ids": edge_ids.clone(),
                 "notes": "cross_provider_view",
@@ -276,17 +309,23 @@ def _build_context_bundle(
     token_type_ids = typed.token_type_ids[chosen_rows].astype(np.int64, copy=False)
     token_confidence = typed.token_confidence[chosen_rows].astype(np.float32, copy=False)
     token_missing_mask = typed.token_missing_mask[chosen_rows].astype(bool, copy=False)
-    shuffled_tokens, shuffled_coords, shuffled_confidence, shuffled_token_type_ids = _build_shuffled_control_tokens(
-        node_tokens,
-        node_coords,
-        token_confidence,
-        token_type_ids,
-        seed=int(cfg.get("seed", 42)),
+    shuffled_tokens, shuffled_coords, shuffled_confidence, shuffled_token_type_ids = (
+        _build_shuffled_control_tokens(
+            node_tokens,
+            node_coords,
+            token_confidence,
+            token_type_ids,
+            seed=int(cfg.get("seed", 42)),
+        )
     )
     diagnostics.update(
         {
-            "mean_token_confidence": float(token_confidence.mean()) if token_confidence.size else 0.0,
-            "missing_token_fraction": float(token_missing_mask.mean()) if token_missing_mask.size else 0.0,
+            "mean_token_confidence": float(token_confidence.mean())
+            if token_confidence.size
+            else 0.0,
+            "missing_token_fraction": float(token_missing_mask.mean())
+            if token_missing_mask.size
+            else 0.0,
             "token_group_means": {
                 str(name): float(node_tokens[:, idx].mean())
                 for idx, name in enumerate(typed.schema.typed_feature_names)
@@ -331,7 +370,9 @@ def _build_context_bundle(
                 "coords": torch.tensor(node_coords, dtype=torch.float32),
                 "confidence": torch.tensor(token_confidence, dtype=torch.float32),
                 "token_type_ids": torch.tensor(token_type_ids, dtype=torch.long),
-                "dataset_ids": torch.tensor([dataset_name_to_id(str(transfer_dataset))], dtype=torch.long),
+                "dataset_ids": torch.tensor(
+                    [dataset_name_to_id(str(transfer_dataset))], dtype=torch.long
+                ),
                 "label": "dataset_id_mismatch",
                 "note": "cross_dataset_id_control",
                 "stage": str(stage_src),
@@ -339,7 +380,13 @@ def _build_context_bundle(
             }
         )
 
-    if mode in {"pooled", "deep_sets", "set_only", "typed_hierarchical_transformer", "deep_sets_transformer_hybrid"}:
+    if mode in {
+        "pooled",
+        "deep_sets",
+        "set_only",
+        "typed_hierarchical_transformer",
+        "deep_sets_transformer_hybrid",
+    }:
         if mode == "pooled":
             encoder = PooledContextEncoder(
                 input_dim=node_tokens.shape[1],
@@ -349,50 +396,90 @@ def _build_context_bundle(
             encoder = DeepSetsContextEncoder(
                 input_dim=node_tokens.shape[1],
                 hidden_dim=hidden_dim,
-                dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                dropout=float(
+                    cfg.get("transition_model", {})
+                    .get("stochastic_dynamics", {})
+                    .get("dropout", 0.1)
+                ),
             )
         elif mode == "set_only":
             encoder = TypedSetContextEncoder(
                 input_dim=node_tokens.shape[1],
                 hidden_dim=hidden_dim,
                 num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
-                num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
-                dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                num_inducing_points=int(
+                    cfg.get("context_model", {}).get("num_inducing_points", 16)
+                ),
+                dropout=float(
+                    cfg.get("transition_model", {})
+                    .get("stochastic_dynamics", {})
+                    .get("dropout", 0.1)
+                ),
                 num_token_types=len(typed.schema.typed_feature_names),
                 use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
-                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
-                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
+                token_dropout_rate=float(
+                    cfg.get("context_model", {}).get("token_dropout_rate", 0.05)
+                ),
+                use_confidence_gate=bool(
+                    cfg.get("context_model", {}).get("use_confidence_gate", True)
+                ),
             )
         elif mode == "deep_sets_transformer_hybrid":
             encoder = DeepSetsTransformerHybridEncoder(
                 input_dim=node_tokens.shape[1],
                 hidden_dim=hidden_dim,
                 num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
-                num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
+                num_inducing_points=int(
+                    cfg.get("context_model", {}).get("num_inducing_points", 16)
+                ),
                 num_seed_vectors=int(cfg.get("context_model", {}).get("num_seed_vectors", 2)),
-                dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                dropout=float(
+                    cfg.get("transition_model", {})
+                    .get("stochastic_dynamics", {})
+                    .get("dropout", 0.1)
+                ),
                 num_token_types=len(typed.schema.typed_feature_names),
                 use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
-                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
-                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
+                token_dropout_rate=float(
+                    cfg.get("context_model", {}).get("token_dropout_rate", 0.05)
+                ),
+                use_confidence_gate=bool(
+                    cfg.get("context_model", {}).get("use_confidence_gate", True)
+                ),
             )
         else:
             encoder = TypedHierarchicalTransformerEncoder(
                 input_dim=node_tokens.shape[1],
                 hidden_dim=hidden_dim,
                 num_heads=int(cfg.get("context_model", {}).get("num_heads", 4)),
-                num_inducing_points=int(cfg.get("context_model", {}).get("num_inducing_points", 16)),
-                dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+                num_inducing_points=int(
+                    cfg.get("context_model", {}).get("num_inducing_points", 16)
+                ),
+                dropout=float(
+                    cfg.get("transition_model", {})
+                    .get("stochastic_dynamics", {})
+                    .get("dropout", 0.1)
+                ),
                 num_token_types=len(typed.schema.typed_feature_names),
-                num_group_summary_tokens=int(cfg.get("context_model", {}).get("num_group_summary_tokens", 2)),
+                num_group_summary_tokens=int(
+                    cfg.get("context_model", {}).get("num_group_summary_tokens", 2)
+                ),
                 num_fusion_queries=int(cfg.get("context_model", {}).get("num_fusion_queries", 7)),
-                dataset_embedding_dim=int(cfg.get("context_model", {}).get("dataset_embedding_dim", 16)),
+                dataset_embedding_dim=int(
+                    cfg.get("context_model", {}).get("dataset_embedding_dim", 16)
+                ),
                 num_datasets=4,
                 num_edges=max(8, len(edge_id_map())),
                 use_spatial_rpe=bool(cfg.get("context_model", {}).get("use_spatial_rpe", True)),
-                use_confidence_gate=bool(cfg.get("context_model", {}).get("use_confidence_gate", True)),
-                token_dropout_rate=float(cfg.get("context_model", {}).get("token_dropout_rate", 0.05)),
-                use_relation_tokens=bool(cfg.get("context_model", {}).get("use_relation_tokens", True)),
+                use_confidence_gate=bool(
+                    cfg.get("context_model", {}).get("use_confidence_gate", True)
+                ),
+                token_dropout_rate=float(
+                    cfg.get("context_model", {}).get("token_dropout_rate", 0.05)
+                ),
+                use_relation_tokens=bool(
+                    cfg.get("context_model", {}).get("use_relation_tokens", True)
+                ),
                 group_names=list(typed.schema.typed_feature_names),
             )
         diagnostics.update(
@@ -405,7 +492,11 @@ def _build_context_bundle(
             }
         )
         provider_views = []
-        if mode == "typed_hierarchical_transformer" and bool(cfg.get("context_model", {}).get("pretraining", {}).get("provider_consistency_enabled", True)):
+        if mode == "typed_hierarchical_transformer" and bool(
+            cfg.get("context_model", {})
+            .get("pretraining", {})
+            .get("provider_consistency_enabled", True)
+        ):
             provider_views = _build_cross_provider_views(
                 cfg,
                 typed=typed,
@@ -413,7 +504,9 @@ def _build_context_bundle(
                 edge_id=edge_id,
                 selected_method=spatial_method,
             )
-            diagnostics["provider_views_available"] = [str(view["method"]) for view in provider_views]
+            diagnostics["provider_views_available"] = [
+                str(view["method"]) for view in provider_views
+            ]
         return {
             "context": None,
             "shuffled_context": None,
@@ -454,7 +547,9 @@ def _build_context_bundle(
         hidden_dim=hidden_dim,
         num_graph_layers=int(cfg.get("context_model", {}).get("graph_num_layers", 2)),
         num_heads=int(cfg.get("context_model", {}).get("graph_num_heads", 4)),
-        dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+        dropout=float(
+            cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)
+        ),
     )
     diagnostics.update(
         {
@@ -505,7 +600,11 @@ def _summarize_attention_maps(
         token_type_names = list(typed_feature_names)
         counts: dict[str, int] = {}
         for token_type in token_type_ids.detach().cpu().tolist():
-            name = token_type_names[int(token_type)] if 0 <= int(token_type) < len(token_type_names) else str(token_type)
+            name = (
+                token_type_names[int(token_type)]
+                if 0 <= int(token_type) < len(token_type_names)
+                else str(token_type)
+            )
             counts[name] = counts.get(name, 0) + 1
         summary["token_type_distribution"] = counts
     pma_attention = attention_maps.get("pma_seed_attention")
@@ -513,7 +612,9 @@ def _summarize_attention_maps(
         weights = pma_attention.detach().float().cpu()
         while weights.ndim > 1 and weights.shape[0] == 1:
             weights = weights[0]
-        token_scores = weights.mean(dim=0).mean(dim=0) if weights.ndim == 3 else weights.reshape(-1)
+        token_scores = (
+            weights.mean(dim=0).mean(dim=0) if weights.ndim == 3 else weights.reshape(-1)
+        )
         top_k = min(5, int(token_scores.shape[-1]))
         top_values, top_indices = torch.topk(token_scores, k=top_k)
         summary["top_token_indices"] = [int(idx) for idx in top_indices.tolist()]
@@ -525,7 +626,9 @@ def _summarize_attention_maps(
             for idx in top_indices.tolist():
                 token_type = int(ids_cpu[int(idx)].item())
                 token_names.append(
-                    feature_names[token_type] if 0 <= token_type < len(feature_names) else str(token_type)
+                    feature_names[token_type]
+                    if 0 <= token_type < len(feature_names)
+                    else str(token_type)
                 )
             summary["top_token_types"] = token_names
         if token_coords is not None:
@@ -535,10 +638,14 @@ def _summarize_attention_maps(
                 [float(value) for value in coords_cpu[int(idx)].tolist()]
                 for idx in top_indices.tolist()
             ]
-            summary["top_token_distance_bins"] = [float(dists[int(idx)].item()) for idx in top_indices.tolist()]
+            summary["top_token_distance_bins"] = [
+                float(dists[int(idx)].item()) for idx in top_indices.tolist()
+            ]
         if token_confidence is not None:
             confidence_cpu = token_confidence.detach().float().cpu()
-            summary["top_token_confidence"] = [float(confidence_cpu[int(idx)].item()) for idx in top_indices.tolist()]
+            summary["top_token_confidence"] = [
+                float(confidence_cpu[int(idx)].item()) for idx in top_indices.tolist()
+            ]
             weighted = token_scores * confidence_cpu
             weighted = weighted / weighted.sum().clamp_min(1e-8)
             summary["confidence_weighted_attention_entropy"] = float(
@@ -552,11 +659,17 @@ def _summarize_attention_maps(
     return summary
 
 
-def _tensor_subset(latent: np.ndarray, obs: Any, donors: list[str], *, device: str) -> tuple[torch.Tensor, Any]:
+def _tensor_subset(
+    latent: np.ndarray, obs: Any, donors: list[str], *, device: str
+) -> tuple[torch.Tensor, Any]:
     mask = obs["donor_id"].astype(str).isin([str(donor) for donor in donors]).to_numpy()
     if mask.sum() == 0:
-        return torch.zeros((0, latent.shape[1]), dtype=torch.float32, device=device), obs.iloc[0:0].copy()
-    return torch.tensor(latent[mask], dtype=torch.float32, device=device), obs.loc[mask].reset_index(drop=True)
+        return torch.zeros((0, latent.shape[1]), dtype=torch.float32, device=device), obs.iloc[
+            0:0
+        ].copy()
+    return torch.tensor(latent[mask], dtype=torch.float32, device=device), obs.loc[
+        mask
+    ].reset_index(drop=True)
 
 
 def _subset_reference_cohort(
@@ -624,7 +737,12 @@ def _resolve_typed_tokens(
 
     spatial_payload = spatial_output or run_spatial_mapping(cfg)
     spatial_result = spatial_payload.get("mapping_result")
-    if spatial_result is None or spatial_result.compositions is None or spatial_result.coords is None or spatial_result.obs is None:
+    if (
+        spatial_result is None
+        or spatial_result.compositions is None
+        or spatial_result.coords is None
+        or spatial_result.obs is None
+    ):
         method = str(cfg.get("spatial_mapping", {}).get("method", "tangram"))
         status = None if spatial_result is None else spatial_result.status
         raise ValueError(
@@ -672,14 +790,24 @@ def run_transition_model(
         stage_src=edge.stage_src,
         stage_tgt=edge.stage_tgt,
     )
-    x_src_train, src_train_obs = _tensor_subset(x_src_full, src_obs, split.source_train_donors, device=device)
-    x_tgt_train, tgt_train_obs = _tensor_subset(x_tgt_full, tgt_obs, split.target_train_donors, device=device)
-    x_src_test, src_test_obs = _tensor_subset(x_src_full, src_obs, split.source_test_donors, device=device)
-    x_tgt_test, tgt_test_obs = _tensor_subset(x_tgt_full, tgt_obs, split.target_test_donors, device=device)
+    x_src_train, src_train_obs = _tensor_subset(
+        x_src_full, src_obs, split.source_train_donors, device=device
+    )
+    x_tgt_train, tgt_train_obs = _tensor_subset(
+        x_tgt_full, tgt_obs, split.target_train_donors, device=device
+    )
+    x_src_test, src_test_obs = _tensor_subset(
+        x_src_full, src_obs, split.source_test_donors, device=device
+    )
+    x_tgt_test, tgt_test_obs = _tensor_subset(
+        x_tgt_full, tgt_obs, split.target_test_donors, device=device
+    )
 
     evaluation_notes: list[str] = []
     if x_src_test.shape[0] == 0 or x_tgt_test.shape[0] == 0:
-        evaluation_notes.append("Held-out edge cells unavailable for one stage; using training split for evaluation fallback.")
+        evaluation_notes.append(
+            "Held-out edge cells unavailable for one stage; using training split for evaluation fallback."
+        )
         if x_src_test.shape[0] == 0:
             x_src_test, src_test_obs = x_src_train, src_train_obs
         if x_tgt_test.shape[0] == 0:
@@ -736,14 +864,24 @@ def run_transition_model(
     model = EdgeWiseStochasticDynamics(
         input_dim=int(x_src_train.shape[1]),
         context_dim=context_dim,
-        hidden_dim=int(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("hidden_dim", 128)),
-        time_dim=int(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("time_embedding_dim", 32)),
+        hidden_dim=int(
+            cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("hidden_dim", 128)
+        ),
+        time_dim=int(
+            cfg.get("transition_model", {})
+            .get("stochastic_dynamics", {})
+            .get("time_embedding_dim", 32)
+        ),
         edge_dim=16,
         num_edges=len(edge_id_map()),
-        dropout=float(cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)),
+        dropout=float(
+            cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("dropout", 0.1)
+        ),
         min_diffusion_scale=1e-3,
         state_dependent_diffusion=bool(
-            cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("state_dependent_diffusion", True)
+            cfg.get("transition_model", {})
+            .get("stochastic_dynamics", {})
+            .get("state_dependent_diffusion", True)
         ),
         use_cross_attention_drift=bool(
             mode in {"set_only", "typed_hierarchical_transformer", "deep_sets_transformer_hybrid"}
@@ -753,7 +891,9 @@ def run_transition_model(
             cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("use_ude", False)
         ),
         ude_gate_init=float(
-            cfg.get("transition_model", {}).get("stochastic_dynamics", {}).get("ude_gate_init", 0.0)
+            cfg.get("transition_model", {})
+            .get("stochastic_dynamics", {})
+            .get("ude_gate_init", 0.0)
         ),
     ).to(device)
 
@@ -762,9 +902,15 @@ def run_transition_model(
     max_epochs = int(cfg.get("train", {}).get("max_epochs", 2))
     steps_per_epoch = int(cfg.get("train", {}).get("steps_per_epoch", 2))
     batch_cells = int(cfg.get("train", {}).get("batch_cells", 32))
-    epsilon = float(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("ot_epsilon", 0.05))
-    sinkhorn_iters = int(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("sinkhorn_iters", 80))
-    num_ot_pairs = int(cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("num_ot_pairs", 128))
+    epsilon = float(
+        cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("ot_epsilon", 0.05)
+    )
+    sinkhorn_iters = int(
+        cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("sinkhorn_iters", 80)
+    )
+    num_ot_pairs = int(
+        cfg.get("transition_model", {}).get("schrodinger_bridge", {}).get("num_ot_pairs", 128)
+    )
     seed = int(cfg.get("seed", 42))
 
     attention_summary = None
@@ -803,14 +949,20 @@ def run_transition_model(
         trained_context_encoder = trained_context_encoder.to(device)
         pretraining_heads = None
         pretraining_config = None
-        if mode == "typed_hierarchical_transformer" and bool(cfg.get("context_model", {}).get("pretraining", {}).get("enabled", True)):
+        if mode == "typed_hierarchical_transformer" and bool(
+            cfg.get("context_model", {}).get("pretraining", {}).get("enabled", True)
+        ):
             pre_cfg = cfg.get("context_model", {}).get("pretraining", {})
             pretraining_config = RelationalPretrainingConfig(
                 mask_fraction=float(pre_cfg.get("mask_fraction", 0.15)),
                 masked_token_weight=float(pre_cfg.get("masked_token_weight", 0.35)),
                 ranking_weight=float(pre_cfg.get("ranking_weight", 0.35)),
-                provider_consistency_weight=float(pre_cfg.get("provider_consistency_weight", 0.15)),
-                coordinate_corruption_weight=float(pre_cfg.get("coordinate_corruption_weight", 0.10)),
+                provider_consistency_weight=float(
+                    pre_cfg.get("provider_consistency_weight", 0.15)
+                ),
+                coordinate_corruption_weight=float(
+                    pre_cfg.get("coordinate_corruption_weight", 0.10)
+                ),
                 group_relation_weight=float(pre_cfg.get("group_relation_weight", 0.05)),
                 ranking_margin=float(pre_cfg.get("ranking_margin", 0.2)),
                 max_epochs=int(pre_cfg.get("max_epochs", 2)),
@@ -823,18 +975,34 @@ def run_transition_model(
                 context_encoder=trained_context_encoder,
                 context_tokens=context_bundle["context_tokens"].to(device),
                 token_type_ids=context_bundle["token_type_ids"].to(device),
-                token_coords=None if context_bundle["context_coords"] is None else context_bundle["context_coords"].to(device),
-                token_confidence=None if context_bundle["context_confidence"] is None else context_bundle["context_confidence"].to(device),
-                dataset_ids=None if context_bundle["dataset_ids"] is None else context_bundle["dataset_ids"].to(device),
-                edge_ids=None if context_bundle.get("edge_ids") is None else context_bundle["edge_ids"].to(device),
+                token_coords=None
+                if context_bundle["context_coords"] is None
+                else context_bundle["context_coords"].to(device),
+                token_confidence=None
+                if context_bundle["context_confidence"] is None
+                else context_bundle["context_confidence"].to(device),
+                dataset_ids=None
+                if context_bundle["dataset_ids"] is None
+                else context_bundle["dataset_ids"].to(device),
+                edge_ids=None
+                if context_bundle.get("edge_ids") is None
+                else context_bundle["edge_ids"].to(device),
                 negative_controls=[
                     {
                         **control,
                         "tokens": control["tokens"].to(device),
-                        "coords": None if control.get("coords") is None else control["coords"].to(device),
-                        "confidence": None if control.get("confidence") is None else control["confidence"].to(device),
-                        "token_type_ids": None if control.get("token_type_ids") is None else control["token_type_ids"].to(device),
-                        "dataset_ids": None if control.get("dataset_ids") is None else control["dataset_ids"].to(device),
+                        "coords": None
+                        if control.get("coords") is None
+                        else control["coords"].to(device),
+                        "confidence": None
+                        if control.get("confidence") is None
+                        else control["confidence"].to(device),
+                        "token_type_ids": None
+                        if control.get("token_type_ids") is None
+                        else control["token_type_ids"].to(device),
+                        "dataset_ids": None
+                        if control.get("dataset_ids") is None
+                        else control["dataset_ids"].to(device),
                     }
                     for control in context_bundle.get("context_negative_controls", [])
                 ],
@@ -842,10 +1010,18 @@ def run_transition_model(
                     {
                         **view,
                         "tokens": view["tokens"].to(device),
-                        "coords": None if view.get("coords") is None else view["coords"].to(device),
-                        "confidence": None if view.get("confidence") is None else view["confidence"].to(device),
-                        "token_type_ids": None if view.get("token_type_ids") is None else view["token_type_ids"].to(device),
-                        "dataset_ids": None if view.get("dataset_ids") is None else view["dataset_ids"].to(device),
+                        "coords": None
+                        if view.get("coords") is None
+                        else view["coords"].to(device),
+                        "confidence": None
+                        if view.get("confidence") is None
+                        else view["confidence"].to(device),
+                        "token_type_ids": None
+                        if view.get("token_type_ids") is None
+                        else view["token_type_ids"].to(device),
+                        "dataset_ids": None
+                        if view.get("dataset_ids") is None
+                        else view["dataset_ids"].to(device),
                     }
                     for view in context_bundle.get("provider_views", [])
                 ],
@@ -863,7 +1039,9 @@ def run_transition_model(
             context_encoder=trained_context_encoder,
             context_tokens=context_bundle["context_tokens"].to(device),
             shuffled_context_tokens=context_bundle["shuffled_context_tokens"].to(device),
-            context_coords=None if context_bundle["context_coords"] is None else context_bundle["context_coords"].to(device),
+            context_coords=None
+            if context_bundle["context_coords"] is None
+            else context_bundle["context_coords"].to(device),
             shuffled_context_coords=None
             if context_bundle["shuffled_context_coords"] is None
             else context_bundle["shuffled_context_coords"].to(device),
@@ -889,20 +1067,34 @@ def run_transition_model(
             seed=seed,
             extra_cost=extra_cost,
             context_graph=context_graph,
-            token_type_ids=None if context_bundle["token_type_ids"] is None else context_bundle["token_type_ids"].to(device),
+            token_type_ids=None
+            if context_bundle["token_type_ids"] is None
+            else context_bundle["token_type_ids"].to(device),
             shuffled_token_type_ids=None
             if context_bundle["shuffled_token_type_ids"] is None
             else context_bundle["shuffled_token_type_ids"].to(device),
-            dataset_ids=None if context_bundle["dataset_ids"] is None else context_bundle["dataset_ids"].to(device),
-            edge_ids=None if context_bundle.get("edge_ids") is None else context_bundle["edge_ids"].to(device),
+            dataset_ids=None
+            if context_bundle["dataset_ids"] is None
+            else context_bundle["dataset_ids"].to(device),
+            edge_ids=None
+            if context_bundle.get("edge_ids") is None
+            else context_bundle["edge_ids"].to(device),
             context_negative_controls=[
                 {
                     **control,
                     "tokens": control["tokens"].to(device),
-                    "coords": None if control.get("coords") is None else control["coords"].to(device),
-                    "confidence": None if control.get("confidence") is None else control["confidence"].to(device),
-                    "token_type_ids": None if control.get("token_type_ids") is None else control["token_type_ids"].to(device),
-                    "dataset_ids": None if control.get("dataset_ids") is None else control["dataset_ids"].to(device),
+                    "coords": None
+                    if control.get("coords") is None
+                    else control["coords"].to(device),
+                    "confidence": None
+                    if control.get("confidence") is None
+                    else control["confidence"].to(device),
+                    "token_type_ids": None
+                    if control.get("token_type_ids") is None
+                    else control["token_type_ids"].to(device),
+                    "dataset_ids": None
+                    if control.get("dataset_ids") is None
+                    else control["dataset_ids"].to(device),
                 }
                 for control in context_bundle.get("context_negative_controls", [])
             ],
@@ -911,21 +1103,42 @@ def run_transition_model(
                     **view,
                     "tokens": view["tokens"].to(device),
                     "coords": None if view.get("coords") is None else view["coords"].to(device),
-                    "confidence": None if view.get("confidence") is None else view["confidence"].to(device),
-                    "token_type_ids": None if view.get("token_type_ids") is None else view["token_type_ids"].to(device),
-                    "dataset_ids": None if view.get("dataset_ids") is None else view["dataset_ids"].to(device),
+                    "confidence": None
+                    if view.get("confidence") is None
+                    else view["confidence"].to(device),
+                    "token_type_ids": None
+                    if view.get("token_type_ids") is None
+                    else view["token_type_ids"].to(device),
+                    "dataset_ids": None
+                    if view.get("dataset_ids") is None
+                    else view["dataset_ids"].to(device),
                 }
                 for view in context_bundle.get("provider_views", [])
             ],
-            capture_attention=bool(mode in {"set_only", "typed_hierarchical_transformer", "deep_sets_transformer_hybrid"}),
-            auxiliary_loss_weight=float(cfg.get("context_model", {}).get("auxiliary_context_shuffle_weight", 0.1)),
+            capture_attention=bool(
+                mode
+                in {"set_only", "typed_hierarchical_transformer", "deep_sets_transformer_hybrid"}
+            ),
+            auxiliary_loss_weight=float(
+                cfg.get("context_model", {}).get("auxiliary_context_shuffle_weight", 0.1)
+            ),
             pretraining_config=None
             if pretraining_config is None
             else RelationalPretrainingConfig(
                 mask_fraction=float(pretraining_config.mask_fraction),
-                masked_token_weight=float(cfg.get("context_model", {}).get("finetune", {}).get("masked_token_weight", 0.05)),
-                ranking_weight=float(cfg.get("context_model", {}).get("finetune", {}).get("ranking_weight", 0.15)),
-                provider_consistency_weight=float(cfg.get("context_model", {}).get("finetune", {}).get("provider_consistency_weight", 0.05)),
+                masked_token_weight=float(
+                    cfg.get("context_model", {})
+                    .get("finetune", {})
+                    .get("masked_token_weight", 0.05)
+                ),
+                ranking_weight=float(
+                    cfg.get("context_model", {}).get("finetune", {}).get("ranking_weight", 0.15)
+                ),
+                provider_consistency_weight=float(
+                    cfg.get("context_model", {})
+                    .get("finetune", {})
+                    .get("provider_consistency_weight", 0.05)
+                ),
                 coordinate_corruption_weight=0.0,
                 group_relation_weight=0.0,
                 ranking_margin=float(pretraining_config.ranking_margin),
@@ -939,34 +1152,66 @@ def run_transition_model(
         trained_summary = joint["context_summary"]
         shuffled_summary = joint["shuffled_context_summary"]
         trained_context = trained_summary.pooled_context.to(device)
-        trained_context_tokens = None if getattr(trained_summary, "context_tokens", None) is None else trained_summary.context_tokens.to(device)
+        trained_context_tokens = (
+            None
+            if getattr(trained_summary, "context_tokens", None) is None
+            else trained_summary.context_tokens.to(device)
+        )
         shuffled_context = shuffled_summary.pooled_context.to(device)
-        shuffled_context_tokens = None if getattr(shuffled_summary, "context_tokens", None) is None else shuffled_summary.context_tokens.to(device)
+        shuffled_context_tokens = (
+            None
+            if getattr(shuffled_summary, "context_tokens", None) is None
+            else shuffled_summary.context_tokens.to(device)
+        )
         encoder_parameter_delta = float(joint["encoder_parameter_delta"])
         context_bundle["diagnostics"]["context_norm"] = float(trained_context.norm().item())
         context_bundle["diagnostics"]["encoder_parameter_delta"] = encoder_parameter_delta
-        context_bundle["diagnostics"]["encoder_internal"] = getattr(trained_summary, "diagnostics", {})
-        context_bundle["diagnostics"]["auxiliary_context_shuffle_loss"] = float(joint["auxiliary_metrics"]["loss"])
-        context_bundle["diagnostics"]["auxiliary_context_shuffle_accuracy"] = float(joint["auxiliary_metrics"]["accuracy"])
-        context_bundle["diagnostics"]["context_separation_score"] = float(joint["auxiliary_metrics"]["separation_score"])
-        context_bundle["diagnostics"]["auxiliary_task"] = str(joint["auxiliary_metrics"].get("task", "context_match_ranking"))
-        context_bundle["diagnostics"]["auxiliary_margin"] = float(joint["auxiliary_metrics"].get("margin", 0.0))
-        context_bundle["diagnostics"]["auxiliary_positive_score"] = float(joint["auxiliary_metrics"].get("positive_score", 0.0))
-        context_bundle["diagnostics"]["drift_context_gate"] = float(joint["auxiliary_metrics"].get("drift_context_gate", 0.0))
+        context_bundle["diagnostics"]["encoder_internal"] = getattr(
+            trained_summary, "diagnostics", {}
+        )
+        context_bundle["diagnostics"]["auxiliary_context_shuffle_loss"] = float(
+            joint["auxiliary_metrics"]["loss"]
+        )
+        context_bundle["diagnostics"]["auxiliary_context_shuffle_accuracy"] = float(
+            joint["auxiliary_metrics"]["accuracy"]
+        )
+        context_bundle["diagnostics"]["context_separation_score"] = float(
+            joint["auxiliary_metrics"]["separation_score"]
+        )
+        context_bundle["diagnostics"]["auxiliary_task"] = str(
+            joint["auxiliary_metrics"].get("task", "context_match_ranking")
+        )
+        context_bundle["diagnostics"]["auxiliary_margin"] = float(
+            joint["auxiliary_metrics"].get("margin", 0.0)
+        )
+        context_bundle["diagnostics"]["auxiliary_positive_score"] = float(
+            joint["auxiliary_metrics"].get("positive_score", 0.0)
+        )
+        context_bundle["diagnostics"]["drift_context_gate"] = float(
+            joint["auxiliary_metrics"].get("drift_context_gate", 0.0)
+        )
         context_bundle["diagnostics"]["drift_context_attention_entropy"] = float(
             joint["auxiliary_metrics"].get("drift_context_attention_entropy", 0.0)
         )
         context_bundle["diagnostics"]["negative_control_scores"] = {
             str(key): float(value)
-            for key, value in (joint["auxiliary_metrics"].get("negative_control_scores", {}) or {}).items()
+            for key, value in (
+                joint["auxiliary_metrics"].get("negative_control_scores", {}) or {}
+            ).items()
         }
         context_bundle["diagnostics"]["auxiliary_loss_components"] = {
             str(key): float(value)
-            for key, value in ((joint["auxiliary_metrics"].get("loss_components", {}) or {}).items())
+            for key, value in (
+                (joint["auxiliary_metrics"].get("loss_components", {}) or {}).items()
+            )
         }
         if mode == "graph_of_sets":
-            context_bundle["diagnostics"]["graph_num_nodes"] = int(getattr(trained_summary, "num_nodes", 0))
-            context_bundle["diagnostics"]["graph_num_edges"] = int(getattr(trained_summary, "num_edges", 0))
+            context_bundle["diagnostics"]["graph_num_nodes"] = int(
+                getattr(trained_summary, "num_nodes", 0)
+            )
+            context_bundle["diagnostics"]["graph_num_edges"] = int(
+                getattr(trained_summary, "num_edges", 0)
+            )
         attention_summary = _summarize_attention_maps(
             getattr(trained_summary, "attention_maps", None),
             token_type_ids=getattr(trained_summary, "token_type_ids", None),
@@ -975,31 +1220,47 @@ def run_transition_model(
             token_confidence=getattr(trained_summary, "token_confidence", None),
         )
         if mode == "typed_hierarchical_transformer":
-            hierarchical_diag = (getattr(trained_summary, "diagnostics", {}) or {}).get("group_diagnostics", [])
+            hierarchical_diag = (getattr(trained_summary, "diagnostics", {}) or {}).get(
+                "group_diagnostics", []
+            )
             if hierarchical_diag:
                 first_diag = hierarchical_diag[0]
                 group_scores = first_diag.get("fusion_attention_by_group", {})
                 relation_scores = first_diag.get("fusion_attention_by_relation", {})
                 query_scores = first_diag.get("query_attention_by_group", {})
-                ranked_groups = sorted(group_scores.items(), key=lambda item: item[1], reverse=True)
+                ranked_groups = sorted(
+                    group_scores.items(), key=lambda item: item[1], reverse=True
+                )
                 attention_summary = {
-                    "available_maps": sorted((getattr(trained_summary, "attention_maps", {}) or {}).keys()),
+                    "available_maps": sorted(
+                        (getattr(trained_summary, "attention_maps", {}) or {}).keys()
+                    ),
                     "top_token_types": [str(name) for name, _ in ranked_groups[:4]],
                     "top_token_attention": [float(score) for _, score in ranked_groups[:4]],
                     "pma_attention_entropy": float(np.nan),
-                    "group_attention_scores": {str(key): float(value) for key, value in group_scores.items()},
-                    "relation_attention_scores": {str(key): float(value) for key, value in relation_scores.items()},
+                    "group_attention_scores": {
+                        str(key): float(value) for key, value in group_scores.items()
+                    },
+                    "relation_attention_scores": {
+                        str(key): float(value) for key, value in relation_scores.items()
+                    },
                     "query_attention_by_group": query_scores,
                 }
         elif mode == "deep_sets_transformer_hybrid" and attention_summary is not None:
             attention_summary.update(
                 {
-                    "hybrid_gate_mean": float(getattr(trained_summary, "diagnostics", {}).get("hybrid_gate_mean", 0.0)),
+                    "hybrid_gate_mean": float(
+                        getattr(trained_summary, "diagnostics", {}).get("hybrid_gate_mean", 0.0)
+                    ),
                     "deep_sets_context_norm": float(
-                        getattr(trained_summary, "diagnostics", {}).get("deep_sets_context_norm", 0.0)
+                        getattr(trained_summary, "diagnostics", {}).get(
+                            "deep_sets_context_norm", 0.0
+                        )
                     ),
                     "transformer_refinement_norm": float(
-                        getattr(trained_summary, "diagnostics", {}).get("transformer_refinement_norm", 0.0)
+                        getattr(trained_summary, "diagnostics", {}).get(
+                            "transformer_refinement_norm", 0.0
+                        )
                     ),
                 }
             )
@@ -1015,8 +1276,12 @@ def run_transition_model(
         "sigma": sigma,
         "diffusion_weight": diffusion_weight,
         "reference": reference_payload.get("reference"),
-        "spatial_mapping": None if spatial_payload is None else spatial_payload.get("spatial_mapping"),
-        "context_model": None if resolved_context_output is None else resolved_context_output.get("context_model"),
+        "spatial_mapping": None
+        if spatial_payload is None
+        else spatial_payload.get("spatial_mapping"),
+        "context_model": None
+        if resolved_context_output is None
+        else resolved_context_output.get("context_model"),
         "split_summary": split.to_dict(),
         "context_diagnostics": context_bundle["diagnostics"],
         "wes_diagnostics": wes_diagnostics,
@@ -1030,7 +1295,9 @@ def run_transition_model(
         "trained_context_encoder": trained_context_encoder,
         "attention_summary": attention_summary,
         "encoder_parameter_delta": encoder_parameter_delta,
-        "auxiliary_context_shuffle_metrics": None if trained_context_encoder is None else joint["auxiliary_metrics"],
+        "auxiliary_context_shuffle_metrics": None
+        if trained_context_encoder is None
+        else joint["auxiliary_metrics"],
         "pretraining_summary": pretraining_summary,
         "edge_id": edge_id,
         "x_src_test": x_src_test,
@@ -1038,26 +1305,45 @@ def run_transition_model(
         "typed_subset_tokens": context_bundle["typed_subset_tokens"],
         "typed_feature_names": context_bundle["typed_feature_names"],
         "token_package": {
-            "token_values": None if context_bundle["context_tokens"] is None else context_bundle["context_tokens"].detach().cpu(),
-            "token_coords": None if context_bundle["context_coords"] is None else context_bundle["context_coords"].detach().cpu(),
-            "token_confidence": None if context_bundle["context_confidence"] is None else context_bundle["context_confidence"].detach().cpu(),
-            "token_type_ids": None if context_bundle["token_type_ids"] is None else context_bundle["token_type_ids"].detach().cpu(),
-            "token_missing_mask": None if context_bundle["context_missing_mask"] is None else context_bundle["context_missing_mask"].detach().cpu(),
-            "dataset_ids": None if context_bundle.get("dataset_ids") is None else context_bundle["dataset_ids"].detach().cpu(),
+            "token_values": None
+            if context_bundle["context_tokens"] is None
+            else context_bundle["context_tokens"].detach().cpu(),
+            "token_coords": None
+            if context_bundle["context_coords"] is None
+            else context_bundle["context_coords"].detach().cpu(),
+            "token_confidence": None
+            if context_bundle["context_confidence"] is None
+            else context_bundle["context_confidence"].detach().cpu(),
+            "token_type_ids": None
+            if context_bundle["token_type_ids"] is None
+            else context_bundle["token_type_ids"].detach().cpu(),
+            "token_missing_mask": None
+            if context_bundle["context_missing_mask"] is None
+            else context_bundle["context_missing_mask"].detach().cpu(),
+            "dataset_ids": None
+            if context_bundle.get("dataset_ids") is None
+            else context_bundle["dataset_ids"].detach().cpu(),
         },
         "dataset_transfer_diagnostics": {
             "source_dataset": str(cfg.get("data", {}).get("dataset", "luad_evo")),
             "transfer_dataset": cfg.get("context_model", {}).get("transfer_dataset"),
             "dataset_embedding_enabled": bool(mode == "typed_hierarchical_transformer"),
-            "provider_views_used": [str(view.get("method", "unknown")) for view in context_bundle.get("provider_views", [])],
+            "provider_views_used": [
+                str(view.get("method", "unknown"))
+                for view in context_bundle.get("provider_views", [])
+            ],
             "cross_dataset_negatives_used": int(
                 sum(
                     1
                     for control in context_bundle.get("context_negative_controls", [])
                     if control.get("dataset_ids") is not None
-                    and int(control["dataset_ids"][0].item()) != int(context_bundle["dataset_ids"][0].item())
+                    and int(control["dataset_ids"][0].item())
+                    != int(context_bundle["dataset_ids"][0].item())
                 )
             ),
-            "negative_control_labels": [str(control.get("label", "negative")) for control in context_bundle.get("context_negative_controls", [])],
+            "negative_control_labels": [
+                str(control.get("label", "negative"))
+                for control in context_bundle.get("context_negative_controls", [])
+            ],
         },
     }

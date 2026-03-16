@@ -10,21 +10,50 @@ from omegaconf import OmegaConf
 from stagebridge.transition_model.disease_edges import edge_id_map
 from stagebridge.utils.types import CommunicationBag, CommunicationNeighborhoodExample
 
-communication_benchmark_module = importlib.import_module("stagebridge.pipelines.run_communication_benchmark")
+communication_benchmark_module = importlib.import_module(
+    "stagebridge.pipelines.run_communication_benchmark"
+)
 
 
-def _make_bag(sample_id: str, donor_id: str, edge_label: str, weak_label: float, shift: float) -> CommunicationBag:
+def _make_bag(
+    sample_id: str, donor_id: str, edge_label: str, weak_label: float, shift: float
+) -> CommunicationBag:
     edge_lookup = edge_id_map()
     example = CommunicationNeighborhoodExample(
-        receiver_embedding=np.asarray([2.0 * weak_label + shift, 1.0 - weak_label, 0.2], dtype=np.float32),
-        receiver_programs=np.asarray([1.5 * weak_label + 0.1, 0.3 + shift, 1.0 - weak_label], dtype=np.float32),
+        receiver_embedding=np.asarray(
+            [2.0 * weak_label + shift, 1.0 - weak_label, 0.2], dtype=np.float32
+        ),
+        receiver_programs=np.asarray(
+            [1.5 * weak_label + 0.1, 0.3 + shift, 1.0 - weak_label], dtype=np.float32
+        ),
         sender_embeddings=np.asarray([[1.0 + shift, 0.1], [0.8 + shift, 0.2]], dtype=np.float32),
         sender_types=np.asarray([0, 1], dtype=np.int64),
         sender_offsets=np.asarray([[0.0, 0.0], [0.2, 0.1]], dtype=np.float32),
         ring_ids=np.asarray([0, 1], dtype=np.int64),
-        lr_token_features=np.asarray([[0.9 * weak_label + 0.1, 0.7, 0.8 * weak_label + 0.1, 1.0, 0.1, 0.0, 0.8, 0.0, 0.0, 0.6]], dtype=np.float32),
-        response_token_features=np.asarray([[0.8 * weak_label + 0.1, 0.7, 0.0, 4.0, float(edge_lookup[edge_label])]], dtype=np.float32),
-        relay_token_features=np.asarray([[0.7 * weak_label + 0.1, 0.8, 0.56, 0.6, 0.0, 0.0]], dtype=np.float32),
+        lr_token_features=np.asarray(
+            [
+                [
+                    0.9 * weak_label + 0.1,
+                    0.7,
+                    0.8 * weak_label + 0.1,
+                    1.0,
+                    0.1,
+                    0.0,
+                    0.8,
+                    0.0,
+                    0.0,
+                    0.6,
+                ]
+            ],
+            dtype=np.float32,
+        ),
+        response_token_features=np.asarray(
+            [[0.8 * weak_label + 0.1, 0.7, 0.0, 4.0, float(edge_lookup[edge_label])]],
+            dtype=np.float32,
+        ),
+        relay_token_features=np.asarray(
+            [[0.7 * weak_label + 0.1, 0.8, 0.56, 0.6, 0.0, 0.0]], dtype=np.float32
+        ),
         edge_id=edge_lookup[edge_label],
         sample_id=sample_id,
         donor_id=donor_id,
@@ -64,10 +93,26 @@ def test_run_communication_benchmark_writes_artifacts(tmp_path: Path, monkeypatc
         }
     )
 
-    monkeypatch.setattr(communication_benchmark_module, "load_luad_evo_snrna_latent", lambda *args, **kwargs: object())
-    monkeypatch.setattr(communication_benchmark_module, "load_luad_evo_spatial_mapping", lambda *args, **kwargs: object())
-    monkeypatch.setattr(communication_benchmark_module, "load_luad_evo_wes_features", lambda *args, **kwargs: object())
-    monkeypatch.setattr(communication_benchmark_module, "build_communication_bags", lambda *args, **kwargs: (bags, bag_summary))
+    monkeypatch.setattr(
+        communication_benchmark_module,
+        "load_luad_evo_snrna_latent",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        communication_benchmark_module,
+        "load_luad_evo_spatial_mapping",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        communication_benchmark_module,
+        "load_luad_evo_wes_features",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        communication_benchmark_module,
+        "build_communication_bags",
+        lambda *args, **kwargs: (bags, bag_summary),
+    )
 
     cfg = OmegaConf.create(
         {

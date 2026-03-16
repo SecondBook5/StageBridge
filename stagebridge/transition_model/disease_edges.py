@@ -1,4 +1,5 @@
 """Canonical disease edges for the v1 LUAD ladder."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,7 +15,9 @@ class DiseaseEdge:
     stage_tgt: str
 
 
-V1_DISEASE_EDGES = tuple(DiseaseEdge(src, tgt) for src, tgt in ordered_transitions(CANONICAL_STAGE_ORDER))
+V1_DISEASE_EDGES = tuple(
+    DiseaseEdge(src, tgt) for src, tgt in ordered_transitions(CANONICAL_STAGE_ORDER)
+)
 
 
 def edge_label(edge: DiseaseEdge | tuple[str, str]) -> str:

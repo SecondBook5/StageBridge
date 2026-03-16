@@ -1,4 +1,5 @@
 """Training loop and data sampling utilities for StageBridge."""
+
 from __future__ import annotations
 
 import json
@@ -14,7 +15,11 @@ from torch import Tensor, nn
 
 from stagebridge.context_model.token_builder import NicheTokenBank
 from stagebridge.logging_utils import get_logger
-from stagebridge.data.luad_evo.stages import CANONICAL_STAGE_ORDER, ordered_transitions, stage_to_index
+from stagebridge.data.luad_evo.stages import (
+    CANONICAL_STAGE_ORDER,
+    ordered_transitions,
+    stage_to_index,
+)
 from stagebridge.transition_model.infer import evaluate_transition
 from stagebridge.transition_model.losses import flow_matching_loss, multihop_consistency_loss
 from stagebridge.transition_model.relational_pretraining import (
@@ -118,9 +123,7 @@ class TransitionSampler:
         if spatial_niche is not None:
             spatial_arr = np.asarray(spatial_niche, dtype=np.float32)
             if spatial_arr.ndim != 2:
-                raise ValueError(
-                    f"Spatial niche array must be 2D, got shape={spatial_arr.shape}."
-                )
+                raise ValueError(f"Spatial niche array must be 2D, got shape={spatial_arr.shape}.")
             if spatial_arr.shape[0] == obs_donor_arr.shape[0]:
                 spatial_arr = spatial_arr[keep]
             elif spatial_arr.shape[0] != keep_idx.shape[0]:
@@ -193,10 +196,9 @@ class TransitionSampler:
             return tokens
         token_dim = int(tokens.shape[1])
         if token_dim not in self._token_projection:
-            proj_np = (
-                self._rng.standard_normal((token_dim, self.input_dim)).astype(np.float32)
-                / np.sqrt(float(token_dim))
-            )
+            proj_np = self._rng.standard_normal((token_dim, self.input_dim)).astype(
+                np.float32
+            ) / np.sqrt(float(token_dim))
             self._token_projection[token_dim] = torch.tensor(
                 proj_np,
                 dtype=torch.float32,
@@ -230,7 +232,9 @@ class TransitionSampler:
         donor_id = src_donors[np.random.randint(len(src_donors))]
 
         src_pool = self.donor_stage_to_cells[(donor_id, src_name)]
-        tgt_pool = self.donor_stage_to_cells.get((donor_id, tgt_name), self.stage_to_cells[tgt_name])
+        tgt_pool = self.donor_stage_to_cells.get(
+            (donor_id, tgt_name), self.stage_to_cells[tgt_name]
+        )
 
         x_src = self._sample_cells(src_pool, self.batch_cells)
         x_tgt = self._sample_cells(tgt_pool, self.batch_cells)
@@ -276,9 +280,15 @@ class TransitionSampler:
                 sn_mean = self._spatial_niche_full.mean(axis=0)
             else:
                 sn_mean = self._spatial_niche_full[donor_rows].mean(axis=0)
-            spatial_niche = torch.tensor(
-                sn_mean, dtype=torch.float32, device=self.device,
-            ).unsqueeze(0).expand(x_src.shape[0], -1)  # (batch_cells, niche_dim)
+            spatial_niche = (
+                torch.tensor(
+                    sn_mean,
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+                .unsqueeze(0)
+                .expand(x_src.shape[0], -1)
+            )  # (batch_cells, niche_dim)
 
         return StageBatch(
             x_src=x_src,
@@ -395,7 +405,9 @@ class StageBridgeTrainer:
             lr=config.learning_rate,
             weight_decay=config.weight_decay,
         )
-        self.scaler = torch.amp.GradScaler("cuda", enabled=(config.mixed_precision and self.device.type == "cuda"))
+        self.scaler = torch.amp.GradScaler(
+            "cuda", enabled=(config.mixed_precision and self.device.type == "cuda")
+        )
 
     @staticmethod
     def _batch_tensor_mb(batch: StageBatch) -> float:
@@ -462,7 +474,9 @@ class StageBridgeTrainer:
 
         for step in range(n_steps):
             do_profile = bool(
-                train and profile_rows is not None and len(profile_rows) < max(0, int(profile_limit))
+                train
+                and profile_rows is not None
+                and len(profile_rows) < max(0, int(profile_limit))
             )
             step_t0 = time.perf_counter() if do_profile else 0.0
             if do_profile and self.device.type == "cuda":
@@ -474,7 +488,9 @@ class StageBridgeTrainer:
 
             fwd_t0 = time.perf_counter() if do_profile else 0.0
             with torch.set_grad_enabled(train):
-                with torch.amp.autocast("cuda", enabled=(self.config.mixed_precision and self.device.type == "cuda")):
+                with torch.amp.autocast(
+                    "cuda", enabled=(self.config.mixed_precision and self.device.type == "cuda")
+                ):
                     loss, _, _ = flow_matching_loss(
                         batch=batch,
                         model=self.model,
@@ -487,7 +503,10 @@ class StageBridgeTrainer:
                     )
 
                     # Multi-hop consistency loss for skip transitions
-                    if self.config.use_multihop_consistency and batch.stage_tgt - batch.stage_src >= 2:
+                    if (
+                        self.config.use_multihop_consistency
+                        and batch.stage_tgt - batch.stage_src >= 2
+                    ):
                         n_mh = min(64, batch.x_src.shape[0])
                         mh_loss, _ = multihop_consistency_loss(
                             model=self.model,
@@ -508,7 +527,9 @@ class StageBridgeTrainer:
                 self.scaler.scale(loss_for_backward).backward()
                 if (step + 1) % self.config.gradient_accumulation_steps == 0:
                     self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), self.config.grad_clip_norm
+                    )
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     self.optimizer.zero_grad(set_to_none=True)
@@ -538,11 +559,7 @@ class StageBridgeTrainer:
 
             losses.append(float(loss.detach().item()))
 
-        if (
-            train
-            and n_steps > 0
-            and (n_steps % self.config.gradient_accumulation_steps) != 0
-        ):
+        if train and n_steps > 0 and (n_steps % self.config.gradient_accumulation_steps) != 0:
             self.scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
             self.scaler.step(self.optimizer)
@@ -647,7 +664,9 @@ class StageBridgeTrainer:
                 no_improve += 1
 
             if no_improve >= self.config.patience:
-                log.info("Early stopping triggered after %d epochs without improvement.", no_improve)
+                log.info(
+                    "Early stopping triggered after %d epochs without improvement.", no_improve
+                )
                 break
 
         payload = torch.load(best_ckpt, map_location=self.device)
@@ -872,7 +891,10 @@ def _mean_parameter_delta(before: list[Tensor], module: nn.Module) -> float:
     after = [param.detach().cpu() for param in module.parameters() if param.requires_grad]
     if not before or not after:
         return 0.0
-    deltas = [(after_param - before_param).abs().mean() for before_param, after_param in zip(before, after, strict=False)]
+    deltas = [
+        (after_param - before_param).abs().mean()
+        for before_param, after_param in zip(before, after, strict=False)
+    ]
     if not deltas:
         return 0.0
     return float(torch.stack(deltas).mean().item())
@@ -917,7 +939,9 @@ def _forward_context_encoder(
             return context_encoder(context_tokens)
 
 
-def _infer_token_type_ids_from_tokens(tokens: Tensor, num_token_types: int | None = None) -> Tensor | None:
+def _infer_token_type_ids_from_tokens(
+    tokens: Tensor, num_token_types: int | None = None
+) -> Tensor | None:
     if num_token_types is None:
         num_token_types = int(tokens.shape[-1])
     if tokens.ndim != 2 or tokens.shape[-1] < 1:
@@ -952,7 +976,10 @@ def _build_context_negative_controls(
         return negatives
 
     group_permuted_tokens = torch.roll(context_tokens, shifts=1, dims=-1)
-    group_permuted_types = _infer_token_type_ids_from_tokens(group_permuted_tokens, token_type_ids.max().item() + 1 if token_type_ids is not None else None)
+    group_permuted_types = _infer_token_type_ids_from_tokens(
+        group_permuted_tokens,
+        token_type_ids.max().item() + 1 if token_type_ids is not None else None,
+    )
     negatives.append(
         {
             "tokens": group_permuted_tokens,
@@ -969,7 +996,9 @@ def _build_context_negative_controls(
             {
                 "tokens": context_tokens,
                 "coords": torch.roll(context_coords, shifts=1, dims=0),
-                "confidence": context_confidence if context_confidence is None else torch.flip(context_confidence, dims=[0]),
+                "confidence": context_confidence
+                if context_confidence is None
+                else torch.flip(context_confidence, dims=[0]),
                 "token_type_ids": token_type_ids,
                 "dataset_ids": dataset_ids,
                 "label": "coordinate_permutation",
@@ -1008,7 +1037,9 @@ def train_edgewise_transition_model(
         weight_decay=float(weight_decay),
     )
     history: list[dict[str, float]] = []
-    edge_ids_full = torch.full((x_src_train.shape[0],), int(edge_id), dtype=torch.long, device=x_src_train.device)
+    edge_ids_full = torch.full(
+        (x_src_train.shape[0],), int(edge_id), dtype=torch.long, device=x_src_train.device
+    )
 
     for epoch in range(int(max_epochs)):
         losses: list[float] = []
@@ -1133,16 +1164,22 @@ def train_edgewise_transition_model_with_context_encoder(
         {"params": list(model.parameters()), "lr": float(learning_rate)},
     ]
     if compatibility_head is not None:
-        param_groups.append({"params": list(compatibility_head.parameters()), "lr": float(learning_rate)})
+        param_groups.append(
+            {"params": list(compatibility_head.parameters()), "lr": float(learning_rate)}
+        )
     if pretraining_heads is not None:
-        param_groups.append({"params": list(pretraining_heads.parameters()), "lr": float(learning_rate) * 0.5})
+        param_groups.append(
+            {"params": list(pretraining_heads.parameters()), "lr": float(learning_rate) * 0.5}
+        )
     parameters = [param for group in param_groups for param in group["params"]]
     optimizer = torch.optim.AdamW(
         param_groups,
         weight_decay=float(weight_decay),
     )
     history: list[dict[str, float]] = []
-    edge_ids_full = torch.full((x_src_train.shape[0],), int(edge_id), dtype=torch.long, device=x_src_train.device)
+    edge_ids_full = torch.full(
+        (x_src_train.shape[0],), int(edge_id), dtype=torch.long, device=x_src_train.device
+    )
     before = _clone_trainable_parameters(context_encoder)
     negative_controls = _build_context_negative_controls(
         context_tokens=context_tokens,
@@ -1229,7 +1266,11 @@ def train_edgewise_transition_model_with_context_encoder(
                     context_encoder=context_encoder,
                     heads=pretraining_heads,
                     context_tokens=context_tokens,
-                    token_type_ids=token_type_ids if token_type_ids is not None else torch.zeros(context_tokens.shape[0], dtype=torch.long, device=context_tokens.device),
+                    token_type_ids=token_type_ids
+                    if token_type_ids is not None
+                    else torch.zeros(
+                        context_tokens.shape[0], dtype=torch.long, device=context_tokens.device
+                    ),
                     token_coords=context_coords,
                     token_confidence=context_confidence,
                     dataset_ids=dataset_ids,
@@ -1239,7 +1280,9 @@ def train_edgewise_transition_model_with_context_encoder(
                     config=pretraining_config,
                     seed=seed + epoch * 1_000 + step,
                     include_masked_token=bool(pretraining_config.masked_token_weight > 0.0),
-                    include_provider_consistency=bool(pretraining_config.provider_consistency_weight > 0.0 and provider_views),
+                    include_provider_consistency=bool(
+                        pretraining_config.provider_consistency_weight > 0.0 and provider_views
+                    ),
                     include_coordinate_corruption=False,
                     include_group_relation=False,
                     return_attention=False,
@@ -1265,7 +1308,11 @@ def train_edgewise_transition_model_with_context_encoder(
                         return_attention=False,
                     )
                     negative_context = negative_summary.pooled_context
-                    negative_contexts.append(negative_context.unsqueeze(0) if negative_context.ndim == 1 else negative_context)
+                    negative_contexts.append(
+                        negative_context.unsqueeze(0)
+                        if negative_context.ndim == 1
+                        else negative_context
+                    )
                 shuffled_for_head = torch.cat(negative_contexts, dim=0)
                 assert compatibility_head is not None
                 positive_score = compatibility_head(context_for_head)
@@ -1273,7 +1320,9 @@ def train_edgewise_transition_model_with_context_encoder(
                 margin = torch.tensor(0.2, device=context.device, dtype=context.dtype)
                 auxiliary_loss = torch.relu(margin - positive_score + negative_scores).mean()
                 total_loss = loss + float(auxiliary_loss_weight) * auxiliary_loss
-                aux_accuracy = float((positive_score.detach() > negative_scores.detach()).float().mean().item())
+                aux_accuracy = float(
+                    (positive_score.detach() > negative_scores.detach()).float().mean().item()
+                )
             optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(parameters, 1.0)
@@ -1286,7 +1335,9 @@ def train_edgewise_transition_model_with_context_encoder(
             auxiliary_losses.append(float(auxiliary_loss.detach().item()))
             auxiliary_accuracies.append(aux_accuracy)
             if getattr(model, "cross_attention_drift", None) is not None:
-                drift_context_gates.append(float(getattr(model.cross_attention_drift, "last_context_gate_mean", 0.0)))
+                drift_context_gates.append(
+                    float(getattr(model.cross_attention_drift, "last_context_gate_mean", 0.0))
+                )
 
         history.append(
             {
@@ -1297,31 +1348,43 @@ def train_edgewise_transition_model_with_context_encoder(
                 "context_norm": float(np.mean(context_norms)),
                 "loss_context_shuffle": float(np.mean(auxiliary_losses)),
                 "context_shuffle_accuracy": float(np.mean(auxiliary_accuracies)),
-                "provider_consistency_cosine": float(np.mean(provider_cosines)) if provider_cosines else float("nan"),
-                "drift_context_gate": float(np.mean(drift_context_gates)) if drift_context_gates else float("nan"),
+                "provider_consistency_cosine": float(np.mean(provider_cosines))
+                if provider_cosines
+                else float("nan"),
+                "drift_context_gate": float(np.mean(drift_context_gates))
+                if drift_context_gates
+                else float("nan"),
             }
         )
 
     with torch.no_grad():
         if use_relational_aux and pretraining_heads is not None:
-            final_aux_loss, _, final_aux_metrics, final_context_summary = compute_relational_auxiliary_losses(
-                context_encoder=context_encoder,
-                heads=pretraining_heads,
-                context_tokens=context_tokens,
-                token_type_ids=token_type_ids if token_type_ids is not None else torch.zeros(context_tokens.shape[0], dtype=torch.long, device=context_tokens.device),
-                token_coords=context_coords,
-                token_confidence=context_confidence,
-                dataset_ids=dataset_ids,
-                edge_ids=edge_ids,
-                negative_controls=negative_controls,
-                provider_views=provider_views,
-                config=pretraining_config,
-                seed=seed + 99_999,
-                include_masked_token=bool(pretraining_config.masked_token_weight > 0.0),
-                include_provider_consistency=bool(pretraining_config.provider_consistency_weight > 0.0 and provider_views),
-                include_coordinate_corruption=False,
-                include_group_relation=False,
-                return_attention=bool(capture_attention),
+            final_aux_loss, _, final_aux_metrics, final_context_summary = (
+                compute_relational_auxiliary_losses(
+                    context_encoder=context_encoder,
+                    heads=pretraining_heads,
+                    context_tokens=context_tokens,
+                    token_type_ids=token_type_ids
+                    if token_type_ids is not None
+                    else torch.zeros(
+                        context_tokens.shape[0], dtype=torch.long, device=context_tokens.device
+                    ),
+                    token_coords=context_coords,
+                    token_confidence=context_confidence,
+                    dataset_ids=dataset_ids,
+                    edge_ids=edge_ids,
+                    negative_controls=negative_controls,
+                    provider_views=provider_views,
+                    config=pretraining_config,
+                    seed=seed + 99_999,
+                    include_masked_token=bool(pretraining_config.masked_token_weight > 0.0),
+                    include_provider_consistency=bool(
+                        pretraining_config.provider_consistency_weight > 0.0 and provider_views
+                    ),
+                    include_coordinate_corruption=False,
+                    include_group_relation=False,
+                    return_attention=bool(capture_attention),
+                )
             )
             first_negative = negative_controls[0]
             final_shuffled_summary = _forward_context_encoder(
@@ -1339,7 +1402,9 @@ def train_edgewise_transition_model_with_context_encoder(
             separation_score = float(final_aux_metrics.get("provider_consistency_cosine", 0.0))
             negative_control_scores = {
                 str(key): float(value)
-                for key, value in (final_aux_metrics.get("negative_control_scores", {}) or {}).items()
+                for key, value in (
+                    final_aux_metrics.get("negative_control_scores", {}) or {}
+                ).items()
             }
         else:
             final_context_summary = _forward_context_encoder(
@@ -1369,8 +1434,12 @@ def train_edgewise_transition_model_with_context_encoder(
             ]
             final_shuffled_summary = final_negative_summaries[0]
             final_context = final_context_summary.pooled_context
-            final_negative_contexts = [summary.pooled_context for summary in final_negative_summaries]
-            final_context_for_head = final_context.unsqueeze(0) if final_context.ndim == 1 else final_context
+            final_negative_contexts = [
+                summary.pooled_context for summary in final_negative_summaries
+            ]
+            final_context_for_head = (
+                final_context.unsqueeze(0) if final_context.ndim == 1 else final_context
+            )
             final_shuffled_for_head = torch.cat(
                 [neg.unsqueeze(0) if neg.ndim == 1 else neg for neg in final_negative_contexts],
                 dim=0,
@@ -1378,9 +1447,15 @@ def train_edgewise_transition_model_with_context_encoder(
             assert compatibility_head is not None
             final_positive_score = compatibility_head(final_context_for_head)
             final_negative_scores = compatibility_head(final_shuffled_for_head)
-            final_margin = torch.tensor(0.2, device=final_positive_score.device, dtype=final_positive_score.dtype)
-            final_aux_loss = torch.relu(final_margin - final_positive_score + final_negative_scores).mean()
-            final_aux_accuracy = float((final_positive_score > final_negative_scores).float().mean().item())
+            final_margin = torch.tensor(
+                0.2, device=final_positive_score.device, dtype=final_positive_score.dtype
+            )
+            final_aux_loss = torch.relu(
+                final_margin - final_positive_score + final_negative_scores
+            ).mean()
+            final_aux_accuracy = float(
+                (final_positive_score > final_negative_scores).float().mean().item()
+            )
             separation_score = float(
                 torch.norm(
                     final_context_for_head.mean(dim=0) - final_shuffled_for_head.mean(dim=0),
@@ -1392,9 +1467,13 @@ def train_edgewise_transition_model_with_context_encoder(
                 label = str(control.get("label", f"negative_{idx}"))
                 negative_control_scores[label] = float(final_negative_scores[idx].mean().item())
 
-    drift_context_gate = float(getattr(getattr(model, "cross_attention_drift", None), "last_context_gate_mean", 0.0))
+    drift_context_gate = float(
+        getattr(getattr(model, "cross_attention_drift", None), "last_context_gate_mean", 0.0)
+    )
     drift_context_attention_entropy = float(
-        getattr(getattr(model, "cross_attention_drift", None), "last_context_attention_entropy", 0.0)
+        getattr(
+            getattr(model, "cross_attention_drift", None), "last_context_attention_entropy", 0.0
+        )
     )
 
     return {
@@ -1407,20 +1486,54 @@ def train_edgewise_transition_model_with_context_encoder(
             "accuracy": final_aux_accuracy,
             "separation_score": separation_score,
             "n_negative_controls": len(negative_controls),
-            "task": "relational_pretraining_finetune" if use_relational_aux else "context_match_ranking",
-            "margin": float(pretraining_config.ranking_margin if use_relational_aux else final_margin.item()),
-            "positive_score": float(final_aux_metrics.get("positive_score", 0.0)) if use_relational_aux else float(final_positive_score.mean().item()),
+            "task": "relational_pretraining_finetune"
+            if use_relational_aux
+            else "context_match_ranking",
+            "margin": float(
+                pretraining_config.ranking_margin if use_relational_aux else final_margin.item()
+            ),
+            "positive_score": float(final_aux_metrics.get("positive_score", 0.0))
+            if use_relational_aux
+            else float(final_positive_score.mean().item()),
             "negative_control_scores": negative_control_scores,
-            "provider_consistency_cosine": float(final_aux_metrics.get("provider_consistency_cosine", float("nan"))) if use_relational_aux else float("nan"),
-            "masked_token_count": int(final_aux_metrics.get("masked_token_count", 0)) if use_relational_aux else 0,
-            "coordinate_corruption_accuracy": float(final_aux_metrics.get("coordinate_corruption_accuracy", float("nan"))) if use_relational_aux else float("nan"),
-            "group_relation_accuracy": float(final_aux_metrics.get("group_relation_accuracy", float("nan"))) if use_relational_aux else float("nan"),
+            "provider_consistency_cosine": float(
+                final_aux_metrics.get("provider_consistency_cosine", float("nan"))
+            )
+            if use_relational_aux
+            else float("nan"),
+            "masked_token_count": int(final_aux_metrics.get("masked_token_count", 0))
+            if use_relational_aux
+            else 0,
+            "coordinate_corruption_accuracy": float(
+                final_aux_metrics.get("coordinate_corruption_accuracy", float("nan"))
+            )
+            if use_relational_aux
+            else float("nan"),
+            "group_relation_accuracy": float(
+                final_aux_metrics.get("group_relation_accuracy", float("nan"))
+            )
+            if use_relational_aux
+            else float("nan"),
             "loss_components": {
-                "masked_token": float(final_aux_metrics.get("loss_masked_token", 0.0)) if use_relational_aux else 0.0,
-                "ranking": float(final_aux_metrics.get("loss_ranking", 0.0)) if use_relational_aux else float(final_aux_loss.item()),
-                "provider_consistency": float(final_aux_metrics.get("loss_provider_consistency", 0.0)) if use_relational_aux else 0.0,
-                "coordinate_corruption": float(final_aux_metrics.get("loss_coordinate_corruption", 0.0)) if use_relational_aux else 0.0,
-                "group_relation": float(final_aux_metrics.get("loss_group_relation", 0.0)) if use_relational_aux else 0.0,
+                "masked_token": float(final_aux_metrics.get("loss_masked_token", 0.0))
+                if use_relational_aux
+                else 0.0,
+                "ranking": float(final_aux_metrics.get("loss_ranking", 0.0))
+                if use_relational_aux
+                else float(final_aux_loss.item()),
+                "provider_consistency": float(
+                    final_aux_metrics.get("loss_provider_consistency", 0.0)
+                )
+                if use_relational_aux
+                else 0.0,
+                "coordinate_corruption": float(
+                    final_aux_metrics.get("loss_coordinate_corruption", 0.0)
+                )
+                if use_relational_aux
+                else 0.0,
+                "group_relation": float(final_aux_metrics.get("loss_group_relation", 0.0))
+                if use_relational_aux
+                else 0.0,
             },
             "drift_context_gate": drift_context_gate,
             "drift_context_attention_entropy": drift_context_attention_entropy,

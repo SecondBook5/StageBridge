@@ -1,4 +1,5 @@
 """Prototype bottleneck for lesion-level niche motif compression."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -38,7 +39,9 @@ class PrototypeBottleneck(nn.Module):
     ) -> None:
         super().__init__()
         if model_dim <= 0 or num_prototypes <= 1:
-            raise ValueError("PrototypeBottleneck requires positive model_dim and num_prototypes > 1.")
+            raise ValueError(
+                "PrototypeBottleneck requires positive model_dim and num_prototypes > 1."
+            )
         self.model_dim = int(model_dim)
         self.num_prototypes = int(num_prototypes)
         self.sparse_assignment = bool(sparse_assignment)
@@ -53,7 +56,9 @@ class PrototypeBottleneck(nn.Module):
         """Return soft assignment weights with shape ``(..., K)``."""
         normalized_embeddings = self._normalize(embeddings)
         normalized_prototypes = self._normalize(self.prototypes)
-        logits = torch.einsum("...d,kd->...k", normalized_embeddings, normalized_prototypes) / max(self.temperature, 1e-6)
+        logits = torch.einsum("...d,kd->...k", normalized_embeddings, normalized_prototypes) / max(
+            self.temperature, 1e-6
+        )
         weights = logits.softmax(dim=-1)
         if not self.sparse_assignment:
             return weights
@@ -63,12 +68,16 @@ class PrototypeBottleneck(nn.Module):
         sparse = torch.zeros_like(weights).scatter_(-1, top_idx, 1.0)
         return sparse + (weights - weights.detach())
 
-    def get_prototype_occupancy(self, assignment_weights: Tensor, mask: Tensor | None = None) -> Tensor:
+    def get_prototype_occupancy(
+        self, assignment_weights: Tensor, mask: Tensor | None = None
+    ) -> Tensor:
         """Return prototype occupancy counts or masses."""
         weights = assignment_weights
         if mask is not None:
             if mask.ndim != weights.ndim - 1:
-                raise ValueError("mask must match assignment weights except for the prototype axis.")
+                raise ValueError(
+                    "mask must match assignment weights except for the prototype axis."
+                )
             weights = weights * mask.unsqueeze(-1).to(weights.dtype)
         reduce_dims = tuple(range(weights.ndim - 1))
         return weights.sum(dim=reduce_dims)
@@ -80,26 +89,36 @@ class PrototypeBottleneck(nn.Module):
     ) -> Tensor:
         """Return per-lesion mean prototype composition with shape ``(B, K)``."""
         if assignment_weights.ndim != 3:
-            raise ValueError("assignment_weights must have shape (B, N, K) for lesion composition export.")
+            raise ValueError(
+                "assignment_weights must have shape (B, N, K) for lesion composition export."
+            )
         weights = assignment_weights
         if mask is not None:
             weights = weights * mask.unsqueeze(-1).to(weights.dtype)
             denom = mask.sum(dim=1, keepdim=True).clamp_min(1).to(weights.dtype)
         else:
-            denom = torch.full((weights.shape[0], 1), weights.shape[1], dtype=weights.dtype, device=weights.device)
+            denom = torch.full(
+                (weights.shape[0], 1), weights.shape[1], dtype=weights.dtype, device=weights.device
+            )
         return weights.sum(dim=1) / denom
 
     def export_top_neighborhoods(self, assignment_weights: Tensor, *, top_k: int = 5) -> Tensor:
         """Return the top neighborhood indices per prototype for inspection."""
         if assignment_weights.ndim != 2:
-            raise ValueError("export_top_neighborhoods expects assignment weights with shape (N, K).")
+            raise ValueError(
+                "export_top_neighborhoods expects assignment weights with shape (N, K)."
+            )
         _, indices = assignment_weights.topk(k=min(int(top_k), assignment_weights.shape[0]), dim=0)
         return indices.transpose(0, 1).contiguous()
 
-    def forward(self, embeddings: Tensor, *, mask: Tensor | None = None) -> PrototypeBottleneckOutput:
+    def forward(
+        self, embeddings: Tensor, *, mask: Tensor | None = None
+    ) -> PrototypeBottleneckOutput:
         """Align embeddings to the learned prototype vocabulary."""
         if embeddings.ndim not in {2, 3}:
-            raise ValueError(f"PrototypeBottleneck expected 2D or 3D embeddings, got shape={tuple(embeddings.shape)}")
+            raise ValueError(
+                f"PrototypeBottleneck expected 2D or 3D embeddings, got shape={tuple(embeddings.shape)}"
+            )
         weights = self.get_assignment_weights(embeddings)
         aligned = torch.einsum("...k,kd->...d", weights, self.prototypes)
         if mask is not None:
@@ -125,7 +144,9 @@ def prototype_diversity_loss(prototypes: Tensor) -> Tensor:
     return off_diag.pow(2).mean()
 
 
-def assignment_entropy_loss(assignment_weights: Tensor, *, target_entropy: float | None = None) -> Tensor:
+def assignment_entropy_loss(
+    assignment_weights: Tensor, *, target_entropy: float | None = None
+) -> Tensor:
     """Penalize overly diffuse assignment weights."""
     safe = assignment_weights.clamp_min(1e-8)
     entropy = -(safe * safe.log()).sum(dim=-1)

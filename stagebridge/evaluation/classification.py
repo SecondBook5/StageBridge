@@ -1,4 +1,5 @@
 """Classification metrics and artifacts for communication-relay benchmarks."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,7 +20,9 @@ class TemperatureScaler:
         return np.asarray(logits, dtype=np.float64) / max(float(self.temperature), 1e-6)
 
 
-def fit_temperature_scaler(logits: np.ndarray, labels: np.ndarray, *, max_iter: int = 200) -> TemperatureScaler:
+def fit_temperature_scaler(
+    logits: np.ndarray, labels: np.ndarray, *, max_iter: int = 200
+) -> TemperatureScaler:
     if np.asarray(logits).size == 0:
         return TemperatureScaler(temperature=1.0)
     if len(np.unique(np.asarray(labels))) < 2:
@@ -27,7 +30,9 @@ def fit_temperature_scaler(logits: np.ndarray, labels: np.ndarray, *, max_iter: 
     logits_t = torch.tensor(np.asarray(logits, dtype=np.float32))
     labels_t = torch.tensor(np.asarray(labels, dtype=np.float32))
     temperature = torch.nn.Parameter(torch.ones((), dtype=torch.float32))
-    optimizer = torch.optim.LBFGS([temperature], lr=0.05, max_iter=int(max_iter), line_search_fn="strong_wolfe")
+    optimizer = torch.optim.LBFGS(
+        [temperature], lr=0.05, max_iter=int(max_iter), line_search_fn="strong_wolfe"
+    )
 
     def closure() -> torch.Tensor:
         optimizer.zero_grad()
@@ -40,7 +45,9 @@ def fit_temperature_scaler(logits: np.ndarray, labels: np.ndarray, *, max_iter: 
     return TemperatureScaler(temperature=float(temperature.detach().clamp_min(1e-3).item()))
 
 
-def expected_calibration_error(probabilities: np.ndarray, labels: np.ndarray, *, n_bins: int = 10) -> float:
+def expected_calibration_error(
+    probabilities: np.ndarray, labels: np.ndarray, *, n_bins: int = 10
+) -> float:
     probs = np.asarray(probabilities, dtype=np.float64)
     truth = np.asarray(labels, dtype=np.float64)
     bins = np.linspace(0.0, 1.0, int(n_bins) + 1)
@@ -58,7 +65,9 @@ def expected_calibration_error(probabilities: np.ndarray, labels: np.ndarray, *,
     return float(ece)
 
 
-def calibration_curve_table(probabilities: np.ndarray, labels: np.ndarray, *, n_bins: int = 10) -> pd.DataFrame:
+def calibration_curve_table(
+    probabilities: np.ndarray, labels: np.ndarray, *, n_bins: int = 10
+) -> pd.DataFrame:
     probs = np.asarray(probabilities, dtype=np.float64)
     truth = np.asarray(labels, dtype=np.float64)
     bins = np.linspace(0.0, 1.0, int(n_bins) + 1)
@@ -97,7 +106,11 @@ def choose_threshold(probabilities: np.ndarray, labels: np.ndarray) -> float:
         bal = 0.5 * (tpr + tnr)
         precision = tp / max(tp + fp, 1.0)
         recall = tpr
-        f1 = 0.0 if (precision + recall) <= 0.0 else (2.0 * precision * recall) / (precision + recall)
+        f1 = (
+            0.0
+            if (precision + recall) <= 0.0
+            else (2.0 * precision * recall) / (precision + recall)
+        )
         pair = (float(bal), float(f1))
         if pair > best_pair:
             best_pair = pair
@@ -105,7 +118,9 @@ def choose_threshold(probabilities: np.ndarray, labels: np.ndarray) -> float:
     return best_threshold
 
 
-def binary_classification_metrics(probabilities: np.ndarray, labels: np.ndarray, *, threshold: float) -> dict[str, float]:
+def binary_classification_metrics(
+    probabilities: np.ndarray, labels: np.ndarray, *, threshold: float
+) -> dict[str, float]:
     from sklearn.metrics import average_precision_score, roc_auc_score
 
     probs = np.asarray(probabilities, dtype=np.float64)
@@ -123,8 +138,15 @@ def binary_classification_metrics(probabilities: np.ndarray, labels: np.ndarray,
     precision = tp / max(tp + fp, 1.0)
     recall = tp / max(tp + fn, 1.0)
     specificity = tn / max(tn + fp, 1.0)
-    macro_f1_neg = 0.0 if (specificity + (tn / max(tn + fn, 1.0))) <= 0.0 else (2.0 * specificity * (tn / max(tn + fn, 1.0))) / max(specificity + (tn / max(tn + fn, 1.0)), 1e-12)
-    macro_f1_pos = 0.0 if (precision + recall) <= 0.0 else (2.0 * precision * recall) / (precision + recall)
+    macro_f1_neg = (
+        0.0
+        if (specificity + (tn / max(tn + fn, 1.0))) <= 0.0
+        else (2.0 * specificity * (tn / max(tn + fn, 1.0)))
+        / max(specificity + (tn / max(tn + fn, 1.0)), 1e-12)
+    )
+    macro_f1_pos = (
+        0.0 if (precision + recall) <= 0.0 else (2.0 * precision * recall) / (precision + recall)
+    )
     return {
         "auroc": auroc,
         "auprc": auprc,
@@ -142,23 +164,41 @@ def binary_classification_metrics(probabilities: np.ndarray, labels: np.ndarray,
     }
 
 
-def curve_tables(probabilities: np.ndarray, labels: np.ndarray) -> tuple[pd.DataFrame, pd.DataFrame]:
+def curve_tables(
+    probabilities: np.ndarray, labels: np.ndarray
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     from sklearn.metrics import precision_recall_curve, roc_curve
 
     probs = np.asarray(probabilities, dtype=np.float64)
     truth = np.asarray(labels, dtype=np.int64)
     if len(np.unique(truth)) < 2:
         roc = pd.DataFrame({"fpr": [0.0, 1.0], "tpr": [0.0, 1.0], "threshold": [1.0, 0.0]})
-        pr = pd.DataFrame({"precision": [truth.mean(), truth.mean()], "recall": [1.0, 0.0], "threshold": [1.0, 0.0]})
+        pr = pd.DataFrame(
+            {
+                "precision": [truth.mean(), truth.mean()],
+                "recall": [1.0, 0.0],
+                "threshold": [1.0, 0.0],
+            }
+        )
         return roc, pr
     fpr, tpr, roc_thresholds = roc_curve(truth, probs)
     precision, recall, pr_thresholds = precision_recall_curve(truth, probs)
-    roc = pd.DataFrame({"fpr": fpr.astype(float), "tpr": tpr.astype(float), "threshold": roc_thresholds.astype(float)})
+    roc = pd.DataFrame(
+        {
+            "fpr": fpr.astype(float),
+            "tpr": tpr.astype(float),
+            "threshold": roc_thresholds.astype(float),
+        }
+    )
     pr = pd.DataFrame(
         {
             "precision": precision.astype(float),
             "recall": recall.astype(float),
-            "threshold": np.pad(pr_thresholds.astype(float), (0, max(0, precision.shape[0] - pr_thresholds.shape[0])), constant_values=np.nan),
+            "threshold": np.pad(
+                pr_thresholds.astype(float),
+                (0, max(0, precision.shape[0] - pr_thresholds.shape[0])),
+                constant_values=np.nan,
+            ),
         }
     )
     return roc, pr

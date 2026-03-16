@@ -1,4 +1,5 @@
 """Typed niche and edge-level biological insight summaries."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,14 +40,28 @@ def summarize_edge_biology(
     donor_stage_means = table.groupby(["stage", "donor_id"])[groups].mean()
     donor_stage_std = donor_stage_means.groupby("stage")[groups].std().reindex(ordered).fillna(0.0)
 
-    stage_src, stage_tgt = [normalize_stage_label(part.strip()) for part in str(edge_label).split("->", 1)]
-    src_profile = stage_means.loc[stage_src] if stage_src in stage_means.index else pd.Series(0.0, index=groups)
-    tgt_profile = stage_means.loc[stage_tgt] if stage_tgt in stage_means.index else pd.Series(0.0, index=groups)
+    stage_src, stage_tgt = [
+        normalize_stage_label(part.strip()) for part in str(edge_label).split("->", 1)
+    ]
+    src_profile = (
+        stage_means.loc[stage_src]
+        if stage_src in stage_means.index
+        else pd.Series(0.0, index=groups)
+    )
+    tgt_profile = (
+        stage_means.loc[stage_tgt]
+        if stage_tgt in stage_means.index
+        else pd.Series(0.0, index=groups)
+    )
     delta = (tgt_profile - src_profile).sort_values(ascending=False)
 
     dominant_increase = str(delta.index[0]) if not delta.empty else "n/a"
     dominant_decrease = str(delta.index[-1]) if not delta.empty else "n/a"
-    context_delta = None if context_sensitivity is None else context_sensitivity.get("context_sensitivity_delta")
+    context_delta = (
+        None
+        if context_sensitivity is None
+        else context_sensitivity.get("context_sensitivity_delta")
+    )
     interpretation = [
         f"Across mapped typed niches, {dominant_increase} increases most from {stage_src} to {stage_tgt}."
     ]
@@ -68,18 +83,18 @@ def summarize_edge_biology(
         "stage_order": ordered,
         "typed_groups": groups,
         "stage_mean_profiles": {
-            stage: _safe_dict(stage_means.loc[stage])
-            for stage in stage_means.index
+            stage: _safe_dict(stage_means.loc[stage]) for stage in stage_means.index
         },
         "stage_donor_std": {
-            stage: _safe_dict(donor_stage_std.loc[stage])
-            for stage in donor_stage_std.index
+            stage: _safe_dict(donor_stage_std.loc[stage]) for stage in donor_stage_std.index
         },
         "edge_delta_by_group": _safe_dict(delta),
         "dominant_increase_group": dominant_increase,
         "dominant_decrease_group": dominant_decrease,
         "context_sensitivity_delta": None if context_delta is None else float(context_delta),
         "split_strategy": None if split_summary is None else split_summary.get("split_strategy"),
-        "overlap_donors": [] if split_summary is None else list(split_summary.get("overlap_donors", [])),
+        "overlap_donors": []
+        if split_summary is None
+        else list(split_summary.get("overlap_donors", [])),
         "interpretation": interpretation,
     }

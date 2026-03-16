@@ -1,4 +1,5 @@
 """Lesion-bag neighborhood construction for EA-MIST."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -63,9 +64,12 @@ class NeighborhoodBuildResult:
 def resolve_eamist_bag_parquet_path(cfg: Any | None = None) -> Path:
     """Resolve the canonical prebuilt EA-MIST bag parquet path."""
     import os
+
     _env_root = os.environ.get("STAGEBRIDGE_DATA_ROOT", "")
     data_root = Path(str(_cfg_get(cfg or {}, "data.data_root", _env_root))).resolve()
-    configured = _cfg_get(cfg or {}, "data.eamist_bags_parquet", data_root / "processed/features/eamist_bags.parquet")
+    configured = _cfg_get(
+        cfg or {}, "data.eamist_bags_parquet", data_root / "processed/features/eamist_bags.parquet"
+    )
     return Path(str(configured)).resolve()
 
 
@@ -111,7 +115,9 @@ def _edge_targets_from_row(
     mask_raw = row.get("edge_target_mask")
     if targets_raw is not None and mask_raw is not None:
         targets = _coerce_vector(targets_raw, label="edge_targets", dtype=np.float32)
-        mask = _coerce_vector(mask_raw, label="edge_target_mask", dtype=bool).astype(bool, copy=False)
+        mask = _coerce_vector(mask_raw, label="edge_target_mask", dtype=bool).astype(
+            bool, copy=False
+        )
         if targets.shape[0] != len(active_edge_labels) or mask.shape[0] != len(active_edge_labels):
             raise ValueError(
                 f"Edge targets for lesion_id={row.get('lesion_id')} do not match active_edge_labels={active_edge_labels}."
@@ -144,7 +150,9 @@ def build_lesion_bags_from_parquet(path: Path) -> NeighborhoodBuildResult:
             f"{EAMIST_BAG_SCHEMA_VERSION!r}, found {audit.get('schema_version')!r}."
         )
     if int(audit.get("num_rings", -1)) != 4:
-        raise ValueError(f"EA-MIST bag parquet {path} used num_rings={audit.get('num_rings')} instead of the canonical 4.")
+        raise ValueError(
+            f"EA-MIST bag parquet {path} used num_rings={audit.get('num_rings')} instead of the canonical 4."
+        )
     if str(audit.get("luca_state_column")) != "cell_type_tumor":
         raise ValueError(
             f"EA-MIST bag parquet {path} was built from LuCA state column {audit.get('luca_state_column')!r}; "
@@ -191,7 +199,9 @@ def build_lesion_bags_from_parquet(path: Path) -> NeighborhoodBuildResult:
         lesion_id = str(row_map["lesion_id"])
         stage = str(row_map.get("stage_label") or row_map.get("stage"))
         stage_index = int(row_map["stage_index"])
-        displacement_target = float(row_map.get("displacement_target", stage_to_progression_score(stage)))
+        displacement_target = float(
+            row_map.get("displacement_target", stage_to_progression_score(stage))
+        )
         if abs(displacement_target - stage_to_progression_score(stage)) > 1e-6:
             raise ValueError(
                 f"EA-MIST bag parquet has inconsistent displacement_target for lesion_id={lesion_id}: "
@@ -199,30 +209,60 @@ def build_lesion_bags_from_parquet(path: Path) -> NeighborhoodBuildResult:
             )
 
         niche_ids = [str(value) for value in row_map["niche_ids"]]
-        receiver_features = [_coerce_vector(value, label=f"receiver_features[{idx}]") for idx, value in enumerate(row_map["receiver_features"])]
+        receiver_features = [
+            _coerce_vector(value, label=f"receiver_features[{idx}]")
+            for idx, value in enumerate(row_map["receiver_features"])
+        ]
         ring_features = [
-            _coerce_ring_tensor(value, label=f"ring_features[{idx}]", expected_num_rings=int(audit["num_rings"]))
+            _coerce_ring_tensor(
+                value, label=f"ring_features[{idx}]", expected_num_rings=int(audit["num_rings"])
+            )
             for idx, value in enumerate(row_map["ring_features"])
         ]
-        hlca_features = [_coerce_vector(value, label=f"hlca_features[{idx}]") for idx, value in enumerate(row_map["hlca_features"])]
-        luca_features = [_coerce_vector(value, label=f"luca_features[{idx}]") for idx, value in enumerate(row_map["luca_features"])]
-        pathway_features = [_coerce_vector(value, label=f"pathway_features[{idx}]") for idx, value in enumerate(row_map["pathway_features"])]
-        niche_stats = [_coerce_vector(value, label=f"niche_stats_features[{idx}]") for idx, value in enumerate(row_map["niche_stats_features"])]
+        hlca_features = [
+            _coerce_vector(value, label=f"hlca_features[{idx}]")
+            for idx, value in enumerate(row_map["hlca_features"])
+        ]
+        luca_features = [
+            _coerce_vector(value, label=f"luca_features[{idx}]")
+            for idx, value in enumerate(row_map["luca_features"])
+        ]
+        pathway_features = [
+            _coerce_vector(value, label=f"pathway_features[{idx}]")
+            for idx, value in enumerate(row_map["pathway_features"])
+        ]
+        niche_stats = [
+            _coerce_vector(value, label=f"niche_stats_features[{idx}]")
+            for idx, value in enumerate(row_map["niche_stats_features"])
+        ]
         receiver_state_ids_raw = row_map.get("receiver_state_ids")
         receiver_state_labels_raw = row_map.get("receiver_state_labels")
         if receiver_state_ids_raw is None and receiver_state_labels_raw is None:
-            raise ValueError("EA-MIST bag parquet is missing both receiver_state_ids and receiver_state_labels.")
+            raise ValueError(
+                "EA-MIST bag parquet is missing both receiver_state_ids and receiver_state_labels."
+            )
         if receiver_state_ids_raw is not None:
-            receiver_state_ids = _coerce_vector(receiver_state_ids_raw, label="receiver_state_ids", dtype=np.int64).astype(np.int64, copy=False)
+            receiver_state_ids = _coerce_vector(
+                receiver_state_ids_raw, label="receiver_state_ids", dtype=np.int64
+            ).astype(np.int64, copy=False)
         else:
             labels = [str(value) for value in receiver_state_labels_raw]
-            receiver_state_ids = np.asarray([receiver_lookup.get(label, -1) for label in labels], dtype=np.int64)
+            receiver_state_ids = np.asarray(
+                [receiver_lookup.get(label, -1) for label in labels], dtype=np.int64
+            )
         receiver_state_labels = (
             [str(value) for value in receiver_state_labels_raw]
             if receiver_state_labels_raw is not None
-            else [receiver_vocab[int(idx)] if 0 <= int(idx) < len(receiver_vocab) else "unknown" for idx in receiver_state_ids.tolist()]
+            else [
+                receiver_vocab[int(idx)] if 0 <= int(idx) < len(receiver_vocab) else "unknown"
+                for idx in receiver_state_ids.tolist()
+            ]
         )
-        receiver_confidences = _coerce_vector(row_map.get("receiver_confidences", np.ones(len(niche_ids))), label="receiver_confidences", dtype=np.float32)
+        receiver_confidences = _coerce_vector(
+            row_map.get("receiver_confidences", np.ones(len(niche_ids))),
+            label="receiver_confidences",
+            dtype=np.float32,
+        )
 
         lengths = {
             "niche_ids": len(niche_ids),
@@ -237,7 +277,9 @@ def build_lesion_bags_from_parquet(path: Path) -> NeighborhoodBuildResult:
             "receiver_confidences": int(receiver_confidences.shape[0]),
         }
         if len(set(lengths.values())) != 1:
-            raise ValueError(f"Inconsistent niche list lengths for lesion_id={lesion_id}: {lengths}")
+            raise ValueError(
+                f"Inconsistent niche list lengths for lesion_id={lesion_id}: {lengths}"
+            )
 
         neighborhoods: list[LocalNicheExample] = []
         for idx, niche_id in enumerate(niche_ids):
@@ -273,9 +315,20 @@ def build_lesion_bags_from_parquet(path: Path) -> NeighborhoodBuildResult:
                 )
             )
 
-        edge_targets, edge_target_mask = _edge_targets_from_row(pd.Series(row_map), active_edge_labels=active_edge_labels)
-        first_valid_edge = next((active_edge_labels[idx] for idx, flag in enumerate(edge_target_mask.tolist()) if bool(flag)), str(row_map.get("edge_label") or ""))
-        first_valid_target = float(edge_targets[np.argmax(edge_target_mask)]) if edge_target_mask.any() else 0.0
+        edge_targets, edge_target_mask = _edge_targets_from_row(
+            pd.Series(row_map), active_edge_labels=active_edge_labels
+        )
+        first_valid_edge = next(
+            (
+                active_edge_labels[idx]
+                for idx, flag in enumerate(edge_target_mask.tolist())
+                if bool(flag)
+            ),
+            str(row_map.get("edge_label") or ""),
+        )
+        first_valid_target = (
+            float(edge_targets[np.argmax(edge_target_mask)]) if edge_target_mask.any() else 0.0
+        )
         first_valid_weight = 1.0 if edge_target_mask.any() else 0.0
         bag = LesionBag(
             lesion_id=lesion_id,
@@ -289,7 +342,9 @@ def build_lesion_bags_from_parquet(path: Path) -> NeighborhoodBuildResult:
             label_weight=float(first_valid_weight),
             label_source="prebuilt_eamist_bag",
             neighborhoods=neighborhoods,
-            evolution_features=_coerce_vector(row_map.get("evo_features", []), label="evo_features", dtype=np.float32),
+            evolution_features=_coerce_vector(
+                row_map.get("evo_features", []), label="evo_features", dtype=np.float32
+            ),
             stage_index=stage_index,
             displacement_target=displacement_target,
             edge_targets=edge_targets.astype(np.float32, copy=False),
@@ -312,7 +367,9 @@ def build_lesion_bags_from_parquet(path: Path) -> NeighborhoodBuildResult:
                 "label_weight": float(bag.label_weight),
                 "label_source": bag.label_source,
                 "num_neighborhoods": bag.num_neighborhoods,
-                "evolution_feature_dim": 0 if bag.evolution_features is None else int(np.asarray(bag.evolution_features).shape[0]),
+                "evolution_feature_dim": 0
+                if bag.evolution_features is None
+                else int(np.asarray(bag.evolution_features).shape[0]),
                 "num_active_edge_targets": int(edge_target_mask.sum()),
             }
         )
@@ -337,7 +394,11 @@ def build_lesion_bags_from_parquet(path: Path) -> NeighborhoodBuildResult:
 
     if not bags:
         raise ValueError(f"EA-MIST bag parquet produced no lesion bags: {path}")
-    summary = pd.DataFrame(summary_rows).sort_values(["stage_index", "donor_id", "sample_id"]).reset_index(drop=True)
+    summary = (
+        pd.DataFrame(summary_rows)
+        .sort_values(["stage_index", "donor_id", "sample_id"])
+        .reset_index(drop=True)
+    )
     label_table = pd.DataFrame(label_rows)
     diagnostics = summarize_neighborhood_build(bags)
     diagnostics["source"] = "prebuilt_bag_parquet"
@@ -501,7 +562,10 @@ def build_lesion_label_table(
     obs["patient_id"] = obs.get("patient_id", obs["donor_id"]).astype(str)
     obs["stage"] = obs["stage"].astype(str)
     lesion_table = (
-        obs.loc[obs["stage"].isin(list(VALID_SOURCE_STAGES)), ["sample_id", "donor_id", "patient_id", "stage"]]
+        obs.loc[
+            obs["stage"].isin(list(VALID_SOURCE_STAGES)),
+            ["sample_id", "donor_id", "patient_id", "stage"],
+        ]
         .drop_duplicates()
         .reset_index(drop=True)
     )
@@ -597,7 +661,9 @@ def _derive_ring_edges(
     return list(np.linspace(0.0, max_radius, num_rings + 1))
 
 
-def _local_density(sample_coords: np.ndarray, *, center_index: int, neighborhood_radius: float) -> float:
+def _local_density(
+    sample_coords: np.ndarray, *, center_index: int, neighborhood_radius: float
+) -> float:
     """Return a compact local density summary around one center spot."""
     center = sample_coords[center_index]
     dists = np.linalg.norm(sample_coords - center[None, :], axis=1)
@@ -615,7 +681,9 @@ def _resolve_local_neighborhood_geometry(
     num_rings: int = 4,
 ) -> tuple[list[float], float]:
     """Resolve ring edges and effective density, falling back to adaptive kNN geometry when needed."""
-    radius_density = _local_density(sample_coords, center_index=center_index, neighborhood_radius=neighborhood_radius)
+    radius_density = _local_density(
+        sample_coords, center_index=center_index, neighborhood_radius=neighborhood_radius
+    )
     if radius_density >= float(min_instances):
         return (
             _derive_ring_edges(
@@ -631,7 +699,9 @@ def _resolve_local_neighborhood_geometry(
     center = sample_coords[center_index]
     dists = np.linalg.norm(sample_coords - center[None, :], axis=1)
     sorted_dists = np.sort(dists.astype(np.float32, copy=False))
-    kth_index = min(max(int(adaptive_neighbor_k), int(min_instances), 1), int(sorted_dists.shape[0])) - 1
+    kth_index = (
+        min(max(int(adaptive_neighbor_k), int(min_instances), 1), int(sorted_dists.shape[0])) - 1
+    )
     effective_radius = float(max(sorted_dists[kth_index], 1e-3))
     ring_edges = list(np.linspace(0.0, effective_radius, num_rings + 1))
     adaptive_density = float(np.count_nonzero(dists <= effective_radius))
@@ -651,7 +721,9 @@ def _select_candidate_indices(
     """Select center spots for one lesion according to the configured strategy."""
     epi_cols = epithelial_columns(feature_names)
     if epi_cols:
-        epithelial_score = sample_compositions[:, epi_cols].sum(axis=1).astype(np.float32, copy=False)
+        epithelial_score = (
+            sample_compositions[:, epi_cols].sum(axis=1).astype(np.float32, copy=False)
+        )
     else:
         epithelial_score = sample_compositions.max(axis=1).astype(np.float32, copy=False)
     if not np.any(epithelial_score > 0.0):
@@ -661,12 +733,19 @@ def _select_candidate_indices(
     rng = np.random.default_rng(int(seed))
 
     if strategy == "uniform":
-        chosen = np.sort(rng.choice(top_pool, size=min(max_neighborhoods, top_pool.shape[0]), replace=False))
+        chosen = np.sort(
+            rng.choice(top_pool, size=min(max_neighborhoods, top_pool.shape[0]), replace=False)
+        )
         return chosen.astype(np.int64, copy=False)
 
     if strategy == "top_k_dense":
         densities = np.asarray(
-            [_local_density(sample_coords, center_index=int(idx), neighborhood_radius=neighborhood_radius) for idx in top_pool],
+            [
+                _local_density(
+                    sample_coords, center_index=int(idx), neighborhood_radius=neighborhood_radius
+                )
+                for idx in top_pool
+            ],
             dtype=np.float32,
         )
         chosen = top_pool[np.argsort(-densities)[: min(max_neighborhoods, top_pool.shape[0])]]
@@ -705,11 +784,15 @@ def build_lesion_bags(
     if cfg is not None:
         raw_h5ad_path = str(resolve_luad_evo_paths(cfg).snrna_h5ad)
     base_seed = int(_cfg_get(cfg, "seed", 42))
-    template_max_cells_per_group = _cfg_get(cfg, "context_model.eamist.template_max_cells_per_group", 512)
+    template_max_cells_per_group = _cfg_get(
+        cfg, "context_model.eamist.template_max_cells_per_group", 512
+    )
     templates = build_expression_templates(
         snrna,
         raw_h5ad_path=raw_h5ad_path,
-        max_cells_per_group=None if template_max_cells_per_group is None else int(template_max_cells_per_group),
+        max_cells_per_group=None
+        if template_max_cells_per_group is None
+        else int(template_max_cells_per_group),
         seed=base_seed,
     )
     feature_names = [str(name) for name in spatial.feature_names]
@@ -718,7 +801,9 @@ def build_lesion_bags(
     max_neighborhoods = int(_cfg_get(cfg, "context_model.eamist.max_neighborhoods_per_lesion", 64))
     neighborhood_radius = float(_cfg_get(cfg, "context_model.eamist.neighborhood_radius", 150.0))
     ring_edges_cfg = _cfg_get(cfg, "context_model.eamist.ring_edges", None)
-    sampling_strategy = str(_cfg_get(cfg, "context_model.eamist.neighborhood_sampling_strategy", "uniform"))
+    sampling_strategy = str(
+        _cfg_get(cfg, "context_model.eamist.neighborhood_sampling_strategy", "uniform")
+    )
     min_instances = int(_cfg_get(cfg, "context_model.eamist.min_cells_per_neighborhood", 3))
     adaptive_neighbor_k = int(_cfg_get(cfg, "context_model.eamist.adaptive_neighbor_k", 32))
 
@@ -746,8 +831,12 @@ def build_lesion_bags(
 
         donor_id = str(sample_obs["donor_id"].iloc[0])
         patient_id = str(sample_obs.get("patient_id", sample_obs["donor_id"]).iloc[0])
-        sample_coords = np.asarray(spatial.coords[np.asarray(indices, dtype=np.int64)], dtype=np.float32)
-        sample_compositions = np.asarray(spatial.compositions[np.asarray(indices, dtype=np.int64)], dtype=np.float32)
+        sample_coords = np.asarray(
+            spatial.coords[np.asarray(indices, dtype=np.int64)], dtype=np.float32
+        )
+        sample_compositions = np.asarray(
+            spatial.compositions[np.asarray(indices, dtype=np.int64)], dtype=np.float32
+        )
         selected_centers = _select_candidate_indices(
             sample_compositions,
             feature_names,
@@ -777,7 +866,9 @@ def build_lesion_bags(
                 feature_names,
                 templates,
             )
-            receiver_state_id, _state_name, _state_score = infer_receiver_state(center_composition, feature_names)
+            receiver_state_id, _state_name, _state_score = infer_receiver_state(
+                center_composition, feature_names
+            )
             ring_compositions = summarize_ring_compositions(
                 sample_compositions,
                 sample_coords,
@@ -839,9 +930,13 @@ def build_lesion_bags(
             edge_label=edge_label or "",
             label=float(label_row.label) if label_row is not None else 0.0,
             label_weight=float(label_row.label_weight) if label_row is not None else 0.0,
-            label_source=str(label_row.label_source) if label_row is not None else "no_active_edge",
+            label_source=str(label_row.label_source)
+            if label_row is not None
+            else "no_active_edge",
             neighborhoods=neighborhoods,
-            evolution_features=None if evolution_features is None else evolution_features.astype(np.float32, copy=False),
+            evolution_features=None
+            if evolution_features is None
+            else evolution_features.astype(np.float32, copy=False),
             stage_index=stage_to_index(stage),
             displacement_target=stage_to_progression_score(stage),
             notes=str(label_row.notes) if label_row is not None else f"stage={stage}",
@@ -859,13 +954,19 @@ def build_lesion_bags(
                 "label_weight": bag.label_weight,
                 "label_source": bag.label_source,
                 "num_neighborhoods": bag.num_neighborhoods,
-                "evolution_feature_dim": 0 if bag.evolution_features is None else int(bag.evolution_features.shape[0]),
+                "evolution_feature_dim": 0
+                if bag.evolution_features is None
+                else int(bag.evolution_features.shape[0]),
             }
         )
 
     if not bags:
         raise ValueError("EA-MIST preprocessing produced no lesion bags.")
-    summary = pd.DataFrame(summary_rows).sort_values(["edge_label", "donor_id", "sample_id"]).reset_index(drop=True)
+    summary = (
+        pd.DataFrame(summary_rows)
+        .sort_values(["edge_label", "donor_id", "sample_id"])
+        .reset_index(drop=True)
+    )
     diagnostics = summarize_neighborhood_build(bags)
     diagnostics["num_labels"] = int(label_table.shape[0])
     diagnostics["edges"] = sorted(summary["edge_label"].astype(str).unique().tolist())
@@ -889,7 +990,9 @@ def build_lesion_bags_from_config(cfg: Any) -> NeighborhoodBuildResult:
         with cache_path.open("rb") as handle:
             cached = pickle.load(handle)
         if not isinstance(cached, NeighborhoodBuildResult):
-            raise TypeError(f"Lesion-bag cache at {cache_path} did not contain a NeighborhoodBuildResult.")
+            raise TypeError(
+                f"Lesion-bag cache at {cache_path} did not contain a NeighborhoodBuildResult."
+            )
         _migrate_legacy_bags(cached.bags)
         return cached
 

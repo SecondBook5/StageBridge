@@ -1,4 +1,5 @@
 """Mission 2 config-loading tests for the rebuilt repo layout."""
+
 from __future__ import annotations
 
 import os

@@ -1,4 +1,5 @@
 """Held-out evaluation entrypoint for one trained EA-MIST lesion run."""
+
 from __future__ import annotations
 
 import json
@@ -9,7 +10,11 @@ import torch
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, Subset
 
-from stagebridge.data.luad_evo.bag_dataset import LesionBagDataset, NeighborhoodPretrainDataset, collate_lesion_bags
+from stagebridge.data.luad_evo.bag_dataset import (
+    LesionBagDataset,
+    NeighborhoodPretrainDataset,
+    collate_lesion_bags,
+)
 from stagebridge.data.luad_evo.neighborhood_builder import build_lesion_bags_from_config
 from stagebridge.data.luad_evo.splits import build_multitask_lesion_folds
 from stagebridge.evaluation.eamist_metrics import (
@@ -36,7 +41,9 @@ def run_evaluate_lesion(
     checkpoint_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Evaluate a trained lesion model on its held-out donor fold."""
-    resolved_checkpoint = Path(str(checkpoint_path or _cfg_select(cfg, "context_model.eamist.checkpoint_path", "")))
+    resolved_checkpoint = Path(
+        str(checkpoint_path or _cfg_select(cfg, "context_model.eamist.checkpoint_path", ""))
+    )
     if not resolved_checkpoint.exists():
         raise FileNotFoundError(f"Checkpoint not found: {resolved_checkpoint}")
     fold_root = resolved_checkpoint.parent
@@ -45,7 +52,9 @@ def run_evaluate_lesion(
     split_summary_path = fold_root / "split_summary.json"
     model_spec_path = fold_root / "model_spec.json"
     if not split_summary_path.exists() or not model_spec_path.exists():
-        raise FileNotFoundError("Evaluation requires split_summary.json and model_spec.json alongside the checkpoint.")
+        raise FileNotFoundError(
+            "Evaluation requires split_summary.json and model_spec.json alongside the checkpoint."
+        )
 
     split_summary = json.loads(split_summary_path.read_text(encoding="utf-8"))
     model_spec = json.loads(model_spec_path.read_text(encoding="utf-8"))
@@ -57,7 +66,9 @@ def run_evaluate_lesion(
     evolution_dim = int(model_spec.get("evolution_dim") or 0)
     folds = build_multitask_lesion_folds(
         build_result.bags,
-        holdout_key=str(_cfg_select(checkpoint_cfg, "context_model.eamist.holdout_key", "donor_id")),
+        holdout_key=str(
+            _cfg_select(checkpoint_cfg, "context_model.eamist.holdout_key", "donor_id")
+        ),
         num_folds=int(_cfg_select(checkpoint_cfg, "context_model.eamist.outer_folds", 3)),
         seed=int(_cfg_select(checkpoint_cfg, "seed", _cfg_select(cfg, "seed", 42))),
     )
@@ -76,14 +87,23 @@ def run_evaluate_lesion(
     model.eval()
 
     train_bags = [build_result.bags[idx] for idx in fold.train_indices]
-    stage_class_weights = _compute_stage_class_weights(train_bags, num_stage_classes=len(CANONICAL_STAGE_LABELS)).to(device)
+    stage_class_weights = _compute_stage_class_weights(
+        train_bags, num_stage_classes=len(CANONICAL_STAGE_LABELS)
+    ).to(device)
     test_loader = DataLoader(
         Subset(dataset, list(fold.test_indices)),
         batch_size=int(_cfg_select(checkpoint_cfg, "context_model.eamist.batch_size_bags", 8)),
         shuffle=False,
         collate_fn=collate_lesion_bags,
     )
-    test_epoch = _run_epoch(model, test_loader, device=device, optimizer=None, cfg=checkpoint_cfg, stage_class_weights=stage_class_weights)
+    test_epoch = _run_epoch(
+        model,
+        test_loader,
+        device=device,
+        optimizer=None,
+        cfg=checkpoint_cfg,
+        stage_class_weights=stage_class_weights,
+    )
     edge_target_labels = tuple(str(label) for label in model_spec.get("edge_target_labels", []))
     metrics = _epoch_metrics(test_epoch, edge_target_labels=edge_target_labels)
     prediction_frame = _prediction_frame(build_result.bags, fold.test_indices, test_epoch)
@@ -93,13 +113,21 @@ def run_evaluate_lesion(
         test_epoch["edge_masks"],
         edge_labels=edge_target_labels,
     )
-    confusion = stage_confusion_matrix_payload(test_epoch["stage_targets"], test_epoch["stage_predictions"])
+    confusion = stage_confusion_matrix_payload(
+        test_epoch["stage_targets"], test_epoch["stage_predictions"]
+    )
     support = stage_support_payload(test_epoch["stage_targets"])
 
     prediction_frame.to_parquet(fold_root / "evaluation_predictions.parquet", index=False)
-    (fold_root / "evaluation_confusion_matrix.json").write_text(json.dumps(confusion, indent=2), encoding="utf-8")
-    (fold_root / "evaluation_metrics.json").write_text(json.dumps({**metrics, "support": support}, indent=2), encoding="utf-8")
-    (fold_root / "evaluation_auxiliary_edge_metrics.json").write_text(json.dumps(auxiliary_edge_metrics, indent=2), encoding="utf-8")
+    (fold_root / "evaluation_confusion_matrix.json").write_text(
+        json.dumps(confusion, indent=2), encoding="utf-8"
+    )
+    (fold_root / "evaluation_metrics.json").write_text(
+        json.dumps({**metrics, "support": support}, indent=2), encoding="utf-8"
+    )
+    (fold_root / "evaluation_auxiliary_edge_metrics.json").write_text(
+        json.dumps(auxiliary_edge_metrics, indent=2), encoding="utf-8"
+    )
     return {
         "ok": True,
         "pipeline": "evaluate_lesion",

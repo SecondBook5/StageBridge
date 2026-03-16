@@ -1,4 +1,5 @@
 """Shared helpers for EA-MIST feature builders and LuCA/HLCA preprocessing."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,10 +14,18 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from stagebridge.data.luad_evo.stages import CANONICAL_STAGE_ORDER, normalize_stage_label, stage_to_index
+from stagebridge.data.luad_evo.stages import (
+    CANONICAL_STAGE_ORDER,
+    normalize_stage_label,
+    stage_to_index,
+)
 
-LUCA_ATLAS_URL = "https://datasets.cellxgene.cziscience.com/f678fb47-e51b-4dc5-b23f-f9df43a67ee5.h5ad"
-LUCA_MODEL_URL = "https://zenodo.org/records/7227571/files/core_atlas_scanvi_model.tar.gz?download=1"
+LUCA_ATLAS_URL = (
+    "https://datasets.cellxgene.cziscience.com/f678fb47-e51b-4dc5-b23f-f9df43a67ee5.h5ad"
+)
+LUCA_MODEL_URL = (
+    "https://zenodo.org/records/7227571/files/core_atlas_scanvi_model.tar.gz?download=1"
+)
 LUCA_ATLAS_FILENAME = "luca_extended_atlas.h5ad"
 LUCA_MODEL_FILENAME = "core_atlas_scanvi_model.tar.gz"
 MIN_NONTRIVIAL_H5AD_BYTES = 100_000_000
@@ -162,7 +171,10 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 def decode_h5_strings(values: Any) -> np.ndarray:
     arr = np.asarray(values)
     if arr.dtype.kind in {"S", "O"}:
-        return np.asarray([value.decode("utf-8") if isinstance(value, bytes) else str(value) for value in arr], dtype=object)
+        return np.asarray(
+            [value.decode("utf-8") if isinstance(value, bytes) else str(value) for value in arr],
+            dtype=object,
+        )
     return arr.astype(object, copy=False)
 
 
@@ -226,13 +238,17 @@ def read_obs_column_h5ad(path: Path, column: str) -> pd.Series:
                     ordered=bool(obj.attrs.get("ordered", False)),
                 )
             else:
-                raise TypeError(f"Unsupported obs group encoding '{encoding}' for column '{column}'.")
+                raise TypeError(
+                    f"Unsupported obs group encoding '{encoding}' for column '{column}'."
+                )
         else:
             values = decode_h5_strings(obj[()])
     return pd.Series(values, index=pd.Index(obs_names, name="obs_names"), name=str(column))
 
 
-def summarize_obs_columns_h5ad(path: Path, *, max_sample_values: int = 12) -> dict[str, dict[str, Any]]:
+def summarize_obs_columns_h5ad(
+    path: Path, *, max_sample_values: int = 12
+) -> dict[str, dict[str, Any]]:
     summary: dict[str, dict[str, Any]] = {}
     with h5py.File(path, "r") as handle:
         obs_group = handle["obs"]
@@ -245,7 +261,10 @@ def summarize_obs_columns_h5ad(path: Path, *, max_sample_values: int = 12) -> di
                 "n_obs": n_obs,
                 "encoding_type": str(obj.attrs.get("encoding-type", "unknown")),
             }
-            if isinstance(obj, h5py.Group) and str(obj.attrs.get("encoding-type", "")) == "categorical":
+            if (
+                isinstance(obj, h5py.Group)
+                and str(obj.attrs.get("encoding-type", "")) == "categorical"
+            ):
                 categories = decode_h5_strings(obj["categories"][()]).astype(str)
                 entry["dtype"] = "category"
                 entry["n_unique"] = int(categories.shape[0])
@@ -349,7 +368,9 @@ def choose_best_embedding(path: Path) -> SelectedEmbedding:
     return SelectedEmbedding(key="X", source="X", shape=(int(shape[0]), int(shape[1])))
 
 
-def infer_useful_obs_columns(path: Path, *, max_sample_values: int = 12) -> dict[str, list[dict[str, Any]]]:
+def infer_useful_obs_columns(
+    path: Path, *, max_sample_values: int = 12
+) -> dict[str, list[dict[str, Any]]]:
     candidates: dict[str, list[dict[str, Any]]] = {
         "state_columns": [],
         "major_celltype_columns": [],
@@ -395,7 +416,9 @@ def infer_useful_obs_columns(path: Path, *, max_sample_values: int = 12) -> dict
             candidates["epithelial_subtype_columns"].append({"score": epithelial_score, **entry})
 
     for key in candidates:
-        candidates[key].sort(key=lambda item: (float(item["score"]), int(item["n_unique"])), reverse=True)
+        candidates[key].sort(
+            key=lambda item: (float(item["score"]), int(item["n_unique"])), reverse=True
+        )
     return candidates
 
 
@@ -407,13 +430,30 @@ def score_state_column(lower_name: str, lower_values: str, unique_count: int) ->
         score += 18.0
     if "tumor" in lower_name or "tumour" in lower_name:
         score += 8.0
-    if any(token in lower_name for token in ("state", "subtype", "cell_state", "annotation_level_3", "annotation_level_2")):
+    if any(
+        token in lower_name
+        for token in ("state", "subtype", "cell_state", "annotation_level_3", "annotation_level_2")
+    ):
         score += 12.0
-    if any(token in lower_name for token in ("cell_type", "celltype", "cluster", "lineage", "compartment", "broad", "major")):
+    if any(
+        token in lower_name
+        for token in (
+            "cell_type",
+            "celltype",
+            "cluster",
+            "lineage",
+            "compartment",
+            "broad",
+            "major",
+        )
+    ):
         score += 6.0
     if "tumor cells" in lower_values or "malignant" in lower_values:
         score += 6.0
-    if any(token in lower_values for token in MALIGNANT_KEYWORDS + IMMUNE_KEYWORDS + STROMAL_KEYWORDS + EPITHELIAL_KEYWORDS):
+    if any(
+        token in lower_values
+        for token in MALIGNANT_KEYWORDS + IMMUNE_KEYWORDS + STROMAL_KEYWORDS + EPITHELIAL_KEYWORDS
+    ):
         score += 4.0
     if 4 <= unique_count <= 500:
         score += 4.0
@@ -426,9 +466,22 @@ def score_major_celltype_column(lower_name: str, lower_values: str, unique_count
     score = 0.0
     if "ann_coarse" in lower_name or lower_name.endswith("coarse"):
         score += 18.0
-    if any(token in lower_name for token in ("major", "broad", "lineage", "compartment", "cell_type", "celltype", "annotation_level_1")):
+    if any(
+        token in lower_name
+        for token in (
+            "major",
+            "broad",
+            "lineage",
+            "compartment",
+            "cell_type",
+            "celltype",
+            "annotation_level_1",
+        )
+    ):
         score += 10.0
-    if any(token in lower_values for token in IMMUNE_KEYWORDS + STROMAL_KEYWORDS + EPITHELIAL_KEYWORDS):
+    if any(
+        token in lower_values for token in IMMUNE_KEYWORDS + STROMAL_KEYWORDS + EPITHELIAL_KEYWORDS
+    ):
         score += 4.0
     if 3 <= unique_count <= 100:
         score += 3.0
@@ -437,7 +490,14 @@ def score_major_celltype_column(lower_name: str, lower_values: str, unique_count
 
 def score_metadata_kind(lower_name: str, lower_values: str, *, kind: str) -> float:
     keyword_map = {
-        "malignant": ("malignant", "malignancy", "tumor_flag", "tumour_flag", "neoplastic", "predicted"),
+        "malignant": (
+            "malignant",
+            "malignancy",
+            "tumor_flag",
+            "tumour_flag",
+            "neoplastic",
+            "predicted",
+        ),
         "dataset": ("dataset", "study", "cohort", "source", "project", "batch"),
         "sample": ("sample", "specimen", "library", "biosample"),
         "patient": ("patient", "donor", "subject", "case", "individual"),
@@ -502,7 +562,9 @@ def select_luca_columns(path: Path) -> SelectedLucaColumns:
         dataset_columns=tuple(str(entry["column"]) for entry in dataset_candidates[:3]),
         sample_columns=tuple(str(entry["column"]) for entry in sample_candidates[:3]),
         patient_columns=tuple(str(entry["column"]) for entry in patient_candidates[:3]),
-        epithelial_subtype_columns=tuple(str(entry["column"]) for entry in epithelial_candidates[:3]),
+        epithelial_subtype_columns=tuple(
+            str(entry["column"]) for entry in epithelial_candidates[:3]
+        ),
     )
 
 
@@ -560,7 +622,10 @@ def infer_state_grouping(*texts: str | None) -> dict[str, Any]:
         major_lineage = "Ciliated_like"
     elif any(token in joined for token in ("t cell", "b cell", "lymph", "nk", "plasma")):
         major_lineage = "Lymphoid"
-    elif any(token in joined for token in ("macrophage", "myeloid", "monocyte", "dendritic", "neutrophil")):
+    elif any(
+        token in joined
+        for token in ("macrophage", "myeloid", "monocyte", "dendritic", "neutrophil")
+    ):
         major_lineage = "Myeloid"
     elif any(token in joined for token in ("fibro", "stromal", "mesench", "pericyte", "myofibro")):
         major_lineage = "Fibro_stromal"
@@ -588,7 +653,12 @@ def infer_state_grouping(*texts: str | None) -> dict[str, Any]:
 def safe_probability_rows(matrix: np.ndarray, *, eps: float = 1e-8) -> np.ndarray:
     arr = np.asarray(matrix, dtype=np.float32)
     row_sum = arr.sum(axis=1, keepdims=True)
-    return np.divide(arr, row_sum, out=np.full_like(arr, np.float32(1.0 / max(arr.shape[1], 1))), where=row_sum > eps)
+    return np.divide(
+        arr,
+        row_sum,
+        out=np.full_like(arr, np.float32(1.0 / max(arr.shape[1], 1))),
+        where=row_sum > eps,
+    )
 
 
 def entropy_from_rows(matrix: np.ndarray, *, eps: float = 1e-8) -> np.ndarray:
@@ -607,9 +677,17 @@ def cosine_similarity_rows(a: np.ndarray, b: np.ndarray, *, eps: float = 1e-8) -
 
 def choose_niche_token_columns(frame: pd.DataFrame) -> tuple[list[str], list[str], str]:
     smooth_cols = [str(col) for col in frame.columns if str(col).startswith("tok_smooth_")]
-    raw_cols = [str(col) for col in frame.columns if str(col).startswith("tok_") and not str(col).startswith("tok_smooth_")]
+    raw_cols = [
+        str(col)
+        for col in frame.columns
+        if str(col).startswith("tok_") and not str(col).startswith("tok_smooth_")
+    ]
     if smooth_cols:
-        return smooth_cols, [column.removeprefix("tok_smooth_") for column in smooth_cols], "tok_smooth_"
+        return (
+            smooth_cols,
+            [column.removeprefix("tok_smooth_") for column in smooth_cols],
+            "tok_smooth_",
+        )
     if raw_cols:
         return raw_cols, [column.removeprefix("tok_") for column in raw_cols], "tok_"
     raise ValueError("Could not detect token columns in niche parquet.")
@@ -654,7 +732,9 @@ def normalize_niche_table(frame: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def topk_labels_and_scores(similarity: np.ndarray, labels: Sequence[str], k: int) -> tuple[np.ndarray, np.ndarray]:
+def topk_labels_and_scores(
+    similarity: np.ndarray, labels: Sequence[str], k: int
+) -> tuple[np.ndarray, np.ndarray]:
     if similarity.ndim != 2:
         raise ValueError(f"Expected a 2D similarity matrix, got shape={similarity.shape}.")
     top_k = min(int(k), similarity.shape[1])
@@ -675,20 +755,35 @@ def numeric_feature_columns(frame: pd.DataFrame, prefix: str) -> list[str]:
     return columns
 
 
-def align_feature_rows(base: pd.DataFrame, feature_df: pd.DataFrame, *, source: str) -> pd.DataFrame:
+def align_feature_rows(
+    base: pd.DataFrame, feature_df: pd.DataFrame, *, source: str
+) -> pd.DataFrame:
     required = {"lesion_id", "niche_id"}
     missing = required.difference(feature_df.columns)
     if missing:
         raise KeyError(f"{source} is missing required key columns: {sorted(missing)}")
     if feature_df.duplicated(["lesion_id", "niche_id"]).any():
         raise ValueError(f"{source} contains duplicate lesion_id/niche_id rows.")
-    new_columns = [column for column in feature_df.columns if column not in {"lesion_id", "niche_id"} and column not in base.columns]
+    new_columns = [
+        column
+        for column in feature_df.columns
+        if column not in {"lesion_id", "niche_id"} and column not in base.columns
+    ]
     if not new_columns:
-        return base.merge(feature_df.loc[:, ["lesion_id", "niche_id"]], on=["lesion_id", "niche_id"], how="left", validate="one_to_one")
+        return base.merge(
+            feature_df.loc[:, ["lesion_id", "niche_id"]],
+            on=["lesion_id", "niche_id"],
+            how="left",
+            validate="one_to_one",
+        )
     merge_frame = feature_df.loc[:, ["lesion_id", "niche_id", *new_columns]].copy()
-    merged = base.merge(merge_frame, on=["lesion_id", "niche_id"], how="left", validate="one_to_one")
+    merged = base.merge(
+        merge_frame, on=["lesion_id", "niche_id"], how="left", validate="one_to_one"
+    )
     if merged[new_columns].isna().all(axis=1).any():
-        missing_rows = merged.loc[merged[new_columns].isna().all(axis=1), ["lesion_id", "niche_id"]].head(5)
+        missing_rows = merged.loc[
+            merged[new_columns].isna().all(axis=1), ["lesion_id", "niche_id"]
+        ].head(5)
         raise ValueError(
             f"Failed to match {source} back to niches for some rows, examples={missing_rows.to_dict(orient='records')}"
         )
@@ -726,5 +821,10 @@ def stage_consistency_or_error(frame: pd.DataFrame, *, key_cols: Sequence[str]) 
     if list(key_cols):
         duplicates = frame.duplicated(list(key_cols), keep=False)
         if duplicates.any():
-            values = frame.loc[duplicates, list(key_cols)].drop_duplicates().head(5).to_dict(orient="records")
+            values = (
+                frame.loc[duplicates, list(key_cols)]
+                .drop_duplicates()
+                .head(5)
+                .to_dict(orient="records")
+            )
             raise ValueError(f"Detected duplicate keys for {list(key_cols)}: {values}")

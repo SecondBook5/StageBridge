@@ -1,4 +1,5 @@
 """Classification metrics and statistics for EA-MIST lesion benchmarks."""
+
 from __future__ import annotations
 
 from typing import Iterable
@@ -51,7 +52,11 @@ def compute_stage_metrics(
     """Compute multiclass stage metrics."""
     y_true = np.asarray(y_true, dtype=np.int64)
     y_pred = np.asarray(y_pred, dtype=np.int64)
-    label_list = list(range(len(CANONICAL_STAGE_LABELS))) if labels is None else [int(value) for value in labels]
+    label_list = (
+        list(range(len(CANONICAL_STAGE_LABELS)))
+        if labels is None
+        else [int(value) for value in labels]
+    )
     if y_true.shape[0] == 0:
         return {
             "stage_accuracy": float("nan"),
@@ -62,12 +67,18 @@ def compute_stage_metrics(
     recalls = recall_score(y_true, y_pred, labels=label_list, average=None, zero_division=0)
     recall_by_label = {int(label): float(recalls[idx]) for idx, label in enumerate(label_list)}
     central_labels = [label for label in label_list if label in {1, 2, 3}]
-    central_recall = [recall_by_label[label] for label in central_labels if label in recall_by_label]
+    central_recall = [
+        recall_by_label[label] for label in central_labels if label in recall_by_label
+    ]
     return {
         "stage_accuracy": float(np.mean(y_true == y_pred)),
-        "stage_macro_f1": float(f1_score(y_true, y_pred, labels=label_list, average="macro", zero_division=0)),
+        "stage_macro_f1": float(
+            f1_score(y_true, y_pred, labels=label_list, average="macro", zero_division=0)
+        ),
         "stage_balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
-        "stage_central_recall_mean": float(np.mean(central_recall)) if central_recall else float("nan"),
+        "stage_central_recall_mean": float(np.mean(central_recall))
+        if central_recall
+        else float("nan"),
         "stage_nonzero_central_recalls": float(np.sum(np.asarray(central_recall) > 0.0)),
     }
 
@@ -80,9 +91,15 @@ def stage_confusion_matrix_payload(
     label_names: Iterable[str] | None = None,
 ) -> dict[str, object]:
     """Return a JSON-friendly stage confusion matrix payload."""
-    label_list = list(range(len(CANONICAL_STAGE_LABELS))) if labels is None else [int(value) for value in labels]
+    label_list = (
+        list(range(len(CANONICAL_STAGE_LABELS)))
+        if labels is None
+        else [int(value) for value in labels]
+    )
     names = list(CANONICAL_STAGE_LABELS if label_names is None else label_names)
-    matrix = confusion_matrix(np.asarray(y_true, dtype=np.int64), np.asarray(y_pred, dtype=np.int64), labels=label_list)
+    matrix = confusion_matrix(
+        np.asarray(y_true, dtype=np.int64), np.asarray(y_pred, dtype=np.int64), labels=label_list
+    )
     return {"labels": label_list, "label_names": names, "matrix": matrix.astype(int).tolist()}
 
 
@@ -93,12 +110,15 @@ def stage_support_payload(
     label_names: Iterable[str] | None = None,
 ) -> dict[str, int]:
     """Return observed support per stage."""
-    label_list = list(range(len(CANONICAL_STAGE_LABELS))) if labels is None else [int(value) for value in labels]
+    label_list = (
+        list(range(len(CANONICAL_STAGE_LABELS)))
+        if labels is None
+        else [int(value) for value in labels]
+    )
     names = list(CANONICAL_STAGE_LABELS if label_names is None else label_names)
     y_true = np.asarray(y_true, dtype=np.int64)
     return {
-        str(names[idx]): int(np.sum(y_true == int(label)))
-        for idx, label in enumerate(label_list)
+        str(names[idx]): int(np.sum(y_true == int(label))) for idx, label in enumerate(label_list)
     }
 
 
@@ -115,7 +135,9 @@ def compute_grouped_stage_metrics(
     """
     y_true = np.asarray(y_true, dtype=np.int64)
     y_pred = np.asarray(y_pred, dtype=np.int64)
-    label_list = list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    label_list = (
+        list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    )
     if y_true.shape[0] == 0:
         return {
             "grouped_macro_f1": float("nan"),
@@ -173,9 +195,13 @@ def grouped_confusion_matrix_payload(
     label_names: Iterable[str] | None = None,
 ) -> dict[str, object]:
     """Return a JSON-friendly grouped confusion matrix payload."""
-    label_list = list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    label_list = (
+        list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    )
     names = list(GROUPED_STAGE_LABELS if label_names is None else label_names)
-    matrix = confusion_matrix(np.asarray(y_true, dtype=np.int64), np.asarray(y_pred, dtype=np.int64), labels=label_list)
+    matrix = confusion_matrix(
+        np.asarray(y_true, dtype=np.int64), np.asarray(y_pred, dtype=np.int64), labels=label_list
+    )
     return {"labels": label_list, "label_names": names, "matrix": matrix.astype(int).tolist()}
 
 
@@ -186,12 +212,13 @@ def grouped_support_payload(
     label_names: Iterable[str] | None = None,
 ) -> dict[str, int]:
     """Return observed support per grouped stage."""
-    label_list = list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    label_list = (
+        list(range(len(GROUPED_STAGE_LABELS))) if labels is None else [int(v) for v in labels]
+    )
     names = list(GROUPED_STAGE_LABELS if label_names is None else label_names)
     y_true = np.asarray(y_true, dtype=np.int64)
     return {
-        str(names[idx]): int(np.sum(y_true == int(label)))
-        for idx, label in enumerate(label_list)
+        str(names[idx]): int(np.sum(y_true == int(label))) for idx, label in enumerate(label_list)
     }
 
 
@@ -249,7 +276,9 @@ def compute_displacement_metrics(
                 if np.any(mask):
                     stage_means.append((int(stage_idx), float(np.mean(y_pred[mask]))))
             if len(stage_means) >= 2:
-                diffs = np.diff(np.asarray([value for _stage, value in stage_means], dtype=np.float32))
+                diffs = np.diff(
+                    np.asarray([value for _stage, value in stage_means], dtype=np.float32)
+                )
                 metrics["displacement_stage_monotonicity"] = float(np.mean(diffs >= -1e-6))
     return metrics
 
@@ -278,8 +307,14 @@ def compute_masked_edge_metrics(
             continue
         y_true = targets[valid, idx].astype(np.int64)
         y_prob = probabilities[valid, idx]
-        metrics[f"{edge_label}_auroc"] = float(roc_auc_score(y_true, y_prob)) if len(np.unique(y_true)) > 1 else float("nan")
-        metrics[f"{edge_label}_auprc"] = float(average_precision_score(y_true, y_prob)) if len(np.unique(y_true)) > 1 else float("nan")
+        metrics[f"{edge_label}_auroc"] = (
+            float(roc_auc_score(y_true, y_prob)) if len(np.unique(y_true)) > 1 else float("nan")
+        )
+        metrics[f"{edge_label}_auprc"] = (
+            float(average_precision_score(y_true, y_prob))
+            if len(np.unique(y_true)) > 1
+            else float("nan")
+        )
     return metrics
 
 
@@ -306,7 +341,9 @@ def composite_selection_score(metrics: dict[str, float]) -> float:
     return float(score)
 
 
-def expected_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, *, n_bins: int = 10) -> float:
+def expected_calibration_error(
+    y_true: np.ndarray, y_prob: np.ndarray, *, n_bins: int = 10
+) -> float:
     """Compute expected calibration error for binary probabilities."""
     edges = np.linspace(0.0, 1.0, int(n_bins) + 1)
     ece = 0.0
@@ -329,7 +366,10 @@ def temperature_scale_logits(logits: np.ndarray, labels: np.ndarray) -> float:
     for temperature in np.linspace(0.5, 3.0, 26):
         probs = 1.0 / (1.0 + np.exp(-logits / temperature))
         eps = 1e-6
-        loss = -np.mean(labels * np.log(np.clip(probs, eps, 1.0 - eps)) + (1.0 - labels) * np.log(np.clip(1.0 - probs, eps, 1.0 - eps)))
+        loss = -np.mean(
+            labels * np.log(np.clip(probs, eps, 1.0 - eps))
+            + (1.0 - labels) * np.log(np.clip(1.0 - probs, eps, 1.0 - eps))
+        )
         if loss < best_loss:
             best_loss = float(loss)
             best_temp = float(temperature)
@@ -362,8 +402,12 @@ def compute_binary_metrics(
     y_prob = np.asarray(y_prob, dtype=np.float32)
     y_pred = (y_prob >= float(threshold)).astype(np.int64)
     metrics = {
-        "auroc": float(roc_auc_score(y_true, y_prob)) if len(np.unique(y_true)) > 1 else float("nan"),
-        "auprc": float(average_precision_score(y_true, y_prob)) if len(np.unique(y_true)) > 1 else float("nan"),
+        "auroc": float(roc_auc_score(y_true, y_prob))
+        if len(np.unique(y_true)) > 1
+        else float("nan"),
+        "auprc": float(average_precision_score(y_true, y_prob))
+        if len(np.unique(y_true)) > 1
+        else float("nan"),
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
@@ -374,7 +418,9 @@ def compute_binary_metrics(
     return metrics
 
 
-def build_curve_frames(y_true: np.ndarray, y_prob: np.ndarray) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def build_curve_frames(
+    y_true: np.ndarray, y_prob: np.ndarray
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Return ROC, PR, and calibration curves as DataFrames."""
     y_true = np.asarray(y_true, dtype=np.int64)
     y_prob = np.asarray(y_prob, dtype=np.float32)
@@ -406,7 +452,9 @@ def build_curve_frames(y_true: np.ndarray, y_prob: np.ndarray) -> tuple[pd.DataF
                 "bin_right": float(right),
                 "count": int(np.sum(mask)),
                 "mean_probability": float(np.mean(y_prob[mask])) if np.any(mask) else float("nan"),
-                "observed_frequency": float(np.mean(y_true[mask])) if np.any(mask) else float("nan"),
+                "observed_frequency": float(np.mean(y_true[mask]))
+                if np.any(mask)
+                else float("nan"),
             }
         )
     cal_df = pd.DataFrame(cal_rows)
@@ -434,10 +482,12 @@ def bootstrap_confidence_intervals(
             continue
         aurocs.append(float(roc_auc_score(sample_true, sample_prob)))
         auprcs.append(float(average_precision_score(sample_true, sample_prob)))
+
     def _interval(values: list[float]) -> tuple[float, float]:
         if not values:
             return (float("nan"), float("nan"))
         return (float(np.quantile(values, 0.025)), float(np.quantile(values, 0.975)))
+
     return {"auroc_ci": _interval(aurocs), "auprc_ci": _interval(auprcs)}
 
 
@@ -454,7 +504,9 @@ def build_per_donor_metrics(frame: pd.DataFrame, *, threshold: float) -> pd.Data
     return pd.DataFrame(rows)
 
 
-def confusion_matrix_payload(y_true: np.ndarray, y_prob: np.ndarray, *, threshold: float) -> dict[str, object]:
+def confusion_matrix_payload(
+    y_true: np.ndarray, y_prob: np.ndarray, *, threshold: float
+) -> dict[str, object]:
     """Return a JSON-friendly confusion matrix payload."""
     pred = (np.asarray(y_prob) >= float(threshold)).astype(int)
     matrix = confusion_matrix(np.asarray(y_true, dtype=np.int64), pred, labels=[0, 1])

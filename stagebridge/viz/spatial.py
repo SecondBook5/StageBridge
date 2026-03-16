@@ -6,6 +6,7 @@ Enhanced with:
   - Statistical annotations
   - Publication-quality styling
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -79,7 +80,9 @@ def plot_transition_trajectory(eval_df: pd.DataFrame, output_path: Path) -> None
     fig, ax1 = plt.subplots(figsize=(9, 5.2))
     ax2 = ax1.twinx()
 
-    ax1.plot(x, eval_df["sinkhorn"].astype(float).values, marker="o", color="#0EA5E9", label="Sinkhorn")
+    ax1.plot(
+        x, eval_df["sinkhorn"].astype(float).values, marker="o", color="#0EA5E9", label="Sinkhorn"
+    )
     ax1.plot(x, eval_df["mmd_rbf"].astype(float).values, marker="s", color="#0284C7", label="MMD")
     ax2.plot(
         x,
@@ -117,7 +120,7 @@ def plot_metric_heatmap(
     figsize: tuple[float, float] = (11, 7),
 ) -> None:
     """Plot model-vs-metric heatmap with hierarchical clustering and enhanced styling.
-    
+
     Parameters
     ----------
     metrics_df : pd.DataFrame
@@ -150,24 +153,24 @@ def plot_metric_heatmap(
 
     # Hierarchical clustering
     row_labels = metrics_df["label"].astype(str).tolist()
-    col_labels = [c.replace('_mean', '').replace('_', ' ').title() for c in metric_cols]
+    col_labels = [c.replace("_mean", "").replace("_", " ").title() for c in metric_cols]
 
     row_order = np.arange(len(row_labels))
     col_order = np.arange(len(col_labels))
 
     if cluster_rows and len(row_labels) > 2:
         try:
-            row_linkage = linkage(pdist(z, metric='euclidean'), method='average')
+            row_linkage = linkage(pdist(z, metric="euclidean"), method="average")
             row_dendrogram = dendrogram(row_linkage, no_plot=True)
-            row_order = row_dendrogram['leaves']
+            row_order = row_dendrogram["leaves"]
         except Exception as e:
             log.debug(f"Could not cluster rows: {e}")
 
     if cluster_cols and len(col_labels) > 2:
         try:
-            col_linkage = linkage(pdist(z.T, metric='euclidean'), method='average')
+            col_linkage = linkage(pdist(z.T, metric="euclidean"), method="average")
             col_dendrogram = dendrogram(col_linkage, no_plot=True)
-            col_order = col_dendrogram['leaves']
+            col_order = col_dendrogram["leaves"]
         except Exception as e:
             log.debug(f"Could not cluster columns: {e}")
 
@@ -178,11 +181,12 @@ def plot_metric_heatmap(
 
     # Set up publication-quality figure with dendrogram space
     fig = plt.figure(figsize=figsize, dpi=150)
-    fig.patch.set_facecolor('white')
+    fig.patch.set_facecolor("white")
 
     # Create grid for heatmap and dendrograms
     if cluster_rows:
         from matplotlib.gridspec import GridSpec
+
         gs = GridSpec(1, 2, width_ratios=[0.15, 0.85], wspace=0.02)
         ax_dendro = fig.add_subplot(gs[0])
         ax_heatmap = fig.add_subplot(gs[1])
@@ -190,38 +194,45 @@ def plot_metric_heatmap(
         # Draw row dendrogram
         if len(row_labels) > 2:
             try:
-                row_linkage = linkage(pdist(z, metric='euclidean'), method='average')
-                dendrogram(row_linkage, ax=ax_dendro, orientation='left',
-                          color_threshold=0, above_threshold_color='gray')
+                row_linkage = linkage(pdist(z, metric="euclidean"), method="average")
+                dendrogram(
+                    row_linkage,
+                    ax=ax_dendro,
+                    orientation="left",
+                    color_threshold=0,
+                    above_threshold_color="gray",
+                )
                 ax_dendro.set_xticks([])
                 ax_dendro.set_yticks([])
                 ax_dendro.spines[:].set_visible(False)
             except Exception:
-                ax_dendro.axis('off')
+                ax_dendro.axis("off")
     else:
         ax_heatmap = fig.add_subplot(111)
 
     # Draw heatmap with improved colormap
-    im = ax_heatmap.imshow(z_ordered, cmap="RdBu_r", aspect="auto",
-                          vmin=-2, vmax=2, interpolation='nearest')
+    im = ax_heatmap.imshow(
+        z_ordered, cmap="RdBu_r", aspect="auto", vmin=-2, vmax=2, interpolation="nearest"
+    )
 
     # Add grid lines
     for i in range(len(row_labels_ordered) + 1):
-        ax_heatmap.axhline(i - 0.5, color='white', linewidth=1.5)
+        ax_heatmap.axhline(i - 0.5, color="white", linewidth=1.5)
     for j in range(len(col_labels_ordered) + 1):
-        ax_heatmap.axvline(j - 0.5, color='white', linewidth=1.5)
+        ax_heatmap.axvline(j - 0.5, color="white", linewidth=1.5)
 
     # Set ticks and labels
     ax_heatmap.set_xticks(np.arange(len(col_labels_ordered)))
     ax_heatmap.set_xticklabels(col_labels_ordered, rotation=35, ha="right", fontsize=11)
     ax_heatmap.set_yticks(np.arange(len(row_labels_ordered)))
     ax_heatmap.set_yticklabels(row_labels_ordered, fontsize=11)
-    ax_heatmap.set_title("Model Performance Heatmap (Z-scored Metrics)",
-                        fontsize=15, fontweight='bold', pad=15)
+    ax_heatmap.set_title(
+        "Model Performance Heatmap (Z-scored Metrics)", fontsize=15, fontweight="bold", pad=15
+    )
 
     # Colorbar
     cbar = fig.colorbar(im, ax=ax_heatmap, shrink=0.8, pad=0.02)
-    cbar.set_label("Z-score", fontsize=12, fontweight='bold')
+    cbar.set_label("Z-score", fontsize=12, fontweight="bold")
     cbar.ax.tick_params(labelsize=10)
 
     # Annotate cells with values
@@ -231,15 +242,22 @@ def plot_metric_heatmap(
                 val = z_ordered[i, j]
                 # Use white text for extreme values, black for moderate
                 text_color = "white" if abs(val) > 1.5 else "black"
-                ax_heatmap.text(j, i, f"{val:.2f}",
-                              ha="center", va="center", fontsize=9,
-                              color=text_color, fontweight='bold')
+                ax_heatmap.text(
+                    j,
+                    i,
+                    f"{val:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=9,
+                    color=text_color,
+                    fontweight="bold",
+                )
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+    fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
     if output_path.suffix.lower() != ".pdf":
-        fig.savefig(output_path.with_suffix(".pdf"), bbox_inches='tight')
+        fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
     log.info("Enhanced metric heatmap written: %s", output_path)
 
@@ -250,11 +268,11 @@ def plot_metric_heatmap(
 
 # Stage colors — color-blind friendly palette
 _STAGE_COLORS: dict[str, str] = {
-    "Normal": "#00BA38",   # green (healthy) - colorblind safe
-    "AAH":    "#F8766D",   # coral (early precursor)
-    "AIS":    "#619CFF",   # blue (intermediate precursor)
-    "MIA":    "#E58700",   # orange (late precursor)
-    "LUAD":   "#A3A500",   # olive (invasive)
+    "Normal": "#00BA38",  # green (healthy) - colorblind safe
+    "AAH": "#F8766D",  # coral (early precursor)
+    "AIS": "#619CFF",  # blue (intermediate precursor)
+    "MIA": "#E58700",  # orange (late precursor)
+    "LUAD": "#A3A500",  # olive (invasive)
     "Unknown": "#999999",  # gray
 }
 
@@ -316,38 +334,66 @@ def plot_spatial_stage_map(
 
     # Set up publication-quality figure
     fig, ax = plt.subplots(figsize=(9, 8.5), dpi=150)
-    ax.set_facecolor('#F8F8F8')
-    fig.patch.set_facecolor('white')
+    ax.set_facecolor("#F8F8F8")
+    fig.patch.set_facecolor("white")
 
-    ordered = list(CANONICAL_STAGE_ORDER) + [s for s in np.unique(stages) if s not in CANONICAL_STAGE_ORDER]
+    ordered = list(CANONICAL_STAGE_ORDER) + [
+        s for s in np.unique(stages) if s not in CANONICAL_STAGE_ORDER
+    ]
     for stage in ordered:
         mask = stages == stage
         if not mask.any():
             continue
         ax.scatter(
-            px_x[mask], -px_y[mask],
+            px_x[mask],
+            -px_y[mask],
             c=_STAGE_COLORS.get(stage, "#999999"),
-            s=spot_size, alpha=alpha, label=stage,
-            rasterized=True, edgecolors='white', linewidths=0.2
+            s=spot_size,
+            alpha=alpha,
+            label=stage,
+            rasterized=True,
+            edgecolors="white",
+            linewidths=0.2,
         )
 
     # Enhanced title and labels
     title = f"Spatial Stage Map — {sample_id}" if sample_id else "Spatial Stage Map"
-    ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
-    ax.set_xlabel("Spatial X (μm)", fontsize=12, fontweight='bold')
-    ax.set_ylabel("Spatial Y (μm, inverted)", fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=15, fontweight="bold", pad=15)
+    ax.set_xlabel("Spatial X (μm)", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Spatial Y (μm, inverted)", fontsize=12, fontweight="bold")
 
     # Improved legend with stage counts
-    stage_counts = {stage: np.sum(stages == stage) for stage in ordered if np.sum(stages == stage) > 0}
-    legend_labels = [f"{stage} (n={stage_counts[stage]})" for stage in ordered if stage in stage_counts]
-    handles = [plt.scatter([], [], s=50, c=_STAGE_COLORS.get(stage, "#999999"),
-                          edgecolors='white', linewidths=0.5, alpha=alpha)
-              for stage in ordered if stage in stage_counts]
-    legend = ax.legend(handles, legend_labels, markerscale=2,
-                      framealpha=0.95, fontsize=11, loc='best',
-                      title='Cancer Stage', title_fontsize=12)
-    legend.get_frame().set_facecolor('white')
-    legend.get_frame().set_edgecolor('gray')
+    stage_counts = {
+        stage: np.sum(stages == stage) for stage in ordered if np.sum(stages == stage) > 0
+    }
+    legend_labels = [
+        f"{stage} (n={stage_counts[stage]})" for stage in ordered if stage in stage_counts
+    ]
+    handles = [
+        plt.scatter(
+            [],
+            [],
+            s=50,
+            c=_STAGE_COLORS.get(stage, "#999999"),
+            edgecolors="white",
+            linewidths=0.5,
+            alpha=alpha,
+        )
+        for stage in ordered
+        if stage in stage_counts
+    ]
+    legend = ax.legend(
+        handles,
+        legend_labels,
+        markerscale=2,
+        framealpha=0.95,
+        fontsize=11,
+        loc="best",
+        title="Cancer Stage",
+        title_fontsize=12,
+    )
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("gray")
     legend.get_frame().set_linewidth(1.5)
 
     # Add scale bar if requested
@@ -356,24 +402,29 @@ def plot_spatial_stage_map(
         scale_length = x_range * 0.15  # 15% of width
         scale_x = px_x.min() + x_range * 0.75
         scale_y = -px_y.max() + (px_y.max() - px_y.min()) * 0.08
-        ax.plot([scale_x, scale_x + scale_length], [scale_y, scale_y],
-               'k-', linewidth=3)
-        ax.text(scale_x + scale_length/2, scale_y - (px_y.max() - px_y.min()) * 0.03,
-               f'{int(scale_length)} μm', ha='center', va='top',
-               fontsize=10, fontweight='bold')
+        ax.plot([scale_x, scale_x + scale_length], [scale_y, scale_y], "k-", linewidth=3)
+        ax.text(
+            scale_x + scale_length / 2,
+            scale_y - (px_y.max() - px_y.min()) * 0.03,
+            f"{int(scale_length)} μm",
+            ha="center",
+            va="top",
+            fontsize=10,
+            fontweight="bold",
+        )
 
     ax.set_aspect("equal", adjustable="datalim")
-    ax.grid(alpha=0.15, linestyle=':', linewidth=0.5)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(1.5)
-    ax.spines['bottom'].set_linewidth(1.5)
+    ax.grid(alpha=0.15, linestyle=":", linewidth=0.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(1.5)
+    ax.spines["bottom"].set_linewidth(1.5)
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+    fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
     if output_path.suffix.lower() != ".pdf":
-        fig.savefig(output_path.with_suffix(".pdf"), bbox_inches='tight')
+        fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
     log.info("Enhanced spatial stage map written: %s", output_path)
 
@@ -421,16 +472,14 @@ def plot_spatial_context_score(
     scores = np.asarray(context_scores, dtype=float).ravel()
 
     if len(scores) != adata_spatial.n_obs:
-        raise ValueError(
-            f"context_scores length {len(scores)} != n_obs {adata_spatial.n_obs}"
-        )
+        raise ValueError(f"context_scores length {len(scores)} != n_obs {adata_spatial.n_obs}")
 
     px_y, px_x = coords[:, 0], coords[:, 1]
 
     # Set up publication-quality figure
     fig, ax = plt.subplots(figsize=(9, 8.5), dpi=150)
-    ax.set_facecolor('#F8F8F8')
-    fig.patch.set_facecolor('white')
+    ax.set_facecolor("#F8F8F8")
+    fig.patch.set_facecolor("white")
 
     # Robust percentile-based color scaling
     vmin = np.percentile(scores, 2)
@@ -438,10 +487,17 @@ def plot_spatial_context_score(
 
     # Main scatter plot
     sc = ax.scatter(
-        px_x, -px_y,
-        c=scores, cmap=cmap, s=spot_size, alpha=alpha,
-        rasterized=True, vmin=vmin, vmax=vmax,
-        edgecolors='white', linewidths=0.2
+        px_x,
+        -px_y,
+        c=scores,
+        cmap=cmap,
+        s=spot_size,
+        alpha=alpha,
+        rasterized=True,
+        vmin=vmin,
+        vmax=vmax,
+        edgecolors="white",
+        linewidths=0.2,
     )
 
     # Add contour lines if requested
@@ -455,33 +511,42 @@ def plot_spatial_context_score(
             grid_X, grid_Y = np.meshgrid(grid_x, grid_y)
 
             # Interpolate scores to grid
-            grid_Z = griddata((px_x, -px_y), scores, (grid_X, grid_Y), method='cubic')
+            grid_Z = griddata((px_x, -px_y), scores, (grid_X, grid_Y), method="cubic")
 
             # Draw contours
-            contours = ax.contour(grid_X, grid_Y, grid_Z, levels=6,
-                                 colors='white', alpha=0.4, linewidths=1)
-            ax.clabel(contours, inline=True, fontsize=8, fmt='%.2f')
+            contours = ax.contour(
+                grid_X, grid_Y, grid_Z, levels=6, colors="white", alpha=0.4, linewidths=1
+            )
+            ax.clabel(contours, inline=True, fontsize=8, fmt="%.2f")
         except Exception as e:
             log.debug(f"Could not draw contours: {e}")
 
     # Enhanced colorbar
     cbar = fig.colorbar(sc, ax=ax, shrink=0.75, pad=0.02, aspect=25)
-    cbar.set_label("Context Score ‖c_s‖", fontsize=12, fontweight='bold')
+    cbar.set_label("Context Score ‖c_s‖", fontsize=12, fontweight="bold")
     cbar.ax.tick_params(labelsize=10)
 
     # Title and labels
     title = f"Spatial Context Score — {sample_id}" if sample_id else "Spatial Context Score"
-    ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
-    ax.set_xlabel("Spatial X (μm)", fontsize=12, fontweight='bold')
-    ax.set_ylabel("Spatial Y (μm, inverted)", fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=15, fontweight="bold", pad=15)
+    ax.set_xlabel("Spatial X (μm)", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Spatial Y (μm, inverted)", fontsize=12, fontweight="bold")
 
     # Summary statistics annotation
-    stats_text = (f"Mean: {scores.mean():.3f}\n"
-                 f"Median: {np.median(scores):.3f}\n"
-                 f"Range: [{scores.min():.3f}, {scores.max():.3f}]")
-    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-           fontsize=9, verticalalignment='top',
-           bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray'))
+    stats_text = (
+        f"Mean: {scores.mean():.3f}\n"
+        f"Median: {np.median(scores):.3f}\n"
+        f"Range: [{scores.min():.3f}, {scores.max():.3f}]"
+    )
+    ax.text(
+        0.02,
+        0.98,
+        stats_text,
+        transform=ax.transAxes,
+        fontsize=9,
+        verticalalignment="top",
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="gray"),
+    )
 
     # Add scale bar if requested
     if show_scale_bar:
@@ -489,24 +554,29 @@ def plot_spatial_context_score(
         scale_length = x_range * 0.15
         scale_x = px_x.min() + x_range * 0.75
         scale_y = -px_y.max() + (px_y.max() - px_y.min()) * 0.08
-        ax.plot([scale_x, scale_x + scale_length], [scale_y, scale_y],
-               'k-', linewidth=3)
-        ax.text(scale_x + scale_length/2, scale_y - (px_y.max() - px_y.min()) * 0.03,
-               f'{int(scale_length)} μm', ha='center', va='top',
-               fontsize=10, fontweight='bold')
+        ax.plot([scale_x, scale_x + scale_length], [scale_y, scale_y], "k-", linewidth=3)
+        ax.text(
+            scale_x + scale_length / 2,
+            scale_y - (px_y.max() - px_y.min()) * 0.03,
+            f"{int(scale_length)} μm",
+            ha="center",
+            va="top",
+            fontsize=10,
+            fontweight="bold",
+        )
 
     ax.set_aspect("equal", adjustable="datalim")
-    ax.grid(alpha=0.15, linestyle=':', linewidth=0.5)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(1.5)
-    ax.spines['bottom'].set_linewidth(1.5)
+    ax.grid(alpha=0.15, linestyle=":", linewidth=0.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(1.5)
+    ax.spines["bottom"].set_linewidth(1.5)
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+    fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
     if output_path.suffix.lower() != ".pdf":
-        fig.savefig(output_path.with_suffix(".pdf"), bbox_inches='tight')
+        fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
     log.info("Enhanced spatial context score plot written: %s", output_path)
 

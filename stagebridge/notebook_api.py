@@ -1,4 +1,5 @@
 """Notebook-facing orchestration API for the rebuilt StageBridge layout."""
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,10 @@ from stagebridge.utils.h5ad_io import (
 from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.data.luad_evo.stages import normalize_stage_label
 from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS, load_luad_evo_wes_features
-from stagebridge.evaluation.provider_benchmark import render_provider_benchmark_md, summarize_provider_benchmark
+from stagebridge.evaluation.provider_benchmark import (
+    render_provider_benchmark_md,
+    summarize_provider_benchmark,
+)
 from stagebridge.utils.config_loader import load_yaml_config
 
 _CONFIG_DIR = (Path(__file__).resolve().parent.parent / "configs").resolve()
@@ -240,9 +244,13 @@ def run_pipeline(cfg: DictConfig, steps: list[str] | None = None) -> dict[str, d
         if step == "reference":
             outputs[step] = _resolve_step_fn("reference")(cfg)
         elif step == "spatial_mapping":
-            outputs[step] = _resolve_step_fn("spatial_mapping")(cfg, reference_output=outputs.get("reference"))
+            outputs[step] = _resolve_step_fn("spatial_mapping")(
+                cfg, reference_output=outputs.get("reference")
+            )
         elif step == "context_model":
-            outputs[step] = _resolve_step_fn("context_model")(cfg, spatial_output=outputs.get("spatial_mapping"))
+            outputs[step] = _resolve_step_fn("context_model")(
+                cfg, spatial_output=outputs.get("spatial_mapping")
+            )
         elif step == "transition_model":
             outputs[step] = _resolve_step_fn("transition_model")(
                 cfg,
@@ -340,12 +348,20 @@ def _two_dimensional_embedding(matrix: Any, *, seed: int) -> np.ndarray:
             arr = arr.copy()
             arr.data = np.log1p(arr.data)
             n_eff = max(2, min(8, int(arr.shape[0]) - 1, int(arr.shape[1]) - 1))
-            emb = TruncatedSVD(n_components=n_eff, random_state=int(seed)).fit_transform(arr).astype(np.float32)
+            emb = (
+                TruncatedSVD(n_components=n_eff, random_state=int(seed))
+                .fit_transform(arr)
+                .astype(np.float32)
+            )
         else:
             arr = np.asarray(arr, dtype=np.float32)
             arr = np.log1p(np.clip(arr, 0.0, None))
             n_eff = max(2, min(8, int(arr.shape[0]) - 1, int(arr.shape[1]) - 1))
-            emb = PCA(n_components=n_eff, random_state=int(seed)).fit_transform(arr).astype(np.float32)
+            emb = (
+                PCA(n_components=n_eff, random_state=int(seed))
+                .fit_transform(arr)
+                .astype(np.float32)
+            )
     except Exception:
         arr = np.asarray(arr, dtype=np.float32)
         emb = arr[:, : min(2, arr.shape[1])]
@@ -528,7 +544,9 @@ def run_data_preprocessing_overview(
             "stage_counts": wes_frame["stage"].value_counts().to_dict(),
             "tmb_mean": float(wes_frame["tmb"].mean()) if not wes_frame.empty else float("nan"),
             "mutation_prevalence": {
-                column: float(wes_frame[column].mean()) if column in wes_frame.columns and not wes_frame.empty else float("nan")
+                column: float(wes_frame[column].mean())
+                if column in wes_frame.columns and not wes_frame.empty
+                else float("nan")
                 for column in WES_FEATURE_COLS
             },
         },
@@ -589,14 +607,29 @@ def build_reference_summary_table(reference_output: dict[str, Any]) -> pd.DataFr
         {"metric": "reference_source", "value": reference.get("source_path", "n/a")},
         {"metric": "latent_n_cells", "value": int(shape[0]) if len(shape) > 0 else 0},
         {"metric": "latent_dim", "value": int(shape[1]) if len(shape) > 1 else 0},
-        {"metric": "stage_count", "value": diagnostics.get("stage_preservation", {}).get("n_stages", 0)},
-        {"metric": "stage_probe_accuracy", "value": stage_probe.get("logreg_accuracy", float("nan"))},
-        {"metric": "stage_probe_balanced_accuracy", "value": stage_probe.get("balanced_accuracy", float("nan"))},
+        {
+            "metric": "stage_count",
+            "value": diagnostics.get("stage_preservation", {}).get("n_stages", 0),
+        },
+        {
+            "metric": "stage_probe_accuracy",
+            "value": stage_probe.get("logreg_accuracy", float("nan")),
+        },
+        {
+            "metric": "stage_probe_balanced_accuracy",
+            "value": stage_probe.get("balanced_accuracy", float("nan")),
+        },
         {"metric": "donor_leakage_accuracy", "value": donor.get("logreg_accuracy", float("nan"))},
         {"metric": "donor_chance_accuracy", "value": donor.get("chance_accuracy", float("nan"))},
         {"metric": "label_coverage", "value": label_transfer.get("coverage", 0.0)},
-        {"metric": "gene_overlap_fraction", "value": gene_overlap.get("reference_query_overlap_fraction", float("nan"))},
-        {"metric": "missing_gene_fraction", "value": gene_overlap.get("missing_gene_fraction", float("nan"))},
+        {
+            "metric": "gene_overlap_fraction",
+            "value": gene_overlap.get("reference_query_overlap_fraction", float("nan")),
+        },
+        {
+            "metric": "missing_gene_fraction",
+            "value": gene_overlap.get("missing_gene_fraction", float("nan")),
+        },
         {
             "metric": "neighbor_label_agreement",
             "value": label_neighborhood.get("mean_neighbor_label_agreement", float("nan")),
@@ -631,7 +664,10 @@ def build_reference_evaluation_table(reference_output: dict[str, Any]) -> pd.Dat
     centroid_distances = [float(value) for value in stage.get("centroid_distances", {}).values()]
     rows = [
         {"metric": "stage_probe_accuracy", "value": probe.get("logreg_accuracy", float("nan"))},
-        {"metric": "stage_probe_balanced_accuracy", "value": probe.get("balanced_accuracy", float("nan"))},
+        {
+            "metric": "stage_probe_balanced_accuracy",
+            "value": probe.get("balanced_accuracy", float("nan")),
+        },
         {"metric": "stage_probe_chance", "value": probe.get("chance_accuracy", float("nan"))},
         {"metric": "donor_leakage_accuracy", "value": donor.get("logreg_accuracy", float("nan"))},
         {"metric": "donor_leakage_chance", "value": donor.get("chance_accuracy", float("nan"))},
@@ -644,8 +680,14 @@ def build_reference_evaluation_table(reference_output: dict[str, Any]) -> pd.Dat
             "value": float(np.min(centroid_distances)) if centroid_distances else float("nan"),
         },
         {"metric": "label_coverage", "value": label_transfer.get("coverage", float("nan"))},
-        {"metric": "gene_overlap_fraction", "value": gene_overlap.get("reference_query_overlap_fraction", float("nan"))},
-        {"metric": "missing_gene_fraction", "value": gene_overlap.get("missing_gene_fraction", float("nan"))},
+        {
+            "metric": "gene_overlap_fraction",
+            "value": gene_overlap.get("reference_query_overlap_fraction", float("nan")),
+        },
+        {
+            "metric": "missing_gene_fraction",
+            "value": gene_overlap.get("missing_gene_fraction", float("nan")),
+        },
         {
             "metric": "nearest_neighbor_label_agreement",
             "value": label_neighborhood.get("mean_neighbor_label_agreement", float("nan")),
@@ -698,7 +740,9 @@ def run_spatial_provider_ladder(
     iterator = _progress_iter(methods, desc="Spatial providers", enabled=use_tqdm)
     for method in iterator:
         cfg_method = clone_config(cfg)
-        cfg_method = OmegaConf.merge(cfg_method, _load_component(_COMPONENT_DIRS["spatial_mapping"] / f"{method}.yaml"))
+        cfg_method = OmegaConf.merge(
+            cfg_method, _load_component(_COMPONENT_DIRS["spatial_mapping"] / f"{method}.yaml")
+        )
         if not hasattr(cfg_method, "profiles") or cfg_method.profiles is None:
             cfg_method.profiles = OmegaConf.create({})
         cfg_method.profiles.spatial_mapping = method
@@ -732,7 +776,9 @@ def build_spatial_provider_table(provider_outputs: dict[str, dict[str, Any]]) ->
     return pd.DataFrame(rows)
 
 
-def _provider_matrix_and_columns(payload: dict[str, Any]) -> tuple[np.ndarray | None, list[str], pd.Index | None]:
+def _provider_matrix_and_columns(
+    payload: dict[str, Any],
+) -> tuple[np.ndarray | None, list[str], pd.Index | None]:
     mapping = payload.get("mapping_result")
     if mapping is None or mapping.compositions is None:
         return None, [], None
@@ -749,7 +795,9 @@ def _normalized_provider_matrix(matrix: np.ndarray) -> np.ndarray:
     return np.divide(arr, row_sums, out=np.zeros_like(arr), where=row_sums > 0)
 
 
-def build_spatial_provider_metric_table(provider_outputs: dict[str, dict[str, Any]]) -> pd.DataFrame:
+def build_spatial_provider_metric_table(
+    provider_outputs: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
     """Build comparable QC metrics for live provider runs.
 
     This is an internal quality screen, not a ground-truth accuracy claim.
@@ -798,26 +846,40 @@ def build_spatial_provider_metric_table(provider_outputs: dict[str, dict[str, An
         rows.append(row)
     table = pd.DataFrame(rows)
     if "qc_heuristic_score" in table.columns:
-        table = table.sort_values(["status", "qc_heuristic_score"], ascending=[True, False], na_position="last").reset_index(drop=True)
+        table = table.sort_values(
+            ["status", "qc_heuristic_score"], ascending=[True, False], na_position="last"
+        ).reset_index(drop=True)
     return table
 
 
-def build_spatial_provider_agreement_table(provider_outputs: dict[str, dict[str, Any]]) -> pd.DataFrame:
+def build_spatial_provider_agreement_table(
+    provider_outputs: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
     """Compare provider outputs on overlapping spots and shared feature columns."""
     rows: list[dict[str, Any]] = []
     methods = list(provider_outputs.keys())
     for idx, left_method in enumerate(methods):
-        left_matrix, left_columns, left_index = _provider_matrix_and_columns(provider_outputs[left_method])
+        left_matrix, left_columns, left_index = _provider_matrix_and_columns(
+            provider_outputs[left_method]
+        )
         if left_matrix is None or left_index is None:
             continue
-        left_df = pd.DataFrame(_normalized_provider_matrix(left_matrix), index=left_index, columns=left_columns)
+        left_df = pd.DataFrame(
+            _normalized_provider_matrix(left_matrix), index=left_index, columns=left_columns
+        )
         for right_method in methods[idx + 1 :]:
-            right_matrix, right_columns, right_index = _provider_matrix_and_columns(provider_outputs[right_method])
+            right_matrix, right_columns, right_index = _provider_matrix_and_columns(
+                provider_outputs[right_method]
+            )
             if right_matrix is None or right_index is None:
                 continue
-            right_df = pd.DataFrame(_normalized_provider_matrix(right_matrix), index=right_index, columns=right_columns)
+            right_df = pd.DataFrame(
+                _normalized_provider_matrix(right_matrix), index=right_index, columns=right_columns
+            )
             shared_spots = left_df.index.intersection(right_df.index)
-            shared_features = [feature for feature in left_df.columns if feature in right_df.columns]
+            shared_features = [
+                feature for feature in left_df.columns if feature in right_df.columns
+            ]
             row = {
                 "left_method": left_method,
                 "right_method": right_method,
@@ -839,7 +901,8 @@ def build_spatial_provider_agreement_table(provider_outputs: dict[str, dict[str,
                         np.mean(
                             np.sum(left_aligned * right_aligned, axis=1)
                             / np.clip(
-                                np.linalg.norm(left_aligned, axis=1) * np.linalg.norm(right_aligned, axis=1),
+                                np.linalg.norm(left_aligned, axis=1)
+                                * np.linalg.norm(right_aligned, axis=1),
                                 1e-8,
                                 None,
                             )
@@ -877,14 +940,18 @@ def run_provider_benchmark(
     base_cfg.transition_model.schrodinger_bridge.sigma = 0.0
 
     reference = reference_output or run_reference(base_cfg)
-    reference_gate = (reference.get("reference", {}).get("diagnostics", {}) or {}).get("alignment_gate", {})
+    reference_gate = (reference.get("reference", {}).get("diagnostics", {}) or {}).get(
+        "alignment_gate", {}
+    )
 
     provider_outputs_by_seed: dict[int, dict[str, dict[str, Any]]] = {}
     provider_metric_rows: list[pd.DataFrame] = []
     agreement_rows: list[pd.DataFrame] = []
     downstream_rows: list[dict[str, Any]] = []
 
-    seed_iter = _progress_iter([str(seed) for seed in seeds], desc="Provider benchmark seeds", enabled=use_tqdm)
+    seed_iter = _progress_iter(
+        [str(seed) for seed in seeds], desc="Provider benchmark seeds", enabled=use_tqdm
+    )
     for seed_label in seed_iter:
         seed = int(seed_label)
         seed_outputs: dict[str, dict[str, Any]] = {}
@@ -937,7 +1004,9 @@ def run_provider_benchmark(
                             "edge": edge,
                             "mode": mode,
                             "sinkhorn": float(evaluation_output["heldout_metrics"]["sinkhorn"]),
-                            "calibration_error": float(evaluation_output["calibration"]["mean_abs_shift_error"]),
+                            "calibration_error": float(
+                                evaluation_output["calibration"]["mean_abs_shift_error"]
+                            ),
                             "dominant_increase_group": biology.get("dominant_increase_group"),
                             "dominant_decrease_group": biology.get("dominant_decrease_group"),
                             "status": evaluation_output.get("status", "complete"),
@@ -989,8 +1058,12 @@ def build_provider_benchmark_table(benchmark_output: dict[str, Any]) -> pd.DataF
 def apply_selected_provider(cfg: DictConfig, benchmark_output: dict[str, Any]) -> DictConfig:
     """Clone config and apply the benchmark-selected provider as the downstream default."""
     selected = (benchmark_output.get("benchmark") or {}).get("selected_provider")
-    selection_status = (benchmark_output.get("benchmark") or {}).get("selection_status", "inconclusive")
-    selection_reason = (benchmark_output.get("benchmark") or {}).get("selection_reason", "selection_not_run")
+    selection_status = (benchmark_output.get("benchmark") or {}).get(
+        "selection_status", "inconclusive"
+    )
+    selection_reason = (benchmark_output.get("benchmark") or {}).get(
+        "selection_reason", "selection_not_run"
+    )
     if not selected:
         return clone_config(cfg)
     cfg_selected = clone_config(cfg)
@@ -1009,22 +1082,44 @@ def build_context_summary_table(context_output: dict[str, Any]) -> pd.DataFrame:
     token_summary = summary.get("typed_token_summary", {})
     rows = [
         {"metric": "mode", "value": summary.get("mode", "n/a")},
-        {"metric": "spatial_mapping_method", "value": summary.get("spatial_mapping_method", "n/a")},
+        {
+            "metric": "spatial_mapping_method",
+            "value": summary.get("spatial_mapping_method", "n/a"),
+        },
         {"metric": "n_token_rows", "value": token_summary.get("n_tokens", 0)},
         {"metric": "token_dim", "value": token_summary.get("token_dim", 0)},
     ]
     if "example_context_norm" in summary:
-        rows.append({"metric": "context_norm", "value": summary.get("example_context_norm", float("nan"))})
+        rows.append(
+            {"metric": "context_norm", "value": summary.get("example_context_norm", float("nan"))}
+        )
         rows.append({"metric": "context_dim", "value": summary.get("example_context_dim", 0)})
     if "mean_token_confidence" in summary:
-        rows.append({"metric": "mean_token_confidence", "value": summary.get("mean_token_confidence", float("nan"))})
+        rows.append(
+            {
+                "metric": "mean_token_confidence",
+                "value": summary.get("mean_token_confidence", float("nan")),
+            }
+        )
     if "example_context_tokens" in summary:
-        rows.append({"metric": "example_context_tokens", "value": summary.get("example_context_tokens", 0)})
+        rows.append(
+            {"metric": "example_context_tokens", "value": summary.get("example_context_tokens", 0)}
+        )
     if "dataset_name" in summary:
         rows.append({"metric": "dataset_name", "value": summary.get("dataset_name", "n/a")})
-        rows.append({"metric": "dataset_embedding_enabled", "value": summary.get("dataset_embedding_enabled", False)})
+        rows.append(
+            {
+                "metric": "dataset_embedding_enabled",
+                "value": summary.get("dataset_embedding_enabled", False),
+            }
+        )
     if "graph_context_norm" in summary:
-        rows.append({"metric": "graph_context_norm", "value": summary.get("graph_context_norm", float("nan"))})
+        rows.append(
+            {
+                "metric": "graph_context_norm",
+                "value": summary.get("graph_context_norm", float("nan")),
+            }
+        )
         rows.append({"metric": "graph_num_nodes", "value": summary.get("graph_num_nodes", 0)})
         rows.append({"metric": "graph_num_edges", "value": summary.get("graph_num_edges", 0)})
     return pd.DataFrame(rows)
@@ -1043,58 +1138,146 @@ def build_transition_summary_table(
         {"metric": "edge", "value": transition_output.get("edge", "n/a")},
         {"metric": "mode", "value": transition_output.get("mode", "n/a")},
         {"metric": "sigma", "value": transition_output.get("sigma", float("nan"))},
-        {"metric": "diffusion_weight", "value": transition_output.get("diffusion_weight", float("nan"))},
+        {
+            "metric": "diffusion_weight",
+            "value": transition_output.get("diffusion_weight", float("nan")),
+        },
         {"metric": "split_strategy", "value": split.get("split_strategy", "n/a")},
         {"metric": "same_donor_overlap", "value": len(split.get("overlap_donors", []))},
         {"metric": "wes_enabled", "value": wes.get("enabled", False)},
         {"metric": "wes_penalty_mean", "value": wes.get("regularizer_mean_penalty", float("nan"))},
         {"metric": "heldout_sinkhorn", "value": heldout.get("sinkhorn", float("nan"))},
         {"metric": "heldout_auc", "value": heldout.get("classifier_auc", float("nan"))},
-        {"metric": "calibration_error", "value": calibration.get("mean_abs_shift_error", float("nan"))},
+        {
+            "metric": "calibration_error",
+            "value": calibration.get("mean_abs_shift_error", float("nan")),
+        },
     ]
     if "encoder_parameter_delta" in transition_output:
-        rows.append({"metric": "encoder_parameter_delta", "value": transition_output.get("encoder_parameter_delta", 0.0)})
+        rows.append(
+            {
+                "metric": "encoder_parameter_delta",
+                "value": transition_output.get("encoder_parameter_delta", 0.0),
+            }
+        )
     pretraining = transition_output.get("pretraining_summary") or {}
     if pretraining:
         metrics = pretraining.get("metrics", {}) or {}
-        rows.append({"metric": "pretraining_encoder_delta", "value": pretraining.get("encoder_parameter_delta", float("nan"))})
-        rows.append({"metric": "pretraining_loss_total", "value": metrics.get("loss_total", float("nan"))})
-        rows.append({"metric": "pretraining_ranking_accuracy", "value": metrics.get("ranking_accuracy", float("nan"))})
-        rows.append({"metric": "pretraining_provider_cosine", "value": metrics.get("provider_consistency_cosine", float("nan"))})
-        rows.append({"metric": "pretraining_coordinate_accuracy", "value": metrics.get("coordinate_corruption_accuracy", float("nan"))})
-        rows.append({"metric": "pretraining_group_relation_accuracy", "value": metrics.get("group_relation_accuracy", float("nan"))})
+        rows.append(
+            {
+                "metric": "pretraining_encoder_delta",
+                "value": pretraining.get("encoder_parameter_delta", float("nan")),
+            }
+        )
+        rows.append(
+            {"metric": "pretraining_loss_total", "value": metrics.get("loss_total", float("nan"))}
+        )
+        rows.append(
+            {
+                "metric": "pretraining_ranking_accuracy",
+                "value": metrics.get("ranking_accuracy", float("nan")),
+            }
+        )
+        rows.append(
+            {
+                "metric": "pretraining_provider_cosine",
+                "value": metrics.get("provider_consistency_cosine", float("nan")),
+            }
+        )
+        rows.append(
+            {
+                "metric": "pretraining_coordinate_accuracy",
+                "value": metrics.get("coordinate_corruption_accuracy", float("nan")),
+            }
+        )
+        rows.append(
+            {
+                "metric": "pretraining_group_relation_accuracy",
+                "value": metrics.get("group_relation_accuracy", float("nan")),
+            }
+        )
     aux = transition_output.get("auxiliary_context_shuffle_metrics") or {}
     if aux:
-        rows.append({"metric": "context_auxiliary_task", "value": aux.get("task", "context_shuffle")})
+        rows.append(
+            {"metric": "context_auxiliary_task", "value": aux.get("task", "context_shuffle")}
+        )
         rows.append({"metric": "context_shuffle_loss", "value": aux.get("loss", float("nan"))})
-        rows.append({"metric": "context_shuffle_accuracy", "value": aux.get("accuracy", float("nan"))})
-        rows.append({"metric": "context_separation_score", "value": aux.get("separation_score", float("nan"))})
-        rows.append({"metric": "context_auxiliary_margin", "value": aux.get("margin", float("nan"))})
-        rows.append({"metric": "context_positive_score", "value": aux.get("positive_score", float("nan"))})
-        rows.append({"metric": "drift_context_gate", "value": aux.get("drift_context_gate", float("nan"))})
-        rows.append({"metric": "drift_context_attention_entropy", "value": aux.get("drift_context_attention_entropy", float("nan"))})
-        rows.append({"metric": "provider_consistency_cosine", "value": aux.get("provider_consistency_cosine", float("nan"))})
-        rows.append({"metric": "group_relation_accuracy", "value": aux.get("group_relation_accuracy", float("nan"))})
+        rows.append(
+            {"metric": "context_shuffle_accuracy", "value": aux.get("accuracy", float("nan"))}
+        )
+        rows.append(
+            {
+                "metric": "context_separation_score",
+                "value": aux.get("separation_score", float("nan")),
+            }
+        )
+        rows.append(
+            {"metric": "context_auxiliary_margin", "value": aux.get("margin", float("nan"))}
+        )
+        rows.append(
+            {"metric": "context_positive_score", "value": aux.get("positive_score", float("nan"))}
+        )
+        rows.append(
+            {"metric": "drift_context_gate", "value": aux.get("drift_context_gate", float("nan"))}
+        )
+        rows.append(
+            {
+                "metric": "drift_context_attention_entropy",
+                "value": aux.get("drift_context_attention_entropy", float("nan")),
+            }
+        )
+        rows.append(
+            {
+                "metric": "provider_consistency_cosine",
+                "value": aux.get("provider_consistency_cosine", float("nan")),
+            }
+        )
+        rows.append(
+            {
+                "metric": "group_relation_accuracy",
+                "value": aux.get("group_relation_accuracy", float("nan")),
+            }
+        )
         negative_scores = aux.get("negative_control_scores", {}) or {}
         if negative_scores:
             rows.append(
                 {
                     "metric": "negative_control_scores",
-                    "value": ", ".join(f"{key}={float(value):.3f}" for key, value in negative_scores.items()),
+                    "value": ", ".join(
+                        f"{key}={float(value):.3f}" for key, value in negative_scores.items()
+                    ),
                 }
             )
     attention = transition_output.get("attention_summary") or {}
     if attention:
-        rows.append({"metric": "attention_maps", "value": ", ".join(attention.get("available_maps", []))})
-        rows.append({"metric": "top_attention_token_types", "value": ", ".join(attention.get("top_token_types", []))})
-        rows.append({"metric": "attention_entropy", "value": attention.get("pma_attention_entropy", float("nan"))})
-        rows.append({"metric": "confidence_weighted_attention_entropy", "value": attention.get("confidence_weighted_attention_entropy", float("nan"))})
+        rows.append(
+            {"metric": "attention_maps", "value": ", ".join(attention.get("available_maps", []))}
+        )
+        rows.append(
+            {
+                "metric": "top_attention_token_types",
+                "value": ", ".join(attention.get("top_token_types", [])),
+            }
+        )
+        rows.append(
+            {
+                "metric": "attention_entropy",
+                "value": attention.get("pma_attention_entropy", float("nan")),
+            }
+        )
+        rows.append(
+            {
+                "metric": "confidence_weighted_attention_entropy",
+                "value": attention.get("confidence_weighted_attention_entropy", float("nan")),
+            }
+        )
         if attention.get("group_attention_scores"):
             rows.append(
                 {
                     "metric": "group_attention_scores",
                     "value": ", ".join(
-                        f"{key}={float(value):.3f}" for key, value in attention["group_attention_scores"].items()
+                        f"{key}={float(value):.3f}"
+                        for key, value in attention["group_attention_scores"].items()
                     ),
                 }
             )
@@ -1103,21 +1286,39 @@ def build_transition_summary_table(
                 {
                     "metric": "relation_attention_scores",
                     "value": ", ".join(
-                        f"{key}={float(value):.3f}" for key, value in attention["relation_attention_scores"].items()
+                        f"{key}={float(value):.3f}"
+                        for key, value in attention["relation_attention_scores"].items()
                     ),
                 }
             )
     transfer = transition_output.get("dataset_transfer_diagnostics") or {}
     if transfer:
         rows.append({"metric": "source_dataset", "value": transfer.get("source_dataset", "n/a")})
-        rows.append({"metric": "transfer_dataset", "value": transfer.get("transfer_dataset", "n/a")})
+        rows.append(
+            {"metric": "transfer_dataset", "value": transfer.get("transfer_dataset", "n/a")}
+        )
         provider_views = transfer.get("provider_views_used", []) or []
         if provider_views:
-            rows.append({"metric": "provider_views_used", "value": ", ".join(str(view) for view in provider_views)})
-        rows.append({"metric": "cross_dataset_negatives_used", "value": transfer.get("cross_dataset_negatives_used", 0)})
+            rows.append(
+                {
+                    "metric": "provider_views_used",
+                    "value": ", ".join(str(view) for view in provider_views),
+                }
+            )
+        rows.append(
+            {
+                "metric": "cross_dataset_negatives_used",
+                "value": transfer.get("cross_dataset_negatives_used", 0),
+            }
+        )
         labels = transfer.get("negative_control_labels", []) or []
         if labels:
-            rows.append({"metric": "negative_control_labels", "value": ", ".join(str(label) for label in labels)})
+            rows.append(
+                {
+                    "metric": "negative_control_labels",
+                    "value": ", ".join(str(label) for label in labels),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -1128,11 +1329,20 @@ def build_biology_summary_table(evaluation_output: dict[str, Any]) -> pd.DataFra
         return pd.DataFrame(columns=["metric", "value"])
     rows = [
         {"metric": "edge", "value": biology.get("edge", "n/a")},
-        {"metric": "dominant_increase_group", "value": biology.get("dominant_increase_group", "n/a")},
-        {"metric": "dominant_decrease_group", "value": biology.get("dominant_decrease_group", "n/a")},
+        {
+            "metric": "dominant_increase_group",
+            "value": biology.get("dominant_increase_group", "n/a"),
+        },
+        {
+            "metric": "dominant_decrease_group",
+            "value": biology.get("dominant_decrease_group", "n/a"),
+        },
         {"metric": "split_strategy", "value": biology.get("split_strategy", "n/a")},
         {"metric": "n_overlap_donors", "value": len(biology.get("overlap_donors", []))},
-        {"metric": "context_sensitivity_delta", "value": biology.get("context_sensitivity_delta", float("nan"))},
+        {
+            "metric": "context_sensitivity_delta",
+            "value": biology.get("context_sensitivity_delta", float("nan")),
+        },
     ]
     return pd.DataFrame(rows)
 
@@ -1140,18 +1350,27 @@ def build_biology_summary_table(evaluation_output: dict[str, Any]) -> pd.DataFra
 def build_gate_ready_table(evaluation_output: dict[str, Any]) -> pd.DataFrame:
     """Expose the current evaluation outputs that feed scientific gates."""
     rows = [
-        {"signal": "sinkhorn", "value": evaluation_output.get("heldout_metrics", {}).get("sinkhorn", float("nan"))},
+        {
+            "signal": "sinkhorn",
+            "value": evaluation_output.get("heldout_metrics", {}).get("sinkhorn", float("nan")),
+        },
         {
             "signal": "context_sensitivity_delta",
-            "value": (evaluation_output.get("context_sensitivity", {}) or {}).get("context_sensitivity_delta", float("nan")),
+            "value": (evaluation_output.get("context_sensitivity", {}) or {}).get(
+                "context_sensitivity_delta", float("nan")
+            ),
         },
         {
             "signal": "mean_diffusion_scale",
-            "value": evaluation_output.get("diffusion_diagnostics", {}).get("mean_diffusion_scale", float("nan")),
+            "value": evaluation_output.get("diffusion_diagnostics", {}).get(
+                "mean_diffusion_scale", float("nan")
+            ),
         },
         {
             "signal": "pseudotime_alignment",
-            "value": evaluation_output.get("pseudotime_structure", {}).get("pseudotime_correlation", float("nan")),
+            "value": evaluation_output.get("pseudotime_structure", {}).get(
+                "pseudotime_correlation", float("nan")
+            ),
         },
     ]
     return pd.DataFrame(rows)
@@ -1213,9 +1432,15 @@ def build_mode_comparison_table(mode_results: dict[str, dict[str, Any]]) -> pd.D
                 "sinkhorn_delta": evaluation["heldout_metrics"]["sinkhorn_delta"],
                 "classifier_auc": evaluation["heldout_metrics"]["classifier_auc"],
                 "calibration_error": evaluation["calibration"]["mean_abs_shift_error"],
-                "context_sensitivity_delta": (evaluation.get("context_sensitivity") or {}).get("context_sensitivity_delta"),
-                "dominant_increase_group": (evaluation.get("biology_summary") or {}).get("dominant_increase_group"),
-                "dominant_decrease_group": (evaluation.get("biology_summary") or {}).get("dominant_decrease_group"),
+                "context_sensitivity_delta": (evaluation.get("context_sensitivity") or {}).get(
+                    "context_sensitivity_delta"
+                ),
+                "dominant_increase_group": (evaluation.get("biology_summary") or {}).get(
+                    "dominant_increase_group"
+                ),
+                "dominant_decrease_group": (evaluation.get("biology_summary") or {}).get(
+                    "dominant_decrease_group"
+                ),
                 "split_strategy": payload["transition_model"]["split_summary"]["split_strategy"],
             }
         )
@@ -1281,14 +1506,22 @@ def build_seeded_mode_summary_table(
                 "sinkhorn_std": pd.Series(sinkhorn).std(ddof=0),
                 "calibration_mean": sum(calibration) / len(calibration),
                 "calibration_std": pd.Series(calibration).std(ddof=0),
-                "context_delta_mean": None if not context_delta else sum(context_delta) / len(context_delta),
-                "context_delta_std": None if not context_delta else pd.Series(context_delta).std(ddof=0),
+                "context_delta_mean": None
+                if not context_delta
+                else sum(context_delta) / len(context_delta),
+                "context_delta_std": None
+                if not context_delta
+                else pd.Series(context_delta).std(ddof=0),
                 "dominant_increase_group": increase_mode,
                 "dominant_decrease_group": decrease_mode,
                 "split_strategy": split_mode,
             }
         )
-    return pd.DataFrame(rows).sort_values(["sinkhorn_mean", "calibration_mean"]).reset_index(drop=True)
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["sinkhorn_mean", "calibration_mean"])
+        .reset_index(drop=True)
+    )
 
 
 def run_latent_backend_compare(
@@ -1312,7 +1545,9 @@ def run_latent_backend_compare(
         cfg_backend = clone_config(cfg_base)
         cfg_backend.reference.latent_backend = backend
         if backend == "pca":
-            cfg_backend.reference.n_components = int(getattr(cfg_backend.reference, "n_components", 32))
+            cfg_backend.reference.n_components = int(
+                getattr(cfg_backend.reference, "n_components", 32)
+            )
         pipeline = run_full(cfg_backend)
         results[backend] = pipeline["steps"]
     return results
@@ -1329,8 +1564,12 @@ def build_latent_comparison_table(backend_results: dict[str, dict[str, Any]]) ->
                 "backend": backend,
                 "sinkhorn": evaluation["heldout_metrics"]["sinkhorn"],
                 "calibration_error": evaluation["calibration"]["mean_abs_shift_error"],
-                "dominant_increase_group": (evaluation.get("biology_summary") or {}).get("dominant_increase_group"),
-                "dominant_decrease_group": (evaluation.get("biology_summary") or {}).get("dominant_decrease_group"),
+                "dominant_increase_group": (evaluation.get("biology_summary") or {}).get(
+                    "dominant_increase_group"
+                ),
+                "dominant_decrease_group": (evaluation.get("biology_summary") or {}).get(
+                    "dominant_decrease_group"
+                ),
                 "latent_dim": reference["latent_shape"][1],
                 "provenance_mode": reference.get("provenance", {}).get("mode"),
                 "source_path": reference.get("source_path"),

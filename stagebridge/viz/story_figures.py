@@ -1,4 +1,5 @@
 """Poster- and manuscript-facing benchmark figures for the StageBridge story."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -62,7 +63,12 @@ def plot_transition_vs_communication(
     transition_plot = transition_df.copy().sort_values("primary_metric", ascending=True)
     x_left = np.arange(transition_plot.shape[0])
     left_colors = [_model_color(label) for label in transition_plot["mode"]]
-    axes[0].bar(x_left, transition_plot["primary_metric"].astype(float).values, color=left_colors, alpha=0.92)
+    axes[0].bar(
+        x_left,
+        transition_plot["primary_metric"].astype(float).values,
+        color=left_colors,
+        alpha=0.92,
+    )
     axes[0].set_xticks(x_left)
     axes[0].set_xticklabels(transition_plot["mode"].astype(str), rotation=25, ha="right")
     axes[0].set_ylabel("Sinkhorn distance")
@@ -84,7 +90,11 @@ def plot_transition_vs_communication(
     axes[1].set_ylabel("AUROC")
     axes[1].set_title("Communication Benchmark: AIS proxy\nHigher is better")
 
-    fig.suptitle("StageBridge Story: Compact Set Attention Helps, Rich CCC Attention Does Not Yet", fontsize=15, color=PALETTE["text"])
+    fig.suptitle(
+        "StageBridge Story: Compact Set Attention Helps, Rich CCC Attention Does Not Yet",
+        fontsize=15,
+        color=PALETTE["text"],
+    )
     fig.tight_layout()
     _save(fig, output_path)
 
@@ -105,8 +115,14 @@ def plot_communication_metric_panels(
         (axes[0], "auroc_mean", "Communication Benchmark AUROC"),
         (axes[1], "auprc_mean", "Communication Benchmark AUPRC"),
     ]:
-        err = plot_df[metric.replace("_mean", "_std")].fillna(0.0).astype(float).values if metric.replace("_mean", "_std") in plot_df.columns else None
-        ax.bar(x, plot_df[metric].astype(float).values, yerr=err, color=colors, alpha=0.92, capsize=3)
+        err = (
+            plot_df[metric.replace("_mean", "_std")].fillna(0.0).astype(float).values
+            if metric.replace("_mean", "_std") in plot_df.columns
+            else None
+        )
+        ax.bar(
+            x, plot_df[metric].astype(float).values, yerr=err, color=colors, alpha=0.92, capsize=3
+        )
         ax.set_xticks(x)
         ax.set_xticklabels(plot_df["model_name"].astype(str), rotation=35, ha="right")
         ax.set_title(title)

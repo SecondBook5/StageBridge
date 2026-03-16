@@ -1,4 +1,5 @@
 """Mission 2 tests for the lightweight scratch and milestone results system."""
+
 from __future__ import annotations
 
 import json
@@ -55,7 +56,9 @@ def test_write_scratch_run_creates_current_workspace(tmp_path: Path) -> None:
         "stdout.log",
     ]
     assert not (tmp_path / "outputs" / "scratch" / ".staging-current").exists()
-    assert (scratch_dir / "artifacts" / "notes" / "summary.txt").read_text(encoding="utf-8") == "artifact payload"
+    assert (scratch_dir / "artifacts" / "notes" / "summary.txt").read_text(
+        encoding="utf-8"
+    ) == "artifact payload"
 
 
 def test_write_scratch_run_serializes_list_artifacts(tmp_path: Path) -> None:
@@ -74,7 +77,15 @@ def test_write_scratch_run_serializes_list_artifacts(tmp_path: Path) -> None:
         base_dir=tmp_path,
     )
 
-    artifact_path = tmp_path / "outputs" / "scratch" / "current" / "artifacts" / "tables" / "provider_rows.json"
+    artifact_path = (
+        tmp_path
+        / "outputs"
+        / "scratch"
+        / "current"
+        / "artifacts"
+        / "tables"
+        / "provider_rows.json"
+    )
     payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     assert payload[0]["method"] == "tangram"
     assert payload[1]["score"] == 0.77
@@ -172,7 +183,9 @@ def test_milestone_promotion_from_scratch_updates_durable_registry(tmp_path: Pat
     assert registry_row["milestone_id"] == "mission2_smoke_keep"
 
     scratch_metadata = json.loads(
-        (tmp_path / "outputs" / "scratch" / "current" / "run_metadata.json").read_text(encoding="utf-8")
+        (tmp_path / "outputs" / "scratch" / "current" / "run_metadata.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert scratch_metadata["status"] == "promoted"
 
@@ -214,7 +227,9 @@ def test_archive_current_scratch_run_keeps_winner_registry_untouched(tmp_path: P
     assert registry_row["milestone_id"] == "transformer_attempt_v1"
 
     scratch_metadata = json.loads(
-        (tmp_path / "outputs" / "scratch" / "current" / "run_metadata.json").read_text(encoding="utf-8")
+        (tmp_path / "outputs" / "scratch" / "current" / "run_metadata.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert scratch_metadata["status"] == "complete"
 

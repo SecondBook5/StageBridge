@@ -1,4 +1,5 @@
 """Dataset and collation utilities for lesion-level EA-MIST training."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -44,7 +45,9 @@ class LesionBagDataset(Dataset[LesionBag]):
         if self.max_neighborhoods is None or bag.num_neighborhoods <= self.max_neighborhoods:
             return bag
         # Subsample neighborhoods for this training iteration.
-        chosen = self._rng.choice(bag.num_neighborhoods, size=self.max_neighborhoods, replace=False)
+        chosen = self._rng.choice(
+            bag.num_neighborhoods, size=self.max_neighborhoods, replace=False
+        )
         chosen.sort()
         subsampled = [bag.neighborhoods[int(i)] for i in chosen]
         return LesionBag(
@@ -100,18 +103,30 @@ class NeighborhoodPretrainDataset(Dataset[NeighborhoodPretrainExample]):
                         stage=bag.stage,
                         receiver_state_id=int(neighborhood.receiver_state_id),
                         flat_features=np.asarray(neighborhood.flat_features, dtype=np.float32),
-                        receiver_embedding=np.asarray(neighborhood.receiver_embedding, dtype=np.float32),
-                        ring_compositions=np.asarray(neighborhood.ring_compositions, dtype=np.float32),
+                        receiver_embedding=np.asarray(
+                            neighborhood.receiver_embedding, dtype=np.float32
+                        ),
+                        ring_compositions=np.asarray(
+                            neighborhood.ring_compositions, dtype=np.float32
+                        ),
                         hlca_features=np.asarray(
-                            neighborhood.hlca_features if neighborhood.hlca_features is not None else np.zeros((0,), dtype=np.float32),
+                            neighborhood.hlca_features
+                            if neighborhood.hlca_features is not None
+                            else np.zeros((0,), dtype=np.float32),
                             dtype=np.float32,
                         ),
                         luca_features=np.asarray(
-                            neighborhood.luca_features if neighborhood.luca_features is not None else np.zeros((0,), dtype=np.float32),
+                            neighborhood.luca_features
+                            if neighborhood.luca_features is not None
+                            else np.zeros((0,), dtype=np.float32),
                             dtype=np.float32,
                         ),
-                        lr_pathway_summary=np.asarray(neighborhood.lr_pathway_summary, dtype=np.float32),
-                        neighborhood_stats=np.asarray(neighborhood.neighborhood_stats, dtype=np.float32),
+                        lr_pathway_summary=np.asarray(
+                            neighborhood.lr_pathway_summary, dtype=np.float32
+                        ),
+                        neighborhood_stats=np.asarray(
+                            neighborhood.neighborhood_stats, dtype=np.float32
+                        ),
                     )
                 )
         if not examples:
@@ -130,26 +145,72 @@ def _validate_bag_shapes(bags: list[LesionBag]) -> tuple[int, int, int, int, int
     first = bags[0].neighborhoods[0]
     receiver_dim = int(np.asarray(first.receiver_embedding, dtype=np.float32).shape[0])
     num_rings, num_sender_features = np.asarray(first.ring_compositions, dtype=np.float32).shape
-    hlca_dim = int(np.asarray(first.hlca_features if first.hlca_features is not None else np.zeros((0,), dtype=np.float32), dtype=np.float32).shape[0])
-    luca_dim = int(np.asarray(first.luca_features if first.luca_features is not None else np.zeros((0,), dtype=np.float32), dtype=np.float32).shape[0])
+    hlca_dim = int(
+        np.asarray(
+            first.hlca_features
+            if first.hlca_features is not None
+            else np.zeros((0,), dtype=np.float32),
+            dtype=np.float32,
+        ).shape[0]
+    )
+    luca_dim = int(
+        np.asarray(
+            first.luca_features
+            if first.luca_features is not None
+            else np.zeros((0,), dtype=np.float32),
+            dtype=np.float32,
+        ).shape[0]
+    )
     lr_dim = int(np.asarray(first.lr_pathway_summary, dtype=np.float32).shape[0])
     stats_dim = int(np.asarray(first.neighborhood_stats, dtype=np.float32).shape[0])
     for bag in bags:
         if not bag.neighborhoods:
             raise ValueError(f"Lesion bag {bag.lesion_id} is empty.")
         for neighborhood in bag.neighborhoods:
-            if np.asarray(neighborhood.receiver_embedding, dtype=np.float32).shape[0] != receiver_dim:
-                raise ValueError("All neighborhoods must share the same receiver embedding dimension.")
-            if tuple(np.asarray(neighborhood.ring_compositions, dtype=np.float32).shape) != (num_rings, num_sender_features):
+            if (
+                np.asarray(neighborhood.receiver_embedding, dtype=np.float32).shape[0]
+                != receiver_dim
+            ):
+                raise ValueError(
+                    "All neighborhoods must share the same receiver embedding dimension."
+                )
+            if tuple(np.asarray(neighborhood.ring_compositions, dtype=np.float32).shape) != (
+                num_rings,
+                num_sender_features,
+            ):
                 raise ValueError("All neighborhoods must share the same ring composition shape.")
-            if int(np.asarray(neighborhood.hlca_features if neighborhood.hlca_features is not None else np.zeros((0,), dtype=np.float32), dtype=np.float32).shape[0]) != hlca_dim:
+            if (
+                int(
+                    np.asarray(
+                        neighborhood.hlca_features
+                        if neighborhood.hlca_features is not None
+                        else np.zeros((0,), dtype=np.float32),
+                        dtype=np.float32,
+                    ).shape[0]
+                )
+                != hlca_dim
+            ):
                 raise ValueError("All neighborhoods must share the same HLCA feature dimension.")
-            if int(np.asarray(neighborhood.luca_features if neighborhood.luca_features is not None else np.zeros((0,), dtype=np.float32), dtype=np.float32).shape[0]) != luca_dim:
+            if (
+                int(
+                    np.asarray(
+                        neighborhood.luca_features
+                        if neighborhood.luca_features is not None
+                        else np.zeros((0,), dtype=np.float32),
+                        dtype=np.float32,
+                    ).shape[0]
+                )
+                != luca_dim
+            ):
                 raise ValueError("All neighborhoods must share the same LuCA feature dimension.")
             if np.asarray(neighborhood.lr_pathway_summary, dtype=np.float32).shape[0] != lr_dim:
-                raise ValueError("All neighborhoods must share the same LR/pathway summary dimension.")
+                raise ValueError(
+                    "All neighborhoods must share the same LR/pathway summary dimension."
+                )
             if np.asarray(neighborhood.neighborhood_stats, dtype=np.float32).shape[0] != stats_dim:
-                raise ValueError("All neighborhoods must share the same neighborhood stats dimension.")
+                raise ValueError(
+                    "All neighborhoods must share the same neighborhood stats dimension."
+                )
     return receiver_dim, num_rings, num_sender_features, hlca_dim, luca_dim, lr_dim
 
 
@@ -157,25 +218,47 @@ def collate_lesion_bags(bags: list[LesionBag]) -> LesionBagBatch:
     """Pad lesion bags into one EA-MIST batch."""
     if not bags:
         raise ValueError("Cannot collate an empty list of lesion bags.")
-    receiver_dim, num_rings, num_sender_features, hlca_dim, luca_dim, lr_dim = _validate_bag_shapes(bags)
-    stats_dim = int(np.asarray(bags[0].neighborhoods[0].neighborhood_stats, dtype=np.float32).shape[0])
+    receiver_dim, num_rings, num_sender_features, hlca_dim, luca_dim, lr_dim = (
+        _validate_bag_shapes(bags)
+    )
+    stats_dim = int(
+        np.asarray(bags[0].neighborhoods[0].neighborhood_stats, dtype=np.float32).shape[0]
+    )
     flat_dim = int(np.asarray(bags[0].neighborhoods[0].flat_features, dtype=np.float32).shape[0])
     max_neighborhoods = max(bag.num_neighborhoods for bag in bags)
 
-    receiver_embeddings = torch.zeros((len(bags), max_neighborhoods, receiver_dim), dtype=torch.float32)
+    receiver_embeddings = torch.zeros(
+        (len(bags), max_neighborhoods, receiver_dim), dtype=torch.float32
+    )
     receiver_state_ids = torch.zeros((len(bags), max_neighborhoods), dtype=torch.long)
-    ring_compositions = torch.zeros((len(bags), max_neighborhoods, num_rings, num_sender_features), dtype=torch.float32)
-    hlca_features = None if hlca_dim <= 0 else torch.zeros((len(bags), max_neighborhoods, hlca_dim), dtype=torch.float32)
-    luca_features = None if luca_dim <= 0 else torch.zeros((len(bags), max_neighborhoods, luca_dim), dtype=torch.float32)
+    ring_compositions = torch.zeros(
+        (len(bags), max_neighborhoods, num_rings, num_sender_features), dtype=torch.float32
+    )
+    hlca_features = (
+        None
+        if hlca_dim <= 0
+        else torch.zeros((len(bags), max_neighborhoods, hlca_dim), dtype=torch.float32)
+    )
+    luca_features = (
+        None
+        if luca_dim <= 0
+        else torch.zeros((len(bags), max_neighborhoods, luca_dim), dtype=torch.float32)
+    )
     lr_pathway_summary = torch.zeros((len(bags), max_neighborhoods, lr_dim), dtype=torch.float32)
-    neighborhood_stats = torch.zeros((len(bags), max_neighborhoods, stats_dim), dtype=torch.float32)
+    neighborhood_stats = torch.zeros(
+        (len(bags), max_neighborhoods, stats_dim), dtype=torch.float32
+    )
     flat_features = torch.zeros((len(bags), max_neighborhoods, flat_dim), dtype=torch.float32)
     center_coords = torch.zeros((len(bags), max_neighborhoods, 2), dtype=torch.float32)
     mask = torch.zeros((len(bags), max_neighborhoods), dtype=torch.bool)
 
     evo_dim = None
     if any(bag.evolution_features is not None for bag in bags):
-        evo_dim = max(int(np.asarray(bag.evolution_features, dtype=np.float32).shape[0]) for bag in bags if bag.evolution_features is not None)
+        evo_dim = max(
+            int(np.asarray(bag.evolution_features, dtype=np.float32).shape[0])
+            for bag in bags
+            if bag.evolution_features is not None
+        )
         evolution = torch.zeros((len(bags), evo_dim), dtype=torch.float32)
     else:
         evolution = None
@@ -200,10 +283,30 @@ def collate_lesion_bags(bags: list[LesionBag]) -> LesionBagBatch:
         flat_features[bag_idx, :n] = torch.from_numpy(ff_arr)
         center_coords[bag_idx, :n] = torch.from_numpy(cc_arr)
         if hlca_features is not None:
-            h_arr = np.stack([np.asarray(nh.hlca_features if nh.hlca_features is not None else np.zeros(hlca_dim, dtype=np.float32), dtype=np.float32) for nh in niches])
+            h_arr = np.stack(
+                [
+                    np.asarray(
+                        nh.hlca_features
+                        if nh.hlca_features is not None
+                        else np.zeros(hlca_dim, dtype=np.float32),
+                        dtype=np.float32,
+                    )
+                    for nh in niches
+                ]
+            )
             hlca_features[bag_idx, :n] = torch.from_numpy(h_arr)
         if luca_features is not None:
-            l_arr = np.stack([np.asarray(nh.luca_features if nh.luca_features is not None else np.zeros(luca_dim, dtype=np.float32), dtype=np.float32) for nh in niches])
+            l_arr = np.stack(
+                [
+                    np.asarray(
+                        nh.luca_features
+                        if nh.luca_features is not None
+                        else np.zeros(luca_dim, dtype=np.float32),
+                        dtype=np.float32,
+                    )
+                    for nh in niches
+                ]
+            )
             luca_features[bag_idx, :n] = torch.from_numpy(l_arr)
         mask[bag_idx, :n] = True
         if evolution is not None and bag.evolution_features is not None:
@@ -219,23 +322,39 @@ def collate_lesion_bags(bags: list[LesionBag]) -> LesionBagBatch:
     displacement_targets = None
     if any(bag.displacement_target is not None for bag in bags):
         displacement_targets = torch.as_tensor(
-            [float(np.nan if bag.displacement_target is None else bag.displacement_target) for bag in bags],
+            [
+                float(np.nan if bag.displacement_target is None else bag.displacement_target)
+                for bag in bags
+            ],
             dtype=torch.float32,
         )
     edge_target_labels: tuple[str, ...] = ()
     if any(bag.edge_target_labels for bag in bags):
-        first_labels = next((tuple(str(label) for label in (bag.edge_target_labels or ())) for bag in bags if bag.edge_target_labels), ())
+        first_labels = next(
+            (
+                tuple(str(label) for label in (bag.edge_target_labels or ()))
+                for bag in bags
+                if bag.edge_target_labels
+            ),
+            (),
+        )
         edge_target_labels = tuple(first_labels)
         for bag in bags:
             if tuple(str(label) for label in (bag.edge_target_labels or ())) != edge_target_labels:
-                raise ValueError("All lesion bags in one batch must share the same edge_target_labels ordering.")
+                raise ValueError(
+                    "All lesion bags in one batch must share the same edge_target_labels ordering."
+                )
         edge_targets = torch.zeros((len(bags), len(edge_target_labels)), dtype=torch.float32)
         edge_target_mask = torch.zeros((len(bags), len(edge_target_labels)), dtype=torch.bool)
         for bag_idx, bag in enumerate(bags):
             if bag.edge_targets is not None:
-                edge_targets[bag_idx] = torch.as_tensor(np.asarray(bag.edge_targets, dtype=np.float32), dtype=torch.float32)
+                edge_targets[bag_idx] = torch.as_tensor(
+                    np.asarray(bag.edge_targets, dtype=np.float32), dtype=torch.float32
+                )
             if bag.edge_target_mask is not None:
-                edge_target_mask[bag_idx] = torch.as_tensor(np.asarray(bag.edge_target_mask, dtype=bool), dtype=torch.bool)
+                edge_target_mask[bag_idx] = torch.as_tensor(
+                    np.asarray(bag.edge_target_mask, dtype=bool), dtype=torch.bool
+                )
     else:
         edge_targets = None
         edge_target_mask = None
@@ -269,7 +388,9 @@ def collate_lesion_bags(bags: list[LesionBag]) -> LesionBagBatch:
     )
 
 
-def collate_pretrain_neighborhoods(examples: list[NeighborhoodPretrainExample]) -> dict[str, torch.Tensor | list[str]]:
+def collate_pretrain_neighborhoods(
+    examples: list[NeighborhoodPretrainExample],
+) -> dict[str, torch.Tensor | list[str]]:
     """Collate local neighborhood examples for SSL pretraining."""
     if not examples:
         raise ValueError("Cannot collate an empty list of neighborhood examples.")

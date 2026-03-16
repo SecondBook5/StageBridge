@@ -1,4 +1,5 @@
 """Refined binary labels and continuous targets for StageBridge label repair."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -54,16 +55,24 @@ def refine_lesion_labels(
     """
     merged = manifest.copy()
     merged = merged.loc[merged["edge_label"].astype(str).ne("")].reset_index(drop=True)
-    wes_for_merge = wes_features.rename(columns={"stage": "stage", "patient_id": "patient_id"}).copy()
-    merged = merged.merge(wes_for_merge, on=["patient_id", "stage"], how="left", suffixes=("", "_wes"))
+    wes_for_merge = wes_features.rename(
+        columns={"stage": "stage", "patient_id": "patient_id"}
+    ).copy()
     merged = merged.merge(
-        cna_summary.drop(columns=["sample_id", "patient_id", "donor_id", "stage"], errors="ignore"),
+        wes_for_merge, on=["patient_id", "stage"], how="left", suffixes=("", "_wes")
+    )
+    merged = merged.merge(
+        cna_summary.drop(
+            columns=["sample_id", "patient_id", "donor_id", "stage"], errors="ignore"
+        ),
         on="lesion_id",
         how="left",
         suffixes=("", "_cna"),
     )
     merged = merged.merge(
-        clonal_summary.drop(columns=["sample_id", "patient_id", "donor_id", "stage"], errors="ignore"),
+        clonal_summary.drop(
+            columns=["sample_id", "patient_id", "donor_id", "stage"], errors="ignore"
+        ),
         on="lesion_id",
         how="left",
         suffixes=("", "_clonal"),
@@ -75,26 +84,34 @@ def refine_lesion_labels(
         suffixes=("", "_phy"),
     )
     merged = merged.merge(
-        pathology_summary.drop(columns=["sample_id", "patient_id", "donor_id", "stage"], errors="ignore"),
+        pathology_summary.drop(
+            columns=["sample_id", "patient_id", "donor_id", "stage"], errors="ignore"
+        ),
         on="lesion_id",
         how="left",
         suffixes=("", "_path"),
     )
 
-    patient_stage_sets = merged.groupby("patient_id", sort=False)["stage"].agg(lambda values: tuple(sorted({str(v) for v in values})))
+    patient_stage_sets = merged.groupby("patient_id", sort=False)["stage"].agg(
+        lambda values: tuple(sorted({str(v) for v in values}))
+    )
     has_later_stage = []
     stage_order = {"Normal": 0, "AAH": 1, "AIS": 2, "MIA": 3, "LUAD": 4}
     for row in merged.itertuples(index=False):
         patient_stages = patient_stage_sets.get(str(row.patient_id), ())
         current_rank = stage_order.get(str(row.stage), -1)
-        has_later_stage.append(any(stage_order.get(stage, -1) > current_rank for stage in patient_stages))
+        has_later_stage.append(
+            any(stage_order.get(stage, -1) > current_rank for stage in patient_stages)
+        )
     merged["has_later_stage"] = has_later_stage
 
     scores, contributions = score_lesions(merged, cfg)
     positive_threshold = float(_cfg_select(cfg, "labels.thresholds.positive_score", 0.75))
     negative_threshold = float(_cfg_select(cfg, "labels.thresholds.negative_score", 0.25))
     margin = float(_cfg_select(cfg, "labels.thresholds.uncertainty_margin", 0.10))
-    require_non_proxy_for_heuristic = bool(_cfg_select(cfg, "labels.thresholds.require_non_proxy_for_heuristic_positive", True))
+    require_non_proxy_for_heuristic = bool(
+        _cfg_select(cfg, "labels.thresholds.require_non_proxy_for_heuristic_positive", True)
+    )
 
     refined_rows: list[dict[str, object]] = []
     for idx, row in merged.iterrows():
@@ -116,7 +133,9 @@ def refine_lesion_labels(
             exclude = True
             refined = "exclude"
         elif is_heuristic:
-            if score >= positive_threshold and (not require_non_proxy_for_heuristic or non_proxy_evidence > 0):
+            if score >= positive_threshold and (
+                not require_non_proxy_for_heuristic or non_proxy_evidence > 0
+            ):
                 refined = "positive"
             elif score <= negative_threshold and non_proxy_evidence > 0:
                 refined = "negative"
@@ -124,7 +143,11 @@ def refine_lesion_labels(
                 refined = "uncertain"
         elif is_curated and float(original_label) == 0.0:
             refined = "negative"
-        elif (is_curated and float(original_label) == 1.0 and score >= max(0.5, positive_threshold - margin)) or score >= positive_threshold:
+        elif (
+            is_curated
+            and float(original_label) == 1.0
+            and score >= max(0.5, positive_threshold - margin)
+        ) or score >= positive_threshold:
             refined = "positive"
         elif score <= negative_threshold:
             refined = "negative"

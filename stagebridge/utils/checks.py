@@ -1,4 +1,5 @@
 """Defensive checking utilities for StageBridge."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,6 +28,4 @@ def assert_file(path: Path, description: str = "file") -> None:
     """Raise FileNotFoundError with context if *path* does not exist."""
     path = Path(path)
     if not path.exists():
-        raise FileNotFoundError(
-            f"Expected {description} not found: {path}"
-        )
+        raise FileNotFoundError(f"Expected {description} not found: {path}")

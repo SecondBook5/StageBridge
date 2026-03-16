@@ -47,7 +47,9 @@ def _make_bag(sample_id: str, donor_id: str, label: float, shift: float) -> Lesi
                 ring_compositions=rings,
                 lr_pathway_summary=lr,
                 neighborhood_stats=stats,
-                flat_features=np.concatenate([receiver, rings.reshape(-1), hlca, luca, lr, stats]).astype(np.float32),
+                flat_features=np.concatenate(
+                    [receiver, rings.reshape(-1), hlca, luca, lr, stats]
+                ).astype(np.float32),
                 center_coord=np.asarray([float(idx), float(idx + 1)], dtype=np.float32),
                 hlca_features=hlca,
                 luca_features=luca,

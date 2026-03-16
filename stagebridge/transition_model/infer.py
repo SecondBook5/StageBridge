@@ -1,4 +1,5 @@
 """Evaluation metrics and benchmark helpers for StageBridge."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,7 +24,6 @@ class TransitionEvalResult:
     # How much better than doing nothing (positive = improvement).
     # sinkhorn_delta = sinkhorn_identity - sinkhorn_model  (higher is better)
     sinkhorn_delta: float = 0.0
-
 
 
 def _to_numpy(x: Tensor | np.ndarray) -> np.ndarray:
@@ -138,7 +138,9 @@ def predict_next_stage(
             n=x_src.shape[0],
             device=x_src.device,
         )
-        x_pred = model.integrate_euler(x0=x_src, c_s=c_s, stage_pair_id=stage_pair, num_steps=num_steps)
+        x_pred = model.integrate_euler(
+            x0=x_src, c_s=c_s, stage_pair_id=stage_pair, num_steps=num_steps
+        )
     return x_pred
 
 
@@ -204,16 +206,22 @@ def evaluate_transition(
         src_np = _to_numpy(x_src[:n])
         pred_np = _to_numpy(x_pred)
         from sklearn.neighbors import NearestNeighbors
+
         nn = NearestNeighbors(n_neighbors=1, algorithm="auto").fit(src_np)
         _, idxs = nn.kneighbors(pred_np)
-        labels_pred = hlca_labels_src[idxs.ravel()] if hlca_labels_src is not None else (
-            hlca_labels_tgt[idxs.ravel()]  # fallback: use tgt labels for src NN
+        labels_pred = (
+            hlca_labels_src[idxs.ravel()]
+            if hlca_labels_src is not None
+            else (
+                hlca_labels_tgt[idxs.ravel()]  # fallback: use tgt labels for src NN
+            )
         )
         labels_true = hlca_labels_tgt[:n]
         jsd = composition_jsd(labels_pred=labels_pred, labels_true=labels_true)
     else:
         # Unsupervised fallback: k-means cluster composition.
         from sklearn.cluster import MiniBatchKMeans
+
         km = MiniBatchKMeans(n_clusters=min(10, n), random_state=42, batch_size=256)
         labels_true = km.fit_predict(_to_numpy(x_tgt))
         labels_pred = km.predict(_to_numpy(x_pred))

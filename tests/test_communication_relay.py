@@ -20,7 +20,9 @@ def _make_bags() -> list[CommunicationBag]:
         sender_types=np.asarray([0, 1], dtype=np.int64),
         sender_offsets=np.asarray([[0.0, 0.0], [0.2, 0.1]], dtype=np.float32),
         ring_ids=np.asarray([0, 1], dtype=np.int64),
-        lr_token_features=np.asarray([[0.9, 0.7, 0.8, 1.0, 0.1, 0.0, 0.8, 0.0, 0.0, 0.6]], dtype=np.float32),
+        lr_token_features=np.asarray(
+            [[0.9, 0.7, 0.8, 1.0, 0.1, 0.0, 0.8, 0.0, 0.0, 0.6]], dtype=np.float32
+        ),
         response_token_features=np.asarray([[0.8, 0.7, 0.0, 4.0, 1.0]], dtype=np.float32),
         relay_token_features=np.asarray([[0.7, 0.8, 0.56, 0.6, 0.0, 0.0]], dtype=np.float32),
         edge_id=edge_lookup["AAH->AIS"],
@@ -39,7 +41,9 @@ def _make_bags() -> list[CommunicationBag]:
         sender_types=np.asarray([1, 1], dtype=np.int64),
         sender_offsets=np.asarray([[0.0, 0.0], [0.3, 0.2]], dtype=np.float32),
         ring_ids=np.asarray([0, 1], dtype=np.int64),
-        lr_token_features=np.asarray([[0.2, 0.3, 0.1, 1.0, 0.2, 0.0, 0.7, 1.0, 1.0, 0.2]], dtype=np.float32),
+        lr_token_features=np.asarray(
+            [[0.2, 0.3, 0.1, 1.0, 0.2, 0.0, 0.7, 1.0, 1.0, 0.2]], dtype=np.float32
+        ),
         response_token_features=np.asarray([[0.2, 0.1, 1.0, 4.0, 2.0]], dtype=np.float32),
         relay_token_features=np.asarray([[0.1, 0.2, 0.02, 0.7, 0.0, 1.0]], dtype=np.float32),
         edge_id=edge_lookup["AIS->MIA"],
@@ -52,8 +56,24 @@ def _make_bags() -> list[CommunicationBag]:
         relay_token_names=["chemokine_relay|migration_invasion"],
     )
     return [
-        CommunicationBag(sample_id="S1", donor_id="P1", edge_id=edge_lookup["AAH->AIS"], edge_label="AAH->AIS", weak_label=1.0, examples=[example_a], label_source="test"),
-        CommunicationBag(sample_id="S2", donor_id="P2", edge_id=edge_lookup["AIS->MIA"], edge_label="AIS->MIA", weak_label=0.0, examples=[example_b], label_source="test"),
+        CommunicationBag(
+            sample_id="S1",
+            donor_id="P1",
+            edge_id=edge_lookup["AAH->AIS"],
+            edge_label="AAH->AIS",
+            weak_label=1.0,
+            examples=[example_a],
+            label_source="test",
+        ),
+        CommunicationBag(
+            sample_id="S2",
+            donor_id="P2",
+            edge_id=edge_lookup["AIS->MIA"],
+            edge_label="AIS->MIA",
+            weak_label=0.0,
+            examples=[example_b],
+            label_source="test",
+        ),
     ]
 
 

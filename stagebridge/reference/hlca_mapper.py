@@ -1,4 +1,5 @@
 """HLCA reference loading and latent-space alignment helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +22,10 @@ from stagebridge import config
 from stagebridge.logging_utils import get_logger
 from stagebridge.data.common.schema import LatentCohort
 from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
-from stagebridge.data.luad_evo.snrna import load_luad_evo_snrna_latent, load_luad_evo_snrna_pca_latent
+from stagebridge.data.luad_evo.snrna import (
+    load_luad_evo_snrna_latent,
+    load_luad_evo_snrna_pca_latent,
+)
 from stagebridge.reference.diagnostics import (
     donor_leakage_diagnostics,
     gene_overlap_diagnostics,
@@ -118,8 +122,12 @@ def run_active_reference_latent(
             query_h5ad_path=paths.snrna_h5ad,
             reference_h5ad_path=paths.hlca_h5ad,
         ),
-        "label_neighborhood": nearest_neighbor_label_agreement(cohort.latent, cohort.obs, label_col="hlca_label"),
-        "stage_label_alignment": stage_label_alignment(cohort.obs, stage_col="stage", label_col="hlca_label"),
+        "label_neighborhood": nearest_neighbor_label_agreement(
+            cohort.latent, cohort.obs, label_col="hlca_label"
+        ),
+        "stage_label_alignment": stage_label_alignment(
+            cohort.obs, stage_col="stage", label_col="hlca_label"
+        ),
     }
     diagnostics["alignment_gate"] = reference_alignment_gate(
         stage_preservation=diagnostics["stage_preservation"],
@@ -141,8 +149,7 @@ def run_active_reference_latent(
 
 
 HLCA_FULL_URL = (
-    "https://datasets.cellxgene.cziscience.com/"
-    "dbb5ad81-1713-4aee-8257-396fbabe7c6e.h5ad"
+    "https://datasets.cellxgene.cziscience.com/dbb5ad81-1713-4aee-8257-396fbabe7c6e.h5ad"
 )
 HLCA_FULL_FILENAME = "hlca_full_v1.h5ad"
 
@@ -373,7 +380,9 @@ def _build_gene_lookup_with_cache(
         if "feature_name" in ref_adata.var.columns
         else np.array([""] * len(ref_genes), dtype=object)
     )
-    ref_sig = _hash_string_array(np.asarray([f"{g}|{n}" for g, n in zip(ref_genes, ref_feature_name)]))
+    ref_sig = _hash_string_array(
+        np.asarray([f"{g}|{n}" for g, n in zip(ref_genes, ref_feature_name)])
+    )
     mapping_version = f"{mapping_source}:{ref_sig}"
 
     direct_lookup = {}
@@ -406,18 +415,26 @@ def _build_gene_lookup_with_cache(
         ref_symbol_df = pd.DataFrame(
             {
                 "ensg": ref_genes,
-                "symbol_norm": np.asarray([_normalize_symbol(x) for x in ref_feature_name], dtype=object),
+                "symbol_norm": np.asarray(
+                    [_normalize_symbol(x) for x in ref_feature_name], dtype=object
+                ),
             }
         )
         ref_symbol_df = ref_symbol_df[ref_symbol_df["symbol_norm"] != ""].copy()
         duplicate_ref_symbols = int(ref_symbol_df["symbol_norm"].duplicated(keep=False).sum())
         ref_symbol_df = ref_symbol_df.sort_values(["symbol_norm", "ensg"], kind="stable")
         ref_symbol_df = ref_symbol_df.drop_duplicates("symbol_norm", keep="first")
-        symbol_to_ensg = pd.Series(ref_symbol_df["ensg"].to_numpy(), index=ref_symbol_df["symbol_norm"].to_numpy())
+        symbol_to_ensg = pd.Series(
+            ref_symbol_df["ensg"].to_numpy(), index=ref_symbol_df["symbol_norm"].to_numpy()
+        )
 
         query_symbol_norm = pd.Series([_normalize_symbol(x) for x in query_vars])
-        mapped_from_symbol = query_symbol_norm.map(symbol_to_ensg).replace({np.nan: None}).to_numpy(dtype=object)
-        has_canonical_ensg = np.array([ensg is not None for ensg in canonical_query_ensg], dtype=bool)
+        mapped_from_symbol = (
+            query_symbol_norm.map(symbol_to_ensg).replace({np.nan: None}).to_numpy(dtype=object)
+        )
+        has_canonical_ensg = np.array(
+            [ensg is not None for ensg in canonical_query_ensg], dtype=bool
+        )
         mapped_ensg = np.where(has_canonical_ensg, canonical_query_ensg, mapped_from_symbol)
 
         # cache mapping for deterministic resume/reuse
@@ -451,7 +468,9 @@ def _build_gene_lookup_with_cache(
     mapping_df = mapping_df.dropna(subset=["mapped_ensg"]).copy()
     duplicate_query_mapped = int(mapping_df["mapped_ensg"].duplicated(keep=False).sum())
     mapping_df = mapping_df.drop_duplicates("mapped_ensg", keep="first")
-    ensg_to_qidx = pd.Series(mapping_df["query_pos"].to_numpy(), index=mapping_df["mapped_ensg"].to_numpy())
+    ensg_to_qidx = pd.Series(
+        mapping_df["query_pos"].to_numpy(), index=mapping_df["mapped_ensg"].to_numpy()
+    )
 
     mapped_col_lookup = ensg_to_qidx.reindex(ref_index).fillna(-1).astype(np.int64).to_numpy()
     mapped_overlap = float((mapped_col_lookup >= 0).mean())
@@ -864,10 +883,14 @@ def evaluate_hlca_mapping_outputs(
     aligned_entropy = None
     if prob_col is not None:
         aligned_prob = pd.Series(index=obs_index, dtype="float32")
-        aligned_prob.loc[overlap_idx] = labels_df.loc[overlap_idx, prob_col].astype("float32").to_numpy()
+        aligned_prob.loc[overlap_idx] = (
+            labels_df.loc[overlap_idx, prob_col].astype("float32").to_numpy()
+        )
     if entropy_col is not None:
         aligned_entropy = pd.Series(index=obs_index, dtype="float32")
-        aligned_entropy.loc[overlap_idx] = labels_df.loc[overlap_idx, entropy_col].astype("float32").to_numpy()
+        aligned_entropy.loc[overlap_idx] = (
+            labels_df.loc[overlap_idx, entropy_col].astype("float32").to_numpy()
+        )
 
     # Pull HLCA reference and build a nearest-neighbor agreement check.
     t0 = stage_start()
@@ -948,7 +971,9 @@ def evaluate_hlca_mapping_outputs(
     majority_codes = votes.argmax(axis=1)
     majority_labels = ref_categories.to_numpy(dtype=object)[majority_codes]
     if np.any(valid_pred):
-        majority_agreement = float(np.mean(majority_labels[valid_pred] == query_labels[valid_pred]))
+        majority_agreement = float(
+            np.mean(majority_labels[valid_pred] == query_labels[valid_pred])
+        )
     else:
         majority_agreement = float("nan")
     stage_done("knn_agreement", t0)
@@ -974,7 +999,11 @@ def evaluate_hlca_mapping_outputs(
             donor_labels = donor_labels[donor_labels != "nan"]
             if donor_labels.empty:
                 continue
-            donor_counts = donor_labels.value_counts().reindex(label_space, fill_value=0).to_numpy(dtype=np.float64)
+            donor_counts = (
+                donor_labels.value_counts()
+                .reindex(label_space, fill_value=0)
+                .to_numpy(dtype=np.float64)
+            )
             donor_dist = donor_counts / max(donor_counts.sum(), 1.0)
             donor_js[str(donor)] = _js_divergence(donor_dist, global_dist)
 
@@ -988,7 +1017,11 @@ def evaluate_hlca_mapping_outputs(
             stage_labels = stage_labels[stage_labels != "nan"]
             if stage_labels.empty:
                 continue
-            stage_counts = stage_labels.value_counts().reindex(label_space, fill_value=0).to_numpy(dtype=np.float64)
+            stage_counts = (
+                stage_labels.value_counts()
+                .reindex(label_space, fill_value=0)
+                .to_numpy(dtype=np.float64)
+            )
             stage_dist = stage_counts / max(stage_counts.sum(), 1.0)
             stage_js[str(stage)] = _js_divergence(stage_dist, global_dist)
 
@@ -1142,7 +1175,9 @@ def map_full_snrna_with_hlca(
 
     repo_id = str(hlca_cfg.get("hub_repo_id", "scvi-tools/human-lung-cell-atlas-scanvi"))
     model_cache_dir = Path(str(hlca_cfg.get("model_cache_dir", processed_hlca_dir / "hub_cache")))
-    query_model_dir = Path(str(hlca_cfg.get("query_model_dir", processed_hlca_dir / "query_model_full")))
+    query_model_dir = Path(
+        str(hlca_cfg.get("query_model_dir", processed_hlca_dir / "query_model_full"))
+    )
     surgery_epochs = int(hlca_cfg.get("surgery_epochs", 500))
     batch_size_infer = int(hlca_cfg.get("batch_size_infer", 1024))
     inference_chunk_size = int(hlca_cfg.get("inference_chunk_size", batch_size_infer * 8))
@@ -1167,7 +1202,9 @@ def map_full_snrna_with_hlca(
 
     setup_args = ref_model.adata_manager.registry.get("setup_args", {})
     if setup_args.get("batch_key") != "dataset":
-        raise ValueError(f"Reference batch_key mismatch: expected 'dataset', got {setup_args.get('batch_key')!r}")
+        raise ValueError(
+            f"Reference batch_key mismatch: expected 'dataset', got {setup_args.get('batch_key')!r}"
+        )
     if setup_args.get("labels_key") != "scanvi_label":
         raise ValueError(
             f"Reference labels_key mismatch: expected 'scanvi_label', got {setup_args.get('labels_key')!r}"
@@ -1178,7 +1215,9 @@ def map_full_snrna_with_hlca(
             f"expected 'unlabeled', got {setup_args.get('unlabeled_category')!r}"
         )
     if setup_args.get("layer", None) is not None:
-        raise ValueError(f"Reference layer mismatch: expected None, got {setup_args.get('layer')!r}")
+        raise ValueError(
+            f"Reference layer mismatch: expected None, got {setup_args.get('layer')!r}"
+        )
 
     adata_full = anndata.read_h5ad(snrna_h5ad_path, backed="r")
     n_obs = int(adata_full.n_obs)
@@ -1190,7 +1229,9 @@ def map_full_snrna_with_hlca(
     stage_values = adata_full.obs["stage"].astype(str).to_numpy()
     gsm_values = adata_full.obs["gsm_id"].astype(str).to_numpy()
     sample_values = adata_full.obs["sample_id"].astype(str).to_numpy()
-    dataset_values = donor_values if query_dataset_mode == "donor" else np.full(n_obs, query_dataset_constant)
+    dataset_values = (
+        donor_values if query_dataset_mode == "donor" else np.full(n_obs, query_dataset_constant)
+    )
 
     # Count-layer routing
     source_layer = None
@@ -1200,7 +1241,9 @@ def map_full_snrna_with_hlca(
         count_like = True
         if sp.issparse(probe):
             data = np.asarray(probe.data)
-            if data.size and (np.any(data < 0) or not np.allclose(data, np.round(data), atol=1e-6)):
+            if data.size and (
+                np.any(data < 0) or not np.allclose(data, np.round(data), atol=1e-6)
+            ):
                 count_like = False
         else:
             arr = np.asarray(probe)
@@ -1220,7 +1263,9 @@ def map_full_snrna_with_hlca(
         if gene is None or gene in direct_lookup:
             continue
         direct_lookup[gene] = qidx
-    direct_overlap = float(np.mean(np.array([g in direct_lookup for g in ref_genes], dtype=np.float32)))
+    direct_overlap = float(
+        np.mean(np.array([g in direct_lookup for g in ref_genes], dtype=np.float32))
+    )
     stage_done("gene_overlap_check", t0)
 
     t0 = stage_start()
@@ -1310,7 +1355,10 @@ def map_full_snrna_with_hlca(
             "status": "initialized",
         }
         _save_progress(progress_path, progress)
-    elif progress.get("latent_completed_rows", 0) > 0 or progress.get("labels_completed_rows", 0) > 0:
+    elif (
+        progress.get("latent_completed_rows", 0) > 0
+        or progress.get("labels_completed_rows", 0) > 0
+    ):
         log.info(
             "Resuming HLCA mapping run_id=%s from latent_rows=%s labels_rows=%s",
             run_id,
@@ -1359,7 +1407,9 @@ def map_full_snrna_with_hlca(
             state=state,
         )
         SCANVI.prepare_query_anndata(query_chunk, ref_model)
-        latent_batch = query_model.get_latent_representation(query_chunk, batch_size=batch_size_infer)
+        latent_batch = query_model.get_latent_representation(
+            query_chunk, batch_size=batch_size_infer
+        )
         latent_mm[start:end, :] = np.asarray(latent_batch, dtype=np.float32)
         progress["latent_completed_rows"] = end
         progress["status"] = "latent_inference"
@@ -1394,11 +1444,15 @@ def map_full_snrna_with_hlca(
         )
         SCANVI.prepare_query_anndata(query_chunk, ref_model)
 
-        pred = _coerce_predict_output(query_model.predict(query_chunk, batch_size=batch_size_infer))
+        pred = _coerce_predict_output(
+            query_model.predict(query_chunk, batch_size=batch_size_infer)
+        )
         if isinstance(pred, pd.DataFrame):
             pred = pred.iloc[:, 0].to_numpy()
         pred = np.asarray(pred, dtype=object).astype(str)
-        codes = pd.Categorical(pred, categories=label_categories).codes.astype(np.int32, copy=False)
+        codes = pd.Categorical(pred, categories=label_categories).codes.astype(
+            np.int32, copy=False
+        )
         label_codes_mm[start:end] = codes
 
         if export_probs and max_prob_mm is not None and entropy_mm is not None:
@@ -1445,8 +1499,8 @@ def map_full_snrna_with_hlca(
     if export_probs and max_prob_mm is not None and entropy_mm is not None:
         labels_df["hlca_max_prob"] = np.asarray(max_prob_mm, dtype=np.float32)
         labels_df["hlca_entropy"] = np.asarray(entropy_mm, dtype=np.float32)
-        labels_df["hlca_uncertain"] = (
-            labels_df["hlca_max_prob"] < float(hlca_cfg.get("uncertainty_threshold", 0.2))
+        labels_df["hlca_uncertain"] = labels_df["hlca_max_prob"] < float(
+            hlca_cfg.get("uncertainty_threshold", 0.2)
         )
     for col, values in knn_outputs.items():
         labels_df[col] = values
@@ -1463,14 +1517,18 @@ def map_full_snrna_with_hlca(
     if export_probs and max_prob_mm is not None and entropy_mm is not None:
         latent_obs["hlca_max_prob"] = np.asarray(max_prob_mm, dtype=np.float32)
         latent_obs["hlca_entropy"] = np.asarray(entropy_mm, dtype=np.float32)
-        latent_obs["hlca_uncertain"] = (
-            latent_obs["hlca_max_prob"] < float(hlca_cfg.get("uncertainty_threshold", 0.2))
+        latent_obs["hlca_uncertain"] = latent_obs["hlca_max_prob"] < float(
+            hlca_cfg.get("uncertainty_threshold", 0.2)
         )
     for col, values in knn_outputs.items():
         latent_obs[col] = values
 
-    latent_var = pd.DataFrame(index=pd.Index([f"latent_{i}" for i in range(latent_dim)], name="latent"))
-    latent_adata = anndata.AnnData(X=np.asarray(latent_mm, dtype=np.float32), obs=latent_obs, var=latent_var)
+    latent_var = pd.DataFrame(
+        index=pd.Index([f"latent_{i}" for i in range(latent_dim)], name="latent")
+    )
+    latent_adata = anndata.AnnData(
+        X=np.asarray(latent_mm, dtype=np.float32), obs=latent_obs, var=latent_var
+    )
     latent_adata.write_h5ad(output_latent_h5ad_path, compression="lzf")
 
     progress["status"] = "completed"

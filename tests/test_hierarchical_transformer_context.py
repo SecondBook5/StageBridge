@@ -54,7 +54,11 @@ def test_typed_hierarchical_transformer_emits_group_summaries_and_attention() ->
     assert out.relation_tokens.shape == (6, 32)
     assert "fusion_query_attention" in out.attention_maps
     assert out.diagnostics["group_diagnostics"][0]["group_token_counts"]["epithelial"] == 2
-    assert out.diagnostics["query_role_names"][:3] == ["source_stage", "target_stage", "transition"]
+    assert out.diagnostics["query_role_names"][:3] == [
+        "source_stage",
+        "target_stage",
+        "transition",
+    ]
 
 
 def test_dataset_and_edge_conditioning_change_hierarchical_context() -> None:
@@ -76,9 +80,27 @@ def test_dataset_and_edge_conditioning_change_hierarchical_context() -> None:
     )
     confidence = torch.ones(6, dtype=torch.float32)
 
-    luad = encoder(tokens, token_coords=coords, token_confidence=confidence, dataset_ids=torch.tensor([0]), edge_ids=torch.tensor([1]))
-    brain = encoder(tokens, token_coords=coords, token_confidence=confidence, dataset_ids=torch.tensor([1]), edge_ids=torch.tensor([1]))
-    other_edge = encoder(tokens, token_coords=coords, token_confidence=confidence, dataset_ids=torch.tensor([0]), edge_ids=torch.tensor([2]))
+    luad = encoder(
+        tokens,
+        token_coords=coords,
+        token_confidence=confidence,
+        dataset_ids=torch.tensor([0]),
+        edge_ids=torch.tensor([1]),
+    )
+    brain = encoder(
+        tokens,
+        token_coords=coords,
+        token_confidence=confidence,
+        dataset_ids=torch.tensor([1]),
+        edge_ids=torch.tensor([1]),
+    )
+    other_edge = encoder(
+        tokens,
+        token_coords=coords,
+        token_confidence=confidence,
+        dataset_ids=torch.tensor([0]),
+        edge_ids=torch.tensor([2]),
+    )
 
     assert not torch.allclose(luad.pooled_context, brain.pooled_context)
     assert not torch.allclose(luad.pooled_context, other_edge.pooled_context)

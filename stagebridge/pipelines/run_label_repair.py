@@ -1,4 +1,5 @@
 """Target-repair and target-selection pipeline for weak lesion labels."""
+
 from __future__ import annotations
 
 import json
@@ -67,7 +68,9 @@ def run_label_manifest(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     outputs["cleaned_manifest"].to_csv(tables_root / "cleaned_cohort_manifest.csv", index=False)
     outputs["sample_to_lesion"].to_csv(tables_root / "sample_to_lesion_mapping.csv", index=False)
     outputs["donor_summary"].to_csv(tables_root / "donor_patient_summary.csv", index=False)
-    outputs["availability_matrix"].to_csv(tables_root / "data_availability_matrix.csv", index=False)
+    outputs["availability_matrix"].to_csv(
+        tables_root / "data_availability_matrix.csv", index=False
+    )
     return {
         "ok": True,
         "pipeline": "label_manifest",
@@ -77,7 +80,9 @@ def run_label_manifest(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_label_cna(cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
+def run_label_cna(
+    cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFrame | None = None
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Run the configured CNA backend and save its normalized summary.
 
     Args:
@@ -86,13 +91,19 @@ def run_label_cna(cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFrame | 
     """
     reports_root = _ensure_dir(_cfg_select(cfg, "labels.output_root", "reports/labels"))
     tables_root = _ensure_dir(reports_root / "tables")
-    active_manifest = manifest if manifest is not None else build_cleaned_cohort_manifest(cfg)["cleaned_manifest"]
+    active_manifest = (
+        manifest
+        if manifest is not None
+        else build_cleaned_cohort_manifest(cfg)["cleaned_manifest"]
+    )
     summary, meta = run_cna_backend(cfg, active_manifest)
     summary.to_csv(tables_root / "lesion_cna_summary.csv", index=False)
     return summary, meta
 
 
-def run_label_clonal(cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
+def run_label_clonal(
+    cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFrame | None = None
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Run the configured clonal backend and save its normalized summary.
 
     Args:
@@ -101,13 +112,19 @@ def run_label_clonal(cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFrame
     """
     reports_root = _ensure_dir(_cfg_select(cfg, "labels.output_root", "reports/labels"))
     tables_root = _ensure_dir(reports_root / "tables")
-    active_manifest = manifest if manifest is not None else build_cleaned_cohort_manifest(cfg)["cleaned_manifest"]
+    active_manifest = (
+        manifest
+        if manifest is not None
+        else build_cleaned_cohort_manifest(cfg)["cleaned_manifest"]
+    )
     summary, meta = run_clonal_backend(cfg, active_manifest)
     summary.to_csv(tables_root / "lesion_clone_summary.csv", index=False)
     return summary, meta
 
 
-def run_label_phylogeny(cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
+def run_label_phylogeny(
+    cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFrame | None = None
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Run the configured phylogeny backend and save its normalized summary.
 
     Args:
@@ -116,13 +133,19 @@ def run_label_phylogeny(cfg: DictConfig | dict[str, Any], *, manifest: pd.DataFr
     """
     reports_root = _ensure_dir(_cfg_select(cfg, "labels.output_root", "reports/labels"))
     tables_root = _ensure_dir(reports_root / "tables")
-    active_manifest = manifest if manifest is not None else build_cleaned_cohort_manifest(cfg)["cleaned_manifest"]
+    active_manifest = (
+        manifest
+        if manifest is not None
+        else build_cleaned_cohort_manifest(cfg)["cleaned_manifest"]
+    )
     summary, meta = run_phylogeny_backend(cfg, active_manifest)
     summary.to_csv(tables_root / "lesion_phylogeny_summary.csv", index=False)
     return summary, meta
 
 
-def run_label_refinement(cfg: DictConfig | dict[str, Any], *, cached: dict[str, pd.DataFrame] | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
+def run_label_refinement(
+    cfg: DictConfig | dict[str, Any], *, cached: dict[str, pd.DataFrame] | None = None
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Refine lesion labels and save risk-score outputs.
 
     Args:
@@ -146,7 +169,18 @@ def run_label_refinement(cfg: DictConfig | dict[str, Any], *, cached: dict[str, 
         cfg=cfg,
     )
     refined.to_csv(tables_root / "lesion_refined_labels.csv", index=False)
-    refined.loc[:, ["lesion_id", "patient_id", "donor_id", "stage", "edge_label", "progression_risk_score", "confidence_tier"]].to_csv(
+    refined.loc[
+        :,
+        [
+            "lesion_id",
+            "patient_id",
+            "donor_id",
+            "stage",
+            "edge_label",
+            "progression_risk_score",
+            "confidence_tier",
+        ],
+    ].to_csv(
         tables_root / "lesion_progression_risk_scores.csv",
         index=False,
     )
@@ -158,7 +192,9 @@ def run_label_refinement(cfg: DictConfig | dict[str, Any], *, cached: dict[str, 
     }
 
 
-def run_label_support(cfg: DictConfig | dict[str, Any], *, cached: dict[str, pd.DataFrame] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+def run_label_support(
+    cfg: DictConfig | dict[str, Any], *, cached: dict[str, pd.DataFrame] | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     """Evaluate binary and continuous target support after refinement.
 
     Args:
@@ -189,7 +225,9 @@ def run_label_support(cfg: DictConfig | dict[str, Any], *, cached: dict[str, pd.
     )
     edge_support.to_csv(tables_root / "edge_label_support_summary.csv", index=False)
     donor_support.to_csv(tables_root / "donor_support_summary.csv", index=False)
-    (artifacts_root / "split_viability_report.json").write_text(json.dumps(split_report, indent=2), encoding="utf-8")
+    (artifacts_root / "split_viability_report.json").write_text(
+        json.dumps(split_report, indent=2), encoding="utf-8"
+    )
     return edge_support, donor_support, split_report
 
 
@@ -202,10 +240,18 @@ def run_label_repair(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     reports_root = _ensure_dir(_cfg_select(cfg, "labels.output_root", "reports/labels"))
     manifest_outputs = build_cleaned_cohort_manifest(cfg)
     cna_summary, cna_meta = run_label_cna(cfg, manifest=manifest_outputs["cleaned_manifest"])
-    clonal_summary, clonal_meta = run_label_clonal(cfg, manifest=manifest_outputs["cleaned_manifest"])
-    phylogeny_summary, phylo_meta = run_label_phylogeny(cfg, manifest=manifest_outputs["cleaned_manifest"])
-    pathology_summary, pathology_meta = run_pathology_backend(cfg, manifest_outputs["cleaned_manifest"])
-    pathology_summary.to_csv(_ensure_dir(reports_root / "tables") / "lesion_pathology_summary.csv", index=False)
+    clonal_summary, clonal_meta = run_label_clonal(
+        cfg, manifest=manifest_outputs["cleaned_manifest"]
+    )
+    phylogeny_summary, phylo_meta = run_label_phylogeny(
+        cfg, manifest=manifest_outputs["cleaned_manifest"]
+    )
+    pathology_summary, pathology_meta = run_pathology_backend(
+        cfg, manifest_outputs["cleaned_manifest"]
+    )
+    pathology_summary.to_csv(
+        _ensure_dir(reports_root / "tables") / "lesion_pathology_summary.csv", index=False
+    )
     refined = refine_lesion_labels(
         manifest_outputs["cleaned_manifest"],
         cna_summary=cna_summary,
@@ -250,7 +296,9 @@ def run_label_repair(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
         "pipeline": "label_repair",
         "status": "complete",
         "reports_root": str(reports_root),
-        "recommended_targets": edge_support.loc[:, ["edge_label", "recommended_target", "reason"]].to_dict(orient="records"),
+        "recommended_targets": edge_support.loc[
+            :, ["edge_label", "recommended_target", "reason"]
+        ].to_dict(orient="records"),
     }
 
 

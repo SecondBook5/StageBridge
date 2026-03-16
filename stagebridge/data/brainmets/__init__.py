@@ -1,2 +1,1 @@
 """Secondary brain metastasis utilities."""
-

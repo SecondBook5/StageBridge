@@ -1,4 +1,5 @@
 """Shared low-level H5AD reading helpers used by tangram_mapper and notebook_api."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -88,7 +89,9 @@ def read_h5ad_obs_frame(
                 values[column] = read_h5ad_obs_column(obs_group, column, chosen_rows)
         frame = pd.DataFrame(
             values,
-            index=pd.Index(obs_index.astype(str), name=str(obs_group.attrs.get("_index", "_index"))),
+            index=pd.Index(
+                obs_index.astype(str), name=str(obs_group.attrs.get("_index", "_index"))
+            ),
         )
     return frame
 

@@ -22,6 +22,7 @@ Architecture:
 The fused niche embedding conditions the Schrödinger bridge drift via
 FiLM or concatenation, just like the existing WES feature path.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,9 +35,10 @@ from torch import Tensor, nn
 @dataclass
 class GenomicNicheConfig:
     """Configuration for the unified genomic niche encoder."""
-    wes_dim: int = 8       # WES feature dimensionality
-    lpwgs_dim: int = 13    # lpWGS feature dimensionality
-    niche_dim: int = 32    # shared niche embedding dimension
+
+    wes_dim: int = 8  # WES feature dimensionality
+    lpwgs_dim: int = 13  # lpWGS feature dimensionality
+    niche_dim: int = 32  # shared niche embedding dimension
     dropout: float = 0.1
     num_modalities: int = 3  # 0=none, 1=wes, 2=lpwgs
 

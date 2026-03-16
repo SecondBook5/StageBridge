@@ -1,4 +1,5 @@
 """Mission 3 tests for the active reference latent branch."""
+
 from __future__ import annotations
 
 from pathlib import Path

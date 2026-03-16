@@ -1,4 +1,5 @@
 """Tests for EA-MIST v1.5 upgrades: ordinal loss, distribution pooling, atlas contrast, monotonic reg."""
+
 from __future__ import annotations
 
 import torch
@@ -70,6 +71,7 @@ def _make_model(**kwargs):
 
 # === Upgrade 1: Ordinal stage loss ===
 
+
 def test_ordinal_stage_loss_perfect_prediction():
     """When logits perfectly predict the label, ordinal loss should be near zero."""
     logits = torch.zeros(3, 5)
@@ -121,6 +123,7 @@ def test_ordinal_stage_loss_gradient_flows():
 
 # === Upgrade 2: Distribution-aware pooling ===
 
+
 def test_distribution_summary_off_by_default():
     """With use_distribution_summary=False, niche_transition_scores should be None."""
     model = _make_model(use_distribution_summary=False)
@@ -146,7 +149,10 @@ def test_distribution_summary_respects_mask():
     batch = _make_batch(batch_size=2, num_instances=4)
     # Rebuild batch with custom mask
     from dataclasses import fields
-    kwargs = {f.name: getattr(batch, f.name) for f in fields(batch) if f.name != "neighborhood_mask"}
+
+    kwargs = {
+        f.name: getattr(batch, f.name) for f in fields(batch) if f.name != "neighborhood_mask"
+    }
     batch = LesionBagBatch(
         **kwargs,
         neighborhood_mask=torch.tensor([[True, True, True, True], [True, True, False, False]]),
@@ -173,6 +179,7 @@ def test_distribution_summary_gradient_flows():
 
 
 # === Upgrade 3: Atlas contrast token ===
+
 
 def test_atlas_contrast_token_off_by_default():
     """Without use_atlas_contrast_token, the tokenizer should produce 9 tokens."""
@@ -233,10 +240,13 @@ def test_atlas_contrast_gradient_flows():
 
 # === Upgrade 4: Transition consistency loss ===
 
+
 def test_transition_consistency_loss_basic():
     """Basic transition consistency loss computation."""
     displacement = torch.tensor([0.5, 0.8], dtype=torch.float32)
-    scores = torch.tensor([[0.3, 0.4, 0.6, float("-inf")], [0.7, 0.9, float("-inf"), float("-inf")]])
+    scores = torch.tensor(
+        [[0.3, 0.4, 0.6, float("-inf")], [0.7, 0.9, float("-inf"), float("-inf")]]
+    )
     mask = torch.tensor([[True, True, True, False], [True, True, False, False]])
     loss = transition_consistency_loss(displacement, scores, mask)
     assert torch.isfinite(loss)
@@ -276,6 +286,7 @@ def test_transition_consistency_gradient_detaches_scores():
 
 # === Combined: all v1.5 upgrades together ===
 
+
 def test_full_v15_model_forward():
     """Full EA-MIST v1.5 forward pass with all upgrades enabled."""
     model = _make_model(
@@ -312,7 +323,10 @@ def test_full_v15_backward():
 
 def test_v15_pipeline_smoke():
     """Smoke test: compute all v1.5 losses in a pipeline-like fashion."""
-    from stagebridge.context_model.losses import class_weighted_stage_loss, displacement_regression_loss
+    from stagebridge.context_model.losses import (
+        class_weighted_stage_loss,
+        displacement_regression_loss,
+    )
 
     model = _make_model(
         use_distribution_summary=True,
@@ -329,5 +343,11 @@ def test_v15_pipeline_smoke():
     total = 1.0 * stage_ce + 0.5 * ordinal + 0.5 * disp + 0.1 * tc
     total.backward()
     # All losses should be finite
-    for name, val in [("stage_ce", stage_ce), ("ordinal", ordinal), ("disp", disp), ("tc", tc), ("total", total)]:
+    for name, val in [
+        ("stage_ce", stage_ce),
+        ("ordinal", ordinal),
+        ("disp", disp),
+        ("tc", tc),
+        ("total", total),
+    ]:
         assert torch.isfinite(val), f"{name} is not finite: {val}"

@@ -1,4 +1,5 @@
 """Download the LuCA extended atlas into the canonical StageBridge data tree."""
+
 from __future__ import annotations
 
 import argparse
@@ -117,7 +118,9 @@ def run(root: Path, *, download_model: bool) -> dict[str, object]:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True, help="StageBridge data root ($STAGEBRIDGE_DATA_ROOT)")
+    parser.add_argument(
+        "--root", type=Path, required=True, help="StageBridge data root ($STAGEBRIDGE_DATA_ROOT)"
+    )
     parser.add_argument(
         "--download-model",
         type=parse_bool,

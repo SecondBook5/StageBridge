@@ -1,4 +1,5 @@
 """Figure builders for EA-MIST benchmark outputs."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,7 +31,9 @@ def save_method_overview_figure(path: str | Path) -> str:
         (0.84, 0.18, 0.12, 0.18, "Stage + weak\n displacement\n + aux edges"),
     ]
     for x, y, w, h, text in boxes:
-        ax.add_patch(plt.Rectangle((x, y), w, h, facecolor="#eef3f8", edgecolor="#12344d", linewidth=1.8))
+        ax.add_patch(
+            plt.Rectangle((x, y), w, h, facecolor="#eef3f8", edgecolor="#12344d", linewidth=1.8)
+        )
         ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=11, color="#12344d")
     arrows = [
         ((0.19, 0.66), (0.24, 0.66)),
@@ -40,8 +43,21 @@ def save_method_overview_figure(path: str | Path) -> str:
         ((0.90, 0.55), (0.90, 0.36)),
     ]
     for start, end in arrows:
-        ax.annotate("", xy=end, xytext=start, arrowprops={"arrowstyle": "->", "lw": 2.0, "color": "#12344d"})
-    ax.text(0.50, 0.08, "Figure 1. EA-MIST method overview", ha="center", va="center", fontsize=14, fontweight="bold")
+        ax.annotate(
+            "",
+            xy=end,
+            xytext=start,
+            arrowprops={"arrowstyle": "->", "lw": 2.0, "color": "#12344d"},
+        )
+    ax.text(
+        0.50,
+        0.08,
+        "Figure 1. EA-MIST method overview",
+        ha="center",
+        va="center",
+        fontsize=14,
+        fontweight="bold",
+    )
     fig.tight_layout()
     fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -60,9 +76,23 @@ def save_embedding_diagnostics_figure(
     if len(embedding_cols) < 2:
         raise ValueError("Embedding diagnostics require at least two embedding columns.")
     x = embeddings[embedding_cols].to_numpy(dtype=np.float32)
-    labels = embeddings[color_column].astype(str).to_numpy() if color_column in embeddings.columns else np.array(["unknown"] * x.shape[0])
+    labels = (
+        embeddings[color_column].astype(str).to_numpy()
+        if color_column in embeddings.columns
+        else np.array(["unknown"] * x.shape[0])
+    )
     pca = PCA(n_components=2, random_state=0).fit_transform(x)
-    tsne = TSNE(n_components=2, init="pca", learning_rate="auto", random_state=0, perplexity=max(5, min(30, x.shape[0] // 3))).fit_transform(x) if x.shape[0] >= 10 else pca
+    tsne = (
+        TSNE(
+            n_components=2,
+            init="pca",
+            learning_rate="auto",
+            random_state=0,
+            perplexity=max(5, min(30, x.shape[0] // 3)),
+        ).fit_transform(x)
+        if x.shape[0] >= 10
+        else pca
+    )
     try:
         import umap
 
@@ -77,7 +107,9 @@ def save_embedding_diagnostics_figure(
     for ax, (title, proj) in zip(axes, projections):
         for label in unique_labels:
             mask = labels == label
-            ax.scatter(proj[mask, 0], proj[mask, 1], s=14, alpha=0.8, label=label, color=color_map[label])
+            ax.scatter(
+                proj[mask, 0], proj[mask, 1], s=14, alpha=0.8, label=label, color=color_map[label]
+            )
         ax.set_title(f"{title} (diagnostic)")
         ax.set_xticks([])
         ax.set_yticks([])
@@ -102,14 +134,23 @@ def save_benchmark_comparison_figure(summary: pd.DataFrame, path: str | Path) ->
         .reset_index(drop=True)
     )
     reference_modes = agg["reference_feature_mode"].astype(str).unique().tolist()
-    fig, axes = plt.subplots(len(reference_modes), 2, figsize=(12, 4 * max(len(reference_modes), 1)))
+    fig, axes = plt.subplots(
+        len(reference_modes), 2, figsize=(12, 4 * max(len(reference_modes), 1))
+    )
     if len(reference_modes) == 1:
         axes = np.asarray([axes])
     for row_idx, reference_mode in enumerate(reference_modes):
-        edge_frame = agg[agg["reference_feature_mode"] == reference_mode].sort_values("stage_macro_f1_mean", ascending=False)
+        edge_frame = agg[agg["reference_feature_mode"] == reference_mode].sort_values(
+            "stage_macro_f1_mean", ascending=False
+        )
         for col_idx, metric in enumerate(("stage_macro_f1", "displacement_spearman")):
             ax = axes[row_idx, col_idx]
-            ax.bar(edge_frame["model_family"], edge_frame[f"{metric}_mean"], yerr=edge_frame[f"{metric}_std"].fillna(0.0), color="#4c78a8")
+            ax.bar(
+                edge_frame["model_family"],
+                edge_frame[f"{metric}_mean"],
+                yerr=edge_frame[f"{metric}_std"].fillna(0.0),
+                color="#4c78a8",
+            )
             ax.set_title(f"{reference_mode} {metric.replace('_', ' ').title()}")
             ax.tick_params(axis="x", rotation=30)
             ax.set_ylim(-0.05, 1.05)
@@ -124,7 +165,9 @@ def save_prototype_interpretation_figure(prototype_frame: pd.DataFrame, path: st
     path = _ensure_parent(path)
     if prototype_frame.empty:
         raise ValueError("Prototype interpretation figure requires a non-empty prototype frame.")
-    pivot = prototype_frame.pivot_table(index="sample_id", columns="prototype", values="occupancy", fill_value=0.0)
+    pivot = prototype_frame.pivot_table(
+        index="sample_id", columns="prototype", values="occupancy", fill_value=0.0
+    )
     fig, ax = plt.subplots(figsize=(10, max(4, 0.25 * pivot.shape[0])))
     im = ax.imshow(pivot.to_numpy(dtype=np.float32), aspect="auto", cmap="magma")
     ax.set_title("Figure 4. Prototype occupancy by lesion")

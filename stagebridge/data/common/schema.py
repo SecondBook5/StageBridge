@@ -1,4 +1,5 @@
 """Typed schema objects for the active StageBridge data layer."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

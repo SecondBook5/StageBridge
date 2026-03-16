@@ -1,4 +1,5 @@
 """Tangram mapping utilities for HLCA-labeled snRNA -> spatial projection."""
+
 from __future__ import annotations
 
 import gc
@@ -135,7 +136,10 @@ def _aligned_label_series_from_sources(
             overlap = aligned.index.intersection(labels_df.index)
             aligned.loc[overlap] = labels_df.loc[overlap, label_col].astype(str).to_numpy()
             if aligned.notna().any():
-                return aligned, {"source": "labels_parquet", "path": str(Path(fallback_labels_parquet_path))}
+                return aligned, {
+                    "source": "labels_parquet",
+                    "path": str(Path(fallback_labels_parquet_path)),
+                }
 
     if fallback_latent_h5ad_path is not None and Path(fallback_latent_h5ad_path).exists():
         latent = anndata.read_h5ad(fallback_latent_h5ad_path, backed="r")
@@ -145,20 +149,25 @@ def _aligned_label_series_from_sources(
             latent_index = latent_obs["cell_id"].astype(str)
         if label_col in latent_obs.columns:
             aligned = pd.Series(index=obs_index.astype(str), dtype=object, name=label_col)
-            source = pd.Series(latent_obs[label_col].astype(str).to_numpy(), index=latent_index, name=label_col)
+            source = pd.Series(
+                latent_obs[label_col].astype(str).to_numpy(), index=latent_index, name=label_col
+            )
             overlap = aligned.index.intersection(source.index)
             aligned.loc[overlap] = source.loc[overlap].to_numpy()
             if aligned.notna().any():
-                return aligned, {"source": "latent_h5ad", "path": str(Path(fallback_latent_h5ad_path))}
+                return aligned, {
+                    "source": "latent_h5ad",
+                    "path": str(Path(fallback_latent_h5ad_path)),
+                }
 
     raise KeyError(
         f"Missing '{label_col}' in raw snRNA obs and no usable fallback labels were found."
     )
 
 
-
-
-def _read_h5ad_csr_rows(h5ad_path: Path, rows: np.ndarray, *, group_name: str = "X") -> sp.csr_matrix:
+def _read_h5ad_csr_rows(
+    h5ad_path: Path, rows: np.ndarray, *, group_name: str = "X"
+) -> sp.csr_matrix:
     with h5py.File(h5ad_path, "r") as handle:
         group = handle[group_name]
         if isinstance(group, h5py.Dataset):
@@ -175,16 +184,20 @@ def _read_h5ad_csr_rows(h5ad_path: Path, rows: np.ndarray, *, group_name: str = 
         cursor = 0
         data_ds = group["data"]
         indices_ds = group["indices"]
-        for i, (start, end) in enumerate(zip(row_starts.tolist(), row_ends.tolist(), strict=False)):
+        for i, (start, end) in enumerate(
+            zip(row_starts.tolist(), row_ends.tolist(), strict=False)
+        ):
             length = int(end - start)
             if length:
                 data[cursor : cursor + length] = np.asarray(data_ds[start:end], dtype=np.float32)
-                indices[cursor : cursor + length] = np.asarray(indices_ds[start:end], dtype=np.int32)
+                indices[cursor : cursor + length] = np.asarray(
+                    indices_ds[start:end], dtype=np.int32
+                )
             cursor += length
             new_indptr[i + 1] = cursor
-    return sp.csr_matrix((data, indices, new_indptr), shape=(rows.shape[0], shape[1]), dtype=np.float32)
-
-
+    return sp.csr_matrix(
+        (data, indices, new_indptr), shape=(rows.shape[0], shape[1]), dtype=np.float32
+    )
 
 
 def _write_label_parquet_from_snrna(
@@ -261,7 +274,9 @@ def _write_snrna_subset_h5ad_from_labels(
             columns=["donor_id", "patient_id", "sample_id", "stage"],
         )
     )
-    row_lookup = pd.Series(np.arange(all_obs.shape[0], dtype=np.int64), index=all_obs.index.astype(str))
+    row_lookup = pd.Series(
+        np.arange(all_obs.shape[0], dtype=np.int64), index=all_obs.index.astype(str)
+    )
     matched_rows = row_lookup.reindex(labels_df.index).dropna()
     if matched_rows.empty:
         raise RuntimeError(
@@ -279,7 +294,9 @@ def _write_snrna_subset_h5ad_from_labels(
         var=pd.DataFrame(index=read_h5ad_var_index(snrna_h5ad_path)),
     )
     try:
-        subset.layers["counts"] = _read_h5ad_csr_rows(snrna_h5ad_path, rows, group_name="layers/counts")
+        subset.layers["counts"] = _read_h5ad_csr_rows(
+            snrna_h5ad_path, rows, group_name="layers/counts"
+        )
     except Exception:
         pass
     subset.write_h5ad(subset_h5ad_path, compression="lzf")
@@ -316,12 +333,18 @@ def _write_spatial_subset_h5ad(
         )
         obs = pd.DataFrame(
             {
-                "spot_id": read_h5ad_obs_column_or_default(obs_group, "spot_id", all_rows, default=obs_index),
-                "barcode": read_h5ad_obs_column_or_default(obs_group, "barcode", all_rows, default=obs_index),
+                "spot_id": read_h5ad_obs_column_or_default(
+                    obs_group, "spot_id", all_rows, default=obs_index
+                ),
+                "barcode": read_h5ad_obs_column_or_default(
+                    obs_group, "barcode", all_rows, default=obs_index
+                ),
                 "donor_id": donor_values,
                 "patient_id": patient_values,
                 "stage": read_h5ad_obs_column(obs_group, "stage", all_rows),
-                "sample_id": read_h5ad_obs_column_or_default(obs_group, "sample_id", all_rows, default=obs_index),
+                "sample_id": read_h5ad_obs_column_or_default(
+                    obs_group, "sample_id", all_rows, default=obs_index
+                ),
             },
             index=pd.Index(obs_index, name=str(obs_group.attrs.get("_index", "_index"))),
         )
@@ -343,7 +366,9 @@ def _write_spatial_subset_h5ad(
         var=pd.DataFrame(index=var_index),
     )
     try:
-        subset.layers["counts"] = _read_h5ad_csr_rows(spatial_h5ad_path, rows, group_name="layers/counts")
+        subset.layers["counts"] = _read_h5ad_csr_rows(
+            spatial_h5ad_path, rows, group_name="layers/counts"
+        )
     except Exception:
         pass
     subset.obsm["spatial"] = spatial_coords
@@ -364,7 +389,11 @@ def _tangram_cache_bundle(
     seed: int,
 ) -> dict[str, Path]:
     paths = resolve_luad_evo_paths(cfg)
-    provider_cfg = dict(cfg.get("spatial_mapping", {})) if hasattr(cfg, "get") else dict(cfg["spatial_mapping"])
+    provider_cfg = (
+        dict(cfg.get("spatial_mapping", {}))
+        if hasattr(cfg, "get")
+        else dict(cfg["spatial_mapping"])
+    )
     cache_key = _stable_hash(
         {
             "method": "tangram",
@@ -450,7 +479,11 @@ def run_tangram(
     seed: int = 42,
 ) -> SpatialMappingResult:
     """Run or load Tangram through the active provider contract."""
-    provider_cfg = dict(cfg.get("spatial_mapping", {})) if hasattr(cfg, "get") else dict(cfg["spatial_mapping"])
+    provider_cfg = (
+        dict(cfg.get("spatial_mapping", {}))
+        if hasattr(cfg, "get")
+        else dict(cfg["spatial_mapping"])
+    )
     execution_mode = str(provider_cfg.get("execution_mode", "load_precomputed"))
     provider_version = _provider_version("tangram-sc", _provider_version("tangram"))
 
@@ -698,7 +731,9 @@ def _build_cluster_adata(
     label_codes = np.full(label_values.shape[0], -1, dtype=np.int32)
     label_codes[valid_mask] = label_cat.codes.astype(np.int32, copy=False)
 
-    var_to_pos = pd.Series(np.arange(len(source_var_names), dtype=np.int64), index=source_var_names.astype(str))
+    var_to_pos = pd.Series(
+        np.arange(len(source_var_names), dtype=np.int64), index=source_var_names.astype(str)
+    )
     gene_idx = var_to_pos.reindex(shared_genes).to_numpy(dtype=np.int64)
     if np.any(gene_idx < 0):
         raise RuntimeError("Internal error while building gene index for shared genes.")
@@ -808,7 +843,11 @@ def run_tangram_hlca_projection(
     adata_sp_var = pd.Index(adata_sp_backed.var_names.astype(str))
     adata_sc_var = pd.Index(adata_sc_backed.var_names.astype(str))
 
-    source_matrix = adata_sc_backed.layers["counts"] if (use_counts_layer and "counts" in adata_sc_backed.layers) else adata_sc_backed.X
+    source_matrix = (
+        adata_sc_backed.layers["counts"]
+        if (use_counts_layer and "counts" in adata_sc_backed.layers)
+        else adata_sc_backed.X
+    )
     labels, label_coverage = _parse_labels(
         obs_names=adata_sc_backed.obs_names,
         labels_parquet_path=labels_parquet_path,
@@ -888,7 +927,11 @@ def run_tangram_hlca_projection(
         adata_sc = adata_sc[adata_sc.obs[label_col].notna(), training_genes].copy()
         label_sizes = {
             str(k): int(v)
-            for k, v in adata_sc.obs[label_col].astype(str).value_counts().sort_values(ascending=False).items()
+            for k, v in adata_sc.obs[label_col]
+            .astype(str)
+            .value_counts()
+            .sort_values(ascending=False)
+            .items()
         }
         adata_sc_use = adata_sc
     stage_done("build_sc_reference", t0)

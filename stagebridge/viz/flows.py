@@ -1,4 +1,5 @@
 """Macro-flow visualization helpers (cluster-level Sankey)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,12 +18,16 @@ def compute_macroflow_matrix(
     x0 = np.asarray(x_src, dtype=np.float32)
     x1 = np.asarray(x_tgt_pred, dtype=np.float32)
     if x0.ndim != 2 or x1.ndim != 2 or x0.shape[1] != x1.shape[1]:
-        raise ValueError("x_src and x_tgt_pred must be 2D arrays with matching feature dimensions.")
+        raise ValueError(
+            "x_src and x_tgt_pred must be 2D arrays with matching feature dimensions."
+        )
     if x0.shape[0] != x1.shape[0]:
         raise ValueError("x_src and x_tgt_pred must have equal row counts.")
 
     k = int(max(2, min(n_clusters, x0.shape[0])))
-    km = MiniBatchKMeans(n_clusters=k, random_state=random_state, n_init=3, batch_size=min(4096, x0.shape[0]))
+    km = MiniBatchKMeans(
+        n_clusters=k, random_state=random_state, n_init=3, batch_size=min(4096, x0.shape[0])
+    )
     km.fit(np.vstack([x0, x1]))
 
     src_labels = km.predict(x0)

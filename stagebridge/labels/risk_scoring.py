@@ -1,4 +1,5 @@
 """Interpretable lesion-level progression-risk scoring for label repair."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -69,28 +70,70 @@ def build_risk_feature_table(frame: pd.DataFrame) -> pd.DataFrame:
     features = frame.copy()
     mutation_columns = [
         column
-        for column in ["kras_mut", "egfr_mut", "tp53_mut", "stk11_mut", "keap1_mut", "smad4_mut", "braf_mut"]
+        for column in [
+            "kras_mut",
+            "egfr_mut",
+            "tp53_mut",
+            "stk11_mut",
+            "keap1_mut",
+            "smad4_mut",
+            "braf_mut",
+        ]
         if column in features.columns
     ]
-    features["driver_burden"] = features[mutation_columns].fillna(0.0).sum(axis=1) if mutation_columns else 0.0
+    features["driver_burden"] = (
+        features[mutation_columns].fillna(0.0).sum(axis=1) if mutation_columns else 0.0
+    )
     features["tmb_norm"] = _normalize_series(_series_or_default(features, "tmb", 0.0))
     features["driver_burden_norm"] = _normalize_series(features["driver_burden"])
-    features["cna_burden_norm"] = _normalize_series(_series_or_default(features, "cna_burden", 0.0))
-    features["clone_sharing_norm"] = _normalize_series(_series_or_default(features, "shared_cluster_count_with_later_lesions", 0.0))
-    features["descendant_sharing_norm"] = _normalize_series(_series_or_default(features, "descendant_sharing_score", 0.0))
-    features["pathology_risk_norm"] = _normalize_series(_series_or_default(features, "pathology_risk_score", 0.0))
-    features["later_stage_support"] = pd.to_numeric(_series_or_default(features, "has_later_stage", 0.0), errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    features["cna_burden_norm"] = _normalize_series(
+        _series_or_default(features, "cna_burden", 0.0)
+    )
+    features["clone_sharing_norm"] = _normalize_series(
+        _series_or_default(features, "shared_cluster_count_with_later_lesions", 0.0)
+    )
+    features["descendant_sharing_norm"] = _normalize_series(
+        _series_or_default(features, "descendant_sharing_score", 0.0)
+    )
+    features["pathology_risk_norm"] = _normalize_series(
+        _series_or_default(features, "pathology_risk_score", 0.0)
+    )
+    features["later_stage_support"] = (
+        pd.to_numeric(_series_or_default(features, "has_later_stage", 0.0), errors="coerce")
+        .fillna(0.0)
+        .clip(0.0, 1.0)
+    )
     features["curated_positive_support"] = (
-        _series_or_default(features, "original_label_source", "").astype(str).str.startswith("peng_")
-        & pd.to_numeric(_series_or_default(features, "original_label", 0.0), errors="coerce").fillna(0.0).eq(1.0)
+        _series_or_default(features, "original_label_source", "")
+        .astype(str)
+        .str.startswith("peng_")
+        & pd.to_numeric(_series_or_default(features, "original_label", 0.0), errors="coerce")
+        .fillna(0.0)
+        .eq(1.0)
     ).astype(float)
     features["curated_negative_support"] = (
-        _series_or_default(features, "original_label_source", "").astype(str).str.startswith("peng_")
-        & pd.to_numeric(_series_or_default(features, "original_label", 0.0), errors="coerce").fillna(0.0).eq(0.0)
+        _series_or_default(features, "original_label_source", "")
+        .astype(str)
+        .str.startswith("peng_")
+        & pd.to_numeric(_series_or_default(features, "original_label", 0.0), errors="coerce")
+        .fillna(0.0)
+        .eq(0.0)
     ).astype(float)
-    features["heuristic_label_support"] = _series_or_default(features, "original_label_source", "").astype(str).eq("heuristic_edge_expansion").astype(float)
+    features["heuristic_label_support"] = (
+        _series_or_default(features, "original_label_source", "")
+        .astype(str)
+        .eq("heuristic_edge_expansion")
+        .astype(float)
+    )
     features["non_proxy_evidence_count"] = (
-        features[["cna_burden_norm", "clone_sharing_norm", "descendant_sharing_norm", "pathology_risk_norm"]]
+        features[
+            [
+                "cna_burden_norm",
+                "clone_sharing_norm",
+                "descendant_sharing_norm",
+                "pathology_risk_norm",
+            ]
+        ]
         .gt(0.0)
         .sum(axis=1)
         .astype(float)
@@ -98,7 +141,9 @@ def build_risk_feature_table(frame: pd.DataFrame) -> pd.DataFrame:
     return features
 
 
-def score_lesions(frame: pd.DataFrame, cfg: DictConfig | dict[str, Any]) -> tuple[pd.Series, pd.DataFrame]:
+def score_lesions(
+    frame: pd.DataFrame, cfg: DictConfig | dict[str, Any]
+) -> tuple[pd.Series, pd.DataFrame]:
     """Compute interpretable progression-risk scores and contribution terms.
 
     Args:
@@ -122,14 +167,18 @@ def score_lesions(frame: pd.DataFrame, cfg: DictConfig | dict[str, Any]) -> tupl
     resolved = {key: float(weights.get(key, value)) for key, value in defaults.items()}
     contribution_frame = pd.DataFrame(
         {
-            "curated_positive": features["curated_positive_support"] * resolved["curated_positive"],
-            "curated_negative": features["curated_negative_support"] * resolved["curated_negative"],
-            "later_stage_presence": features["later_stage_support"] * resolved["later_stage_presence"],
+            "curated_positive": features["curated_positive_support"]
+            * resolved["curated_positive"],
+            "curated_negative": features["curated_negative_support"]
+            * resolved["curated_negative"],
+            "later_stage_presence": features["later_stage_support"]
+            * resolved["later_stage_presence"],
             "tmb": features["tmb_norm"] * resolved["tmb"],
             "driver_burden": features["driver_burden_norm"] * resolved["driver_burden"],
             "cna_burden": features["cna_burden_norm"] * resolved["cna_burden"],
             "clone_sharing": features["clone_sharing_norm"] * resolved["clone_sharing"],
-            "descendant_sharing": features["descendant_sharing_norm"] * resolved["descendant_sharing"],
+            "descendant_sharing": features["descendant_sharing_norm"]
+            * resolved["descendant_sharing"],
             "pathology_risk": features["pathology_risk_norm"] * resolved["pathology_risk"],
             "heuristic_label": features["heuristic_label_support"] * resolved["heuristic_label"],
         },

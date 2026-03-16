@@ -113,17 +113,20 @@ def run_single_ablation(
     base_args: dict,
 ) -> dict:
     """Run single ablation experiment."""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"Running: {ablation_name} (fold {fold})")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
     # Build command
     cmd = [
         "python",
         "stagebridge/pipelines/run_v1_full.py",
-        "--data_dir", str(data_dir),
-        "--fold", str(fold),
-        "--output_dir", str(output_dir),
+        "--data_dir",
+        str(data_dir),
+        "--fold",
+        str(fold),
+        "--output_dir",
+        str(output_dir),
     ]
 
     # Add base args
@@ -212,19 +215,23 @@ def run_all_ablations(
             if result["success"]:
                 test_metrics = result["results"]["test_metrics"]
 
-                all_results.append({
-                    "ablation": ablation_name,
-                    "fold": fold,
-                    "success": True,
-                    **test_metrics,
-                })
+                all_results.append(
+                    {
+                        "ablation": ablation_name,
+                        "fold": fold,
+                        "success": True,
+                        **test_metrics,
+                    }
+                )
             else:
                 print(f"   Failed: {result.get('error', 'Unknown error')}")
-                all_results.append({
-                    "ablation": ablation_name,
-                    "fold": fold,
-                    "success": False,
-                })
+                all_results.append(
+                    {
+                        "ablation": ablation_name,
+                        "fold": fold,
+                        "success": False,
+                    }
+                )
 
     # Save results
     results_df = pd.DataFrame(all_results)
@@ -238,11 +245,17 @@ def generate_table3(results_df: pd.DataFrame, output_dir: Path):
     print("\nGenerating Table 3 (Main Results)...")
 
     # Aggregate by ablation
-    summary = results_df.groupby("ablation").agg({
-        "wasserstein": ["mean", "std"],
-        "mse": ["mean", "std"],
-        "mae": ["mean", "std"],
-    }).round(4)
+    summary = (
+        results_df.groupby("ablation")
+        .agg(
+            {
+                "wasserstein": ["mean", "std"],
+                "mse": ["mean", "std"],
+                "mae": ["mean", "std"],
+            }
+        )
+        .round(4)
+    )
 
     # Format for paper
     table = []
@@ -346,17 +359,19 @@ def generate_statistical_comparisons(results_df: pd.DataFrame, output_dir: Path)
                 pooled_std = np.sqrt((full_vals.var() + abl_vals.var()) / 2)
                 cohens_d = diff / pooled_std
 
-                comparisons.append({
-                    "ablation": ablation,
-                    "metric": metric,
-                    "full_model_mean": full_vals.mean(),
-                    "ablation_mean": abl_vals.mean(),
-                    "difference": diff,
-                    "t_statistic": t_stat,
-                    "p_value": p_val,
-                    "cohens_d": cohens_d,
-                    "significant": p_val < 0.05,
-                })
+                comparisons.append(
+                    {
+                        "ablation": ablation,
+                        "metric": metric,
+                        "full_model_mean": full_vals.mean(),
+                        "ablation_mean": abl_vals.mean(),
+                        "difference": diff,
+                        "t_statistic": t_stat,
+                        "p_value": p_val,
+                        "cohens_d": cohens_d,
+                        "significant": p_val < 0.05,
+                    }
+                )
 
     comp_df = pd.DataFrame(comparisons)
     comp_df.to_csv(output_dir / "statistical_comparisons.csv", index=False)
@@ -368,7 +383,9 @@ def generate_statistical_comparisons(results_df: pd.DataFrame, output_dir: Path)
     if len(sig_df) > 0:
         print("\nSignificant differences from full model (p < 0.05):")
         for _, row in sig_df.iterrows():
-            print(f"  {row['ablation']} ({row['metric']}): d={row['cohens_d']:.3f}, p={row['p_value']:.4f}")
+            print(
+                f"  {row['ablation']} ({row['metric']}): d={row['cohens_d']:.3f}, p={row['p_value']:.4f}"
+            )
 
 
 def main():

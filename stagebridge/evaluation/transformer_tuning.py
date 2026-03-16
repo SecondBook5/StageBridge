@@ -1,4 +1,5 @@
 """Optuna-based tuning for the StageBridge Set Transformer branch."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -71,7 +72,9 @@ def suggest_set_only_hyperparameters(trial: optuna.trial.Trial) -> dict[str, Any
         "num_seed_vectors": trial.suggest_categorical("num_seed_vectors", [2, 4]),
         "dropout": trial.suggest_float("dropout", 0.0, 0.25),
         "token_dropout_rate": trial.suggest_float("token_dropout_rate", 0.0, 0.2),
-        "auxiliary_context_shuffle_weight": trial.suggest_float("auxiliary_context_shuffle_weight", 0.1, 0.3),
+        "auxiliary_context_shuffle_weight": trial.suggest_float(
+            "auxiliary_context_shuffle_weight", 0.1, 0.3
+        ),
         "learning_rate": trial.suggest_float("learning_rate", 3e-4, 3e-3, log=True),
         "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
         "max_context_spots": trial.suggest_categorical("max_context_spots", [32, 64, 96, 128]),
@@ -90,7 +93,9 @@ def apply_transformer_hyperparameters(cfg: DictConfig, params: Mapping[str, Any]
     tuned.context_model.num_inducing_points = int(params["num_inducing_points"])
     tuned.context_model.max_context_spots = int(params["max_context_spots"])
     tuned.context_model.token_dropout_rate = float(params["token_dropout_rate"])
-    tuned.context_model.auxiliary_context_shuffle_weight = float(params["auxiliary_context_shuffle_weight"])
+    tuned.context_model.auxiliary_context_shuffle_weight = float(
+        params["auxiliary_context_shuffle_weight"]
+    )
     if "num_seed_vectors" in params:
         tuned.context_model.num_seed_vectors = int(params["num_seed_vectors"])
     if "use_cross_attention_drift" in params:
@@ -181,7 +186,9 @@ def run_mode_baseline_summary(
                         "edge": edge,
                         "mode": mode,
                         "sinkhorn": float(evaluation["heldout_metrics"]["sinkhorn"]),
-                        "calibration_error": float(evaluation["calibration"]["mean_abs_shift_error"]),
+                        "calibration_error": float(
+                            evaluation["calibration"]["mean_abs_shift_error"]
+                        ),
                         "dominant_increase_group": biology.get("dominant_increase_group"),
                         "dominant_decrease_group": biology.get("dominant_decrease_group"),
                     }
@@ -189,16 +196,19 @@ def run_mode_baseline_summary(
     frame = pd.DataFrame(rows)
     if frame.empty:
         return frame
-    return (
-        frame.groupby(["edge", "mode"], as_index=False)
-        .agg(
-            sinkhorn_mean=("sinkhorn", "mean"),
-            sinkhorn_std=("sinkhorn", "std"),
-            calibration_mean=("calibration_error", "mean"),
-            calibration_std=("calibration_error", "std"),
-            dominant_increase_group=("dominant_increase_group", lambda s: s.mode().iloc[0] if not s.mode().empty else None),
-            dominant_decrease_group=("dominant_decrease_group", lambda s: s.mode().iloc[0] if not s.mode().empty else None),
-        )
+    return frame.groupby(["edge", "mode"], as_index=False).agg(
+        sinkhorn_mean=("sinkhorn", "mean"),
+        sinkhorn_std=("sinkhorn", "std"),
+        calibration_mean=("calibration_error", "mean"),
+        calibration_std=("calibration_error", "std"),
+        dominant_increase_group=(
+            "dominant_increase_group",
+            lambda s: s.mode().iloc[0] if not s.mode().empty else None,
+        ),
+        dominant_decrease_group=(
+            "dominant_decrease_group",
+            lambda s: s.mode().iloc[0] if not s.mode().empty else None,
+        ),
     )
 
 
@@ -216,7 +226,9 @@ def summarize_transformer_vs_deep_sets(
             "edge_results": [],
         }
     deep_sets = benchmark_table.loc[benchmark_table["mode"] == "deep_sets"].set_index("edge")
-    transformer = benchmark_table.loc[benchmark_table["mode"] == transformer_mode].set_index("edge")
+    transformer = benchmark_table.loc[benchmark_table["mode"] == transformer_mode].set_index(
+        "edge"
+    )
     rows: list[dict[str, Any]] = []
     wins_sinkhorn = []
     calibration_ok = []
@@ -250,7 +262,9 @@ def summarize_transformer_vs_deep_sets(
     else:
         status = "fail"
         decision = "demote"
-        interpretation = f"{transformer_mode} did not beat Deep Sets under the current fixed benchmark."
+        interpretation = (
+            f"{transformer_mode} did not beat Deep Sets under the current fixed benchmark."
+        )
     return {
         "status": status,
         "decision": decision,
@@ -434,7 +448,11 @@ def build_optuna_trial_table(study: optuna.study.Study) -> pd.DataFrame:
         rows.append(row)
     if not rows:
         return pd.DataFrame(columns=["trial_number", "state", "objective"])
-    return pd.DataFrame(rows).sort_values(["state", "objective"], na_position="last").reset_index(drop=True)
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["state", "objective"], na_position="last")
+        .reset_index(drop=True)
+    )
 
 
 def build_optuna_figure_bundle(study: optuna.study.Study) -> dict[str, Any]:
@@ -512,11 +530,17 @@ def run_set_only_optuna_study(
         confirmation_rows.append({"edge": row["edge"], "mode": "set_only_tuned", **row})
     tuned_confirmation = pd.DataFrame(confirmation_rows)
 
-    keep_rule = all(float(row["sinkhorn_ratio_vs_deep_sets"]) <= 1.0 for row in confirmed_metrics.edge_rows)
-    weak_rule = all(float(row["sinkhorn_ratio_vs_deep_sets"]) <= 1.05 for row in confirmed_metrics.edge_rows)
+    keep_rule = all(
+        float(row["sinkhorn_ratio_vs_deep_sets"]) <= 1.0 for row in confirmed_metrics.edge_rows
+    )
+    weak_rule = all(
+        float(row["sinkhorn_ratio_vs_deep_sets"]) <= 1.05 for row in confirmed_metrics.edge_rows
+    )
     if keep_rule:
         recommendation = "keep"
-        interpretation = "The tuned Set Transformer beat or matched Deep Sets on both prioritized edges."
+        interpretation = (
+            "The tuned Set Transformer beat or matched Deep Sets on both prioritized edges."
+        )
     elif weak_rule:
         recommendation = "keep_as_optional"
         interpretation = "The tuned Set Transformer remained close to Deep Sets, but did not separate decisively enough for a flagship claim."

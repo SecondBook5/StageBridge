@@ -18,6 +18,7 @@ Usage::
     df = parse_wes_features_from_tar("$STAGEBRIDGE_DATA_ROOT/raw/geo/GSE307529_RAW.tar")
     df.to_parquet("wes_features.parquet", index=False)
 """
+
 from __future__ import annotations
 
 import io
@@ -47,7 +48,7 @@ _TMB_MIN_AF: float = 0.05
 # Gene coding-region intervals (GRCh38 / hg38) used for binary mutation flags.
 # Tuple: (chrom, start, end)  — half-open, 0-based
 _GENE_REGIONS: dict[str, tuple[str, int, int]] = {
-    "tp53":  ("chr17", 7_661_779, 7_687_550),
+    "tp53": ("chr17", 7_661_779, 7_687_550),
     "stk11": ("chr19", 1_205_866, 1_228_675),
     "keap1": ("chr19", 10_486_024, 10_589_437),
     "smad4": ("chr18", 51_028_399, 51_085_062),
@@ -66,9 +67,7 @@ _BRAF_V600E = ("chr7", 140_453_136)
 
 # ---------------------------------------------------------------------------
 
-_FILENAME_RE = re.compile(
-    r"GSM\d+_(P\d+[^_]*)_([\w-]+)\.WES\.PASS\.recode\.vcf\.gz$"
-)
+_FILENAME_RE = re.compile(r"GSM\d+_(P\d+[^_]*)_([\w-]+)\.WES\.PASS\.recode\.vcf\.gz$")
 
 
 def _parse_patient_stage(filename: str) -> tuple[str, str] | None:
@@ -76,8 +75,8 @@ def _parse_patient_stage(filename: str) -> tuple[str, str] | None:
     m = _FILENAME_RE.search(filename)
     if m is None:
         return None
-    patient_id = m.group(1)   # e.g. "P1", "P21"
-    stage_raw = m.group(2)    # e.g. "AAH", "AIS-1", "LUAD"
+    patient_id = m.group(1)  # e.g. "P1", "P21"
+    stage_raw = m.group(2)  # e.g. "AAH", "AIS-1", "LUAD"
     return patient_id, stage_raw
 
 
@@ -89,6 +88,7 @@ def _normalize_stage(stage_raw: str) -> str:
 def _iter_vcf_lines(fileobj: io.BufferedIOBase) -> Iterator[list[str]]:
     """Yield parsed data-line fields from a gzipped VCF file object."""
     import gzip
+
     with gzip.open(fileobj, "rt") as fh:
         for line in fh:
             if line.startswith("#"):
@@ -231,10 +231,7 @@ def parse_wes_features_from_tar(tar_path: str | Path) -> pd.DataFrame:
 
     # Average multi-region duplicates (same patient + stage)
     numeric_cols = [c for c in df.columns if c not in ("patient_id", "stage")]
-    df = (
-        df.groupby(["patient_id", "stage"], as_index=False)[numeric_cols]
-        .mean()
-    )
+    df = df.groupby(["patient_id", "stage"], as_index=False)[numeric_cols].mean()
     df = df.sort_values(["patient_id", "stage"]).reset_index(drop=True)
     return df
 
@@ -292,6 +289,7 @@ def resolve_wes_features_path(cfg: object | None = None) -> Path:
     if cfg is not None:
         return resolve_luad_evo_paths(cfg).wes_features_path
     from stagebridge.config import get_data_root
+
     return get_data_root() / "processed" / "features" / "wes_features.parquet"
 
 

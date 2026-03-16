@@ -1,4 +1,5 @@
 """Communication-relay example construction for StageBridge."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -85,11 +86,7 @@ RELAY_PROGRAMS: tuple[tuple[str, str], ...] = (
 
 
 def communication_gene_panel() -> list[str]:
-    genes = {
-        gene
-        for prior in LUNG_LR_PRIORS
-        for gene in (prior.ligand, prior.receptor)
-    }
+    genes = {gene for prior in LUNG_LR_PRIORS for gene in (prior.ligand, prior.receptor)}
     for panel in RECEIVER_PROGRAMS.values():
         genes.update(panel)
     return sorted(genes)
@@ -120,7 +117,9 @@ def load_expression_panel(
         if "cell_id" in frame.columns:
             frame = frame.set_index("cell_id")
         frame.index = frame.index.astype(str)
-        return frame.reindex(index=cell_id_list, columns=selected_genes, fill_value=0.0).astype(np.float32)
+        return frame.reindex(index=cell_id_list, columns=selected_genes, fill_value=0.0).astype(
+            np.float32
+        )
 
     if raw_h5ad_path is None:
         raw_h5ad_path = resolve_luad_evo_paths(cfg or {}).snrna_h5ad
@@ -129,7 +128,9 @@ def load_expression_panel(
     rows = obs_index.get_indexer(cell_id_list)
     if np.any(rows < 0):
         missing = [cell_id_list[idx] for idx, row in enumerate(rows) if row < 0][:5]
-        raise KeyError(f"Could not align {len(missing)} cell ids to raw snRNA matrix, examples={missing}")
+        raise KeyError(
+            f"Could not align {len(missing)} cell ids to raw snRNA matrix, examples={missing}"
+        )
     var_index = pd.Index(raw.var_names.astype(str))
     available_genes = [gene for gene in selected_genes if gene in var_index]
     gene_rows = var_index.get_indexer(available_genes)
@@ -159,7 +160,9 @@ def build_expression_templates(
     merged["hlca_label"] = merged["hlca_label"].astype(str)
     merged = merged.merge(expression_panel, left_on="cell_id", right_index=True, how="left")
     genes = expression_panel.columns.tolist()
-    donor_stage_label = merged.groupby(["donor_id", "stage", "hlca_label"], dropna=False)[genes].mean()
+    donor_stage_label = merged.groupby(["donor_id", "stage", "hlca_label"], dropna=False)[
+        genes
+    ].mean()
     stage_label = merged.groupby(["stage", "hlca_label"], dropna=False)[genes].mean()
     label_global = merged.groupby(["hlca_label"], dropna=False)[genes].mean()
     return {
@@ -224,7 +227,9 @@ def _compute_program_scores(
         if not present:
             out[program_name] = 0.0
             continue
-        out[program_name] = float(np.asarray(receiver_expression.loc[present], dtype=np.float32).mean())
+        out[program_name] = float(
+            np.asarray(receiver_expression.loc[present], dtype=np.float32).mean()
+        )
     return out
 
 
@@ -242,14 +247,15 @@ def _select_sender_spots(
     max_sender_spots: int,
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray]:
     epithelial_columns = [
-        idx for idx, name in enumerate(feature_names)
-        if str(name) in EPITHELIAL_LABELS
+        idx for idx, name in enumerate(feature_names) if str(name) in EPITHELIAL_LABELS
     ]
     if not epithelial_columns:
         epithelial_score = typed_tokens.max(axis=1)
     else:
         epithelial_score = typed_tokens[:, epithelial_columns].sum(axis=1)
-    anchor_rows = np.argsort(-epithelial_score)[: max(1, min(max_anchor_spots, typed_tokens.shape[0]))]
+    anchor_rows = np.argsort(-epithelial_score)[
+        : max(1, min(max_anchor_spots, typed_tokens.shape[0]))
+    ]
     anchor_centroid = spot_df.iloc[anchor_rows][["x", "y"]].to_numpy(dtype=np.float32).mean(axis=0)
     coords = spot_df[["x", "y"]].to_numpy(dtype=np.float32)
     dists = np.linalg.norm(coords - anchor_centroid[None, :], axis=1)
@@ -266,7 +272,9 @@ def _distance_to_ring(distance: np.ndarray, num_rings: int) -> np.ndarray:
     if float(distance.max()) <= 0.0:
         return np.zeros(distance.shape[0], dtype=np.int64)
     quantiles = np.linspace(0.0, 1.0, num_rings + 1)
-    thresholds = np.quantile(distance, quantiles[1:-1]) if num_rings > 1 else np.array([], dtype=np.float32)
+    thresholds = (
+        np.quantile(distance, quantiles[1:-1]) if num_rings > 1 else np.array([], dtype=np.float32)
+    )
     rings = np.digitize(distance, thresholds, right=True)
     return rings.astype(np.int64, copy=False)
 
@@ -306,11 +314,18 @@ def _build_lr_tokens(
         proposal_score = ligand_activity * receptor_activity * support
         target_program = FAMILY_TO_PROGRAM.get(prior.family, "progenitor")
         receiver_program = np.float32(
-            np.asarray([receiver_expression.get(gene, 0.0) for gene in RECEIVER_PROGRAMS[target_program]], dtype=np.float32).mean()
+            np.asarray(
+                [receiver_expression.get(gene, 0.0) for gene in RECEIVER_PROGRAMS[target_program]],
+                dtype=np.float32,
+            ).mean()
         )
-        family_id = np.full(ligand_activity.shape[0], np.float32(family_ids[prior.family]), dtype=np.float32)
+        family_id = np.full(
+            ligand_activity.shape[0], np.float32(family_ids[prior.family]), dtype=np.float32
+        )
         ring_norm = ring_ids.astype(np.float32) / max(1.0, float(ring_ids.max(initial=0) + 1))
-        dist_norm = sender_dists.astype(np.float32) / max(1e-6, float(sender_dists.max(initial=1.0)))
+        dist_norm = sender_dists.astype(np.float32) / max(
+            1e-6, float(sender_dists.max(initial=1.0))
+        )
         for idx in range(ligand_activity.shape[0]):
             lr_rows.append(
                 np.asarray(
@@ -346,14 +361,23 @@ def _build_response_tokens(
     if not receiver_program_scores:
         return np.zeros((0, 5), dtype=np.float32), []
     family_ids = _family_id_map()
-    family_score_lookup = {
-        family_name: float(lr_tokens[lr_tokens[:, 8] == family_id, 2].mean()) if np.any(lr_tokens[:, 8] == family_id) else 0.0
-        for family_name, family_id in family_ids.items()
-    } if lr_tokens.size else {family_name: 0.0 for family_name in family_ids}
+    family_score_lookup = (
+        {
+            family_name: float(lr_tokens[lr_tokens[:, 8] == family_id, 2].mean())
+            if np.any(lr_tokens[:, 8] == family_id)
+            else 0.0
+            for family_name, family_id in family_ids.items()
+        }
+        if lr_tokens.size
+        else {family_name: 0.0 for family_name in family_ids}
+    )
     rows: list[np.ndarray] = []
     names: list[str] = []
     for prog_idx, (program_name, score) in enumerate(receiver_program_scores.items()):
-        linked_family = next((family for family, target in FAMILY_TO_PROGRAM.items() if target == program_name), "growth_factor")
+        linked_family = next(
+            (family for family, target in FAMILY_TO_PROGRAM.items() if target == program_name),
+            "growth_factor",
+        )
         linked_score = family_score_lookup.get(linked_family, 0.0)
         rows.append(
             np.asarray(
@@ -378,7 +402,9 @@ def _build_relay_tokens(
 ) -> tuple[np.ndarray, list[str]]:
     family_ids = _family_id_map()
     family_score_lookup = {
-        family_name: float(lr_tokens[lr_tokens[:, 8] == family_id, 2].mean()) if lr_tokens.size and np.any(lr_tokens[:, 8] == family_id) else 0.0
+        family_name: float(lr_tokens[lr_tokens[:, 8] == family_id, 2].mean())
+        if lr_tokens.size and np.any(lr_tokens[:, 8] == family_id)
+        else 0.0
         for family_name, family_id in family_ids.items()
     }
     dominant_sender_score = float(sender_tokens.max(axis=1).mean()) if sender_tokens.size else 0.0
@@ -409,7 +435,15 @@ def load_curated_progression_labels(path: Path | str) -> pd.DataFrame:
     path = Path(path)
     if not path.exists():
         return pd.DataFrame(
-            columns=["sample_id", "donor_id", "stage", "edge_label", "progression_competent_label", "label_source", "notes"]
+            columns=[
+                "sample_id",
+                "donor_id",
+                "stage",
+                "edge_label",
+                "progression_competent_label",
+                "label_source",
+                "notes",
+            ]
         )
     df = pd.read_csv(path)
     expected = {"sample_id", "edge_label", "progression_competent_label"}
@@ -432,7 +466,15 @@ def build_progression_label_manifest(
     curated = curated_manifest if curated_manifest is not None else pd.DataFrame()
     if curated.empty:
         curated = pd.DataFrame(
-            columns=["sample_id", "donor_id", "stage", "edge_label", "progression_competent_label", "label_source", "notes"]
+            columns=[
+                "sample_id",
+                "donor_id",
+                "stage",
+                "edge_label",
+                "progression_competent_label",
+                "label_source",
+                "notes",
+            ]
         )
     use_curated_only = not curated.empty
     rows: list[dict[str, Any]] = []
@@ -456,9 +498,17 @@ def build_progression_label_manifest(
 
     stage_medians: dict[str, float] = {}
     for stage_name in sample_rows["stage"].astype(str).unique().tolist():
-        values = [score for (_sample_id, label_stage), score in risk_scores.items() if label_stage == stage_name]
+        values = [
+            score
+            for (_sample_id, label_stage), score in risk_scores.items()
+            if label_stage == stage_name
+        ]
         stage_medians[stage_name] = float(np.median(values)) if values else 0.0
-    donor_stage_sets = sample_rows.groupby("donor_id")["stage"].agg(lambda items: set(items.astype(str).tolist())).to_dict()
+    donor_stage_sets = (
+        sample_rows.groupby("donor_id")["stage"]
+        .agg(lambda items: set(items.astype(str).tolist()))
+        .to_dict()
+    )
 
     for _, row in sample_rows.iterrows():
         donor_id = str(row["donor_id"])
@@ -491,7 +541,9 @@ def build_progression_label_manifest(
                 continue
             risk = risk_scores.get((sample_id, stage), 0.0)
             target_present = tgt in donor_stages
-            label_value = 1.0 if (target_present and risk >= stage_medians.get(stage, 0.0)) else 0.0
+            label_value = (
+                1.0 if (target_present and risk >= stage_medians.get(stage, 0.0)) else 0.0
+            )
             rows.append(
                 {
                     "sample_id": sample_id,
@@ -538,7 +590,9 @@ def build_communication_bags(
         cfg=cfg,
     )
     templates = build_expression_templates(snrna, expression_panel)
-    typed = build_typed_spot_tokens(spatial.compositions, spatial.coords, spatial.obs, spatial.feature_names)
+    typed = build_typed_spot_tokens(
+        spatial.compositions, spatial.coords, spatial.obs, spatial.feature_names
+    )
     spatial_df = typed.obs.copy()
     spatial_df["x"] = spatial.coords[:, 0]
     spatial_df["y"] = spatial.coords[:, 1]
@@ -554,7 +608,11 @@ def build_communication_bags(
         active_edges=active_edges,
     )
     label_lookup = {
-        (str(row.sample_id), str(row.edge_label)): (float(row.progression_competent_label), str(row.label_source), str(row.notes))
+        (str(row.sample_id), str(row.edge_label)): (
+            float(row.progression_competent_label),
+            str(row.label_source),
+            str(row.notes),
+        )
         for row in label_manifest.itertuples(index=False)
     }
     wes_lookup: dict[tuple[str, str], np.ndarray] = {}
@@ -591,26 +649,37 @@ def build_communication_bags(
                 ].copy()
                 typed_rows = np.flatnonzero(
                     (typed.obs["donor_id"].astype(str).to_numpy() == donor_id)
-                    & (typed.obs["stage"].astype(str).map(normalize_stage_label).to_numpy() == stage_src)
+                    & (
+                        typed.obs["stage"].astype(str).map(normalize_stage_label).to_numpy()
+                        == stage_src
+                    )
                 )
             if spatial_rows.empty or typed_rows.size == 0:
                 continue
             candidate_rows = sample_cells.index.to_numpy(dtype=np.int64, copy=False)
             if candidate_rows.size > max_receiver_cells_per_sample:
-                chosen_rows = np.sort(rng.choice(candidate_rows, size=int(max_receiver_cells_per_sample), replace=False))
+                chosen_rows = np.sort(
+                    rng.choice(
+                        candidate_rows, size=int(max_receiver_cells_per_sample), replace=False
+                    )
+                )
             else:
                 chosen_rows = candidate_rows
             sample_spot_df = spatial_rows.reset_index(drop=True)
             sample_spot_tokens = typed.tokens[typed_rows]
             sample_spot_compositions = spatial.compositions[typed_rows]
-            chosen_sender_spots, sender_tokens, sender_dists, chosen_sender_idx = _select_sender_spots(
-                sample_spot_df,
-                sample_spot_tokens,
-                feature_names=typed.schema.typed_feature_names,
-                max_anchor_spots=max_anchor_spots,
-                max_sender_spots=max_sender_spots,
+            chosen_sender_spots, sender_tokens, sender_dists, chosen_sender_idx = (
+                _select_sender_spots(
+                    sample_spot_df,
+                    sample_spot_tokens,
+                    feature_names=typed.schema.typed_feature_names,
+                    max_anchor_spots=max_anchor_spots,
+                    max_sender_spots=max_sender_spots,
+                )
             )
-            sender_compositions = sample_spot_compositions[chosen_sender_idx].astype(np.float32, copy=False)
+            sender_compositions = sample_spot_compositions[chosen_sender_idx].astype(
+                np.float32, copy=False
+            )
             sender_coords = chosen_sender_spots[["x", "y"]].to_numpy(dtype=np.float32)
             sender_centroid = sender_coords.mean(axis=0, keepdims=True)
             sender_offsets = sender_coords - sender_centroid
@@ -655,10 +724,14 @@ def build_communication_bags(
                     lr_tokens,
                     edge_id=edge_lookup[str(edge_label)],
                 )
-                relay_tokens, relay_token_names = _build_relay_tokens(receiver_program_scores, lr_tokens, sender_tokens)
+                relay_tokens, relay_token_names = _build_relay_tokens(
+                    receiver_program_scores, lr_tokens, sender_tokens
+                )
                 examples.append(
                     CommunicationNeighborhoodExample(
-                        receiver_embedding=np.asarray(snrna.latent[int(cohort_row)], dtype=np.float32),
+                        receiver_embedding=np.asarray(
+                            snrna.latent[int(cohort_row)], dtype=np.float32
+                        ),
                         receiver_programs=receiver_programs,
                         sender_embeddings=np.asarray(sender_tokens, dtype=np.float32),
                         sender_types=np.asarray(sender_types, dtype=np.int64),
@@ -676,7 +749,9 @@ def build_communication_bags(
                         lr_token_names=lr_token_names,
                         response_token_names=response_token_names,
                         relay_token_names=relay_token_names,
-                        wes_features=None if not wes_lookup else np.asarray(
+                        wes_features=None
+                        if not wes_lookup
+                        else np.asarray(
                             wes_lookup.get((donor_id, stage_src), wes_default),
                             dtype=np.float32,
                         ),
@@ -712,7 +787,9 @@ def build_communication_bags(
                     "num_relay_tokens": int(examples[0].relay_token_features.shape[0]),
                 }
             )
-    bag_table = pd.DataFrame(metadata_rows).sort_values(["edge_label", "sample_id"]).reset_index(drop=True)
+    bag_table = (
+        pd.DataFrame(metadata_rows).sort_values(["edge_label", "sample_id"]).reset_index(drop=True)
+    )
     return bags, bag_table
 
 

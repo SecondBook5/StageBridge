@@ -1,4 +1,5 @@
 """Reference label-transfer helpers."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -6,7 +7,9 @@ from typing import Any
 import pandas as pd
 
 
-def transfer_reference_labels(obs: pd.DataFrame, *, label_col: str = "hlca_label") -> dict[str, Any]:
+def transfer_reference_labels(
+    obs: pd.DataFrame, *, label_col: str = "hlca_label"
+) -> dict[str, Any]:
     """Expose the active reference labels without hiding coverage or missingness."""
     if label_col not in obs.columns:
         return {

@@ -1,4 +1,5 @@
 """Notebook-facing research frontend visualizations for StageBridge."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -71,6 +72,7 @@ def _truncate_path(path: str, max_len: int = 50) -> str:
     if len(path) <= max_len:
         return path
     from pathlib import PurePosixPath
+
     parts = PurePosixPath(path).parts
     truncated = str(PurePosixPath(*parts[-3:])) if len(parts) >= 3 else path
     return f".../{truncated}" if len(truncated) < len(path) else path[-max_len:]
@@ -123,8 +125,13 @@ def _tsne2(array: np.ndarray) -> np.ndarray:
         return _pca2(arr)
     try:
         from sklearn.manifold import TSNE
+
         perplexity = min(30.0, max(2.0, float(arr.shape[0] - 1) / 3.0))
-        return TSNE(n_components=2, random_state=42, perplexity=perplexity).fit_transform(arr).astype(np.float32)
+        return (
+            TSNE(n_components=2, random_state=42, perplexity=perplexity)
+            .fit_transform(arr)
+            .astype(np.float32)
+        )
     except Exception:
         return _pca2(arr)
 
@@ -138,6 +145,7 @@ def _phate2(array: np.ndarray) -> np.ndarray:
         return _pca2(arr)
     try:
         import phate
+
         return np.asarray(
             phate.PHATE(n_components=2, random_state=42, n_jobs=1, verbose=0).fit_transform(arr),
             dtype=np.float32,
@@ -174,7 +182,9 @@ def _soft_entropy(values: np.ndarray) -> np.ndarray:
     return -(probs * np.log(probs)).sum(axis=1)
 
 
-def _centroid_distance_matrix(centroid_distances: dict[str, float]) -> tuple[np.ndarray, list[str]]:
+def _centroid_distance_matrix(
+    centroid_distances: dict[str, float],
+) -> tuple[np.ndarray, list[str]]:
     stages: set[str] = set()
     for edge_name in centroid_distances:
         src, tgt = str(edge_name).split("->", 1)
@@ -210,7 +220,15 @@ def _plot_dense_heatmap(
     if annotate:
         for i in range(matrix.shape[0]):
             for j in range(matrix.shape[1]):
-                ax.text(j, i, f"{matrix[i, j]:.2f}", ha="center", va="center", fontsize=7.5, color=PALETTE["ink"])
+                ax.text(
+                    j,
+                    i,
+                    f"{matrix[i, j]:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=7.5,
+                    color=PALETTE["ink"],
+                )
     return im
 
 
@@ -234,7 +252,9 @@ def plot_reference_frontend(reference_output: dict[str, Any]) -> Figure:
     coords_pca, pca_var = _pca2_with_variance(latent)
     coords_umap = _umap2(latent)
     stages = cohort.obs["stage"].astype(str).to_numpy()
-    labels = cohort.obs.get("hlca_label", pd.Series(["unlabeled"] * len(stages))).astype(str).to_numpy()
+    labels = (
+        cohort.obs.get("hlca_label", pd.Series(["unlabeled"] * len(stages))).astype(str).to_numpy()
+    )
     alignment = diagnostics.get("stage_label_alignment", {})
     gate = diagnostics.get("alignment_gate", {})
     gene_overlap = diagnostics.get("gene_overlap", {})
@@ -243,7 +263,9 @@ def plot_reference_frontend(reference_output: dict[str, Any]) -> Figure:
     donor = diagnostics["donor_leakage"]
 
     fig = plt.figure(figsize=(17, 11))
-    gs = fig.add_gridspec(2, 3, width_ratios=[1.0, 1.0, 0.88], height_ratios=[1.0, 1.0], wspace=0.28, hspace=0.30)
+    gs = fig.add_gridspec(
+        2, 3, width_ratios=[1.0, 1.0, 0.88], height_ratios=[1.0, 1.0], wspace=0.28, hspace=0.30
+    )
     ax_pca = fig.add_subplot(gs[0, 0])
     ax_umap = fig.add_subplot(gs[0, 1])
     ax_metrics = fig.add_subplot(gs[0, 2])
@@ -327,7 +349,12 @@ def plot_reference_frontend(reference_output: dict[str, Any]) -> Figure:
         ha="left",
         fontsize=9,
         color=PALETTE["ink"],
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#FFF7E8", "edgecolor": "#D6C7A1", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#FFF7E8",
+            "edgecolor": "#D6C7A1",
+            "alpha": 0.85,
+        },
     )
     ax_metrics.text(
         0.03,
@@ -338,10 +365,17 @@ def plot_reference_frontend(reference_output: dict[str, Any]) -> Figure:
         ha="left",
         fontsize=9,
         color=PALETTE["accent"],
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#FFF0EB", "edgecolor": "#E2B8AA", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#FFF0EB",
+            "edgecolor": "#E2B8AA",
+            "alpha": 0.85,
+        },
     )
 
-    matrix, ordered_stages = _centroid_distance_matrix(diagnostics["stage_preservation"]["centroid_distances"])
+    matrix, ordered_stages = _centroid_distance_matrix(
+        diagnostics["stage_preservation"]["centroid_distances"]
+    )
     im = _plot_dense_heatmap(
         ax_centroids,
         matrix,
@@ -356,7 +390,14 @@ def plot_reference_frontend(reference_output: dict[str, Any]) -> Figure:
     confusion = np.asarray(alignment.get("normalized_matrix", []), dtype=np.float32)
     if confusion.size == 0:
         ax_confusion.axis("off")
-        ax_confusion.text(0.5, 0.5, "No stage-to-HLCA alignment matrix available", ha="center", va="center", fontsize=12)
+        ax_confusion.text(
+            0.5,
+            0.5,
+            "No stage-to-HLCA alignment matrix available",
+            ha="center",
+            va="center",
+            fontsize=12,
+        )
     else:
         conf_im = _plot_dense_heatmap(
             ax_confusion,
@@ -369,7 +410,12 @@ def plot_reference_frontend(reference_output: dict[str, Any]) -> Figure:
         )
         fig.colorbar(conf_im, ax=ax_confusion, fraction=0.022, pad=0.02)
 
-    fig.suptitle("StageBridge v1 research frontend: HLCA reference mapping and alignment gate", fontsize=17, fontweight="bold", x=0.46)
+    fig.suptitle(
+        "StageBridge v1 research frontend: HLCA reference mapping and alignment gate",
+        fontsize=17,
+        fontweight="bold",
+        x=0.46,
+    )
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
 
@@ -395,7 +441,9 @@ def plot_snrna_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     tsne_embedding = _tsne2(raw_pca)
 
     fig = plt.figure(figsize=(18, 12))
-    gs = fig.add_gridspec(2, 3, width_ratios=[1.0, 1.0, 1.0], height_ratios=[1.0, 0.85], wspace=0.26, hspace=0.30)
+    gs = fig.add_gridspec(
+        2, 3, width_ratios=[1.0, 1.0, 1.0], height_ratios=[1.0, 0.85], wspace=0.26, hspace=0.30
+    )
     ax_pca = fig.add_subplot(gs[0, 0])
     ax_umap = fig.add_subplot(gs[0, 1])
     ax_tsne = fig.add_subplot(gs[0, 2])
@@ -405,9 +453,14 @@ def plot_snrna_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     for stage in ordered:
         mask = stages == stage
         ax_pca.scatter(
-            pca_embedding[mask, 0], pca_embedding[mask, 1],
-            s=12, alpha=0.70, color=_stage_palette(stage), label=stage,
-            linewidths=0.0, rasterized=True,
+            pca_embedding[mask, 0],
+            pca_embedding[mask, 1],
+            s=12,
+            alpha=0.70,
+            color=_stage_palette(stage),
+            label=stage,
+            linewidths=0.0,
+            rasterized=True,
         )
     ax_pca.set_title("PCA by stage")
     ax_pca.set_xlabel(f"PC 1 ({pca_var[0]:.1f}%)")
@@ -420,9 +473,14 @@ def plot_snrna_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     for label in top_labels:
         mask = labels == label
         ax_umap.scatter(
-            umap_embedding[mask, 0], umap_embedding[mask, 1],
-            s=12, alpha=0.68, color=label_palette[label], label=label,
-            linewidths=0.0, rasterized=True,
+            umap_embedding[mask, 0],
+            umap_embedding[mask, 1],
+            s=12,
+            alpha=0.68,
+            color=label_palette[label],
+            label=label,
+            linewidths=0.0,
+            rasterized=True,
         )
     ax_umap.set_title("UMAP by HLCA label")
     ax_umap.set_xlabel("UMAP 1")
@@ -432,9 +490,14 @@ def plot_snrna_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     for stage in ordered:
         mask = stages == stage
         ax_tsne.scatter(
-            tsne_embedding[mask, 0], tsne_embedding[mask, 1],
-            s=12, alpha=0.70, color=_stage_palette(stage), label=stage,
-            linewidths=0.0, rasterized=True,
+            tsne_embedding[mask, 0],
+            tsne_embedding[mask, 1],
+            s=12,
+            alpha=0.70,
+            color=_stage_palette(stage),
+            label=stage,
+            linewidths=0.0,
+            rasterized=True,
         )
     ax_tsne.set_title("t-SNE by stage")
     ax_tsne.set_xlabel("t-SNE 1")
@@ -445,10 +508,13 @@ def plot_snrna_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     ax_stage_bar.bar(
         stage_counts.index.astype(str),
         stage_counts.to_numpy(dtype=np.float32),
-        color=[_stage_palette(s) for s in stage_counts.index], alpha=0.9,
+        color=[_stage_palette(s) for s in stage_counts.index],
+        alpha=0.9,
     )
     for i, (s, v) in enumerate(stage_counts.items()):
-        ax_stage_bar.text(i, float(v) + stage_counts.max() * 0.02, f"{int(v)}", ha="center", fontsize=8)
+        ax_stage_bar.text(
+            i, float(v) + stage_counts.max() * 0.02, f"{int(v)}", ha="center", fontsize=8
+        )
     ax_stage_bar.set_title("Cells per stage")
     ax_stage_bar.set_ylabel("count")
     ax_stage_bar.tick_params(axis="x", rotation=20)
@@ -458,23 +524,38 @@ def plot_snrna_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
         preview = sample_stage_counts.fillna(0.0)
         preview = preview.loc[:, [stage for stage in ordered if stage in preview.columns]]
         preview = preview.iloc[: min(12, preview.shape[0])]
-        table_im = ax_table_panel.imshow(preview.to_numpy(dtype=np.float32), cmap="YlGnBu", aspect="auto")
+        table_im = ax_table_panel.imshow(
+            preview.to_numpy(dtype=np.float32), cmap="YlGnBu", aspect="auto"
+        )
         ax_table_panel.set_title("Sample-by-stage cell counts")
         ax_table_panel.set_xticks(np.arange(preview.shape[1]))
-        ax_table_panel.set_xticklabels(preview.columns.astype(str), rotation=25, ha="right", fontsize=8)
+        ax_table_panel.set_xticklabels(
+            preview.columns.astype(str), rotation=25, ha="right", fontsize=8
+        )
         ax_table_panel.set_yticks(np.arange(preview.shape[0]))
         ax_table_panel.set_yticklabels(preview.index.astype(str), fontsize=7)
         for i in range(preview.shape[0]):
             for j in range(preview.shape[1]):
-                ax_table_panel.text(j, i, f"{int(preview.iloc[i, j])}", ha="center", va="center", fontsize=7, color=PALETTE["ink"])
+                ax_table_panel.text(
+                    j,
+                    i,
+                    f"{int(preview.iloc[i, j])}",
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color=PALETTE["ink"],
+                )
         fig.colorbar(table_im, ax=ax_table_panel, fraction=0.046, pad=0.03)
     else:
         ax_table_panel.axis("off")
-        ax_table_panel.text(0.5, 0.5, "No sample/stage summary available", ha="center", va="center", fontsize=12)
+        ax_table_panel.text(
+            0.5, 0.5, "No sample/stage summary available", ha="center", va="center", fontsize=12
+        )
 
     fig.suptitle(
         f"snRNA-seq cohort  |  {snrna['n_cells']:,} cells  {snrna['n_genes']:,} genes  {snrna['n_donors']} donors",
-        fontsize=15, fontweight="bold",
+        fontsize=15,
+        fontweight="bold",
     )
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
@@ -499,7 +580,19 @@ def plot_spatial_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     if samples is not None:
         for s_id in pd.Series(samples).unique():
             sample_stages[str(s_id)] = str(stages[samples == s_id][0])
-    unique_samples = sorted(sample_stages.keys(), key=lambda s: (CANONICAL_STAGE_ORDER.index(sample_stages[s]) if sample_stages[s] in CANONICAL_STAGE_ORDER else 99, s)) if sample_stages else []
+    unique_samples = (
+        sorted(
+            sample_stages.keys(),
+            key=lambda s: (
+                CANONICAL_STAGE_ORDER.index(sample_stages[s])
+                if sample_stages[s] in CANONICAL_STAGE_ORDER
+                else 99,
+                s,
+            ),
+        )
+        if sample_stages
+        else []
+    )
     n_sample_panels = min(6, len(unique_samples))
 
     # Layout: row 0 = combined map + bar chart + stats; row 1 = feature genes
@@ -509,9 +602,11 @@ def plot_spatial_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     height_ratios = [1.0, 1.0, 0.85] if n_rows == 3 else [1.0, 1.0]
     fig = plt.figure(figsize=(max(16, 3.5 * n_feature_cols), 4.0 * n_rows))
     gs = fig.add_gridspec(
-        n_rows, max(n_feature_cols, n_sample_panels, 2),
+        n_rows,
+        max(n_feature_cols, n_sample_panels, 2),
         height_ratios=height_ratios,
-        wspace=0.30, hspace=0.35,
+        wspace=0.30,
+        hspace=0.35,
     )
 
     # Row 0: combined map (left half) + bar chart (right half)
@@ -540,7 +635,11 @@ def plot_spatial_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     ax_map.grid(True, alpha=0.18)
 
     stage_counts = pd.Series(spatial.get("stage_counts", {})).reindex(ordered).fillna(0.0)
-    ax_stage.bar(stage_counts.index.astype(str), stage_counts.to_numpy(dtype=np.float32), color=[_stage_palette(stage) for stage in stage_counts.index])
+    ax_stage.bar(
+        stage_counts.index.astype(str),
+        stage_counts.to_numpy(dtype=np.float32),
+        color=[_stage_palette(stage) for stage in stage_counts.index],
+    )
     ax_stage.set_title("Spots per stage")
     ax_stage.set_ylabel("spots")
     ax_stage.tick_params(axis="x", rotation=25)
@@ -560,16 +659,27 @@ def plot_spatial_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
         va="top",
         ha="right",
         fontsize=9,
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#FFF7E8", "edgecolor": "#D6C7A1", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#FFF7E8",
+            "edgecolor": "#D6C7A1",
+            "alpha": 0.85,
+        },
     )
 
     # Row 1: feature gene spatial plots
     subtitle = "Raw spatial feature plots"
     if proxy_used:
         subtitle += " (proxy genes used)"
-    feature_axes = [fig.add_subplot(gs[1, j]) for j in range(min(n_feature_cols, len(feature_genes)))]
+    feature_axes = [
+        fig.add_subplot(gs[1, j]) for j in range(min(n_feature_cols, len(feature_genes)))
+    ]
     for ax, gene in zip(feature_axes, feature_genes, strict=False):
-        values = panel[gene].to_numpy(dtype=np.float32) if gene in panel.columns else np.zeros(coords.shape[0], dtype=np.float32)
+        values = (
+            panel[gene].to_numpy(dtype=np.float32)
+            if gene in panel.columns
+            else np.zeros(coords.shape[0], dtype=np.float32)
+        )
         scatter = ax.scatter(
             coords[:, 1],
             -coords[:, 0],
@@ -591,7 +701,14 @@ def plot_spatial_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
         ax_empty = fig.add_subplot(gs[1, j])
         ax_empty.axis("off")
     if subtitle:
-        fig.text(0.5, 0.365 if n_rows == 3 else 0.48, subtitle, ha="center", fontsize=9, color=PALETTE["muted"])
+        fig.text(
+            0.5,
+            0.365 if n_rows == 3 else 0.48,
+            subtitle,
+            ha="center",
+            fontsize=9,
+            color=PALETTE["muted"],
+        )
 
     # Row 2: per-sample tissue section mini-maps
     if n_sample_panels > 0 and samples is not None:
@@ -618,7 +735,11 @@ def plot_spatial_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
             ax_empty = fig.add_subplot(gs[2, j])
             ax_empty.axis("off")
 
-    fig.suptitle("StageBridge v1 research frontend: Visium preprocessing preview", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "StageBridge v1 research frontend: Visium preprocessing preview",
+        fontsize=16,
+        fontweight="bold",
+    )
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
 
@@ -630,7 +751,9 @@ def plot_wes_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
     frame = wes["frame"].copy()
 
     fig = plt.figure(figsize=(18, 10))
-    gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.3], height_ratios=[1.0, 1.0], wspace=0.35, hspace=0.35)
+    gs = fig.add_gridspec(
+        2, 2, width_ratios=[1.0, 1.3], height_ratios=[1.0, 1.0], wspace=0.35, hspace=0.35
+    )
     ax_tmb = fig.add_subplot(gs[0, 0])
     ax_heat = fig.add_subplot(gs[0, 1])
     ax_freq = fig.add_subplot(gs[1, 0])
@@ -638,7 +761,10 @@ def plot_wes_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
 
     if not frame.empty:
         ordered = _sorted_stages(frame["stage"].astype(str).tolist())
-        stage_tmb = [frame.loc[frame["stage"] == stage, "tmb"].to_numpy(dtype=np.float32) for stage in ordered]
+        stage_tmb = [
+            frame.loc[frame["stage"] == stage, "tmb"].to_numpy(dtype=np.float32)
+            for stage in ordered
+        ]
         box = ax_tmb.boxplot(stage_tmb, tick_labels=ordered, patch_artist=True)
         for patch, stage in zip(box["boxes"], ordered, strict=False):
             patch.set_facecolor(_stage_palette(stage))
@@ -646,11 +772,20 @@ def plot_wes_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
         for idx, stage in enumerate(ordered, start=1):
             values = frame.loc[frame["stage"] == stage, "tmb"].to_numpy(dtype=np.float32)
             jitter = np.random.default_rng(42).uniform(-0.15, 0.15, size=values.shape[0])
-            ax_tmb.scatter(np.full(values.shape[0], idx) + jitter, values, s=18, alpha=0.65, color=PALETTE["ink"], zorder=3)
+            ax_tmb.scatter(
+                np.full(values.shape[0], idx) + jitter,
+                values,
+                s=18,
+                alpha=0.65,
+                color=PALETTE["ink"],
+                zorder=3,
+            )
         ax_tmb.set_title("Tumor mutation burden by stage")
         ax_tmb.set_ylabel("TMB")
 
-        feature_cols = [col for col in wes["feature_columns"] if col != "tmb" and col in frame.columns]
+        feature_cols = [
+            col for col in wes["feature_columns"] if col != "tmb" and col in frame.columns
+        ]
         if feature_cols:
             display_cols = feature_cols[: min(10, len(feature_cols))]
             oncoprint = (
@@ -672,7 +807,15 @@ def plot_wes_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
             for i in range(onco_vals.shape[0]):
                 for j in range(onco_vals.shape[1]):
                     if onco_vals[i, j] > 0.01:
-                        ax_heat.text(j, i, f"{onco_vals[i, j]:.1f}", ha="center", va="center", fontsize=6, color="white")
+                        ax_heat.text(
+                            j,
+                            i,
+                            f"{onco_vals[i, j]:.1f}",
+                            ha="center",
+                            va="center",
+                            fontsize=6,
+                            color="white",
+                        )
             fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04)
 
             # Mutation frequency bar chart
@@ -684,7 +827,9 @@ def plot_wes_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
             # Per-stage mutation frequency
             stage_freq = frame.groupby("stage")[display_cols].mean().reindex(ordered).fillna(0.0)
             stage_freq_mat = stage_freq.to_numpy(dtype=np.float32)
-            im2 = ax_stage_mut.imshow(stage_freq_mat, cmap="OrRd", aspect="auto", vmin=0.0, vmax=1.0)
+            im2 = ax_stage_mut.imshow(
+                stage_freq_mat, cmap="OrRd", aspect="auto", vmin=0.0, vmax=1.0
+            )
             ax_stage_mut.set_title("Mutation frequency by stage")
             ax_stage_mut.set_xticks(np.arange(len(display_cols)))
             ax_stage_mut.set_xticklabels(display_cols, rotation=30, ha="right", fontsize=8)
@@ -692,17 +837,29 @@ def plot_wes_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
             ax_stage_mut.set_yticklabels(ordered)
             for i in range(stage_freq_mat.shape[0]):
                 for j in range(stage_freq_mat.shape[1]):
-                    ax_stage_mut.text(j, i, f"{stage_freq_mat[i, j]:.2f}", ha="center", va="center", fontsize=7, color=PALETTE["ink"])
+                    ax_stage_mut.text(
+                        j,
+                        i,
+                        f"{stage_freq_mat[i, j]:.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        color=PALETTE["ink"],
+                    )
             fig.colorbar(im2, ax=ax_stage_mut, fraction=0.046, pad=0.04)
         else:
             ax_heat.axis("off")
-            ax_heat.text(0.5, 0.5, "No mutation features available", ha="center", va="center", fontsize=12)
+            ax_heat.text(
+                0.5, 0.5, "No mutation features available", ha="center", va="center", fontsize=12
+            )
             ax_freq.axis("off")
             ax_stage_mut.axis("off")
     else:
         for ax in [ax_tmb, ax_heat, ax_freq, ax_stage_mut]:
             ax.axis("off")
-        ax_tmb.text(0.5, 0.5, "No WES rows for current filter", ha="center", va="center", fontsize=12)
+        ax_tmb.text(
+            0.5, 0.5, "No WES rows for current filter", ha="center", va="center", fontsize=12
+        )
 
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     fig.suptitle(
@@ -711,9 +868,12 @@ def plot_wes_preprocessing_frontend(data_output: dict[str, Any]) -> Figure:
         fontweight="bold",
     )
     fig.text(
-        0.5, 0.935,
+        0.5,
+        0.935,
         f"{wes['n_rows']} samples  |  {wes['n_donors']} donors  |  {len(ordered)} stages  |  mean TMB: {wes.get('tmb_mean', float('nan')):.1f}",
-        ha="center", fontsize=10, color=PALETTE["muted"],
+        ha="center",
+        fontsize=10,
+        color=PALETTE["muted"],
     )
     return fig
 
@@ -732,7 +892,9 @@ def plot_spatial_mapping_frontend(spatial_output: dict[str, Any]) -> Figure:
     top_features = [str(feature_names[idx]) for idx in top_feature_idx]
 
     fig = plt.figure(figsize=(15, 10))
-    gs = fig.add_gridspec(2, 2, width_ratios=[1.2, 1.0], height_ratios=[1.0, 1.0], wspace=0.25, hspace=0.28)
+    gs = fig.add_gridspec(
+        2, 2, width_ratios=[1.2, 1.0], height_ratios=[1.0, 1.0], wspace=0.25, hspace=0.28
+    )
     ax_winner = fig.add_subplot(gs[:, 0])
     ax_abundance = fig.add_subplot(gs[0, 1])
     ax_qc = fig.add_subplot(gs[1, 1])
@@ -758,13 +920,21 @@ def plot_spatial_mapping_frontend(spatial_output: dict[str, Any]) -> Figure:
     ax_winner.set_aspect("equal", adjustable="datalim")
     # Place legend horizontally below the map to avoid overlap
     ax_winner.legend(
-        frameon=False, fontsize=8, loc="upper center",
-        bbox_to_anchor=(0.5, -0.08), ncol=min(4, len(top_features)),
+        frameon=False,
+        fontsize=8,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.08),
+        ncol=min(4, len(top_features)),
     )
     ax_winner.grid(True, alpha=0.18)
 
     mean_abundance = compositions[:, top_feature_idx].mean(axis=0)
-    ax_abundance.barh(top_features[::-1], mean_abundance[::-1], color=color_cycle[: len(top_features)][::-1], alpha=0.9)
+    ax_abundance.barh(
+        top_features[::-1],
+        mean_abundance[::-1],
+        color=color_cycle[: len(top_features)][::-1],
+        alpha=0.9,
+    )
     ax_abundance.set_title("Dominant mapped states")
     ax_abundance.set_xlabel("mean spot abundance")
     qc = spatial_output["spatial_mapping"]["qc"]
@@ -784,7 +954,12 @@ def plot_spatial_mapping_frontend(spatial_output: dict[str, Any]) -> Figure:
         va="top",
         ha="left",
         fontsize=8,
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#EEF7F4", "edgecolor": "#B8D5CD", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#EEF7F4",
+            "edgecolor": "#B8D5CD",
+            "alpha": 0.85,
+        },
     )
 
     ax_qc.hist(confidences, bins=25, alpha=0.75, color=PALETTE["teal"], label="max assignment")
@@ -795,12 +970,19 @@ def plot_spatial_mapping_frontend(spatial_output: dict[str, Any]) -> Figure:
     ax_qc.legend(frameon=False)
     ax_qc.grid(True, alpha=0.22)
 
-    fig.suptitle("StageBridge v1 research frontend: spatial mapping branch", fontsize=17, fontweight="bold", x=0.46)
+    fig.suptitle(
+        "StageBridge v1 research frontend: spatial mapping branch",
+        fontsize=17,
+        fontweight="bold",
+        x=0.46,
+    )
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
 
 
-def plot_spatial_provider_comparison_frontend(provider_outputs: dict[str, dict[str, Any]]) -> Figure:
+def plot_spatial_provider_comparison_frontend(
+    provider_outputs: dict[str, dict[str, Any]],
+) -> Figure:
     """Render a provider-level comparison across Tangram, TACCO, and DestVI."""
     configure_research_style()
     rows: list[dict[str, Any]] = []
@@ -823,7 +1005,9 @@ def plot_spatial_provider_comparison_frontend(provider_outputs: dict[str, dict[s
     if table.empty:
         raise ValueError("No provider outputs available for comparison.")
 
-    order = [method for method in ["tangram", "tacco", "destvi"] if method in table["method"].tolist()]
+    order = [
+        method for method in ["tangram", "tacco", "destvi"] if method in table["method"].tolist()
+    ]
     table["method"] = pd.Categorical(table["method"], categories=order, ordered=True)
     table = table.sort_values("method").reset_index(drop=True)
 
@@ -834,12 +1018,28 @@ def plot_spatial_provider_comparison_frontend(provider_outputs: dict[str, dict[s
     ax_status = fig.add_subplot(gs[0, 2])
 
     methods = table["method"].astype(str).tolist()
-    colors = [PALETTE["teal"] if status == "complete" else PALETTE["muted"] for status in table["status"]]
+    colors = [
+        PALETTE["teal"] if status == "complete" else PALETTE["muted"] for status in table["status"]
+    ]
     x = np.arange(len(methods), dtype=np.float32)
     width = 0.38
 
-    ax_quality.bar(x - width / 2, table["mean_max_assignment"].to_numpy(dtype=np.float32), width=width, color=colors, alpha=0.9, label="mean max assignment")
-    ax_quality.bar(x + width / 2, table["mean_entropy"].to_numpy(dtype=np.float32), width=width, color=PALETTE["gold"], alpha=0.6, label="mean entropy")
+    ax_quality.bar(
+        x - width / 2,
+        table["mean_max_assignment"].to_numpy(dtype=np.float32),
+        width=width,
+        color=colors,
+        alpha=0.9,
+        label="mean max assignment",
+    )
+    ax_quality.bar(
+        x + width / 2,
+        table["mean_entropy"].to_numpy(dtype=np.float32),
+        width=width,
+        color=PALETTE["gold"],
+        alpha=0.6,
+        label="mean entropy",
+    )
     ax_quality.set_title("Provider confidence profile")
     ax_quality.set_xticks(x)
     ax_quality.set_xticklabels(methods, rotation=20)
@@ -848,10 +1048,32 @@ def plot_spatial_provider_comparison_frontend(provider_outputs: dict[str, dict[s
     ax_quality.grid(True, axis="y", alpha=0.22)
     # OPTIMIZED: Use enumerate + itertuples instead of iterrows (10× faster)
     for idx, row in enumerate(table.itertuples()):
-        ax_quality.text(float(x[idx]), max(float(row.mean_max_assignment), float(row.mean_entropy)) + 0.01, row.status, ha="center", va="bottom", fontsize=8, color=PALETTE["ink"])
+        ax_quality.text(
+            float(x[idx]),
+            max(float(row.mean_max_assignment), float(row.mean_entropy)) + 0.01,
+            row.status,
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color=PALETTE["ink"],
+        )
 
-    ax_coverage.bar(x - width / 2, table["n_spots"].to_numpy(dtype=np.float32), width=width, color=PALETTE["blue"], alpha=0.88, label="spots")
-    ax_coverage.bar(x + width / 2, table["n_features"].to_numpy(dtype=np.float32), width=width, color=PALETTE["accent"], alpha=0.72, label="mapped features")
+    ax_coverage.bar(
+        x - width / 2,
+        table["n_spots"].to_numpy(dtype=np.float32),
+        width=width,
+        color=PALETTE["blue"],
+        alpha=0.88,
+        label="spots",
+    )
+    ax_coverage.bar(
+        x + width / 2,
+        table["n_features"].to_numpy(dtype=np.float32),
+        width=width,
+        color=PALETTE["accent"],
+        alpha=0.72,
+        label="mapped features",
+    )
     ax_coverage.set_title("Provider output coverage")
     ax_coverage.set_xticks(x)
     ax_coverage.set_xticklabels(methods, rotation=20)
@@ -860,7 +1082,15 @@ def plot_spatial_provider_comparison_frontend(provider_outputs: dict[str, dict[s
     ax_coverage.grid(True, axis="y", alpha=0.22)
 
     ax_status.axis("off")
-    ax_status.text(0.02, 0.97, "Provider status and provenance", fontsize=14, fontweight="bold", color=PALETTE["ink"], va="top")
+    ax_status.text(
+        0.02,
+        0.97,
+        "Provider status and provenance",
+        fontsize=14,
+        fontweight="bold",
+        color=PALETTE["ink"],
+        va="top",
+    )
     y = 0.82
     for row in table.itertuples(index=False):
         block_color = "#EEF7F4" if row.status == "complete" else "#F3F4F6"
@@ -873,7 +1103,11 @@ def plot_spatial_provider_comparison_frontend(provider_outputs: dict[str, dict[s
             fontweight="bold",
             color=PALETTE["ink"],
             va="top",
-            bbox={"boxstyle": "round,pad=0.35", "facecolor": block_color, "edgecolor": border_color},
+            bbox={
+                "boxstyle": "round,pad=0.35",
+                "facecolor": block_color,
+                "edgecolor": border_color,
+            },
         )
         ax_status.text(
             0.06,
@@ -892,7 +1126,11 @@ def plot_spatial_provider_comparison_frontend(provider_outputs: dict[str, dict[s
         )
         y -= 0.28
 
-    fig.suptitle("StageBridge v1 research frontend: spatial provider comparison", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "StageBridge v1 research frontend: spatial provider comparison",
+        fontsize=16,
+        fontweight="bold",
+    )
     return fig
 
 
@@ -904,7 +1142,17 @@ def plot_spatial_provider_maps_frontend(provider_outputs: dict[str, dict[str, An
     fig, axes = plt.subplots(1, n_panels, figsize=(5.6 * n_panels, 5.6), squeeze=False)
     axes_list = list(axes[0])
 
-    color_cycle = ["#19535F", "#0F766E", "#A63A2B", "#D18A00", "#6B7280", "#7C3AED", "#1D4ED8", "#E11D48", "#0EA5E9"]
+    color_cycle = [
+        "#19535F",
+        "#0F766E",
+        "#A63A2B",
+        "#D18A00",
+        "#6B7280",
+        "#7C3AED",
+        "#1D4ED8",
+        "#E11D48",
+        "#0EA5E9",
+    ]
     for ax, method in zip(axes_list, methods, strict=False):
         payload = provider_outputs[method]
         summary = payload.get("spatial_mapping", {})
@@ -912,12 +1160,21 @@ def plot_spatial_provider_maps_frontend(provider_outputs: dict[str, dict[str, An
         ax.set_title(method.upper())
         if mapping is None or mapping.compositions is None or mapping.coords is None:
             ax.axis("off")
-            ax.text(0.5, 0.5, f"status: {summary.get('status', 'n/a')}", ha="center", va="center", fontsize=12)
+            ax.text(
+                0.5,
+                0.5,
+                f"status: {summary.get('status', 'n/a')}",
+                ha="center",
+                va="center",
+                fontsize=12,
+            )
             continue
 
         compositions = np.asarray(mapping.compositions, dtype=np.float32)
         row_sums = compositions.sum(axis=1, keepdims=True)
-        probs = np.divide(compositions, row_sums, out=np.zeros_like(compositions), where=row_sums > 0)
+        probs = np.divide(
+            compositions, row_sums, out=np.zeros_like(compositions), where=row_sums > 0
+        )
         coords = np.asarray(mapping.coords, dtype=np.float32)
         winners = np.argmax(probs, axis=1)
         feature_names = np.asarray(mapping.feature_names, dtype=object)
@@ -951,13 +1208,24 @@ def plot_spatial_provider_maps_frontend(provider_outputs: dict[str, dict[str, An
             va="top",
             ha="left",
             fontsize=8.5,
-            bbox={"boxstyle": "round,pad=0.3", "facecolor": "#FFF7E8", "edgecolor": "#D6C7A1", "alpha": 0.85},
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "facecolor": "#FFF7E8",
+                "edgecolor": "#D6C7A1",
+                "alpha": 0.85,
+            },
         )
     if methods:
         handles, labels = axes_list[0].get_legend_handles_labels()
         if handles:
-            fig.legend(handles, labels, frameon=False, loc="lower center", ncol=min(5, len(labels)))
-    fig.suptitle("StageBridge v1 research frontend: live provider winner maps", fontsize=16, fontweight="bold")
+            fig.legend(
+                handles, labels, frameon=False, loc="lower center", ncol=min(5, len(labels))
+            )
+    fig.suptitle(
+        "StageBridge v1 research frontend: live provider winner maps",
+        fontsize=16,
+        fontweight="bold",
+    )
     fig.tight_layout(rect=[0, 0.08, 1, 0.95])
     return fig
 
@@ -971,7 +1239,10 @@ def plot_provider_benchmark_frontend(benchmark_output: dict[str, Any]) -> Figure
 
     table = table.sort_values("hybrid_rank_score").reset_index(drop=True)
     methods = table["method"].astype(str).tolist()
-    colors = [MODE_COLORS.get("set_only", PALETTE["teal"]) if idx == 0 else PALETTE["slate"] for idx in range(len(methods))]
+    colors = [
+        MODE_COLORS.get("set_only", PALETTE["teal"]) if idx == 0 else PALETTE["slate"]
+        for idx in range(len(methods))
+    ]
 
     fig = plt.figure(figsize=(16, 8))
     gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.0, 1.0], wspace=0.28)
@@ -985,21 +1256,63 @@ def plot_provider_benchmark_frontend(benchmark_output: dict[str, Any]) -> Figure
     ax_hybrid.tick_params(axis="x", rotation=20)
     # OPTIMIZED: Use enumerate + itertuples instead of iterrows (10× faster)
     for idx, row in enumerate(table.itertuples()):
-        ax_hybrid.text(idx, float(row.hybrid_rank_score) + 0.03, f"{float(row.hybrid_rank_score):.2f}", ha="center", va="bottom", fontsize=9)
+        ax_hybrid.text(
+            idx,
+            float(row.hybrid_rank_score) + 0.03,
+            f"{float(row.hybrid_rank_score):.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
 
     width = 0.36
     x = np.arange(len(methods), dtype=np.float32)
-    ax_perf.bar(x - width / 2, table["sinkhorn_mean"].astype(float), width=width, color=PALETTE["accent"], alpha=0.82, label="mean Sinkhorn")
-    ax_perf.bar(x + width / 2, table["calibration_mean"].astype(float), width=width, color=PALETTE["gold"], alpha=0.75, label="mean calibration")
+    ax_perf.bar(
+        x - width / 2,
+        table["sinkhorn_mean"].astype(float),
+        width=width,
+        color=PALETTE["accent"],
+        alpha=0.82,
+        label="mean Sinkhorn",
+    )
+    ax_perf.bar(
+        x + width / 2,
+        table["calibration_mean"].astype(float),
+        width=width,
+        color=PALETTE["gold"],
+        alpha=0.75,
+        label="mean calibration",
+    )
     ax_perf.set_title("Downstream provider performance")
     ax_perf.set_xticks(x)
     ax_perf.set_xticklabels(methods, rotation=20)
     ax_perf.legend(frameon=False, fontsize=9)
     ax_perf.grid(True, axis="y", alpha=0.22)
 
-    ax_qc.plot(methods, table["mean_max_assignment"].astype(float), marker="o", linewidth=2.0, color=PALETTE["teal"], label="max assignment")
-    ax_qc.plot(methods, table["mean_normalized_entropy"].astype(float), marker="s", linewidth=2.0, color=PALETTE["blue"], label="norm entropy")
-    ax_qc.plot(methods, table["rows_close_to_one_frac"].astype(float), marker="^", linewidth=2.0, color=PALETTE["signal"], label="rows close to 1")
+    ax_qc.plot(
+        methods,
+        table["mean_max_assignment"].astype(float),
+        marker="o",
+        linewidth=2.0,
+        color=PALETTE["teal"],
+        label="max assignment",
+    )
+    ax_qc.plot(
+        methods,
+        table["mean_normalized_entropy"].astype(float),
+        marker="s",
+        linewidth=2.0,
+        color=PALETTE["blue"],
+        label="norm entropy",
+    )
+    ax_qc.plot(
+        methods,
+        table["rows_close_to_one_frac"].astype(float),
+        marker="^",
+        linewidth=2.0,
+        color=PALETTE["signal"],
+        label="rows close to 1",
+    )
     ax_qc.set_title("Mapping QC profile")
     ax_qc.set_ylabel("score")
     ax_qc.legend(frameon=False, fontsize=9)
@@ -1018,14 +1331,25 @@ def plot_provider_benchmark_frontend(benchmark_output: dict[str, Any]) -> Figure
         va="bottom",
         ha="left",
         fontsize=9,
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#FFF7E8", "edgecolor": "#D6C7A1", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#FFF7E8",
+            "edgecolor": "#D6C7A1",
+            "alpha": 0.85,
+        },
     )
 
-    fig.suptitle("StageBridge v1 research frontend: provider benchmark and winner selection", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "StageBridge v1 research frontend: provider benchmark and winner selection",
+        fontsize=16,
+        fontweight="bold",
+    )
     return fig
 
 
-def plot_spatial_provider_abundance_frontend(provider_outputs: dict[str, dict[str, Any]]) -> Figure:
+def plot_spatial_provider_abundance_frontend(
+    provider_outputs: dict[str, dict[str, Any]],
+) -> Figure:
     """Render abundance and entropy comparisons across live spatial providers."""
     configure_research_style()
     methods = [method for method in ["tangram", "tacco", "destvi"] if method in provider_outputs]
@@ -1042,11 +1366,23 @@ def plot_spatial_provider_abundance_frontend(provider_outputs: dict[str, dict[st
     if not provider_frames:
         raise ValueError("No provider matrices available for abundance/entropy plotting.")
 
-    shared_features = sorted(set.intersection(*(set(frame.columns) for frame in provider_frames.values())))
+    shared_features = sorted(
+        set.intersection(*(set(frame.columns) for frame in provider_frames.values()))
+    )
     if not shared_features:
-        shared_features = list(next(iter(provider_frames.values())).columns[: min(6, next(iter(provider_frames.values())).shape[1])])
+        shared_features = list(
+            next(iter(provider_frames.values())).columns[
+                : min(6, next(iter(provider_frames.values())).shape[1])
+            ]
+        )
     top_shared = (
-        pd.concat([frame[shared_features].mean().rename(method) for method, frame in provider_frames.items()], axis=1)
+        pd.concat(
+            [
+                frame[shared_features].mean().rename(method)
+                for method, frame in provider_frames.items()
+            ],
+            axis=1,
+        )
         .mean(axis=1)
         .sort_values(ascending=False)
         .head(min(6, len(shared_features)))
@@ -1065,7 +1401,11 @@ def plot_spatial_provider_abundance_frontend(provider_outputs: dict[str, dict[st
             if method in provider_frames
         }
     )
-    abundance.plot.bar(ax=ax_abundance, color=[PALETTE["teal"], PALETTE["gold"], PALETTE["accent"]][: abundance.shape[1]], alpha=0.86)
+    abundance.plot.bar(
+        ax=ax_abundance,
+        color=[PALETTE["teal"], PALETTE["gold"], PALETTE["accent"]][: abundance.shape[1]],
+        alpha=0.86,
+    )
     ax_abundance.set_title("Shared feature abundance across providers")
     ax_abundance.set_ylabel("mean normalized abundance")
     ax_abundance.tick_params(axis="x", rotation=25)
@@ -1078,14 +1418,20 @@ def plot_spatial_provider_abundance_frontend(provider_outputs: dict[str, dict[st
         tick_labels=[method.upper() for method in methods if method in provider_entropy],
         patch_artist=True,
     )
-    for patch, color in zip(box["boxes"], [PALETTE["teal"], PALETTE["gold"], PALETTE["accent"]], strict=False):
+    for patch, color in zip(
+        box["boxes"], [PALETTE["teal"], PALETTE["gold"], PALETTE["accent"]], strict=False
+    ):
         patch.set_facecolor(color)
         patch.set_alpha(0.60)
     ax_entropy.set_title("Spot-level assignment entropy")
     ax_entropy.set_ylabel("entropy")
     ax_entropy.grid(True, axis="y", alpha=0.22)
 
-    fig.suptitle("StageBridge v1 research frontend: provider abundance and entropy audit", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "StageBridge v1 research frontend: provider abundance and entropy audit",
+        fontsize=16,
+        fontweight="bold",
+    )
     return fig
 
 
@@ -1099,11 +1445,20 @@ def plot_context_frontend(context_output: dict[str, Any]) -> Figure:
     stages = obs["stage"].astype(str).to_numpy()
     groups = list(typed.schema.typed_feature_names)
     stage_order = _sorted_stages(stages)
-    stage_means = pd.DataFrame(tokens, columns=groups).assign(stage=stages).groupby("stage").mean().reindex(stage_order).fillna(0.0)
+    stage_means = (
+        pd.DataFrame(tokens, columns=groups)
+        .assign(stage=stages)
+        .groupby("stage")
+        .mean()
+        .reindex(stage_order)
+        .fillna(0.0)
+    )
     dominant_group = np.argmax(tokens, axis=1)
 
     fig = plt.figure(figsize=(15, 10))
-    gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.0], height_ratios=[1.0, 1.0], wspace=0.24, hspace=0.28)
+    gs = fig.add_gridspec(
+        2, 2, width_ratios=[1.0, 1.0], height_ratios=[1.0, 1.0], wspace=0.24, hspace=0.28
+    )
     ax_heat = fig.add_subplot(gs[0, 0])
     ax_stack = fig.add_subplot(gs[0, 1])
     ax_map = fig.add_subplot(gs[1, 0])
@@ -1117,7 +1472,15 @@ def plot_context_frontend(context_output: dict[str, Any]) -> Figure:
     ax_heat.set_yticklabels(stage_order)
     for i in range(stage_means.shape[0]):
         for j in range(stage_means.shape[1]):
-            ax_heat.text(j, i, f"{stage_means.iloc[i, j]:.2f}", ha="center", va="center", fontsize=8, color=PALETTE["ink"])
+            ax_heat.text(
+                j,
+                i,
+                f"{stage_means.iloc[i, j]:.2f}",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color=PALETTE["ink"],
+            )
     fig.colorbar(heat, ax=ax_heat, fraction=0.046, pad=0.04)
 
     cumulative = np.zeros(len(stage_order), dtype=np.float32)
@@ -1155,8 +1518,12 @@ def plot_context_frontend(context_output: dict[str, Any]) -> Figure:
         "spatial_mapping": summary.get("spatial_mapping_method", "n/a"),
         "token_rows": int(summary.get("typed_token_summary", {}).get("n_tokens", 0)),
         "token_dim": int(summary.get("typed_token_summary", {}).get("token_dim", 0)),
-        "context_norm": float(summary.get("example_context_norm", summary.get("graph_context_norm", 0.0))),
-        "context_dim": int(summary.get("example_context_dim", summary.get("graph_context_dim", 0))),
+        "context_norm": float(
+            summary.get("example_context_norm", summary.get("graph_context_norm", 0.0))
+        ),
+        "context_dim": int(
+            summary.get("example_context_dim", summary.get("graph_context_dim", 0))
+        ),
     }
     if "graph_num_edges" in summary:
         diagnostics["graph_num_edges"] = int(summary["graph_num_edges"])
@@ -1174,7 +1541,9 @@ def plot_context_frontend(context_output: dict[str, Any]) -> Figure:
     y = 0.82
     for key, value in diagnostics.items():
         ax_diag.text(0.04, y, f"{key}", fontsize=10, color=PALETTE["muted"], va="top")
-        ax_diag.text(0.52, y, f"{value}", fontsize=11, color=PALETTE["ink"], va="top", fontweight="bold")
+        ax_diag.text(
+            0.52, y, f"{value}", fontsize=11, color=PALETTE["ink"], va="top", fontweight="bold"
+        )
         y -= 0.1
     ax_diag.text(
         0.04,
@@ -1182,15 +1551,27 @@ def plot_context_frontend(context_output: dict[str, Any]) -> Figure:
         "Typed spot tokens feed the local set encoder first.\nGraph propagation is optional and must earn its place.",
         fontsize=10,
         color=PALETTE["accent"],
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#FFF0EB", "edgecolor": "#E2B8AA", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#FFF0EB",
+            "edgecolor": "#E2B8AA",
+            "alpha": 0.85,
+        },
     )
 
-    fig.suptitle("StageBridge v1 research frontend: typed niche context branch", fontsize=17, fontweight="bold", x=0.46)
+    fig.suptitle(
+        "StageBridge v1 research frontend: typed niche context branch",
+        fontsize=17,
+        fontweight="bold",
+        x=0.46,
+    )
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
 
 
-def plot_transition_frontend(transition_output: dict[str, Any], evaluation_output: dict[str, Any]) -> Figure:
+def plot_transition_frontend(
+    transition_output: dict[str, Any], evaluation_output: dict[str, Any]
+) -> Figure:
     """Render transition dynamics and evaluation as a publication-style summary."""
     configure_research_style()
     x_src = transition_output["x_src_test"]
@@ -1218,29 +1599,64 @@ def plot_transition_frontend(transition_output: dict[str, Any], evaluation_outpu
     src_emb = emb[:n_src]
     pred_emb = emb[n_src : n_src + n_pred]
     tgt_emb = emb[n_src + n_pred :]
-    flow_matrix, source_labels, target_labels = compute_macroflow_matrix(src_np, pred_np, n_clusters=min(6, max(2, src_np.shape[0] // 4)))
+    flow_matrix, source_labels, target_labels = compute_macroflow_matrix(
+        src_np, pred_np, n_clusters=min(6, max(2, src_np.shape[0] // 4))
+    )
 
     fig = plt.figure(figsize=(17, 10))
-    gs = fig.add_gridspec(2, 3, width_ratios=[1.15, 1.0, 0.65], height_ratios=[1.0, 1.0], wspace=0.28, hspace=0.28)
+    gs = fig.add_gridspec(
+        2, 3, width_ratios=[1.15, 1.0, 0.65], height_ratios=[1.0, 1.0], wspace=0.28, hspace=0.28
+    )
     ax_embed = fig.add_subplot(gs[:, 0])
     ax_history = fig.add_subplot(gs[0, 1])
     ax_flow = fig.add_subplot(gs[1, 1])
     ax_metrics = fig.add_subplot(gs[:, 2])
 
-    ax_embed.scatter(src_emb[:, 0], src_emb[:, 1], s=20, alpha=0.45, color="#64748B", label="source")
-    ax_embed.scatter(pred_emb[:, 0], pred_emb[:, 1], s=20, alpha=0.65, color=MODE_COLORS.get(transition_output["mode"], PALETTE["teal"]), label="predicted")
-    ax_embed.scatter(tgt_emb[:, 0], tgt_emb[:, 1], s=20, alpha=0.45, color=PALETTE["accent"], label="target")
+    ax_embed.scatter(
+        src_emb[:, 0], src_emb[:, 1], s=20, alpha=0.45, color="#64748B", label="source"
+    )
+    ax_embed.scatter(
+        pred_emb[:, 0],
+        pred_emb[:, 1],
+        s=20,
+        alpha=0.65,
+        color=MODE_COLORS.get(transition_output["mode"], PALETTE["teal"]),
+        label="predicted",
+    )
+    ax_embed.scatter(
+        tgt_emb[:, 0], tgt_emb[:, 1], s=20, alpha=0.45, color=PALETTE["accent"], label="target"
+    )
     ax_embed.set_title(f"Edge manifold: {transition_output['edge']} ({transition_output['mode']})")
     ax_embed.set_xlabel(f"PC 1 ({emb_var[0]:.1f}%)")
     ax_embed.set_ylabel(f"PC 2 ({emb_var[1]:.1f}%)")
-    ax_embed.legend(frameon=False, fontsize=9, loc="upper center", bbox_to_anchor=(0.5, -0.05), ncol=3)
+    ax_embed.legend(
+        frameon=False, fontsize=9, loc="upper center", bbox_to_anchor=(0.5, -0.05), ncol=3
+    )
     ax_embed.grid(True, alpha=0.22)
 
     history = pd.DataFrame(transition_output.get("training_history", []))
     if not history.empty:
-        ax_history.plot(history["epoch"], history["loss_total"], color=PALETTE["teal"], linewidth=2.2, label="total")
-        ax_history.plot(history["epoch"], history["loss_drift"], color=PALETTE["gold"], linewidth=1.8, label="drift")
-        ax_history.plot(history["epoch"], history["loss_diffusion"], color=PALETTE["accent"], linewidth=1.8, label="diffusion")
+        ax_history.plot(
+            history["epoch"],
+            history["loss_total"],
+            color=PALETTE["teal"],
+            linewidth=2.2,
+            label="total",
+        )
+        ax_history.plot(
+            history["epoch"],
+            history["loss_drift"],
+            color=PALETTE["gold"],
+            linewidth=1.8,
+            label="drift",
+        )
+        ax_history.plot(
+            history["epoch"],
+            history["loss_diffusion"],
+            color=PALETTE["accent"],
+            linewidth=1.8,
+            label="diffusion",
+        )
     ax_history.set_title("Bridge optimization trajectory")
     ax_history.set_xlabel("epoch")
     ax_history.set_ylabel("loss")
@@ -1301,7 +1717,12 @@ def plot_transition_frontend(transition_output: dict[str, Any], evaluation_outpu
         fontsize=8.5,
         color=PALETTE["ink"],
         family="monospace",
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#EEF4FB", "edgecolor": "#B6C7DA", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#EEF4FB",
+            "edgecolor": "#B6C7DA",
+            "alpha": 0.85,
+        },
     )
 
     heat = ax_flow.imshow(flow_matrix, cmap="magma", aspect="auto")
@@ -1312,10 +1733,23 @@ def plot_transition_frontend(transition_output: dict[str, Any], evaluation_outpu
     ax_flow.set_yticklabels(source_labels, fontsize=8)
     for i in range(flow_matrix.shape[0]):
         for j in range(flow_matrix.shape[1]):
-            ax_flow.text(j, i, f"{flow_matrix[i, j]:.2f}", ha="center", va="center", fontsize=8, color="white")
+            ax_flow.text(
+                j,
+                i,
+                f"{flow_matrix[i, j]:.2f}",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="white",
+            )
     fig.colorbar(heat, ax=ax_flow, fraction=0.046, pad=0.04)
 
-    fig.suptitle("StageBridge v1 research frontend: transition and evaluation branch", fontsize=17, fontweight="bold", x=0.46)
+    fig.suptitle(
+        "StageBridge v1 research frontend: transition and evaluation branch",
+        fontsize=17,
+        fontweight="bold",
+        x=0.46,
+    )
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
 
@@ -1335,7 +1769,11 @@ def plot_biological_insight_frontend(evaluation_output: dict[str, Any]) -> Figur
     ax_delta = fig.add_subplot(gs[0, 1])
 
     if stage_profiles and groups:
-        stage_frame = pd.DataFrame.from_dict(stage_profiles, orient="index")[groups].reindex(stages).fillna(0.0)
+        stage_frame = (
+            pd.DataFrame.from_dict(stage_profiles, orient="index")[groups]
+            .reindex(stages)
+            .fillna(0.0)
+        )
         heat = ax_heat.imshow(stage_frame.to_numpy(), cmap="YlOrBr", aspect="auto")
         ax_heat.set_title("Typed niche profiles across the disease ladder")
         ax_heat.set_xticks(np.arange(len(groups)))
@@ -1344,7 +1782,15 @@ def plot_biological_insight_frontend(evaluation_output: dict[str, Any]) -> Figur
         ax_heat.set_yticklabels(stage_frame.index.tolist())
         for i in range(stage_frame.shape[0]):
             for j in range(stage_frame.shape[1]):
-                ax_heat.text(j, i, f"{stage_frame.iloc[i, j]:.2f}", ha="center", va="center", fontsize=8, color=PALETTE["ink"])
+                ax_heat.text(
+                    j,
+                    i,
+                    f"{stage_frame.iloc[i, j]:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=PALETTE["ink"],
+                )
         fig.colorbar(heat, ax=ax_heat, fraction=0.046, pad=0.04)
     else:
         ax_heat.axis("off")
@@ -1352,7 +1798,9 @@ def plot_biological_insight_frontend(evaluation_output: dict[str, Any]) -> Figur
 
     if edge_delta:
         delta_series = pd.Series(edge_delta).sort_values()
-        colors = [PALETTE["accent"] if value > 0 else PALETTE["blue"] for value in delta_series.values]
+        colors = [
+            PALETTE["accent"] if value > 0 else PALETTE["blue"] for value in delta_series.values
+        ]
         ax_delta.barh(delta_series.index.tolist(), delta_series.values, color=colors, alpha=0.88)
         ax_delta.axvline(0.0, color=PALETTE["ink"], linewidth=1.0)
     ax_delta.set_title(f"Edge shift by typed group: {biology.get('edge', 'n/a')}")
@@ -1366,10 +1814,19 @@ def plot_biological_insight_frontend(evaluation_output: dict[str, Any]) -> Figur
         va="bottom",
         ha="left",
         fontsize=9,
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#FFF4EC", "edgecolor": "#E5C2AF", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#FFF4EC",
+            "edgecolor": "#E5C2AF",
+            "alpha": 0.85,
+        },
     )
 
-    fig.suptitle("StageBridge v1 research frontend: edge-level biological insight", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "StageBridge v1 research frontend: edge-level biological insight",
+        fontsize=16,
+        fontweight="bold",
+    )
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
 
@@ -1400,15 +1857,30 @@ def plot_mode_comparison_frontend(mode_table: pd.DataFrame, *, edge: str) -> Fig
     ax_cal = fig.add_subplot(gs[0, 1])
 
     colors = [MODE_COLORS.get(mode, PALETTE["slate"]) for mode in table["mode"].astype(str)]
-    ax_sink.bar(table["mode"].astype(str), table["sinkhorn"].astype(float), color=colors, alpha=0.9)
+    ax_sink.bar(
+        table["mode"].astype(str), table["sinkhorn"].astype(float), color=colors, alpha=0.9
+    )
     ax_sink.set_title(f"Mode ladder: held-out Sinkhorn ({edge})")
     ax_sink.set_ylabel("sinkhorn")
     ax_sink.tick_params(axis="x", rotation=20)
     # OPTIMIZED: Use enumerate + itertuples instead of iterrows (10× faster)
     for idx, row in enumerate(table.itertuples()):
-        ax_sink.text(idx, float(row.sinkhorn) + 0.02, f"{float(row.sinkhorn):.2f}", ha="center", va="bottom", fontsize=9)
+        ax_sink.text(
+            idx,
+            float(row.sinkhorn) + 0.02,
+            f"{float(row.sinkhorn):.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
 
-    ax_cal.plot(table["mode"].astype(str), table["calibration_error"].astype(float), marker="o", linewidth=2.0, color=PALETTE["teal"])
+    ax_cal.plot(
+        table["mode"].astype(str),
+        table["calibration_error"].astype(float),
+        marker="o",
+        linewidth=2.0,
+        color=PALETTE["teal"],
+    )
     if "context_sensitivity_delta" in table.columns:
         ax_aux = ax_cal.twinx()
         ax_aux.bar(
@@ -1424,7 +1896,11 @@ def plot_mode_comparison_frontend(mode_table: pd.DataFrame, *, edge: str) -> Fig
     ax_cal.tick_params(axis="x", rotation=20)
     ax_cal.grid(True, alpha=0.22)
 
-    fig.suptitle("StageBridge v1 research frontend: matched context-mode comparison", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "StageBridge v1 research frontend: matched context-mode comparison",
+        fontsize=16,
+        fontweight="bold",
+    )
     return fig
 
 
@@ -1438,15 +1914,33 @@ def plot_latent_comparison_frontend(latent_table: pd.DataFrame, *, edge: str, mo
     ax_sink = fig.add_subplot(gs[0, 0])
     ax_cal = fig.add_subplot(gs[0, 1])
 
-    colors = [PALETTE["teal"] if backend == "hlca" else PALETTE["gold"] for backend in table["backend"].astype(str)]
-    ax_sink.bar(table["backend"].astype(str), table["sinkhorn"].astype(float), color=colors, alpha=0.9)
+    colors = [
+        PALETTE["teal"] if backend == "hlca" else PALETTE["gold"]
+        for backend in table["backend"].astype(str)
+    ]
+    ax_sink.bar(
+        table["backend"].astype(str), table["sinkhorn"].astype(float), color=colors, alpha=0.9
+    )
     ax_sink.set_title(f"Latent sensitivity: held-out Sinkhorn ({edge}, {mode})")
     ax_sink.set_ylabel("sinkhorn")
     # OPTIMIZED: Use enumerate + itertuples instead of iterrows (10× faster)
     for idx, row in enumerate(table.itertuples()):
-        ax_sink.text(idx, float(row.sinkhorn) + 0.02, f"{float(row.sinkhorn):.2f}", ha="center", va="bottom", fontsize=9)
+        ax_sink.text(
+            idx,
+            float(row.sinkhorn) + 0.02,
+            f"{float(row.sinkhorn):.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
 
-    ax_cal.plot(table["backend"].astype(str), table["calibration_error"].astype(float), marker="o", linewidth=2.0, color=PALETTE["accent"])
+    ax_cal.plot(
+        table["backend"].astype(str),
+        table["calibration_error"].astype(float),
+        marker="o",
+        linewidth=2.0,
+        color=PALETTE["accent"],
+    )
     ax_cal.set_title(f"Latent sensitivity: calibration ({edge}, {mode})")
     ax_cal.set_ylabel("mean absolute shift error")
     ax_cal.grid(True, alpha=0.22)
@@ -1462,10 +1956,19 @@ def plot_latent_comparison_frontend(latent_table: pd.DataFrame, *, edge: str, mo
         va="bottom",
         ha="left",
         fontsize=9,
-        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#FFF4EC", "edgecolor": "#E5C2AF", "alpha": 0.85},
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#FFF4EC",
+            "edgecolor": "#E5C2AF",
+            "alpha": 0.85,
+        },
     )
 
-    fig.suptitle("StageBridge v1 research frontend: latent-backend comparison", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "StageBridge v1 research frontend: latent-backend comparison",
+        fontsize=16,
+        fontweight="bold",
+    )
     return fig
 
 
@@ -1514,7 +2017,15 @@ def plot_transformer_attention_frontend(context_output: dict[str, Any]) -> Figur
         ax_fusion.set_title("Fusion query attention over typed groups")
     else:
         ax_fusion.axis("off")
-        ax_fusion.text(0.5, 0.5, "No fusion attention data", ha="center", va="center", fontsize=12, color=PALETTE["muted"])
+        ax_fusion.text(
+            0.5,
+            0.5,
+            "No fusion attention data",
+            ha="center",
+            va="center",
+            fontsize=12,
+            color=PALETTE["muted"],
+        )
 
     # Per-group token counts and confidence
     if group_diagnostics:
@@ -1523,16 +2034,36 @@ def plot_transformer_attention_frontend(context_output: dict[str, Any]) -> Figur
         g_conf = [float(g.get("mean_confidence", 0.0)) for g in group_diagnostics]
         group_colors = ["#A63A2B", "#D18A00", "#0F766E", "#245C73"]
         x = np.arange(len(g_names))
-        bars = ax_groups.bar(x, g_counts, color=[group_colors[i % len(group_colors)] for i in range(len(g_names))], alpha=0.88)
+        bars = ax_groups.bar(
+            x,
+            g_counts,
+            color=[group_colors[i % len(group_colors)] for i in range(len(g_names))],
+            alpha=0.88,
+        )
         for i, (c, conf) in enumerate(zip(g_counts, g_conf)):
-            ax_groups.text(i, c + max(g_counts) * 0.02, f"conf={conf:.2f}", ha="center", fontsize=8, color=PALETTE["ink"])
+            ax_groups.text(
+                i,
+                c + max(g_counts) * 0.02,
+                f"conf={conf:.2f}",
+                ha="center",
+                fontsize=8,
+                color=PALETTE["ink"],
+            )
         ax_groups.set_xticks(x)
         ax_groups.set_xticklabels(g_names, rotation=20, ha="right")
         ax_groups.set_title("Token count and confidence by group")
         ax_groups.set_ylabel("tokens")
     else:
         ax_groups.axis("off")
-        ax_groups.text(0.5, 0.5, "No group diagnostics", ha="center", va="center", fontsize=12, color=PALETTE["muted"])
+        ax_groups.text(
+            0.5,
+            0.5,
+            "No group diagnostics",
+            ha="center",
+            va="center",
+            fontsize=12,
+            color=PALETTE["muted"],
+        )
 
     # Relation token scores
     if relation_scores:
@@ -1544,7 +2075,15 @@ def plot_transformer_attention_frontend(context_output: dict[str, Any]) -> Figur
         ax_relations.set_xlabel("score")
     else:
         ax_relations.axis("off")
-        ax_relations.text(0.5, 0.5, "No relation scores", ha="center", va="center", fontsize=12, color=PALETTE["muted"])
+        ax_relations.text(
+            0.5,
+            0.5,
+            "No relation scores",
+            ha="center",
+            va="center",
+            fontsize=12,
+            color=PALETTE["muted"],
+        )
 
     # Architecture summary
     ax_arch.axis("off")
@@ -1565,15 +2104,27 @@ def plot_transformer_attention_frontend(context_output: dict[str, Any]) -> Figur
     if summary.get("encoder_parameter_count"):
         arch_lines.append(f"Parameters: {int(summary['encoder_parameter_count']):,}")
     ax_arch.text(
-        0.05, 0.95, "Transformer architecture",
-        fontsize=14, fontweight="bold", color=PALETTE["ink"], va="top",
+        0.05,
+        0.95,
+        "Transformer architecture",
+        fontsize=14,
+        fontweight="bold",
+        color=PALETTE["ink"],
+        va="top",
     )
     ax_arch.text(
-        0.05, 0.82, "\n".join(arch_lines),
-        fontsize=10, color=PALETTE["ink"], va="top", family="monospace",
+        0.05,
+        0.82,
+        "\n".join(arch_lines),
+        fontsize=10,
+        color=PALETTE["ink"],
+        va="top",
+        family="monospace",
     )
 
-    fig.suptitle("Hierarchical transformer context encoder diagnostics", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "Hierarchical transformer context encoder diagnostics", fontsize=16, fontweight="bold"
+    )
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return fig
 
@@ -1606,9 +2157,14 @@ def plot_multi_embedding_frontend(
             if not np.any(mask):
                 continue
             ax.scatter(
-                coords[mask, 0], coords[mask, 1],
-                s=10, alpha=0.65, color=_stage_palette(stage), label=stage,
-                linewidths=0.0, rasterized=True,
+                coords[mask, 0],
+                coords[mask, 1],
+                s=10,
+                alpha=0.65,
+                color=_stage_palette(stage),
+                label=stage,
+                linewidths=0.0,
+                rasterized=True,
             )
         ax.set_title(subtitle, fontsize=11)
         ax.set_xlabel(xlabel, fontsize=9)

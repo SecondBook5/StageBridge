@@ -1,4 +1,5 @@
 """Lesion-level baselines for EA-MIST."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -37,7 +38,15 @@ def _masked_max(x: Tensor, mask: Tensor) -> Tensor:
 class PooledLesionBaseline(nn.Module):
     """Pooled lesion summary baseline over local niche embeddings."""
 
-    def __init__(self, input_dim: int, *, hidden_dim: int = 128, num_stage_classes: int = 5, num_edge_heads: int = 0, dropout: float = 0.1) -> None:
+    def __init__(
+        self,
+        input_dim: int,
+        *,
+        hidden_dim: int = 128,
+        num_stage_classes: int = 5,
+        num_edge_heads: int = 0,
+        dropout: float = 0.1,
+    ) -> None:
         super().__init__()
         self.input_proj = nn.Sequential(
             nn.Linear(int(input_dim) * 2, int(hidden_dim)),
@@ -45,7 +54,12 @@ class PooledLesionBaseline(nn.Module):
             nn.LayerNorm(int(hidden_dim)),
             nn.Dropout(float(dropout)),
         )
-        self.heads = LesionMultitaskHeads(int(hidden_dim), num_stage_classes=num_stage_classes, num_edge_heads=num_edge_heads, dropout=dropout)
+        self.heads = LesionMultitaskHeads(
+            int(hidden_dim),
+            num_stage_classes=num_stage_classes,
+            num_edge_heads=num_edge_heads,
+            dropout=dropout,
+        )
 
     def forward(self, embeddings: Tensor, mask: Tensor) -> LesionModelOutput:
         mean = _masked_mean(embeddings, mask)
@@ -63,7 +77,15 @@ class PooledLesionBaseline(nn.Module):
 class DeepSetsLesionBaseline(nn.Module):
     """Deep Sets lesion baseline over local niche embeddings."""
 
-    def __init__(self, input_dim: int, *, hidden_dim: int = 128, num_stage_classes: int = 5, num_edge_heads: int = 0, dropout: float = 0.1) -> None:
+    def __init__(
+        self,
+        input_dim: int,
+        *,
+        hidden_dim: int = 128,
+        num_stage_classes: int = 5,
+        num_edge_heads: int = 0,
+        dropout: float = 0.1,
+    ) -> None:
         super().__init__()
         self.phi = nn.Sequential(
             nn.Linear(int(input_dim), int(hidden_dim)),
@@ -80,11 +102,18 @@ class DeepSetsLesionBaseline(nn.Module):
             nn.LayerNorm(int(hidden_dim)),
             nn.Dropout(float(dropout)),
         )
-        self.heads = LesionMultitaskHeads(int(hidden_dim), num_stage_classes=num_stage_classes, num_edge_heads=num_edge_heads, dropout=dropout)
+        self.heads = LesionMultitaskHeads(
+            int(hidden_dim),
+            num_stage_classes=num_stage_classes,
+            num_edge_heads=num_edge_heads,
+            dropout=dropout,
+        )
 
     def forward(self, embeddings: Tensor, mask: Tensor) -> LesionModelOutput:
         encoded = self.phi(embeddings)
-        lesion = self.rho(torch.cat([_masked_mean(encoded, mask), _masked_max(encoded, mask)], dim=-1))
+        lesion = self.rho(
+            torch.cat([_masked_mean(encoded, mask), _masked_max(encoded, mask)], dim=-1)
+        )
         task_output = self.heads(lesion)
         return LesionModelOutput(
             lesion_embedding=lesion,
@@ -110,12 +139,29 @@ class LesionSetTransformerBaseline(nn.Module):
     ) -> None:
         super().__init__()
         self.input_proj = nn.Linear(int(input_dim), int(hidden_dim))
-        self.blocks = nn.ModuleList([SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout)) for _ in range(int(num_layers))])
-        self.pool = PMA(dim=int(hidden_dim), num_heads=int(num_heads), num_seed_vectors=1, dropout=float(dropout))
+        self.blocks = nn.ModuleList(
+            [
+                SAB(dim=int(hidden_dim), num_heads=int(num_heads), dropout=float(dropout))
+                for _ in range(int(num_layers))
+            ]
+        )
+        self.pool = PMA(
+            dim=int(hidden_dim),
+            num_heads=int(num_heads),
+            num_seed_vectors=1,
+            dropout=float(dropout),
+        )
         self.norm = nn.LayerNorm(int(hidden_dim))
-        self.heads = LesionMultitaskHeads(int(hidden_dim), num_stage_classes=num_stage_classes, num_edge_heads=num_edge_heads, dropout=dropout)
+        self.heads = LesionMultitaskHeads(
+            int(hidden_dim),
+            num_stage_classes=num_stage_classes,
+            num_edge_heads=num_edge_heads,
+            dropout=dropout,
+        )
 
-    def forward(self, embeddings: Tensor, mask: Tensor, *, return_attention: bool = False) -> LesionModelOutput:
+    def forward(
+        self, embeddings: Tensor, mask: Tensor, *, return_attention: bool = False
+    ) -> LesionModelOutput:
         hidden = self.input_proj(embeddings)
         attention = None
         for layer_idx, block in enumerate(self.blocks):

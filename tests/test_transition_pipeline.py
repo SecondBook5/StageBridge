@@ -31,7 +31,9 @@ def _skip_real_data_smokes_when_assets_missing(request) -> None:
     if request.function.__name__ == "test_stagewise_edge_split_reports_missing_same_donor_overlap":
         return
     if not _real_data_assets_available():
-        pytest.skip("Real-data transition smoke tests require local LUAD assets (snRNA + spatial).")
+        pytest.skip(
+            "Real-data transition smoke tests require local LUAD assets (snRNA + spatial)."
+        )
 
 
 def test_stagewise_edge_split_reports_missing_same_donor_overlap() -> None:
@@ -230,8 +232,14 @@ def test_typed_hierarchical_transformer_transition_smoke_runs_on_real_data() -> 
     assert transition["context_tokens"] is not None
     assert transition["dataset_transfer_diagnostics"]["dataset_embedding_enabled"] is True
     assert transition["dataset_transfer_diagnostics"]["cross_dataset_negatives_used"] >= 1
-    assert transition["auxiliary_context_shuffle_metrics"]["task"] == "relational_pretraining_finetune"
-    assert "dataset_id_mismatch" in transition["auxiliary_context_shuffle_metrics"]["negative_control_scores"]
+    assert (
+        transition["auxiliary_context_shuffle_metrics"]["task"]
+        == "relational_pretraining_finetune"
+    )
+    assert (
+        "dataset_id_mismatch"
+        in transition["auxiliary_context_shuffle_metrics"]["negative_control_scores"]
+    )
     assert transition["auxiliary_context_shuffle_metrics"]["drift_context_gate"] >= 0.0
     assert transition["pretraining_summary"] is not None
     assert transition["attention_summary"] is not None
@@ -344,7 +352,11 @@ def test_full_pipeline_threads_reference_and_spatial_outputs_into_transition() -
 
     assert full["ok"] is True
     assert transition["reference"]["source_path"] == reference["reference"]["source_path"]
-    assert transition["spatial_mapping"]["method"] == spatial["spatial_mapping"]["method"] == "tangram"
+    assert (
+        transition["spatial_mapping"]["method"]
+        == spatial["spatial_mapping"]["method"]
+        == "tangram"
+    )
     assert transition["context_model"]["mode"] == context["context_model"]["mode"] == "set_only"
     assert transition["context_diagnostics"]["spatial_mapping_method"] == "tangram"
 
@@ -365,7 +377,9 @@ def test_write_pipeline_scratch_run_records_edge_level_metadata(tmp_path) -> Non
     )
 
     full = run_full(cfg)
-    written = write_pipeline_scratch_run(cfg, full, notebook_source="StageBridge.ipynb", base_dir=tmp_path)
+    written = write_pipeline_scratch_run(
+        cfg, full, notebook_source="StageBridge.ipynb", base_dir=tmp_path
+    )
 
     assert written["ok"] is True
     assert written["run_metadata"]["mode"] == "rna_only"

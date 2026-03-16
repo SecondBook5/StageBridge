@@ -1,4 +1,5 @@
 """Local self-supervised pretraining for EA-MIST neighborhood encoders."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -12,13 +13,23 @@ from omegaconf import DictConfig
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
-from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder, LocalNicheTransformerEncoder
+from stagebridge.context_model.local_niche_encoder import (
+    LocalNicheMLPEncoder,
+    LocalNicheTransformerEncoder,
+)
 from stagebridge.context_model.losses import (
     masked_feature_reconstruction_loss,
     shuffled_neighborhood_discrimination_loss,
 )
-from stagebridge.context_model.prototype_bottleneck import PrototypeBottleneck, assignment_entropy_loss, prototype_diversity_loss
-from stagebridge.data.luad_evo.bag_dataset import NeighborhoodPretrainDataset, collate_pretrain_neighborhoods
+from stagebridge.context_model.prototype_bottleneck import (
+    PrototypeBottleneck,
+    assignment_entropy_loss,
+    prototype_diversity_loss,
+)
+from stagebridge.data.luad_evo.bag_dataset import (
+    NeighborhoodPretrainDataset,
+    collate_pretrain_neighborhoods,
+)
 from stagebridge.data.luad_evo.neighborhood_builder import build_lesion_bags_from_config
 from stagebridge.logging_utils import get_logger
 from stagebridge.utils.seeds import seed_everything
@@ -52,7 +63,8 @@ def infer_local_feature_dims(dataset: NeighborhoodPretrainDataset) -> LocalFeatu
         lr_summary_dim=int(first.lr_pathway_summary.shape[0]),
         stats_dim=int(first.neighborhood_stats.shape[0]),
         flat_feature_dim=int(first.flat_features.shape[0]),
-        num_receiver_states=max(int(example.receiver_state_id) for example in dataset.examples) + 1,
+        num_receiver_states=max(int(example.receiver_state_id) for example in dataset.examples)
+        + 1,
         num_rings=int(first.ring_compositions.shape[0]),
     )
 
@@ -97,7 +109,11 @@ class LocalSSLPretrainer(nn.Module):
         else:
             raise ValueError(f"Unsupported local SSL encoder_type '{encoder_type}'.")
 
-        self.prototype_bottleneck = PrototypeBottleneck(hidden_dim, num_prototypes=num_prototypes) if use_prototypes else None
+        self.prototype_bottleneck = (
+            PrototypeBottleneck(hidden_dim, num_prototypes=num_prototypes)
+            if use_prototypes
+            else None
+        )
         self.reconstruction_head = nn.Linear(hidden_dim, dims.flat_feature_dim)
         self.shuffle_head = nn.Linear(hidden_dim, 1)
 
@@ -123,7 +139,9 @@ class LocalSSLPretrainer(nn.Module):
         prototype_output = self.prototype_bottleneck(embeddings)
         return prototype_output.aligned_embeddings, prototype_output.assignment_weights
 
-    def forward(self, batch: dict[str, Tensor | list[str]], *, mask_probability: float = 0.15) -> dict[str, Tensor]:
+    def forward(
+        self, batch: dict[str, Tensor | list[str]], *, mask_probability: float = 0.15
+    ) -> dict[str, Tensor]:
         """Run both local SSL tasks and return loss-ready tensors."""
         flat_features = batch["flat_features"]  # type: ignore[index]
         corruption_mask = torch.rand_like(flat_features) < float(mask_probability)
@@ -178,7 +196,9 @@ class LocalSSLPretrainer(nn.Module):
         shuffled_batch["luca_features"] = batch["luca_features"][permutation]  # type: ignore[index]
         shuffled_batch["lr_pathway_summary"] = batch["lr_pathway_summary"][permutation]  # type: ignore[index]
         shuffled_embeddings, _ = self.encode(shuffled_batch)
-        discrimination_logits = self.shuffle_head(torch.cat([real_embeddings, shuffled_embeddings], dim=0)).squeeze(-1)
+        discrimination_logits = self.shuffle_head(
+            torch.cat([real_embeddings, shuffled_embeddings], dim=0)
+        ).squeeze(-1)
         discrimination_labels = torch.cat(
             [
                 torch.ones(real_embeddings.shape[0], device=flat_features.device),
@@ -207,10 +227,14 @@ def _write_history(path: Path, rows: list[dict[str, float | int]]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
-def _save_embedding_table(model: LocalSSLPretrainer, dataset: NeighborhoodPretrainDataset, output_dir: Path, device: str) -> Path:
+def _save_embedding_table(
+    model: LocalSSLPretrainer, dataset: NeighborhoodPretrainDataset, output_dir: Path, device: str
+) -> Path:
     """Encode and save local neighborhood embeddings for inspection."""
     model.eval()
-    loader = DataLoader(dataset, batch_size=256, shuffle=False, collate_fn=collate_pretrain_neighborhoods)
+    loader = DataLoader(
+        dataset, batch_size=256, shuffle=False, collate_fn=collate_pretrain_neighborhoods
+    )
     rows: list[dict[str, object]] = []
     with torch.no_grad():
         for batch in loader:
@@ -290,7 +314,9 @@ def run_pretrain_local(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                 key: value.to(device) if isinstance(value, torch.Tensor) else value
                 for key, value in batch.items()
             }
-            outputs = model(tensor_batch, mask_probability=float(pretrain_cfg.get("mask_probability", 0.15)))
+            outputs = model(
+                tensor_batch, mask_probability=float(pretrain_cfg.get("mask_probability", 0.15))
+            )
             recon_loss = masked_feature_reconstruction_loss(
                 outputs["reconstructed"],
                 outputs["target_flat"],
@@ -301,14 +327,23 @@ def run_pretrain_local(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                 outputs["shuffle_labels"],
             )
             proto_loss = torch.zeros((), device=device)
-            if outputs["prototype_assignments"] is not None and model.prototype_bottleneck is not None:
-                proto_loss = proto_loss + float(pretrain_cfg.get("prototype_diversity_weight", 0.01)) * prototype_diversity_loss(model.prototype_bottleneck.prototypes)
-                proto_loss = proto_loss + float(pretrain_cfg.get("prototype_entropy_weight", 0.001)) * assignment_entropy_loss(outputs["prototype_assignments"])
+            if (
+                outputs["prototype_assignments"] is not None
+                and model.prototype_bottleneck is not None
+            ):
+                proto_loss = proto_loss + float(
+                    pretrain_cfg.get("prototype_diversity_weight", 0.01)
+                ) * prototype_diversity_loss(model.prototype_bottleneck.prototypes)
+                proto_loss = proto_loss + float(
+                    pretrain_cfg.get("prototype_entropy_weight", 0.001)
+                ) * assignment_entropy_loss(outputs["prototype_assignments"])
             loss = recon_loss + shuffle_loss + proto_loss
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(pretrain_cfg.get("grad_clip_norm", 1.0)))
+            nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm=float(pretrain_cfg.get("grad_clip_norm", 1.0))
+            )
             optimizer.step()
 
             epoch_recon += float(recon_loss.item())
@@ -330,7 +365,7 @@ def run_pretrain_local(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
             torch.save(
                 {
                     "state_dict": model.state_dict(),
-                        "dims": asdict(dims),
+                    "dims": asdict(dims),
                     "encoder_type": model.encoder_type,
                 },
                 best_path,
@@ -348,11 +383,15 @@ def run_pretrain_local(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     if model.prototype_bottleneck is not None:
         with torch.no_grad():
             occupancy = model.prototype_bottleneck.get_prototype_occupancy(
-                model.prototype_bottleneck.get_assignment_weights(model.prototype_bottleneck.prototypes)
+                model.prototype_bottleneck.get_assignment_weights(
+                    model.prototype_bottleneck.prototypes
+                )
             )
         diagnostics["prototype_occupancy"] = occupancy.detach().cpu().tolist()
 
-    (output_root / "diagnostics.json").write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
+    (output_root / "diagnostics.json").write_text(
+        json.dumps(diagnostics, indent=2), encoding="utf-8"
+    )
     return {
         "ok": True,
         "pipeline": "pretrain_local",

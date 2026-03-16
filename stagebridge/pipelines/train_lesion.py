@@ -1,4 +1,5 @@
 """Lesion-level EA-MIST training and benchmarking."""
+
 from __future__ import annotations
 
 import copy
@@ -30,7 +31,11 @@ from stagebridge.context_model.losses import (
     ordinal_stage_loss,
     transition_consistency_loss,
 )
-from stagebridge.data.luad_evo.bag_dataset import LesionBagDataset, NeighborhoodPretrainDataset, collate_lesion_bags
+from stagebridge.data.luad_evo.bag_dataset import (
+    LesionBagDataset,
+    NeighborhoodPretrainDataset,
+    collate_lesion_bags,
+)
 from stagebridge.data.luad_evo.neighborhood_builder import build_lesion_bags_from_config
 from stagebridge.data.luad_evo.splits import (
     assert_no_split_leakage,
@@ -137,7 +142,9 @@ def _remap_bags_to_grouped(bags: list[LesionBag]) -> None:
             grouped_idx = -1
         object.__setattr__(bag, "stage_index", grouped_idx)
         # Grouped displacement: 0.0 for early_like, 0.5 for intermediate_like, 1.0 for invasive_like
-        object.__setattr__(bag, "displacement_target", grouped_idx / 2.0 if grouped_idx >= 0 else float("nan"))
+        object.__setattr__(
+            bag, "displacement_target", grouped_idx / 2.0 if grouped_idx >= 0 else float("nan")
+        )
 
 
 def _remap_bags_to_binary(bags: list[LesionBag]) -> None:
@@ -148,7 +155,9 @@ def _remap_bags_to_binary(bags: list[LesionBag]) -> None:
         except ValueError:
             binary_idx = -1
         object.__setattr__(bag, "stage_index", binary_idx)
-        object.__setattr__(bag, "displacement_target", float(binary_idx) if binary_idx >= 0 else float("nan"))
+        object.__setattr__(
+            bag, "displacement_target", float(binary_idx) if binary_idx >= 0 else float("nan")
+        )
 
 
 def _apply_atlas_label_shuffle(bags: list[LesionBag], seed: int = 42) -> list[LesionBag]:
@@ -159,6 +168,7 @@ def _apply_atlas_label_shuffle(bags: list[LesionBag], seed: int = 42) -> list[Le
     correspondence while preserving within-bag spatial structure.
     """
     import copy
+
     bags = copy.deepcopy(bags)
     rng = np.random.RandomState(seed)
     all_hlca = []
@@ -167,8 +177,12 @@ def _apply_atlas_label_shuffle(bags: list[LesionBag], seed: int = 42) -> list[Le
     for bi, bag in enumerate(bags):
         for ni, niche in enumerate(bag.neighborhoods):
             indices.append((bi, ni))
-            all_hlca.append(niche.hlca_features if niche.hlca_features is not None else np.zeros(0))
-            all_luca.append(niche.luca_features if niche.luca_features is not None else np.zeros(0))
+            all_hlca.append(
+                niche.hlca_features if niche.hlca_features is not None else np.zeros(0)
+            )
+            all_luca.append(
+                niche.luca_features if niche.luca_features is not None else np.zeros(0)
+            )
     perm_hlca = rng.permutation(len(indices))
     perm_luca = rng.permutation(len(indices))
     for new_pos, (bi, ni) in enumerate(indices):
@@ -186,6 +200,7 @@ def _apply_within_lesion_niche_shuffle(bags: list[LesionBag], seed: int = 42) ->
     Preserves per-lesion feature statistics but destroys spatial ordering.
     """
     import copy
+
     bags = copy.deepcopy(bags)
     rng = np.random.RandomState(seed)
     for bag in bags:
@@ -200,7 +215,9 @@ def _resolve_device(cfg: DictConfig | dict[str, Any]) -> str:
     requested = str(_cfg_select(cfg, "context_model.eamist.device", "auto")).lower()
     require_cuda = bool(_cfg_select(cfg, "context_model.eamist.require_cuda", False))
     if requested not in {"auto", "cpu", "cuda"}:
-        raise ValueError(f"Unsupported device setting '{requested}'. Expected one of: auto, cpu, cuda.")
+        raise ValueError(
+            f"Unsupported device setting '{requested}'. Expected one of: auto, cpu, cuda."
+        )
     if requested == "cpu":
         return "cpu"
     if torch.cuda.is_available():
@@ -220,7 +237,9 @@ def _cfg_to_plain_dict(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     return copy.deepcopy(cfg)
 
 
-def _cfg_with_eamist_overrides(cfg: DictConfig | dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+def _cfg_with_eamist_overrides(
+    cfg: DictConfig | dict[str, Any], overrides: dict[str, Any]
+) -> dict[str, Any]:
     """Clone the config and apply overrides only within the EA-MIST config block."""
     cloned = _cfg_to_plain_dict(cfg)
     context_model = cloned.setdefault("context_model", {})
@@ -233,7 +252,9 @@ def _cfg_with_eamist_overrides(cfg: DictConfig | dict[str, Any], overrides: dict
     return cloned
 
 
-def _normalize_hpo_search_space(cfg: DictConfig | dict[str, Any], model_family: str) -> dict[str, list[Any]]:
+def _normalize_hpo_search_space(
+    cfg: DictConfig | dict[str, Any], model_family: str
+) -> dict[str, list[Any]]:
     """Extract the shared and model-family-specific HPO search space."""
     hpo_cfg = _cfg_select(cfg, "context_model.eamist.hpo", {}) or {}
     if isinstance(hpo_cfg, DictConfig):
@@ -258,7 +279,9 @@ def _normalize_hpo_search_space(cfg: DictConfig | dict[str, Any], model_family: 
     return merged
 
 
-def _objective_from_validation_metrics(metrics: dict[str, float], *, use_grouped: bool = False) -> float:
+def _objective_from_validation_metrics(
+    metrics: dict[str, float], *, use_grouped: bool = False
+) -> float:
     """Collapse validation metrics into one guarded checkpoint-selection objective."""
     if use_grouped:
         return composite_selection_score_grouped(metrics)
@@ -307,13 +330,26 @@ def _build_optuna_trial_table(study: optuna.study.Study) -> pd.DataFrame:
         for key, value in trial.user_attrs.items():
             if key in {"best_payload", "artifact_dir", "overrides"}:
                 if key == "best_payload" and isinstance(value, dict):
-                    row.update({f"val_{metric_name}": metric_value for metric_name, metric_value in value.items()})
+                    row.update(
+                        {
+                            f"val_{metric_name}": metric_value
+                            for metric_name, metric_value in value.items()
+                        }
+                    )
                 else:
-                    row[key] = json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
+                    row[key] = (
+                        json.dumps(value, sort_keys=True)
+                        if isinstance(value, (dict, list))
+                        else value
+                    )
         rows.append(row)
     if not rows:
         return pd.DataFrame(columns=["trial_index", "state", "objective"])
-    return pd.DataFrame(rows).sort_values(["state", "objective"], ascending=[True, False], na_position="last").reset_index(drop=True)
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["state", "objective"], ascending=[True, False], na_position="last")
+        .reset_index(drop=True)
+    )
 
 
 class LesionAggregatorModel(nn.Module):
@@ -384,9 +420,17 @@ class LesionAggregatorModel(nn.Module):
         hlca = batch.hlca_features
         luca = batch.luca_features
         if hlca is None:
-            hlca = torch.zeros((*batch.receiver_embeddings.shape[:2], 0), dtype=batch.receiver_embeddings.dtype, device=batch.receiver_embeddings.device)
+            hlca = torch.zeros(
+                (*batch.receiver_embeddings.shape[:2], 0),
+                dtype=batch.receiver_embeddings.dtype,
+                device=batch.receiver_embeddings.device,
+            )
         if luca is None:
-            luca = torch.zeros((*batch.receiver_embeddings.shape[:2], 0), dtype=batch.receiver_embeddings.dtype, device=batch.receiver_embeddings.device)
+            luca = torch.zeros(
+                (*batch.receiver_embeddings.shape[:2], 0),
+                dtype=batch.receiver_embeddings.dtype,
+                device=batch.receiver_embeddings.device,
+            )
         if self.reference_feature_mode == "hlca_only" and luca.shape[-1] > 0:
             luca = torch.zeros_like(luca)
         if self.reference_feature_mode == "luca_only" and hlca.shape[-1] > 0:
@@ -405,7 +449,9 @@ class LesionAggregatorModel(nn.Module):
         total = bsz * num_instances
         flat_receiver = batch.receiver_embeddings.reshape(total, -1)
         flat_state_ids = batch.receiver_state_ids.reshape(total)
-        flat_rings = batch.ring_compositions.reshape(total, batch.ring_compositions.shape[2], batch.ring_compositions.shape[3])
+        flat_rings = batch.ring_compositions.reshape(
+            total, batch.ring_compositions.shape[2], batch.ring_compositions.shape[3]
+        )
         flat_hlca = hlca_features.reshape(total, -1)
         flat_luca = luca_features.reshape(total, -1)
         flat_lr = batch.lr_pathway_summary.reshape(total, -1)
@@ -491,7 +537,9 @@ def load_pretrained_local_encoder(model: nn.Module, checkpoint_path: str | Path 
     }
     target = getattr(model, "local_encoder", None)
     if target is None:
-        raise AttributeError("Target model has no 'local_encoder' attribute for pretrained weight loading.")
+        raise AttributeError(
+            "Target model has no 'local_encoder' attribute for pretrained weight loading."
+        )
     # Filter out keys with shape mismatches (e.g. when HPO changes hidden_dim)
     target_state = target.state_dict()
     compatible_state = {}
@@ -502,7 +550,9 @@ def load_pretrained_local_encoder(model: nn.Module, checkpoint_path: str | Path 
         else:
             skipped.append(key)
     if skipped:
-        log.warning("Skipping %d pretrained keys with shape mismatch: %s", len(skipped), skipped[:5])
+        log.warning(
+            "Skipping %d pretrained keys with shape mismatch: %s", len(skipped), skipped[:5]
+        )
     missing, unexpected = target.load_state_dict(compatible_state, strict=False)
     if unexpected:
         log.warning("Ignoring unexpected pretrained local-encoder keys: %s", unexpected)
@@ -527,7 +577,11 @@ def build_model_family(
     num_stage_classes = _active_num_classes(cfg)
     if model_family in {"pooled", "deep_sets", "lesion_set_transformer"}:
         # Aggregator models don't support contrast token; map hlca_luca_contrast → hlca_luca
-        agg_ref_mode = "hlca_luca" if reference_feature_mode == "hlca_luca_contrast" else reference_feature_mode
+        agg_ref_mode = (
+            "hlca_luca"
+            if reference_feature_mode == "hlca_luca_contrast"
+            else reference_feature_mode
+        )
         return LesionAggregatorModel(
             dims,
             model_family=model_family,
@@ -544,8 +598,14 @@ def build_model_family(
         if model_family == "eamist_no_prototypes":
             use_prototypes = False
         # hlca_luca_contrast → use both atlases with contrast token enabled
-        effective_ref_mode = "hlca_luca" if reference_feature_mode == "hlca_luca_contrast" else reference_feature_mode
-        use_contrast = reference_feature_mode == "hlca_luca_contrast" or bool(_cfg_select(cfg, "context_model.eamist.use_atlas_contrast_token", False))
+        effective_ref_mode = (
+            "hlca_luca"
+            if reference_feature_mode == "hlca_luca_contrast"
+            else reference_feature_mode
+        )
+        use_contrast = reference_feature_mode == "hlca_luca_contrast" or bool(
+            _cfg_select(cfg, "context_model.eamist.use_atlas_contrast_token", False)
+        )
         return EAMISTModel(
             receiver_dim=dims.receiver_dim,
             sender_feature_dim=dims.sender_feature_dim,
@@ -559,19 +619,29 @@ def build_model_family(
             hidden_dim=hidden_dim,
             num_heads=num_heads,
             num_layers=num_layers,
-            num_inducing_points=int(_cfg_select(cfg, "context_model.eamist.num_inducing_points", 16)),
+            num_inducing_points=int(
+                _cfg_select(cfg, "context_model.eamist.num_inducing_points", 16)
+            ),
             num_pma_seeds=int(_cfg_select(cfg, "context_model.eamist.num_pma_seeds", 1)),
             dropout=dropout,
-            local_encoder_type=str(_cfg_select(cfg, "context_model.eamist.local_encoder_type", "transformer")),
+            local_encoder_type=str(
+                _cfg_select(cfg, "context_model.eamist.local_encoder_type", "transformer")
+            ),
             use_prototypes=use_prototypes,
             num_prototypes=int(_cfg_select(cfg, "context_model.eamist.num_prototypes", 16)),
-            sparse_assignments=bool(_cfg_select(cfg, "context_model.eamist.sparse_assignments", False)),
-            evolution_dim=evolution_dim if bool(_cfg_select(cfg, "context_model.eamist.use_evolution_branch", True)) else None,
+            sparse_assignments=bool(
+                _cfg_select(cfg, "context_model.eamist.sparse_assignments", False)
+            ),
+            evolution_dim=evolution_dim
+            if bool(_cfg_select(cfg, "context_model.eamist.use_evolution_branch", True))
+            else None,
             evolution_mode=str(_cfg_select(cfg, "context_model.eamist.evolution_mode", "gated")),
             num_stage_classes=num_stage_classes,
             num_edge_heads=num_edge_heads,
             reference_feature_mode=effective_ref_mode,
-            use_distribution_summary=bool(_cfg_select(cfg, "context_model.eamist.use_distribution_summary", False)),
+            use_distribution_summary=bool(
+                _cfg_select(cfg, "context_model.eamist.use_distribution_summary", False)
+            ),
             use_atlas_contrast_token=use_contrast,
         )
     raise ValueError(f"Unsupported model_family '{model_family}'.")
@@ -580,7 +650,11 @@ def build_model_family(
 def _compute_stage_class_weights(train_bags: list[LesionBag], *, num_stage_classes: int) -> Tensor:
     counts = np.zeros((num_stage_classes,), dtype=np.float32)
     for bag in train_bags:
-        if bag.stage_index is None or int(bag.stage_index) < 0 or int(bag.stage_index) >= num_stage_classes:
+        if (
+            bag.stage_index is None
+            or int(bag.stage_index) < 0
+            or int(bag.stage_index) >= num_stage_classes
+        ):
             continue
         counts[int(bag.stage_index)] += 1.0
     nonzero = counts > 0
@@ -602,12 +676,14 @@ def _run_model(model: nn.Module, batch: LesionBagBatch) -> tuple[LesionModelOutp
         output = model(batch, return_attention=False)
         reg = None
         if output.prototype_output is not None and model.prototype_bottleneck is not None:
-            from stagebridge.context_model.prototype_bottleneck import assignment_entropy_loss, prototype_diversity_loss
-
-            reg = (
-                float(0.01) * prototype_diversity_loss(model.prototype_bottleneck.prototypes)
-                + float(0.001) * assignment_entropy_loss(output.prototype_output.assignment_weights)
+            from stagebridge.context_model.prototype_bottleneck import (
+                assignment_entropy_loss,
+                prototype_diversity_loss,
             )
+
+            reg = float(0.01) * prototype_diversity_loss(
+                model.prototype_bottleneck.prototypes
+            ) + float(0.001) * assignment_entropy_loss(output.prototype_output.assignment_weights)
         return (
             LesionModelOutput(
                 lesion_embedding=output.lesion_embedding,
@@ -636,10 +712,14 @@ def _run_epoch(
     train_mode = optimizer is not None
     model.train(train_mode)
     stage_weight = float(_cfg_select(cfg, "context_model.eamist.stage_loss_weight", 1.0))
-    displacement_weight = float(_cfg_select(cfg, "context_model.eamist.displacement_loss_weight", 0.5))
+    displacement_weight = float(
+        _cfg_select(cfg, "context_model.eamist.displacement_loss_weight", 0.5)
+    )
     edge_weight = float(_cfg_select(cfg, "context_model.eamist.edge_loss_weight", 0.25))
     ordinal_weight = float(_cfg_select(cfg, "context_model.eamist.ordinal_stage_loss_weight", 0.0))
-    transition_consistency_weight = float(_cfg_select(cfg, "context_model.eamist.transition_consistency_loss_weight", 0.0))
+    transition_consistency_weight = float(
+        _cfg_select(cfg, "context_model.eamist.transition_consistency_loss_weight", 0.0)
+    )
     all_stage_logits: list[np.ndarray] = []
     all_stage_preds: list[np.ndarray] = []
     all_stage_targets: list[np.ndarray] = []
@@ -658,27 +738,64 @@ def _run_epoch(
         output, reg = _run_model(model, batch)
         stage_loss = class_weighted_stage_loss(
             output.stage_logits,
-            batch.stage_indices if batch.stage_indices is not None else torch.full((output.stage_logits.shape[0],), -1, dtype=torch.long, device=output.stage_logits.device),
+            batch.stage_indices
+            if batch.stage_indices is not None
+            else torch.full(
+                (output.stage_logits.shape[0],),
+                -1,
+                dtype=torch.long,
+                device=output.stage_logits.device,
+            ),
             class_weights=stage_class_weights.to(device),
         )
         displacement_loss = displacement_regression_loss(
             output.displacement,
-            batch.displacement_targets if batch.displacement_targets is not None else torch.full((output.displacement.shape[0],), float("nan"), dtype=output.displacement.dtype, device=output.displacement.device),
+            batch.displacement_targets
+            if batch.displacement_targets is not None
+            else torch.full(
+                (output.displacement.shape[0],),
+                float("nan"),
+                dtype=output.displacement.dtype,
+                device=output.displacement.device,
+            ),
         )
-        edge_loss = masked_edge_loss(output.edge_logits, batch.edge_targets, batch.edge_target_mask)
+        edge_loss = masked_edge_loss(
+            output.edge_logits, batch.edge_targets, batch.edge_target_mask
+        )
         if not isinstance(edge_loss, Tensor):
-            edge_loss = torch.as_tensor(edge_loss, dtype=output.stage_logits.dtype, device=output.stage_logits.device)
+            edge_loss = torch.as_tensor(
+                edge_loss, dtype=output.stage_logits.dtype, device=output.stage_logits.device
+            )
         else:
-            edge_loss = edge_loss.to(device=output.stage_logits.device, dtype=output.stage_logits.dtype)
-        ord_loss = ordinal_stage_loss(
-            output.stage_logits,
-            batch.stage_indices if batch.stage_indices is not None else torch.full((output.stage_logits.shape[0],), -1, dtype=torch.long, device=output.stage_logits.device),
-            num_classes=output.stage_logits.shape[-1],
-        ) if ordinal_weight > 0.0 else torch.zeros((), dtype=output.stage_logits.dtype, device=output.stage_logits.device)
+            edge_loss = edge_loss.to(
+                device=output.stage_logits.device, dtype=output.stage_logits.dtype
+            )
+        ord_loss = (
+            ordinal_stage_loss(
+                output.stage_logits,
+                batch.stage_indices
+                if batch.stage_indices is not None
+                else torch.full(
+                    (output.stage_logits.shape[0],),
+                    -1,
+                    dtype=torch.long,
+                    device=output.stage_logits.device,
+                ),
+                num_classes=output.stage_logits.shape[-1],
+            )
+            if ordinal_weight > 0.0
+            else torch.zeros(
+                (), dtype=output.stage_logits.dtype, device=output.stage_logits.device
+            )
+        )
         tc_loss = (
-            transition_consistency_loss(output.displacement, output.niche_transition_scores, batch.neighborhood_mask)
+            transition_consistency_loss(
+                output.displacement, output.niche_transition_scores, batch.neighborhood_mask
+            )
             if transition_consistency_weight > 0.0 and output.niche_transition_scores is not None
-            else torch.zeros((), dtype=output.stage_logits.dtype, device=output.stage_logits.device)
+            else torch.zeros(
+                (), dtype=output.stage_logits.dtype, device=output.stage_logits.device
+            )
         )
         total_loss = (
             stage_weight * stage_loss
@@ -692,7 +809,10 @@ def _run_epoch(
         if train_mode:
             optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(_cfg_select(cfg, "context_model.eamist.grad_clip_norm", 1.0)))
+            nn.utils.clip_grad_norm_(
+                model.parameters(),
+                max_norm=float(_cfg_select(cfg, "context_model.eamist.grad_clip_norm", 1.0)),
+            )
             optimizer.step()
 
         loss_rows.append(
@@ -713,35 +833,75 @@ def _run_epoch(
         if batch.stage_indices is None:
             all_stage_targets.append(np.full((stage_probs.shape[0],), -1, dtype=np.int64))
         else:
-            all_stage_targets.append(batch.stage_indices.detach().cpu().numpy().astype(np.int64, copy=False))
+            all_stage_targets.append(
+                batch.stage_indices.detach().cpu().numpy().astype(np.int64, copy=False)
+            )
         if batch.displacement_targets is None:
-            all_displacement_targets.append(np.full((stage_probs.shape[0],), np.nan, dtype=np.float32))
+            all_displacement_targets.append(
+                np.full((stage_probs.shape[0],), np.nan, dtype=np.float32)
+            )
         else:
-            all_displacement_targets.append(batch.displacement_targets.detach().cpu().numpy().astype(np.float32, copy=False))
-        all_displacement_preds.append(output.displacement.detach().cpu().numpy().astype(np.float32, copy=False))
+            all_displacement_targets.append(
+                batch.displacement_targets.detach().cpu().numpy().astype(np.float32, copy=False)
+            )
+        all_displacement_preds.append(
+            output.displacement.detach().cpu().numpy().astype(np.float32, copy=False)
+        )
         if output.edge_logits is not None:
-            all_edge_logits.append(output.edge_logits.detach().cpu().numpy().astype(np.float32, copy=False))
+            all_edge_logits.append(
+                output.edge_logits.detach().cpu().numpy().astype(np.float32, copy=False)
+            )
         if batch.edge_targets is not None:
-            all_edge_targets.append(batch.edge_targets.detach().cpu().numpy().astype(np.float32, copy=False))
+            all_edge_targets.append(
+                batch.edge_targets.detach().cpu().numpy().astype(np.float32, copy=False)
+            )
         if batch.edge_target_mask is not None:
-            all_edge_masks.append(batch.edge_target_mask.detach().cpu().numpy().astype(bool, copy=False))
+            all_edge_masks.append(
+                batch.edge_target_mask.detach().cpu().numpy().astype(bool, copy=False)
+            )
         all_donors.extend(list(batch.donor_ids))
         all_stages.extend(list(batch.stages))
         all_lesions.extend(list(batch.lesion_ids))
     return {
         "loss": float(np.mean([row["loss"] for row in loss_rows])) if loss_rows else float("nan"),
-        "stage_loss": float(np.mean([row["stage_loss"] for row in loss_rows])) if loss_rows else float("nan"),
-        "displacement_loss": float(np.mean([row["displacement_loss"] for row in loss_rows])) if loss_rows else float("nan"),
-        "edge_loss": float(np.mean([row["edge_loss"] for row in loss_rows])) if loss_rows else float("nan"),
-        "ordinal_loss": float(np.mean([row["ordinal_loss"] for row in loss_rows])) if loss_rows else float("nan"),
-        "transition_consistency_loss": float(np.mean([row["transition_consistency_loss"] for row in loss_rows])) if loss_rows else float("nan"),
-        "regularization_loss": float(np.mean([row["regularization_loss"] for row in loss_rows])) if loss_rows else float("nan"),
-        "stage_logits": np.concatenate(all_stage_logits, axis=0) if all_stage_logits else np.zeros((0, _active_num_classes(cfg)), dtype=np.float32),
-        "stage_probabilities": np.concatenate(all_probs, axis=0) if all_probs else np.zeros((0, _active_num_classes(cfg)), dtype=np.float32),
-        "stage_predictions": np.concatenate(all_stage_preds, axis=0) if all_stage_preds else np.zeros((0,), dtype=np.int64),
-        "stage_targets": np.concatenate(all_stage_targets, axis=0) if all_stage_targets else np.zeros((0,), dtype=np.int64),
-        "displacement_predictions": np.concatenate(all_displacement_preds, axis=0) if all_displacement_preds else np.zeros((0,), dtype=np.float32),
-        "displacement_targets": np.concatenate(all_displacement_targets, axis=0) if all_displacement_targets else np.zeros((0,), dtype=np.float32),
+        "stage_loss": float(np.mean([row["stage_loss"] for row in loss_rows]))
+        if loss_rows
+        else float("nan"),
+        "displacement_loss": float(np.mean([row["displacement_loss"] for row in loss_rows]))
+        if loss_rows
+        else float("nan"),
+        "edge_loss": float(np.mean([row["edge_loss"] for row in loss_rows]))
+        if loss_rows
+        else float("nan"),
+        "ordinal_loss": float(np.mean([row["ordinal_loss"] for row in loss_rows]))
+        if loss_rows
+        else float("nan"),
+        "transition_consistency_loss": float(
+            np.mean([row["transition_consistency_loss"] for row in loss_rows])
+        )
+        if loss_rows
+        else float("nan"),
+        "regularization_loss": float(np.mean([row["regularization_loss"] for row in loss_rows]))
+        if loss_rows
+        else float("nan"),
+        "stage_logits": np.concatenate(all_stage_logits, axis=0)
+        if all_stage_logits
+        else np.zeros((0, _active_num_classes(cfg)), dtype=np.float32),
+        "stage_probabilities": np.concatenate(all_probs, axis=0)
+        if all_probs
+        else np.zeros((0, _active_num_classes(cfg)), dtype=np.float32),
+        "stage_predictions": np.concatenate(all_stage_preds, axis=0)
+        if all_stage_preds
+        else np.zeros((0,), dtype=np.int64),
+        "stage_targets": np.concatenate(all_stage_targets, axis=0)
+        if all_stage_targets
+        else np.zeros((0,), dtype=np.int64),
+        "displacement_predictions": np.concatenate(all_displacement_preds, axis=0)
+        if all_displacement_preds
+        else np.zeros((0,), dtype=np.float32),
+        "displacement_targets": np.concatenate(all_displacement_targets, axis=0)
+        if all_displacement_targets
+        else np.zeros((0,), dtype=np.float32),
         "edge_logits": np.concatenate(all_edge_logits, axis=0) if all_edge_logits else None,
         "edge_targets": np.concatenate(all_edge_targets, axis=0) if all_edge_targets else None,
         "edge_masks": np.concatenate(all_edge_masks, axis=0) if all_edge_masks else None,
@@ -751,12 +911,18 @@ def _run_epoch(
     }
 
 
-def _epoch_metrics(epoch_result: dict[str, Any], *, edge_target_labels: tuple[str, ...], use_grouped: bool = False) -> dict[str, float]:
+def _epoch_metrics(
+    epoch_result: dict[str, Any], *, edge_target_labels: tuple[str, ...], use_grouped: bool = False
+) -> dict[str, float]:
     if use_grouped:
         grouped_labels = list(range(len(GROUPED_STAGE_LABELS)))
-        stage_metrics = compute_grouped_stage_metrics(epoch_result["stage_targets"], epoch_result["stage_predictions"], labels=grouped_labels)
+        stage_metrics = compute_grouped_stage_metrics(
+            epoch_result["stage_targets"], epoch_result["stage_predictions"], labels=grouped_labels
+        )
     else:
-        stage_metrics = compute_stage_metrics(epoch_result["stage_targets"], epoch_result["stage_predictions"])
+        stage_metrics = compute_stage_metrics(
+            epoch_result["stage_targets"], epoch_result["stage_predictions"]
+        )
     displacement_metrics = compute_displacement_metrics(
         epoch_result["displacement_targets"],
         epoch_result["displacement_predictions"],
@@ -802,7 +968,9 @@ def _prediction_frame(
             "stage_label": (stage_to_group_label(bag.stage) if use_grouped else bag.stage),
             "stage_index": int(targets[local_idx]),
             "pred_stage_index": pred_idx,
-            "pred_stage_label": active_labels[pred_idx] if pred_idx < len(active_labels) else "unknown",
+            "pred_stage_label": active_labels[pred_idx]
+            if pred_idx < len(active_labels)
+            else "unknown",
             "displacement_target": float(displacement_targets[local_idx]),
             "pred_displacement": float(displacement[local_idx]),
             "label_source": bag.label_source,
@@ -872,7 +1040,9 @@ def _export_eamist_interpretability(
                             }
                         )
             if output.lesion_attention is not None:
-                attention = output.lesion_attention.detach().cpu().numpy().mean(axis=1).mean(axis=1)
+                attention = (
+                    output.lesion_attention.detach().cpu().numpy().mean(axis=1).mean(axis=1)
+                )
                 for bag_idx, sample_id in enumerate(batch.sample_ids):
                     valid = int(batch.neighborhood_mask[bag_idx].sum().item())
                     for niche_idx in range(valid):
@@ -926,7 +1096,9 @@ def _fit_trial(
     )
 
     use_grouped = _is_grouped(cfg)
-    stage_class_weights = _compute_stage_class_weights(train_bags, num_stage_classes=_active_num_classes(cfg)).to(device)
+    stage_class_weights = _compute_stage_class_weights(
+        train_bags, num_stage_classes=_active_num_classes(cfg)
+    ).to(device)
     max_epochs = int(_cfg_select(cfg, "context_model.eamist.max_epochs", 150))
     patience = int(_cfg_select(cfg, "context_model.eamist.patience", 20))
     train_history: list[dict[str, float | int]] = []
@@ -937,12 +1109,30 @@ def _fit_trial(
     wait = 0
 
     for epoch in range(max_epochs):
-        train_epoch = _run_epoch(model, train_loader, device=device, optimizer=optimizer, cfg=cfg, stage_class_weights=stage_class_weights)
-        val_epoch = _run_epoch(model, val_loader, device=device, optimizer=None, cfg=cfg, stage_class_weights=stage_class_weights)
+        train_epoch = _run_epoch(
+            model,
+            train_loader,
+            device=device,
+            optimizer=optimizer,
+            cfg=cfg,
+            stage_class_weights=stage_class_weights,
+        )
+        val_epoch = _run_epoch(
+            model,
+            val_loader,
+            device=device,
+            optimizer=None,
+            cfg=cfg,
+            stage_class_weights=stage_class_weights,
+        )
         if val_epoch["stage_targets"].shape[0] == 0:
             raise ValueError("Validation split is empty for this lesion-level training trial.")
-        val_metrics = _epoch_metrics(val_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped)
-        train_metrics = _epoch_metrics(train_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped)
+        val_metrics = _epoch_metrics(
+            val_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped
+        )
+        train_metrics = _epoch_metrics(
+            train_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped
+        )
         val_score = _objective_from_validation_metrics(val_metrics, use_grouped=use_grouped)
 
         train_history.append(
@@ -1042,20 +1232,30 @@ def _run_optuna_hpo(
     hpo_cfg = _resolve_hpo_config(cfg)
     backend = str(hpo_cfg.get("backend", "optuna")).lower()
     if backend != "optuna":
-        raise ValueError(f"Unsupported EA-MIST HPO backend '{backend}'. Only 'optuna' is supported.")
+        raise ValueError(
+            f"Unsupported EA-MIST HPO backend '{backend}'. Only 'optuna' is supported."
+        )
     enabled = bool(hpo_cfg.get("enabled", False))
     num_trials = max(1, int(hpo_cfg.get("num_trials", 1)))
     if not enabled or num_trials == 1:
-        return {}, pd.DataFrame([{"trial_index": 0, "state": "COMPLETE", "objective": None, "overrides": "{}"}])
+        return {}, pd.DataFrame(
+            [{"trial_index": 0, "state": "COMPLETE", "objective": None, "overrides": "{}"}]
+        )
 
     search_space = _normalize_hpo_search_space(cfg, model_family)
     if not search_space:
-        return {}, pd.DataFrame([{"trial_index": 0, "state": "COMPLETE", "objective": None, "overrides": "{}"}])
+        return {}, pd.DataFrame(
+            [{"trial_index": 0, "state": "COMPLETE", "objective": None, "overrides": "{}"}]
+        )
 
     sampler_name = str(hpo_cfg.get("sampler", "tpe")).lower()
     if sampler_name != "tpe":
-        raise ValueError(f"Unsupported Optuna sampler '{sampler_name}'. Only 'tpe' is currently supported.")
-    sampler = optuna.samplers.TPESampler(seed=int(hpo_cfg.get("seed", 17)) + 1009 * int(fold_index))
+        raise ValueError(
+            f"Unsupported Optuna sampler '{sampler_name}'. Only 'tpe' is currently supported."
+        )
+    sampler = optuna.samplers.TPESampler(
+        seed=int(hpo_cfg.get("seed", 17)) + 1009 * int(fold_index)
+    )
     pruner = optuna.pruners.MedianPruner(
         n_startup_trials=int(hpo_cfg.get("n_startup_trials", min(3, num_trials))),
         n_warmup_steps=int(hpo_cfg.get("n_warmup_steps", 3)),
@@ -1084,18 +1284,26 @@ def _run_optuna_hpo(
             train_loader=train_loader,
             val_loader=val_loader,
             trial_root=trial_root,
-            local_mode=str(_cfg_select(trial_cfg, "context_model.eamist.local_encoder_training_mode", local_mode)),
+            local_mode=str(
+                _cfg_select(
+                    trial_cfg, "context_model.eamist.local_encoder_training_mode", local_mode
+                )
+            ),
             pretrained_checkpoint=pretrained_checkpoint,
             optuna_trial=trial,
         )
         trial.set_user_attr("overrides", overrides)
         trial.set_user_attr("best_payload", fit_result["best_payload"])
         trial.set_user_attr("artifact_dir", str(trial_root))
-        return _objective_from_validation_metrics(fit_result["best_payload"], use_grouped=_is_grouped(cfg))
+        return _objective_from_validation_metrics(
+            fit_result["best_payload"], use_grouped=_is_grouped(cfg)
+        )
 
     study.optimize(objective, n_trials=num_trials, gc_after_trial=True)
     trial_table = _build_optuna_trial_table(study)
-    complete_trials = [trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE]
+    complete_trials = [
+        trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE
+    ]
     if not complete_trials:
         log.warning(
             "Optuna produced no completed trials for model=%s reference_mode=%s fold=%d. Falling back to base config.",
@@ -1119,7 +1327,14 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
         / "eamist_benchmark"
     )
     summary_rows: list[dict[str, object]] = []
-    model_families = [str(name) for name in _cfg_select(cfg, "context_model.eamist.model_families", ["pooled", "deep_sets", "lesion_set_transformer", "eamist_no_prototypes", "eamist"])]
+    model_families = [
+        str(name)
+        for name in _cfg_select(
+            cfg,
+            "context_model.eamist.model_families",
+            ["pooled", "deep_sets", "lesion_set_transformer", "eamist_no_prototypes", "eamist"],
+        )
+    ]
     reference_feature_modes = [
         str(name)
         for name in _cfg_select(cfg, "context_model.eamist.reference_feature_modes", ["hlca_luca"])
@@ -1128,7 +1343,9 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     outer_folds = int(_cfg_select(cfg, "context_model.eamist.outer_folds", 3))
     batch_size = int(_cfg_select(cfg, "context_model.eamist.batch_size_bags", 8))
     local_mode = str(_cfg_select(cfg, "context_model.eamist.local_encoder_training_mode", "full"))
-    pretrained_checkpoint = _cfg_select(cfg, "context_model.eamist.pretrained_local_checkpoint", None)
+    pretrained_checkpoint = _cfg_select(
+        cfg, "context_model.eamist.pretrained_local_checkpoint", None
+    )
     device = _resolve_device(cfg)
 
     if not build_result.bags:
@@ -1136,7 +1353,9 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     use_grouped = _is_grouped(cfg)
     if _is_binary(cfg):
         _remap_bags_to_binary(build_result.bags)
-        log.info("Remapped %d bags to binary labels (pre_invasive/invasive)", len(build_result.bags))
+        log.info(
+            "Remapped %d bags to binary labels (pre_invasive/invasive)", len(build_result.bags)
+        )
     elif use_grouped:
         _remap_bags_to_grouped(build_result.bags)
         log.info("Remapped %d bags to grouped ordinal labels", len(build_result.bags))
@@ -1147,7 +1366,11 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     dims = infer_local_feature_dims(NeighborhoodPretrainDataset(build_result.bags))
     evolution_dim = 0
     if any(bag.evolution_features is not None for bag in build_result.bags):
-        evolution_dim = max(int(np.asarray(bag.evolution_features, dtype=np.float32).shape[0]) for bag in build_result.bags if bag.evolution_features is not None)
+        evolution_dim = max(
+            int(np.asarray(bag.evolution_features, dtype=np.float32).shape[0])
+            for bag in build_result.bags
+            if bag.evolution_features is not None
+        )
     edge_target_labels = tuple(build_result.bags[0].edge_target_labels or ())
     num_edge_heads = len(edge_target_labels)
     folds = build_multitask_lesion_folds(
@@ -1179,18 +1402,41 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                 model_ref_mode = "hlca_luca"
                 active_bags = ctrl_bags
                 active_dataset = ctrl_dataset
-                log.info("Negative control '%s' applied — using modified bags with model ref_mode='hlca_luca'", reference_feature_mode)
+                log.info(
+                    "Negative control '%s' applied — using modified bags with model ref_mode='hlca_luca'",
+                    reference_feature_mode,
+                )
             else:
                 model_ref_mode = reference_feature_mode
                 active_bags = build_result.bags
                 active_dataset = dataset
             for fold in folds:
                 assert_no_split_leakage(active_bags, fold)
-                fold_root = _ensure_dir(output_root / reference_feature_mode / model_family / f"fold_{fold.fold_index:02d}")
+                fold_root = _ensure_dir(
+                    output_root
+                    / reference_feature_mode
+                    / model_family
+                    / f"fold_{fold.fold_index:02d}"
+                )
                 train_bags = [active_bags[idx] for idx in fold.train_indices]
-                train_loader = DataLoader(Subset(active_dataset, list(fold.train_indices)), batch_size=batch_size, shuffle=True, collate_fn=collate_lesion_bags)
-                val_loader = DataLoader(Subset(active_dataset, list(fold.val_indices)), batch_size=batch_size, shuffle=False, collate_fn=collate_lesion_bags)
-                test_loader = DataLoader(Subset(active_dataset, list(fold.test_indices)), batch_size=batch_size, shuffle=False, collate_fn=collate_lesion_bags)
+                train_loader = DataLoader(
+                    Subset(active_dataset, list(fold.train_indices)),
+                    batch_size=batch_size,
+                    shuffle=True,
+                    collate_fn=collate_lesion_bags,
+                )
+                val_loader = DataLoader(
+                    Subset(active_dataset, list(fold.val_indices)),
+                    batch_size=batch_size,
+                    shuffle=False,
+                    collate_fn=collate_lesion_bags,
+                )
+                test_loader = DataLoader(
+                    Subset(active_dataset, list(fold.test_indices)),
+                    batch_size=batch_size,
+                    shuffle=False,
+                    collate_fn=collate_lesion_bags,
+                )
 
                 best_trial_overrides, hpo_trial_table = _run_optuna_hpo(
                     cfg=cfg,
@@ -1210,14 +1456,22 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                     pretrained_checkpoint=pretrained_checkpoint,
                 )
                 hpo_trial_table.to_csv(fold_root / "hpo_trial_summary.csv", index=False)
-                complete_rows = hpo_trial_table.loc[hpo_trial_table["state"] == "COMPLETE"] if "state" in hpo_trial_table.columns else hpo_trial_table
+                complete_rows = (
+                    hpo_trial_table.loc[hpo_trial_table["state"] == "COMPLETE"]
+                    if "state" in hpo_trial_table.columns
+                    else hpo_trial_table
+                )
                 if complete_rows.empty or "objective" not in complete_rows.columns:
                     best_trial_idx = 0
                     best_trial_objective = None
                 else:
-                    best_row = complete_rows.sort_values("objective", ascending=False, na_position="last").iloc[0]
+                    best_row = complete_rows.sort_values(
+                        "objective", ascending=False, na_position="last"
+                    ).iloc[0]
                     best_trial_idx = int(best_row["trial_index"])
-                    best_trial_objective = None if pd.isna(best_row["objective"]) else float(best_row["objective"])
+                    best_trial_objective = (
+                        None if pd.isna(best_row["objective"]) else float(best_row["objective"])
+                    )
                 (fold_root / "best_hpo_config.json").write_text(
                     json.dumps(
                         {
@@ -1247,7 +1501,13 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                         train_loader=train_loader,
                         val_loader=val_loader,
                         trial_root=run_root,
-                        local_mode=str(_cfg_select(run_cfg, "context_model.eamist.local_encoder_training_mode", local_mode)),
+                        local_mode=str(
+                            _cfg_select(
+                                run_cfg,
+                                "context_model.eamist.local_encoder_training_mode",
+                                local_mode,
+                            )
+                        ),
                         pretrained_checkpoint=pretrained_checkpoint,
                     )
 
@@ -1262,15 +1522,39 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                     ).to(device)
                     model.load_state_dict(checkpoint["state_dict"], strict=False)
                     model.eval()
-                    stage_class_weights = _compute_stage_class_weights(train_bags, num_stage_classes=_active_num_classes(cfg)).to(device)
+                    stage_class_weights = _compute_stage_class_weights(
+                        train_bags, num_stage_classes=_active_num_classes(cfg)
+                    ).to(device)
 
-                    val_epoch = _run_epoch(model, val_loader, device=device, optimizer=None, cfg=run_cfg, stage_class_weights=stage_class_weights)
-                    test_epoch = _run_epoch(model, test_loader, device=device, optimizer=None, cfg=run_cfg, stage_class_weights=stage_class_weights)
-                    val_metrics = _epoch_metrics(val_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped)
-                    test_metrics = _epoch_metrics(test_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped)
+                    val_epoch = _run_epoch(
+                        model,
+                        val_loader,
+                        device=device,
+                        optimizer=None,
+                        cfg=run_cfg,
+                        stage_class_weights=stage_class_weights,
+                    )
+                    test_epoch = _run_epoch(
+                        model,
+                        test_loader,
+                        device=device,
+                        optimizer=None,
+                        cfg=run_cfg,
+                        stage_class_weights=stage_class_weights,
+                    )
+                    val_metrics = _epoch_metrics(
+                        val_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped
+                    )
+                    test_metrics = _epoch_metrics(
+                        test_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped
+                    )
 
-                    test_frame = _prediction_frame(active_bags, fold.test_indices, test_epoch, use_grouped=use_grouped)
-                    val_frame = _prediction_frame(active_bags, fold.val_indices, val_epoch, use_grouped=use_grouped)
+                    test_frame = _prediction_frame(
+                        active_bags, fold.test_indices, test_epoch, use_grouped=use_grouped
+                    )
+                    val_frame = _prediction_frame(
+                        active_bags, fold.val_indices, val_epoch, use_grouped=use_grouped
+                    )
                     auxiliary_edge_metrics = compute_masked_edge_metrics(
                         test_epoch["edge_logits"],
                         test_epoch["edge_targets"],
@@ -1286,15 +1570,21 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                         "selected_hpo_trial": best_trial_idx,
                     }
                     if use_grouped:
-                        confusion = grouped_confusion_matrix_payload(test_epoch["stage_targets"], test_epoch["stage_predictions"])
+                        confusion = grouped_confusion_matrix_payload(
+                            test_epoch["stage_targets"], test_epoch["stage_predictions"]
+                        )
                         support = grouped_support_payload(test_epoch["stage_targets"])
                     else:
-                        confusion = stage_confusion_matrix_payload(test_epoch["stage_targets"], test_epoch["stage_predictions"])
+                        confusion = stage_confusion_matrix_payload(
+                            test_epoch["stage_targets"], test_epoch["stage_predictions"]
+                        )
                         support = stage_support_payload(test_epoch["stage_targets"])
 
                     test_frame.to_parquet(run_root / "test_predictions.parquet", index=False)
                     val_frame.to_parquet(run_root / "val_predictions.parquet", index=False)
-                    (run_root / "confusion_matrix.json").write_text(json.dumps(confusion, indent=2), encoding="utf-8")
+                    (run_root / "confusion_matrix.json").write_text(
+                        json.dumps(confusion, indent=2), encoding="utf-8"
+                    )
                     (run_root / "metrics.json").write_text(
                         json.dumps(
                             {
@@ -1306,8 +1596,12 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                         ),
                         encoding="utf-8",
                     )
-                    (run_root / "auxiliary_edge_metrics.json").write_text(json.dumps(auxiliary_edge_metrics, indent=2), encoding="utf-8")
-                    (run_root / "split_summary.json").write_text(json.dumps(split_summary, indent=2), encoding="utf-8")
+                    (run_root / "auxiliary_edge_metrics.json").write_text(
+                        json.dumps(auxiliary_edge_metrics, indent=2), encoding="utf-8"
+                    )
+                    (run_root / "split_summary.json").write_text(
+                        json.dumps(split_summary, indent=2), encoding="utf-8"
+                    )
                     (run_root / "selected_hyperparameters.json").write_text(
                         json.dumps(best_trial_overrides, indent=2),
                         encoding="utf-8",
@@ -1319,7 +1613,9 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                                 "task_name": "stage_displacement",
                                 "reference_feature_mode": reference_feature_mode,
                                 "dims": asdict(dims),
-                                "evolution_dim": None if evolution_dim <= 0 else int(evolution_dim),
+                                "evolution_dim": None
+                                if evolution_dim <= 0
+                                else int(evolution_dim),
                                 "num_edge_heads": int(num_edge_heads),
                                 "edge_target_labels": list(edge_target_labels),
                             },
@@ -1328,11 +1624,17 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                         encoding="utf-8",
                     )
                     if isinstance(model, EAMISTModel):
-                        prototype_frame, attention_frame = _export_eamist_interpretability(model, test_loader, device=device)
+                        prototype_frame, attention_frame = _export_eamist_interpretability(
+                            model, test_loader, device=device
+                        )
                         if not prototype_frame.empty:
-                            prototype_frame.to_parquet(run_root / "prototype_composition.parquet", index=False)
+                            prototype_frame.to_parquet(
+                                run_root / "prototype_composition.parquet", index=False
+                            )
                         if not attention_frame.empty:
-                            attention_frame.to_parquet(run_root / "lesion_attention.parquet", index=False)
+                            attention_frame.to_parquet(
+                                run_root / "lesion_attention.parquet", index=False
+                            )
 
                     summary_rows.append(
                         {
@@ -1342,7 +1644,9 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                             "fold": int(fold.fold_index),
                             "seed": int(run_seed),
                             "selected_hpo_trial": int(best_trial_idx),
-                            "selected_hpo_overrides": json.dumps(best_trial_overrides, sort_keys=True),
+                            "selected_hpo_overrides": json.dumps(
+                                best_trial_overrides, sort_keys=True
+                            ),
                             **test_metrics,
                             "artifact_dir": str(run_root),
                         }
@@ -1353,18 +1657,28 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     summary = pd.DataFrame(summary_rows)
     summary.to_csv(output_root / "benchmark_summary.csv", index=False)
     if use_grouped:
-        metric_cols = ["grouped_macro_f1", "grouped_balanced_accuracy", "grouped_weighted_kappa", "displacement_mae", "displacement_spearman"]
-    else:
-        metric_cols = ["stage_macro_f1", "stage_balanced_accuracy", "displacement_mae", "displacement_spearman"]
-    available_cols = [c for c in metric_cols if c in summary.columns]
-    model_family_summary = (
-        summary.groupby(["task_name", "reference_feature_mode", "model_family"], as_index=False)[
-            available_cols
+        metric_cols = [
+            "grouped_macro_f1",
+            "grouped_balanced_accuracy",
+            "grouped_weighted_kappa",
+            "displacement_mae",
+            "displacement_spearman",
         ]
-        .agg(["mean", "std"])
-    )
+    else:
+        metric_cols = [
+            "stage_macro_f1",
+            "stage_balanced_accuracy",
+            "displacement_mae",
+            "displacement_spearman",
+        ]
+    available_cols = [c for c in metric_cols if c in summary.columns]
+    model_family_summary = summary.groupby(
+        ["task_name", "reference_feature_mode", "model_family"], as_index=False
+    )[available_cols].agg(["mean", "std"])
     model_family_summary.columns = [
-        "_".join([part for part in column if part]).strip("_") if isinstance(column, tuple) else str(column)
+        "_".join([part for part in column if part]).strip("_")
+        if isinstance(column, tuple)
+        else str(column)
         for column in model_family_summary.columns
     ]
     model_family_summary.to_csv(output_root / "model_family_summary.csv", index=False)
@@ -1379,4 +1693,9 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
     }
 
 
-__all__ = ["run_train_lesion", "build_model_family", "load_pretrained_local_encoder", "_cfg_select"]
+__all__ = [
+    "run_train_lesion",
+    "build_model_family",
+    "load_pretrained_local_encoder",
+    "_cfg_select",
+]

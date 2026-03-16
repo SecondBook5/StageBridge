@@ -1,4 +1,5 @@
 """Build niche-level HLCA healthy-reference features for EA-MIST."""
+
 from __future__ import annotations
 
 import argparse
@@ -21,7 +22,9 @@ from .eamist_common import (
 )
 
 
-def _lineage_sum(frame: pd.DataFrame, token_columns: list[str], labels: list[str], lineage: str) -> np.ndarray:
+def _lineage_sum(
+    frame: pd.DataFrame, token_columns: list[str], labels: list[str], lineage: str
+) -> np.ndarray:
     members = set(TOKEN_LINEAGES[lineage])
     selected = [column for column, label in zip(token_columns, labels) if label in members]
     if not selected:
@@ -58,7 +61,11 @@ def run(
     if "hlca_label" in labels_df.columns:
         state_column = "hlca_label"
     else:
-        string_cols = [column for column in labels_df.columns if labels_df[column].dtype == object or pd.api.types.is_string_dtype(labels_df[column])]
+        string_cols = [
+            column
+            for column in labels_df.columns
+            if labels_df[column].dtype == object or pd.api.types.is_string_dtype(labels_df[column])
+        ]
         if not string_cols:
             raise ValueError("Could not detect a useful HLCA state column.")
         state_column = str(string_cols[0])
@@ -73,7 +80,9 @@ def run(
         if state_column in labels_df.columns:
             obs = obs.join(labels_df[[state_column]], how="left")
         else:
-            raise KeyError(f"HLCA latent obs and labels parquet were both missing state column '{state_column}'.")
+            raise KeyError(
+                f"HLCA latent obs and labels parquet were both missing state column '{state_column}'."
+            )
     if "stage" not in obs.columns:
         raise KeyError("HLCA latent file is missing 'stage' in obs.")
 
@@ -85,15 +94,25 @@ def run(
     if baseline_counts.sum() <= 0:
         baseline_source = "all_cells"
         baseline_counts = obs[state_column].value_counts()
-    matched_states = [label for label in token_labels if float(baseline_counts.get(label, 0.0)) > 0.0]
+    matched_states = [
+        label for label in token_labels if float(baseline_counts.get(label, 0.0)) > 0.0
+    ]
     if not matched_states:
         raise ValueError("No HLCA states overlapped with niche token labels.")
 
     token_index = {label: idx for idx, label in enumerate(token_labels)}
-    state_similarity = np.column_stack([niche_matrix[:, token_index[label]] for label in matched_states]).astype(np.float32, copy=False)
+    state_similarity = np.column_stack(
+        [niche_matrix[:, token_index[label]] for label in matched_states]
+    ).astype(np.float32, copy=False)
     top_scores, top_labels = topk_labels_and_scores(state_similarity, matched_states, int(top_k))
-    baseline_vector = np.asarray([float(baseline_counts.get(label, 0.0)) for label in matched_states], dtype=np.float32)[None, :]
-    normal_likeness = cosine_similarity_rows(state_similarity, baseline_vector).reshape(-1).astype(np.float32, copy=False)
+    baseline_vector = np.asarray(
+        [float(baseline_counts.get(label, 0.0)) for label in matched_states], dtype=np.float32
+    )[None, :]
+    normal_likeness = (
+        cosine_similarity_rows(state_similarity, baseline_vector)
+        .reshape(-1)
+        .astype(np.float32, copy=False)
+    )
     max_state_similarity = state_similarity.max(axis=1).astype(np.float32, copy=False)
 
     epithelial_summary = _lineage_sum(niche_df, token_columns, token_labels, "epithelial")
@@ -107,12 +126,16 @@ def run(
         where=dominant_lineage > 0,
     ).astype(np.float32, copy=False)
 
-    result = niche_df.loc[:, ["lesion_id", "sample_id", "niche_id", "donor_id", "patient_id", "stage"]].copy()
+    result = niche_df.loc[
+        :, ["lesion_id", "sample_id", "niche_id", "donor_id", "patient_id", "stage"]
+    ].copy()
     for idx in range(top_scores.shape[1]):
         result[f"hlca_top{idx + 1}_similarity"] = top_scores[:, idx].astype(np.float32, copy=False)
         result[f"hlca_top{idx + 1}_state"] = top_labels[:, idx].astype(str)
     result["hlca_normal_likeness_score"] = normal_likeness
-    result["hlca_deviation_from_normal_score"] = (1.0 - normal_likeness).astype(np.float32, copy=False)
+    result["hlca_deviation_from_normal_score"] = (1.0 - normal_likeness).astype(
+        np.float32, copy=False
+    )
     result["hlca_lineage_fidelity_score"] = lineage_fidelity
     result["hlca_max_state_similarity"] = max_state_similarity
     result["hlca_topk_entropy"] = entropy_from_rows(np.clip(top_scores, 0.0, None))
@@ -143,11 +166,24 @@ def run(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--hlca-labels", type=Path, required=True, help="Path to snrna_full_hlca_labels.parquet")
-    parser.add_argument("--hlca-latent", type=Path, required=True, help="Path to snrna_hlca_latent_full.h5ad")
-    parser.add_argument("--niche-parquet", type=Path, required=True, help="Path to niche_tokens_full.parquet")
-    parser.add_argument("--out", type=Path, required=True, help="Output parquet for niche HLCA features")
-    parser.add_argument("--top-k", type=int, default=DEFAULT_HLCA_TOP_K, help="Top-k HLCA state similarities to keep per niche")
+    parser.add_argument(
+        "--hlca-labels", type=Path, required=True, help="Path to snrna_full_hlca_labels.parquet"
+    )
+    parser.add_argument(
+        "--hlca-latent", type=Path, required=True, help="Path to snrna_hlca_latent_full.h5ad"
+    )
+    parser.add_argument(
+        "--niche-parquet", type=Path, required=True, help="Path to niche_tokens_full.parquet"
+    )
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Output parquet for niche HLCA features"
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=DEFAULT_HLCA_TOP_K,
+        help="Top-k HLCA state similarities to keep per niche",
+    )
     return parser
 
 

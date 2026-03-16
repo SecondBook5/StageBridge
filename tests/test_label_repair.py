@@ -58,8 +58,30 @@ def test_refinement_marks_heuristic_positive_uncertain_without_nonproxy() -> Non
     manifest = _manifest()
     wes = pd.DataFrame(
         [
-            {"patient_id": "P1", "stage": "AAH", "tmb": 10.0, "kras_mut": 0.0, "egfr_mut": 0.0, "tp53_mut": 0.0, "stk11_mut": 0.0, "keap1_mut": 0.0, "smad4_mut": 0.0, "braf_mut": 0.0},
-            {"patient_id": "P2", "stage": "AAH", "tmb": 2.0, "kras_mut": 0.0, "egfr_mut": 0.0, "tp53_mut": 0.0, "stk11_mut": 0.0, "keap1_mut": 0.0, "smad4_mut": 0.0, "braf_mut": 0.0},
+            {
+                "patient_id": "P1",
+                "stage": "AAH",
+                "tmb": 10.0,
+                "kras_mut": 0.0,
+                "egfr_mut": 0.0,
+                "tp53_mut": 0.0,
+                "stk11_mut": 0.0,
+                "keap1_mut": 0.0,
+                "smad4_mut": 0.0,
+                "braf_mut": 0.0,
+            },
+            {
+                "patient_id": "P2",
+                "stage": "AAH",
+                "tmb": 2.0,
+                "kras_mut": 0.0,
+                "egfr_mut": 0.0,
+                "tp53_mut": 0.0,
+                "stk11_mut": 0.0,
+                "keap1_mut": 0.0,
+                "smad4_mut": 0.0,
+                "braf_mut": 0.0,
+            },
         ]
     )
     empty = pd.DataFrame({"lesion_id": ["L1", "L2"]})

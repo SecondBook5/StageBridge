@@ -1,4 +1,5 @@
 """Mission 3 data-contract tests for the active LUAD evolution path."""
+
 from __future__ import annotations
 
 from pathlib import Path

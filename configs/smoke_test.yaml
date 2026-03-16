@@ -1,0 +1,75 @@
+# StageBridge Smoke Test Configuration
+#
+# This configuration is designed for fast pipeline validation (< 5 minutes).
+# It uses minimal data subsets and reduced iterations to test the full
+# pipeline flow without requiring complete data or full training.
+
+run_id: smoke_test
+seed: 42
+device: cpu
+
+# Dataset configuration (minimal subset)
+dataset:
+  name: smoke_test_data
+  path: data/smoke/
+  subset_size: 100  # Use only 100 samples
+
+# Enabled stages for smoke test
+stages:
+  enabled:
+    - data_qc
+    - reference
+    - spatial_backend
+    - baselines
+    # Skip resource-intensive stages in smoke test
+    # - full_model
+    # - ablations
+    # - biology
+    # - figures
+
+# Minimal spatial backend testing
+spatial_backends:
+  - tangram
+
+# Minimal baseline testing
+baselines:
+  - mlp
+
+# No ablations in smoke test
+ablations: []
+
+# Resume settings
+resume_if_possible: false
+force_rerun: true
+
+# Notebook display settings
+notebook:
+  verbosity: minimal
+  show_figures: false
+  figure_dpi: 72
+
+# Training settings (minimal)
+train:
+  max_epochs: 1
+  batch_size: 16
+  early_stopping: false
+
+# Model settings (minimal)
+model:
+  hidden_dim: 32
+  num_layers: 1
+  dropout: 0.1
+
+# Reference settings
+reference:
+  method: hlca
+  n_components: 16
+
+# Profiles for component configs
+profiles:
+  data: luad_evo
+  spatial_mapping: tangram
+  context_model: set_only
+  splits: donor_holdout
+  train: smoke
+  evaluation: baseline

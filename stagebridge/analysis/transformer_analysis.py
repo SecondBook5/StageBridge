@@ -46,11 +46,12 @@ class AttentionExtractor:
                     attn = output[1]  # [batch, num_heads, seq_len, seq_len]
                     if attn is not None:
                         self.attention_weights[name] = attn.detach().cpu().numpy()
+
             return hook
 
         # Find all attention modules
         for name, module in self.model.named_modules():
-            if any(x in name.lower() for x in ['attention', 'multihead', 'mha']):
+            if any(x in name.lower() for x in ["attention", "multihead", "mha"]):
                 hook = module.register_forward_hook(make_hook(name))
                 self.hooks.append(hook)
 
@@ -123,14 +124,16 @@ def analyze_attention_entropy(
         eps = 1e-10
         entropy_per_query = -np.sum(attn * np.log(attn + eps), axis=-1)
 
-        results.append({
-            "layer": layer_name,
-            "mean_entropy": entropy_per_query.mean(),
-            "std_entropy": entropy_per_query.std(),
-            "min_entropy": entropy_per_query.min(),
-            "max_entropy": entropy_per_query.max(),
-            "interpretation": _interpret_entropy(entropy_per_query.mean()),
-        })
+        results.append(
+            {
+                "layer": layer_name,
+                "mean_entropy": entropy_per_query.mean(),
+                "std_entropy": entropy_per_query.std(),
+                "min_entropy": entropy_per_query.min(),
+                "max_entropy": entropy_per_query.max(),
+                "interpretation": _interpret_entropy(entropy_per_query.mean()),
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -188,17 +191,19 @@ def analyze_multihead_specialization(
         # Diagonal strength (self-attention)
         diagonal_strength = np.diag(head_attn).mean()
 
-        results.append({
-            "head": head_names[head_idx],
-            "head_idx": head_idx,
-            "entropy": entropy,
-            "max_attention": max_attn,
-            "max_query_pos": max_pos[0],
-            "max_key_pos": max_pos[1],
-            "sparsity": sparsity,
-            "diagonal_strength": diagonal_strength,
-            "specialization": _classify_head_specialization(entropy, diagonal_strength),
-        })
+        results.append(
+            {
+                "head": head_names[head_idx],
+                "head_idx": head_idx,
+                "entropy": entropy,
+                "max_attention": max_attn,
+                "max_query_pos": max_pos[0],
+                "max_key_pos": max_pos[1],
+                "sparsity": sparsity,
+                "diagonal_strength": diagonal_strength,
+                "specialization": _classify_head_specialization(entropy, diagonal_strength),
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -238,12 +243,14 @@ def rank_token_importance(
 
     results = []
     for idx, (name, score) in enumerate(zip(token_names, importance)):
-        results.append({
-            "token": name,
-            "position": idx,
-            "importance_score": score,
-            "rank": 0,  # Will be filled in
-        })
+        results.append(
+            {
+                "token": name,
+                "position": idx,
+                "importance_score": score,
+                "rank": 0,  # Will be filled in
+            }
+        )
 
     df = pd.DataFrame(results)
     df = df.sort_values("importance_score", ascending=False)
@@ -275,7 +282,7 @@ def visualize_attention_patterns(
         axes = [axes]
 
     for idx, (name, attn) in enumerate(attention_weights.items()):
-        im = axes[idx].imshow(attn, cmap='viridis', aspect='auto', vmin=0, vmax=1)
+        im = axes[idx].imshow(attn, cmap="viridis", aspect="auto", vmin=0, vmax=1)
         axes[idx].set_title(f"{name.split('.')[-1]}", fontsize=12)
         axes[idx].set_xlabel("Key Position")
         axes[idx].set_ylabel("Query Position")
@@ -283,14 +290,14 @@ def visualize_attention_patterns(
         if token_names is not None and len(token_names) == attn.shape[0]:
             axes[idx].set_xticks(range(len(token_names)))
             axes[idx].set_yticks(range(len(token_names)))
-            axes[idx].set_xticklabels(token_names, rotation=45, ha='right', fontsize=8)
+            axes[idx].set_xticklabels(token_names, rotation=45, ha="right", fontsize=8)
             axes[idx].set_yticklabels(token_names, fontsize=8)
 
         plt.colorbar(im, ax=axes[idx], fraction=0.046, pad=0.04)
 
-    plt.suptitle("Attention Patterns Across Layers", fontsize=14, fontweight='bold')
+    plt.suptitle("Attention Patterns Across Layers", fontsize=14, fontweight="bold")
     plt.tight_layout()
-    plt.savefig(output_dir / "attention_patterns.png", dpi=150, bbox_inches='tight')
+    plt.savefig(output_dir / "attention_patterns.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     print(f"Saved: {output_dir / 'attention_patterns.png'}")
@@ -321,7 +328,7 @@ def visualize_multihead_attention(
     for head_idx in range(min(n_heads, 8)):
         head_attn = attention_weights[head_idx]
 
-        im = axes[head_idx].imshow(head_attn, cmap='viridis', aspect='auto', vmin=0, vmax=1)
+        im = axes[head_idx].imshow(head_attn, cmap="viridis", aspect="auto", vmin=0, vmax=1)
 
         # Compute entropy
         eps = 1e-10
@@ -332,9 +339,9 @@ def visualize_multihead_attention(
         axes[head_idx].set_ylabel("Query", fontsize=8)
         plt.colorbar(im, ax=axes[head_idx], fraction=0.046, pad=0.04)
 
-    plt.suptitle(f"Multi-Head Attention: {layer_name}", fontsize=12, fontweight='bold')
+    plt.suptitle(f"Multi-Head Attention: {layer_name}", fontsize=12, fontweight="bold")
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
     print(f"Saved: {output_path}")
@@ -364,6 +371,7 @@ def correlate_attention_with_influence(
 
     # Spearman rank correlation
     from scipy.stats import spearmanr
+
     rank_corr, p_value = spearmanr(attn_received, influence_scores)
 
     return {
@@ -423,9 +431,14 @@ def generate_transformer_report(
     # 2. Visualize patterns
     token_names = [
         "Receiver",
-        "Ring1", "Ring2", "Ring3", "Ring4",
-        "HLCA", "LuCA",
-        "Pathway", "Stats"
+        "Ring1",
+        "Ring2",
+        "Ring3",
+        "Ring4",
+        "HLCA",
+        "LuCA",
+        "Pathway",
+        "Stats",
     ]
     visualize_attention_patterns(
         attention_weights,
@@ -465,8 +478,8 @@ def generate_transformer_report(
     if influence_df is not None and len(influence_df) > 0:
         for layer_name, attn in attention_weights.items():
             # Map influence to attention positions
-            if 'ring_id' in influence_df.columns:
-                influence_by_pos = influence_df.groupby('ring_id')['influence'].mean().values
+            if "ring_id" in influence_df.columns:
+                influence_by_pos = influence_df.groupby("ring_id")["influence"].mean().values
 
                 if len(influence_by_pos) == attn.shape[0]:
                     corr_stats = correlate_attention_with_influence(
@@ -497,9 +510,15 @@ def generate_transformer_report(
         f.write("\n\n")
 
         f.write("## Key Findings\n\n")
-        f.write("1. **Attention Specialization**: Different layers attend to different aspects of the niche\n")
-        f.write("2. **Biological Relevance**: Attention patterns correlate with biological influence\n")
-        f.write("3. **Interpretability**: Transformer provides mechanistic insight into state transitions\n\n")
+        f.write(
+            "1. **Attention Specialization**: Different layers attend to different aspects of the niche\n"
+        )
+        f.write(
+            "2. **Biological Relevance**: Attention patterns correlate with biological influence\n"
+        )
+        f.write(
+            "3. **Interpretability**: Transformer provides mechanistic insight into state transitions\n\n"
+        )
 
         f.write("## Files Generated\n\n")
         for p in output_dir.glob("*"):

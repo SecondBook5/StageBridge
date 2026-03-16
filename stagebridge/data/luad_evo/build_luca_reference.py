@@ -1,4 +1,5 @@
 """Build LuCA state centroids and state summaries for EA-MIST."""
+
 from __future__ import annotations
 
 import argparse
@@ -69,7 +70,9 @@ def _accumulate_centroids_from_obsm(
     progress_every = max(total_chunks // 10, 1)
     with h5py.File(atlas_path, "r") as handle:
         matrix_obj = handle["obsm"][embedding.key]
-        for chunk_index, start in enumerate(range(0, int(embedding.shape[0]), int(chunk_size)), start=1):
+        for chunk_index, start in enumerate(
+            range(0, int(embedding.shape[0]), int(chunk_size)), start=1
+        ):
             stop = min(start + int(chunk_size), int(embedding.shape[0]))
             block = read_matrix_chunk(matrix_obj, start, stop)
             block_codes = state_codes[start:stop]
@@ -83,7 +86,11 @@ def _accumulate_centroids_from_obsm(
                 counts[int(code)] += int(rows.shape[0])
                 sums[int(code)] += rows.sum(axis=0, dtype=np.float64)
                 sumsq[int(code)] += np.square(rows, dtype=np.float64).sum(axis=0, dtype=np.float64)
-            if chunk_index == 1 or chunk_index % progress_every == 0 or chunk_index == total_chunks:
+            if (
+                chunk_index == 1
+                or chunk_index % progress_every == 0
+                or chunk_index == total_chunks
+            ):
                 log.info(
                     "Accumulating LuCA centroids from obsm '%s': chunk %d/%d",
                     embedding.key,
@@ -108,7 +115,9 @@ def _accumulate_centroids_from_x(
     progress_every = max(total_chunks // 10, 1)
     adata = anndata.read_h5ad(atlas_path, backed="r")
     try:
-        for chunk_index, start in enumerate(range(0, int(embedding.shape[0]), int(chunk_size)), start=1):
+        for chunk_index, start in enumerate(
+            range(0, int(embedding.shape[0]), int(chunk_size)), start=1
+        ):
             stop = min(start + int(chunk_size), int(embedding.shape[0]))
             block = adata.X[start:stop]
             if sp.issparse(block):
@@ -125,7 +134,11 @@ def _accumulate_centroids_from_x(
                 counts[int(code)] += int(rows.shape[0])
                 sums[int(code)] += rows.sum(axis=0, dtype=np.float64)
                 sumsq[int(code)] += np.square(rows, dtype=np.float64).sum(axis=0, dtype=np.float64)
-            if chunk_index == 1 or chunk_index % progress_every == 0 or chunk_index == total_chunks:
+            if (
+                chunk_index == 1
+                or chunk_index % progress_every == 0
+                or chunk_index == total_chunks
+            ):
                 log.info(
                     "Accumulating LuCA centroids from X: chunk %d/%d",
                     chunk_index,
@@ -151,12 +164,19 @@ def run(atlas_path: Path, outdir: Path, *, chunk_size: int = 8192) -> dict[str, 
         selected.major_celltype_column,
         selected.malignant_column,
     )
-    state_series = obs[selected.state_column].astype(str).replace({"None": np.nan, "nan": np.nan, "": np.nan})
+    state_series = (
+        obs[selected.state_column].astype(str).replace({"None": np.nan, "nan": np.nan, "": np.nan})
+    )
     if state_series.dropna().empty:
-        raise ValueError(f"Selected LuCA state column '{selected.state_column}' did not contain usable values.")
+        raise ValueError(
+            f"Selected LuCA state column '{selected.state_column}' did not contain usable values."
+        )
     state_categories = sorted(state_series.dropna().astype(str).unique().tolist())
     state_to_code = {state: idx for idx, state in enumerate(state_categories)}
-    state_codes = np.asarray([state_to_code.get(value, -1) if pd.notna(value) else -1 for value in state_series], dtype=np.int32)
+    state_codes = np.asarray(
+        [state_to_code.get(value, -1) if pd.notna(value) else -1 for value in state_series],
+        dtype=np.int32,
+    )
 
     embedding = choose_best_embedding(atlas_path)
     if int(embedding.shape[0]) != int(obs.shape[0]):
@@ -193,7 +213,12 @@ def run(atlas_path: Path, outdir: Path, *, chunk_size: int = 8192) -> dict[str, 
         group_cols.append(selected.major_celltype_column)
     if selected.malignant_column is not None:
         group_cols.append(selected.malignant_column)
-    for column in (*selected.dataset_columns, *selected.sample_columns, *selected.patient_columns, *selected.epithelial_subtype_columns):
+    for column in (
+        *selected.dataset_columns,
+        *selected.sample_columns,
+        *selected.patient_columns,
+        *selected.epithelial_subtype_columns,
+    ):
         if column not in group_cols:
             group_cols.append(column)
     grouped = obs[group_cols].copy()
@@ -203,11 +228,21 @@ def run(atlas_path: Path, outdir: Path, *, chunk_size: int = 8192) -> dict[str, 
         if count <= 0:
             continue
         centroid = (sums[int(code)] / float(count)).astype(np.float32, copy=False)
-        variance = np.maximum((sumsq[int(code)] / float(count)) - np.square(centroid, dtype=np.float32), 0.0)
+        variance = np.maximum(
+            (sumsq[int(code)] / float(count)) - np.square(centroid, dtype=np.float32), 0.0
+        )
         dispersion = float(np.mean(variance, dtype=np.float64))
         state_rows = grouped.loc[state_series == state]
-        major_value = _mode_or_none(state_rows[selected.major_celltype_column]) if selected.major_celltype_column is not None else None
-        malignant_value = _mode_or_none(state_rows[selected.malignant_column]) if selected.malignant_column is not None else None
+        major_value = (
+            _mode_or_none(state_rows[selected.major_celltype_column])
+            if selected.major_celltype_column is not None
+            else None
+        )
+        malignant_value = (
+            _mode_or_none(state_rows[selected.malignant_column])
+            if selected.malignant_column is not None
+            else None
+        )
         epithelial_value = None
         for column in selected.epithelial_subtype_columns:
             epithelial_value = _mode_or_none(state_rows[column])
@@ -215,7 +250,9 @@ def run(atlas_path: Path, outdir: Path, *, chunk_size: int = 8192) -> dict[str, 
                 break
         grouping = infer_state_grouping(state, major_value, malignant_value, epithelial_value)
         token_profile = infer_token_profile(state, major_value, malignant_value, epithelial_value)
-        dataset_values = {column: _mode_or_none(state_rows[column]) for column in selected.dataset_columns}
+        dataset_values = {
+            column: _mode_or_none(state_rows[column]) for column in selected.dataset_columns
+        }
         rows_centroids.append(
             {
                 "luca_state": str(state),
@@ -257,8 +294,16 @@ def run(atlas_path: Path, outdir: Path, *, chunk_size: int = 8192) -> dict[str, 
             summary_row[f"token_weight__{label}"] = float(token_profile[label])
         rows_summary.append(summary_row)
 
-    centroids = pd.DataFrame(rows_centroids).sort_values(["count", "luca_state"], ascending=[False, True]).reset_index(drop=True)
-    summary = pd.DataFrame(rows_summary).sort_values(["count", "luca_state"], ascending=[False, True]).reset_index(drop=True)
+    centroids = (
+        pd.DataFrame(rows_centroids)
+        .sort_values(["count", "luca_state"], ascending=[False, True])
+        .reset_index(drop=True)
+    )
+    summary = (
+        pd.DataFrame(rows_summary)
+        .sort_values(["count", "luca_state"], ascending=[False, True])
+        .reset_index(drop=True)
+    )
     if centroids.empty or summary.empty:
         raise ValueError("LuCA reference construction produced no states.")
 
@@ -275,7 +320,9 @@ def run(atlas_path: Path, outdir: Path, *, chunk_size: int = 8192) -> dict[str, 
         "embedding_source": embedding.source,
         "embedding_shape": [int(embedding.shape[0]), int(embedding.shape[1])],
         "number_of_states": int(summary.shape[0]),
-        "top_states_by_abundance": summary.loc[:, ["luca_state", "count"]].head(20).to_dict(orient="records"),
+        "top_states_by_abundance": summary.loc[:, ["luca_state", "count"]]
+        .head(20)
+        .to_dict(orient="records"),
     }
     write_json(outdir / "luca_reference_manifest.json", manifest)
     log.info(
@@ -289,8 +336,12 @@ def run(atlas_path: Path, outdir: Path, *, chunk_size: int = 8192) -> dict[str, 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--atlas", type=Path, required=True, help="Path to the LuCA atlas h5ad")
-    parser.add_argument("--outdir", type=Path, required=True, help="Directory for centroid/state summary outputs")
-    parser.add_argument("--chunk-size", type=int, default=8192, help="Row chunk size for centroid accumulation")
+    parser.add_argument(
+        "--outdir", type=Path, required=True, help="Directory for centroid/state summary outputs"
+    )
+    parser.add_argument(
+        "--chunk-size", type=int, default=8192, help="Row chunk size for centroid accumulation"
+    )
     return parser
 
 

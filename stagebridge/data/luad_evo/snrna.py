@@ -17,6 +17,7 @@ Usage (CLI):
     python -m stagebridge.data.luad_evo.snrna manifest <extracted_dir> <manifest.csv>
     python -m stagebridge.data.luad_evo.snrna merge    <manifest.csv>  <merged.h5ad>
 """
+
 from __future__ import annotations
 
 import gzip
@@ -53,6 +54,7 @@ def resolve_snrna_latent_path(cfg: Any | None = None) -> Path:
         ]
     else:
         from stagebridge.config import get_data_root
+
         root = get_data_root()
         candidates = [
             root / "processed" / "anndata" / "snrna_hlca_latent_full.h5ad",
@@ -118,7 +120,10 @@ def load_luad_evo_snrna_latent(
 
     latent = np.asarray(adata.X[mask], dtype=np.float32)
     obs = obs.loc[mask].reset_index(drop=True)
-    feature_names = tuple(f"{(getattr(cfg, 'data', {}) or {}).get('latent_key', 'X_hlca')}_{i}" for i in range(latent.shape[1]))
+    feature_names = tuple(
+        f"{(getattr(cfg, 'data', {}) or {}).get('latent_key', 'X_hlca')}_{i}"
+        for i in range(latent.shape[1])
+    )
     return LatentCohort(
         latent=latent,
         obs=obs,
@@ -197,13 +202,21 @@ def load_luad_evo_snrna_pca_latent(
             matrix = matrix.copy()
             matrix.data = np.log1p(matrix.data)
         n_eff = max(2, min(int(n_components), int(matrix.shape[0]) - 1, int(matrix.shape[1]) - 1))
-        latent = TruncatedSVD(n_components=n_eff, random_state=int(seed)).fit_transform(matrix).astype(np.float32)
+        latent = (
+            TruncatedSVD(n_components=n_eff, random_state=int(seed))
+            .fit_transform(matrix)
+            .astype(np.float32)
+        )
     else:
         matrix = np.asarray(matrix, dtype=np.float32)
         if log1p_transform:
             matrix = np.log1p(matrix)
         n_eff = max(2, min(int(n_components), int(matrix.shape[0]) - 1, int(matrix.shape[1]) - 1))
-        latent = PCA(n_components=n_eff, random_state=int(seed)).fit_transform(matrix).astype(np.float32)
+        latent = (
+            PCA(n_components=n_eff, random_state=int(seed))
+            .fit_transform(matrix)
+            .astype(np.float32)
+        )
 
     obs = obs.iloc[rows].reset_index(drop=True)
     feature_names = tuple(f"X_pca_{i}" for i in range(latent.shape[1]))
@@ -214,6 +227,7 @@ def load_luad_evo_snrna_pca_latent(
         source_path=raw_path,
         latent_key="X_pca",
     )
+
 
 # ---------------------------------------------------------------------------
 # Filename parsing
@@ -229,6 +243,7 @@ _STEM_RE = re.compile(
     r"_(?P<patient_id>P\d+)"
     r"_(?P<stage_raw>.+?)$"
 )
+
 
 def _normalize_stage(stage_raw: str) -> str:
     """Return canonical lung stage label or ``Unknown`` when not mappable."""
@@ -268,6 +283,7 @@ def parse_sample_info_from_filename(stem: str) -> dict:
 # ---------------------------------------------------------------------------
 # Core conversion: dense-counts gz → sparse AnnData
 # ---------------------------------------------------------------------------
+
 
 def _iter_lines(input_path: Path) -> Iterator[bytes]:
     """Yield raw byte lines from a gzip file."""
@@ -346,7 +362,7 @@ def apply_snrna_smoke_limits(
             .sort_values(kind="stable")
             .index.tolist()
         )
-        keep_donors = set(donor_order[: max_donors])
+        keep_donors = set(donor_order[:max_donors])
         df = df[df["donor_id"].isin(keep_donors)].copy()
 
     if max_samples_per_stage is not None and max_samples_per_stage > 0:
@@ -527,8 +543,7 @@ def convert_snrna_dense_counts_to_h5ad(
 
     if not input_path.exists():
         raise FileNotFoundError(
-            f"Input file not found: {input_path}\n"
-            f"Expected a gzip-compressed dense-counts matrix."
+            f"Input file not found: {input_path}\nExpected a gzip-compressed dense-counts matrix."
         )
 
     log.info("Converting: %s → %s", input_path, output_path)
@@ -590,9 +605,7 @@ def convert_snrna_dense_counts_to_h5ad(
                 f"File: {input_path}"
             )
         var_names.append(gene)
-        counts = np.fromiter(
-            (int(c) for c in counts_str), dtype=np.int32, count=n_cells
-        )
+        counts = np.fromiter((int(c) for c in counts_str), dtype=np.int32, count=n_cells)
         nz_mask = counts != 0
         nz_cols = np.where(nz_mask)[0]
         for c in nz_cols:
@@ -610,9 +623,7 @@ def convert_snrna_dense_counts_to_h5ad(
     log.info("n_genes: %d", n_genes)
 
     if n_genes == 0:
-        raise ValueError(
-            f"No gene rows found in {input_path}.  File may be malformed."
-        )
+        raise ValueError(f"No gene rows found in {input_path}.  File may be malformed.")
 
     # Build CSR (genes x cells first, then transpose to cells x genes)
     log.info("Building sparse CSR matrix (cells=%d, genes=%d)...", n_cells, n_genes)
@@ -654,19 +665,20 @@ def convert_snrna_dense_counts_to_h5ad(
     adata.write_h5ad(output_path)
 
     print(
-        f"\n{'='*60}\n"
+        f"\n{'=' * 60}\n"
         f"  Sample : {sample_info['sample_id']}\n"
         f"  n_cells: {n_cells}\n"
         f"  n_genes: {n_genes}\n"
         f"  nnz    : {nnz}\n"
         f"  Output : {output_path}\n"
-        f"{'='*60}\n"
+        f"{'=' * 60}\n"
     )
 
 
 # ---------------------------------------------------------------------------
 # Manifest builder
 # ---------------------------------------------------------------------------
+
 
 def build_snrna_manifest(raw_dir: Path, output_csv: Path) -> None:
     """Scan *raw_dir* for ``*.raw_counts.mtx.txt.gz`` and write a manifest CSV.
@@ -691,9 +703,7 @@ def build_snrna_manifest(raw_dir: Path, output_csv: Path) -> None:
 
     files = sorted(raw_dir.glob("*.raw_counts.mtx.txt.gz"))
     if not files:
-        raise FileNotFoundError(
-            f"No *.raw_counts.mtx.txt.gz files found in: {raw_dir}"
-        )
+        raise FileNotFoundError(f"No *.raw_counts.mtx.txt.gz files found in: {raw_dir}")
 
     rows = []
     for fpath in files:
@@ -733,6 +743,7 @@ def build_snrna_manifest(raw_dir: Path, output_csv: Path) -> None:
 # Merge
 # ---------------------------------------------------------------------------
 
+
 def merge_snrna_h5ad(manifest_csv: Path, output_h5ad: Path) -> None:
     """Concatenate per-sample h5ad files listed in *manifest_csv*.
 
@@ -751,8 +762,7 @@ def merge_snrna_h5ad(manifest_csv: Path, output_h5ad: Path) -> None:
 
     if not manifest_csv.exists():
         raise FileNotFoundError(
-            f"Manifest CSV not found: {manifest_csv}\n"
-            f"Run build_snrna_manifest() first."
+            f"Manifest CSV not found: {manifest_csv}\nRun build_snrna_manifest() first."
         )
 
     df = pd.read_csv(manifest_csv)
@@ -797,6 +807,7 @@ def merge_snrna_h5ad(manifest_csv: Path, output_h5ad: Path) -> None:
 # ---------------------------------------------------------------------------
 # CLI __main__
 # ---------------------------------------------------------------------------
+
 
 def _usage() -> None:
     print(

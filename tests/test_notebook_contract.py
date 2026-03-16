@@ -1,4 +1,5 @@
 """Notebook contract tests for the numbered StageBridge research frontend."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,9 @@ import re
 
 
 def test_stagebridge_notebook_is_only_active_top_level_notebook() -> None:
-    notebooks = sorted(path.name for path in Path(".").glob("*.ipynb") if not path.name.startswith("."))
+    notebooks = sorted(
+        path.name for path in Path(".").glob("*.ipynb") if not path.name.startswith(".")
+    )
     # Only canonical V1 comprehensive notebook should remain after cleanup
     assert notebooks == ["StageBridge_V1_Comprehensive.ipynb"]
 
@@ -32,10 +35,10 @@ def test_stagebridge_notebook_is_thin_orchestration_surface() -> None:
     # The notebook must have sections covering the V1 pipeline
     required_keywords = [
         "Reference",  # HLCA/LuCA
-        "Spatial",    # Spatial backend
-        "Ablation",   # Ablation suite
-        "Figures",    # Publication figures
-        "Transformer", # Architecture
+        "Spatial",  # Spatial backend
+        "Ablation",  # Ablation suite
+        "Figures",  # Publication figures
+        "Transformer",  # Architecture
     ]
     combined_md = " ".join(markdown_cells)
     for keyword in required_keywords:

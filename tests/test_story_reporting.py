@@ -69,6 +69,16 @@ def test_run_story_reporting_writes_tables_and_figures(tmp_path: Path) -> None:
 
     assert result["ok"] is True
     reports_root = Path(result["reports_root"])
-    assert (reports_root / "benchmarks" / "communication_relay" / "ais_model_family_summary.csv").exists()
-    assert (reports_root / "benchmarks" / "story" / "transition_vs_communication_story.csv").exists()
-    assert (reports_root / "poster" / "hca_general_meeting" / "figures" / "figure_transition_vs_communication_story.png").exists()
+    assert (
+        reports_root / "benchmarks" / "communication_relay" / "ais_model_family_summary.csv"
+    ).exists()
+    assert (
+        reports_root / "benchmarks" / "story" / "transition_vs_communication_story.csv"
+    ).exists()
+    assert (
+        reports_root
+        / "poster"
+        / "hca_general_meeting"
+        / "figures"
+        / "figure_transition_vs_communication_story.png"
+    ).exists()

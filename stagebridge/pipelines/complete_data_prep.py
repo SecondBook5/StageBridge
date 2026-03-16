@@ -159,7 +159,11 @@ def generate_cells_table(
         z_placeholder = np.zeros(latent_dim)
 
         # Get WES features if available
-        wes_row = wes_df[wes_df["donor_id"] == donor_id].iloc[0] if wes_df is not None and donor_id in wes_df["donor_id"].values else None
+        wes_row = (
+            wes_df[wes_df["donor_id"] == donor_id].iloc[0]
+            if wes_df is not None and donor_id in wes_df["donor_id"].values
+            else None
+        )
 
         record = {
             "cell_id": cell_id,
@@ -171,7 +175,9 @@ def generate_cells_table(
             "z_hlca": z_placeholder.tolist(),
             "z_luca": z_placeholder.tolist(),
             "tmb": wes_row["tmb"] if wes_row is not None else 0.0,
-            "smoking_signature": wes_row.get("smoking_signature", 0.0) if wes_row is not None else 0.0,
+            "smoking_signature": wes_row.get("smoking_signature", 0.0)
+            if wes_row is not None
+            else 0.0,
             "uv_signature": wes_row.get("uv_signature", 0.0) if wes_row is not None else 0.0,
             "x_spatial": np.nan,  # snRNA doesn't have spatial coords
             "y_spatial": np.nan,
@@ -200,7 +206,11 @@ def generate_cells_table(
         z_placeholder = np.zeros(latent_dim)
 
         # Get WES features
-        wes_row = wes_df[wes_df["donor_id"] == donor_id].iloc[0] if wes_df is not None and donor_id in wes_df["donor_id"].values else None
+        wes_row = (
+            wes_df[wes_df["donor_id"] == donor_id].iloc[0]
+            if wes_df is not None and donor_id in wes_df["donor_id"].values
+            else None
+        )
 
         record = {
             "cell_id": f"spatial_{spot_id}",
@@ -212,7 +222,9 @@ def generate_cells_table(
             "z_hlca": z_placeholder.tolist(),
             "z_luca": z_placeholder.tolist(),
             "tmb": wes_row["tmb"] if wes_row is not None else 0.0,
-            "smoking_signature": wes_row.get("smoking_signature", 0.0) if wes_row is not None else 0.0,
+            "smoking_signature": wes_row.get("smoking_signature", 0.0)
+            if wes_row is not None
+            else 0.0,
             "uv_signature": wes_row.get("uv_signature", 0.0) if wes_row is not None else 0.0,
             "x_spatial": spatial_coords[0],
             "y_spatial": spatial_coords[1],
@@ -264,7 +276,9 @@ def generate_neighborhoods_table(
     records = []
 
     # OPTIMIZED: Use enumerate + itertuples instead of iterrows (10× faster)
-    for pos_idx, row in enumerate(tqdm(spatial_cells.itertuples(), total=len(spatial_cells), desc="  Building niches")):
+    for pos_idx, row in enumerate(
+        tqdm(spatial_cells.itertuples(), total=len(spatial_cells), desc="  Building niches")
+    ):
         cell_id = row.cell_id
         donor_id = row.donor_id
         stage = row.stage
@@ -277,13 +291,15 @@ def generate_neighborhoods_table(
         tokens = []
 
         # Token 0: Receiver
-        tokens.append({
-            "token_idx": 0,
-            "token_type": "receiver",
-            "cell_id": cell_id,
-            "cell_type": row.cell_type,
-            "z_fused": row.z_fused,
-        })
+        tokens.append(
+            {
+                "token_idx": 0,
+                "token_type": "receiver",
+                "cell_id": cell_id,
+                "cell_type": row.cell_type,
+                "z_fused": row.z_fused,
+            }
+        )
 
         # Tokens 1-4: Rings (5 cells per ring)
         cells_per_ring = 5
@@ -294,11 +310,13 @@ def generate_neighborhoods_table(
 
             if len(ring_neighbor_indices) == 0:
                 # Empty ring
-                tokens.append({
-                    "token_idx": ring + 1,
-                    "token_type": f"ring_{ring+1}",
-                    "n_cells": 0,
-                })
+                tokens.append(
+                    {
+                        "token_idx": ring + 1,
+                        "token_type": f"ring_{ring + 1}",
+                        "n_cells": 0,
+                    }
+                )
                 continue
 
             ring_neighbors = spatial_cells.iloc[ring_neighbor_indices]
@@ -309,65 +327,83 @@ def generate_neighborhoods_table(
             # Pool embeddings
             z_pooled = np.mean([z for z in ring_neighbors["z_fused"]], axis=0)
 
-            tokens.append({
-                "token_idx": ring + 1,
-                "token_type": f"ring_{ring+1}",
-                "n_cells": len(ring_neighbors),
-                "z_pooled": z_pooled.tolist(),
-                "celltype_composition": celltype_counts,
-                "mean_distance": float(neighbor_distances[start:end].mean()),
-            })
+            tokens.append(
+                {
+                    "token_idx": ring + 1,
+                    "token_type": f"ring_{ring + 1}",
+                    "n_cells": len(ring_neighbors),
+                    "z_pooled": z_pooled.tolist(),
+                    "celltype_composition": celltype_counts,
+                    "mean_distance": float(neighbor_distances[start:end].mean()),
+                }
+            )
 
         # Token 5: HLCA context
-        tokens.append({
-            "token_idx": 5,
-            "token_type": "hlca",
-            "z_hlca": row.z_hlca,
-        })
+        tokens.append(
+            {
+                "token_idx": 5,
+                "token_type": "hlca",
+                "z_hlca": row.z_hlca,
+            }
+        )
 
         # Token 6: LuCA context
-        tokens.append({
-            "token_idx": 6,
-            "token_type": "luca",
-            "z_luca": row.z_luca,
-        })
+        tokens.append(
+            {
+                "token_idx": 6,
+                "token_type": "luca",
+                "z_luca": row.z_luca,
+            }
+        )
 
         # Token 7: Pathway activity (from spatial backend cell type proportions)
-        spot_proportions = backend_results.loc[cell_id] if cell_id in backend_results.index else None
+        spot_proportions = (
+            backend_results.loc[cell_id] if cell_id in backend_results.index else None
+        )
 
         if spot_proportions is not None:
             # Compute pathway scores from cell type composition
-            caf_fraction = spot_proportions.get("Fibroblast", 0.0) + spot_proportions.get("CAF", 0.0)
-            immune_fraction = spot_proportions.get("Macrophage", 0.0) + spot_proportions.get("T_cell", 0.0)
+            caf_fraction = spot_proportions.get("Fibroblast", 0.0) + spot_proportions.get(
+                "CAF", 0.0
+            )
+            immune_fraction = spot_proportions.get("Macrophage", 0.0) + spot_proportions.get(
+                "T_cell", 0.0
+            )
             emt_score = 0.6 * caf_fraction + 0.4 * immune_fraction
         else:
             caf_fraction = 0.0
             immune_fraction = 0.0
             emt_score = 0.0
 
-        tokens.append({
-            "token_idx": 7,
-            "token_type": "pathway",
-            "emt_score": float(emt_score),
-            "caf_fraction": float(caf_fraction),
-            "immune_fraction": float(immune_fraction),
-        })
+        tokens.append(
+            {
+                "token_idx": 7,
+                "token_type": "pathway",
+                "emt_score": float(emt_score),
+                "caf_fraction": float(caf_fraction),
+                "immune_fraction": float(immune_fraction),
+            }
+        )
 
         # Token 8: Summary stats
-        tokens.append({
-            "token_idx": 8,
-            "token_type": "stats",
-            "n_neighbors": k_neighbors,
-            "mean_distance": float(neighbor_distances.mean()),
-            "diversity": len(spatial_cells.iloc[neighbor_indices]["cell_type"].unique()),
-        })
+        tokens.append(
+            {
+                "token_idx": 8,
+                "token_type": "stats",
+                "n_neighbors": k_neighbors,
+                "mean_distance": float(neighbor_distances.mean()),
+                "diversity": len(spatial_cells.iloc[neighbor_indices]["cell_type"].unique()),
+            }
+        )
 
-        records.append({
-            "cell_id": cell_id,
-            "donor_id": donor_id,
-            "stage": stage,
-            "tokens": tokens,
-        })
+        records.append(
+            {
+                "cell_id": cell_id,
+                "donor_id": donor_id,
+                "stage": stage,
+                "tokens": tokens,
+            }
+        )
 
     return pd.DataFrame(records)
 
@@ -385,15 +421,17 @@ def generate_stage_edges_table(stage_definitions: dict[str, list[str]]) -> pd.Da
         source = stages[i]
         target = stages[i + 1]
 
-        edges.append({
-            "edge_id": f"{source}_{target}",
-            "source_stage": source,
-            "target_stage": target,
-            "source_idx": i,
-            "target_idx": i + 1,
-            "is_forward": True,
-            "pseudotime_delta": 1.0,
-        })
+        edges.append(
+            {
+                "edge_id": f"{source}_{target}",
+                "source_stage": source,
+                "target_stage": target,
+                "source_idx": i,
+                "target_idx": i + 1,
+                "is_forward": True,
+                "pseudotime_delta": 1.0,
+            }
+        )
 
     return pd.DataFrame(edges)
 
@@ -425,12 +463,14 @@ def generate_cv_splits(cells_df: pd.DataFrame, n_folds: int = 5) -> dict:
         val_donors = remaining[:n_val]
         train_donors = remaining[n_val:]
 
-        splits["folds"].append({
-            "fold": fold_idx,
-            "train_donors": train_donors,
-            "val_donors": val_donors,
-            "test_donors": list(test_donors),
-        })
+        splits["folds"].append(
+            {
+                "fold": fold_idx,
+                "train_donors": train_donors,
+                "val_donors": val_donors,
+                "test_donors": list(test_donors),
+            }
+        )
 
     return splits
 
@@ -449,7 +489,17 @@ def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame
         "neighborhoods": {
             "n_neighborhoods": len(neighborhoods_df),
             "n_tokens": 9,
-            "token_types": ["receiver", "ring_1", "ring_2", "ring_3", "ring_4", "hlca", "luca", "pathway", "stats"],
+            "token_types": [
+                "receiver",
+                "ring_1",
+                "ring_2",
+                "ring_3",
+                "ring_4",
+                "hlca",
+                "luca",
+                "pathway",
+                "stats",
+            ],
         },
         "version": "1.0",
     }
@@ -462,7 +512,9 @@ def main():
     parser.add_argument("--snrna", type=str, required=True, help="Path to snrna_merged.h5ad")
     parser.add_argument("--spatial", type=str, required=True, help="Path to spatial_merged.h5ad")
     parser.add_argument("--wes", type=str, required=True, help="Path to wes_features.parquet")
-    parser.add_argument("--spatial_backend_dir", type=str, required=True, help="Spatial backend results directory")
+    parser.add_argument(
+        "--spatial_backend_dir", type=str, required=True, help="Spatial backend results directory"
+    )
 
     # Stage definitions
     parser.add_argument("--stage_config", type=str, help="YAML file with stage definitions")

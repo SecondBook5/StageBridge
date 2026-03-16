@@ -1,4 +1,5 @@
 """Deterministic lesion-level split utilities for EA-MIST."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -40,7 +41,9 @@ def _group_key_for_bag(bag: LesionBag, holdout_key: str) -> str:
         return str(bag.patient_id)
     if holdout_key == "donor_id":
         return str(bag.donor_id)
-    raise ValueError(f"Unsupported holdout_key '{holdout_key}'. Expected 'donor_id' or 'patient_id'.")
+    raise ValueError(
+        f"Unsupported holdout_key '{holdout_key}'. Expected 'donor_id' or 'patient_id'."
+    )
 
 
 def _check_class_balance(indices: Iterable[int], bags: list[LesionBag]) -> dict[float, int]:
@@ -99,7 +102,8 @@ def _require_label_support_for_holdout(
     }
     if missing_any_holdout:
         detail = ", ".join(
-            f"label={label}: groups={groups}" for label, groups in sorted(missing_any_holdout.items())
+            f"label={label}: groups={groups}"
+            for label, groups in sorted(missing_any_holdout.items())
         )
         raise ValueError(
             "Donor-held-out evaluation is not possible because at least one class has fewer than "
@@ -107,9 +111,7 @@ def _require_label_support_for_holdout(
         )
 
     insufficient_for_folds = {
-        label: sorted(groups)
-        for label, groups in support.items()
-        if len(groups) < int(num_folds)
+        label: sorted(groups) for label, groups in support.items() if len(groups) < int(num_folds)
     }
     if insufficient_for_folds:
         detail = ", ".join(
@@ -195,7 +197,14 @@ def build_lesion_folds(
                 val_groups = ()
         else:
             val_groups = tuple(sorted(donor_slices[(fold_idx + 1) % num_folds]))
-            train_groups = tuple(sorted(group for i, groups_i in enumerate(donor_slices) if i not in {fold_idx, (fold_idx + 1) % num_folds} for group in groups_i))
+            train_groups = tuple(
+                sorted(
+                    group
+                    for i, groups_i in enumerate(donor_slices)
+                    if i not in {fold_idx, (fold_idx + 1) % num_folds}
+                    for group in groups_i
+                )
+            )
         train_indices = tuple(idx for group, idx in groups if group in train_groups)
         val_indices = tuple(idx for group, idx in groups if group in val_groups)
         test_indices = tuple(idx for group, idx in groups if group in test_groups)
@@ -205,7 +214,11 @@ def build_lesion_folds(
         train_counts = _check_class_balance(train_indices, bags)
         val_counts = _check_class_balance(val_indices, bags)
         test_counts = _check_class_balance(test_indices, bags)
-        for subset_name, counts in (("train", train_counts), ("val", val_counts), ("test", test_counts)):
+        for subset_name, counts in (
+            ("train", train_counts),
+            ("val", val_counts),
+            ("test", test_counts),
+        ):
             missing_labels = [label for label in expected_labels if float(label) not in counts]
             if missing_labels:
                 raise ValueError(
@@ -312,26 +325,36 @@ def assert_no_split_leakage(bags: list[LesionBag], fold: LesionFold) -> None:
                 continue
             overlap = left_values.intersection(right_values)
             if overlap:
-                raise ValueError(f"Detected donor leakage between {left_name} and {right_name}: {sorted(overlap)}")
+                raise ValueError(
+                    f"Detected donor leakage between {left_name} and {right_name}: {sorted(overlap)}"
+                )
     for left_name, left_values in patient_sets.items():
         for right_name, right_values in patient_sets.items():
             if left_name >= right_name:
                 continue
             overlap = left_values.intersection(right_values)
             if overlap:
-                raise ValueError(f"Detected patient leakage between {left_name} and {right_name}: {sorted(overlap)}")
+                raise ValueError(
+                    f"Detected patient leakage between {left_name} and {right_name}: {sorted(overlap)}"
+                )
 
 
-def summarize_fold_class_balance(bags: list[LesionBag], fold: LesionFold) -> dict[str, dict[str, int]]:
+def summarize_fold_class_balance(
+    bags: list[LesionBag], fold: LesionFold
+) -> dict[str, dict[str, int]]:
     """Return per-split label balance for one fold."""
     return {
-        "train": {str(k): int(v) for k, v in _check_class_balance(fold.train_indices, bags).items()},
+        "train": {
+            str(k): int(v) for k, v in _check_class_balance(fold.train_indices, bags).items()
+        },
         "val": {str(k): int(v) for k, v in _check_class_balance(fold.val_indices, bags).items()},
         "test": {str(k): int(v) for k, v in _check_class_balance(fold.test_indices, bags).items()},
     }
 
 
-def summarize_fold_stage_balance(bags: list[LesionBag], fold: LesionFold) -> dict[str, dict[str, int]]:
+def summarize_fold_stage_balance(
+    bags: list[LesionBag], fold: LesionFold
+) -> dict[str, dict[str, int]]:
     """Return per-split stage balance for one cohort-wide multitask fold."""
     summary: dict[str, dict[str, int]] = {}
     subsets = {

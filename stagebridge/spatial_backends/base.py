@@ -15,7 +15,7 @@ from ..utils.data_cache import get_data_cache
 
 
 @dataclass
-class SpatialMappingResult:
+class BackendMappingResult:
     """
     Standardized output from spatial mapping backends.
 
@@ -46,15 +46,14 @@ class SpatialMappingResult:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Save main outputs
-        self.cell_type_proportions.to_parquet(
-            output_dir / "cell_type_proportions.parquet"
-        )
+        self.cell_type_proportions.to_parquet(output_dir / "cell_type_proportions.parquet")
         self.confidence.to_frame("confidence").to_parquet(
             output_dir / "mapping_confidence.parquet"
         )
 
         # Save metrics as JSON
         import json
+
         with open(output_dir / "upstream_metrics.json", "w") as f:
             json.dump(self.upstream_metrics, f, indent=2)
 
@@ -63,9 +62,7 @@ class SpatialMappingResult:
 
         # Save optional outputs
         if self.cell_assignments is not None:
-            self.cell_assignments.to_parquet(
-                output_dir / "cell_assignments.parquet"
-            )
+            self.cell_assignments.to_parquet(output_dir / "cell_assignments.parquet")
 
         if self.reconstructed_expression is not None:
             self.reconstructed_expression.to_parquet(
@@ -73,7 +70,7 @@ class SpatialMappingResult:
             )
 
     @classmethod
-    def load(cls, output_dir: Path, use_cache: bool = True) -> "SpatialMappingResult":
+    def load(cls, output_dir: Path, use_cache: bool = True) -> "BackendMappingResult":
         """Load results from standardized format (with optional caching)."""
         output_dir = Path(output_dir)
         cache = get_data_cache() if use_cache else None
@@ -83,19 +80,16 @@ class SpatialMappingResult:
             cell_type_proportions = cache.read_parquet(
                 output_dir / "cell_type_proportions.parquet"
             )
-            confidence = cache.read_parquet(
-                output_dir / "mapping_confidence.parquet"
-            )["confidence"]
+            confidence = cache.read_parquet(output_dir / "mapping_confidence.parquet")[
+                "confidence"
+            ]
         else:
-            cell_type_proportions = pd.read_parquet(
-                output_dir / "cell_type_proportions.parquet"
-            )
-            confidence = pd.read_parquet(
-                output_dir / "mapping_confidence.parquet"
-            )["confidence"]
+            cell_type_proportions = pd.read_parquet(output_dir / "cell_type_proportions.parquet")
+            confidence = pd.read_parquet(output_dir / "mapping_confidence.parquet")["confidence"]
 
         # Load metrics
         import json
+
         with open(output_dir / "upstream_metrics.json") as f:
             upstream_metrics = json.load(f)
 
@@ -106,13 +100,9 @@ class SpatialMappingResult:
         cell_assignments = None
         if (output_dir / "cell_assignments.parquet").exists():
             if cache:
-                cell_assignments = cache.read_parquet(
-                    output_dir / "cell_assignments.parquet"
-                )
+                cell_assignments = cache.read_parquet(output_dir / "cell_assignments.parquet")
             else:
-                cell_assignments = pd.read_parquet(
-                    output_dir / "cell_assignments.parquet"
-                )
+                cell_assignments = pd.read_parquet(output_dir / "cell_assignments.parquet")
 
         reconstructed_expression = None
         if (output_dir / "reconstructed_expression.parquet").exists():
@@ -158,7 +148,7 @@ class SpatialBackend(ABC):
         snrna: ad.AnnData,
         spatial: ad.AnnData,
         output_dir: Path | None = None,
-    ) -> SpatialMappingResult:
+    ) -> BackendMappingResult:
         """
         Run spatial mapping.
 
@@ -168,7 +158,7 @@ class SpatialBackend(ABC):
             output_dir: Optional directory to save intermediate results
 
         Returns:
-            SpatialMappingResult with standardized outputs
+            BackendMappingResult with standardized outputs
         """
         pass
 
@@ -177,7 +167,7 @@ class SpatialBackend(ABC):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: SpatialMappingResult,
+        result: BackendMappingResult,
     ) -> dict[str, float]:
         """
         Compute upstream quality metrics.
@@ -203,7 +193,7 @@ class SpatialBackend(ABC):
         self,
         snrna: ad.AnnData,
         spatial: ad.AnnData,
-        result: SpatialMappingResult,
+        result: BackendMappingResult,
     ) -> pd.Series:
         """
         Estimate per-spot mapping confidence.
@@ -251,9 +241,11 @@ class SpatialBackend(ABC):
         overlap_frac = len(common_genes) / len(snrna.var_names)
         if overlap_frac < 0.1:
             import warnings
+
             warnings.warn(
                 f"Low gene overlap: {overlap_frac:.1%} "
-                f"({len(common_genes)}/{len(snrna.var_names)} genes)", stacklevel=2
+                f"({len(common_genes)}/{len(snrna.var_names)} genes)",
+                stacklevel=2,
             )
 
     def preprocess(

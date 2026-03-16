@@ -1,4 +1,5 @@
 """Evaluation report assembly for Mission 3 edge runs."""
+
 from __future__ import annotations
 
 from typing import Any

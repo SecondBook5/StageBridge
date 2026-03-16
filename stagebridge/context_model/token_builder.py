@@ -1,4 +1,5 @@
 """Niche token feature extraction and token-bank utilities for Tangram outputs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -46,9 +47,15 @@ class TypedTokenResult:
             "token_dim": int(self.tokens.shape[1]),
             "typed_feature_names": list(self.schema.typed_feature_names),
             "stage_counts": {str(k): int(v) for k, v in self.obs.groupby("stage").size().items()},
-            "mean_token_confidence": float(self.token_confidence.mean()) if self.token_confidence.size else 0.0,
-            "missing_token_fraction": float(self.token_missing_mask.mean()) if self.token_missing_mask.size else 0.0,
-            "token_group_means": {str(key): float(value) for key, value in self.token_group_means.items()},
+            "mean_token_confidence": float(self.token_confidence.mean())
+            if self.token_confidence.size
+            else 0.0,
+            "missing_token_fraction": float(self.token_missing_mask.mean())
+            if self.token_missing_mask.size
+            else 0.0,
+            "token_group_means": {
+                str(key): float(value) for key, value in self.token_group_means.items()
+            },
         }
 
 
@@ -184,8 +191,7 @@ def _arrow_scores_to_arrays(
         want = [str(c) for c in expected_columns]
         if score_cols != want:
             raise ValueError(
-                "Tangram score columns mismatch. "
-                f"Expected {want}, found {score_cols}."
+                f"Tangram score columns mismatch. Expected {want}, found {score_cols}."
             )
 
     index = table[INDEX_COLUMN].to_numpy(zero_copy_only=False).astype(str)
@@ -229,8 +235,16 @@ def _resolve_metadata(
         gsm_from_index[i] = _parse_gsm_from_sample_id(sample_id)
 
     df = pd.DataFrame(index=pd.Index(obs_names, name="spot_obs_name"))
-    df["spot_id"] = adata_obs["spot_id"].astype(str).to_numpy() if "spot_id" in adata_obs.columns else barcode_from_index
-    df["barcode"] = adata_obs["barcode"].astype(str).to_numpy() if "barcode" in adata_obs.columns else barcode_from_index
+    df["spot_id"] = (
+        adata_obs["spot_id"].astype(str).to_numpy()
+        if "spot_id" in adata_obs.columns
+        else barcode_from_index
+    )
+    df["barcode"] = (
+        adata_obs["barcode"].astype(str).to_numpy()
+        if "barcode" in adata_obs.columns
+        else barcode_from_index
+    )
     df["donor_id"] = (
         adata_obs["donor_id"].astype(str).to_numpy()
         if "donor_id" in adata_obs.columns
@@ -361,18 +375,10 @@ def _numeric_audit(
         axis=0,
     )
     return {
-        "nan_count_per_column": {
-            col: int(v) for col, v in zip(numeric_cols, nan_counts.tolist())
-        },
-        "inf_count_per_column": {
-            col: int(v) for col, v in zip(numeric_cols, inf_counts.tolist())
-        },
-        "min_per_column": {
-            col: float(v) for col, v in zip(numeric_cols, min_vals.tolist())
-        },
-        "max_per_column": {
-            col: float(v) for col, v in zip(numeric_cols, max_vals.tolist())
-        },
+        "nan_count_per_column": {col: int(v) for col, v in zip(numeric_cols, nan_counts.tolist())},
+        "inf_count_per_column": {col: int(v) for col, v in zip(numeric_cols, inf_counts.tolist())},
+        "min_per_column": {col: float(v) for col, v in zip(numeric_cols, min_vals.tolist())},
+        "max_per_column": {col: float(v) for col, v in zip(numeric_cols, max_vals.tolist())},
         "entropy_quantiles": {
             "q00": float(q[0, 0]),
             "q05": float(q[1, 0]),
@@ -604,9 +610,15 @@ def build_zarr_token_bank(
             overwrite=True,
         )
         grp.attrs["sample_id"] = sample
-        grp.attrs["donor_id"] = str(sub["donor_id"].iloc[0]) if "donor_id" in sub.columns else "unknown_donor"
+        grp.attrs["donor_id"] = (
+            str(sub["donor_id"].iloc[0]) if "donor_id" in sub.columns else "unknown_donor"
+        )
         grp.attrs["stage"] = str(sub["stage"].iloc[0]) if "stage" in sub.columns else "Unknown"
-        grp.attrs["gsm_id"] = str(sub["gsm_id"].iloc[0]) if "gsm_id" in sub.columns else _parse_gsm_from_sample_id(sample)
+        grp.attrs["gsm_id"] = (
+            str(sub["gsm_id"].iloc[0])
+            if "gsm_id" in sub.columns
+            else _parse_gsm_from_sample_id(sample)
+        )
         grp.attrs["n_spots"] = int(sub.shape[0])
         grp.attrs["token_dim"] = int(tokens.shape[1])
 
@@ -807,18 +819,24 @@ class NicheTokenBank:
             else:
                 sampled = centers[:m]
             # k-means centers don't have meaningful spatial coords
-            return sampled.astype(np.float32, copy=False), None, {
-                "samples_used": samples,
-                "strategy": strategy_norm,
-                "fallback": fallback,
-            }
+            return (
+                sampled.astype(np.float32, copy=False),
+                None,
+                {
+                    "samples_used": samples,
+                    "strategy": strategy_norm,
+                    "fallback": fallback,
+                },
+            )
 
         if strategy_norm != "random_m":
             raise ValueError(f"Unsupported niche sampling strategy: {strategy!r}")
 
         sizes = np.asarray([self._sample_sizes.get(s, 0) for s in samples], dtype=np.float64)
         if np.any(sizes <= 0):
-            sizes = np.asarray([self._load_sample_tokens(s).shape[0] for s in samples], dtype=np.float64)
+            sizes = np.asarray(
+                [self._load_sample_tokens(s).shape[0] for s in samples], dtype=np.float64
+            )
         probs = sizes / sizes.sum()
 
         sample_choice = self._rng.choice(len(samples), size=m, replace=True, p=probs)
@@ -840,8 +858,12 @@ class NicheTokenBank:
                 else:
                     out_coords[pos] = 0.0
 
-        return out_tokens, out_coords, {
-            "samples_used": samples,
-            "strategy": strategy_norm,
-            "fallback": fallback,
-        }
+        return (
+            out_tokens,
+            out_coords,
+            {
+                "samples_used": samples,
+                "strategy": strategy_norm,
+                "fallback": fallback,
+            },
+        )

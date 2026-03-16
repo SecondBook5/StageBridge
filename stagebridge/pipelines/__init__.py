@@ -1,4 +1,5 @@
 """Canonical pipeline namespace for the StageBridge rebuild."""
+
 from __future__ import annotations
 
 from importlib import import_module
@@ -33,6 +34,7 @@ def __getattr__(name: str):
     value = getattr(module, name)
     globals()[name] = value
     return value
+
 
 __all__ = [
     "run_data_prep",

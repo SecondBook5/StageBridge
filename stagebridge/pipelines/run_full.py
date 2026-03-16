@@ -1,4 +1,5 @@
 """Full pipeline orchestration entrypoint."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,7 +23,9 @@ def run_full(cfg: DictConfig) -> dict[str, Any]:
         spatial_output=spatial_mapping,
         context_output=context_model,
     )
-    evaluation = run_evaluation(cfg, transition_output=transition_model, context_output=context_model)
+    evaluation = run_evaluation(
+        cfg, transition_output=transition_model, context_output=context_model
+    )
     return {
         "ok": True,
         "pipeline": "full",

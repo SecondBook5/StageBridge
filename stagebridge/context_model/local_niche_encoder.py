@@ -1,4 +1,5 @@
 """Local niche tokenization and encoding for EA-MIST."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -67,7 +68,9 @@ class LocalNicheTokenizer(nn.Module):
         self.model_dim = int(model_dim)
         # Atlas contrast token: [h, l, l-h, h*l, abs(l-h)] → MLP → model_dim
         if self.use_atlas_contrast_token and int(hlca_dim) > 0 and int(luca_dim) > 0:
-            contrast_input_dim = int(hlca_dim) + int(luca_dim) + min(int(hlca_dim), int(luca_dim)) * 3
+            contrast_input_dim = (
+                int(hlca_dim) + int(luca_dim) + min(int(hlca_dim), int(luca_dim)) * 3
+            )
             self.atlas_contrast_proj = nn.Sequential(
                 nn.Linear(contrast_input_dim, int(model_dim)),
                 nn.GELU(),
@@ -86,9 +89,13 @@ class LocalNicheTokenizer(nn.Module):
         batch_size: int,
     ) -> Tensor:
         if projection is None:
-            return torch.zeros((batch_size, self.model_dim), dtype=features.dtype, device=features.device)
+            return torch.zeros(
+                (batch_size, self.model_dim), dtype=features.dtype, device=features.device
+            )
         if features.ndim != 2:
-            raise ValueError(f"Optional token features must be 2D, got shape={tuple(features.shape)}")
+            raise ValueError(
+                f"Optional token features must be 2D, got shape={tuple(features.shape)}"
+            )
         return projection(features)
 
     def forward(
@@ -104,13 +111,26 @@ class LocalNicheTokenizer(nn.Module):
     ) -> Tensor:
         """Return tokenized local neighborhoods with shape ``(B, T_local, D)``."""
         if receiver_embeddings.ndim != 2:
-            raise ValueError(f"receiver_embeddings must be 2D, got shape={tuple(receiver_embeddings.shape)}")
+            raise ValueError(
+                f"receiver_embeddings must be 2D, got shape={tuple(receiver_embeddings.shape)}"
+            )
         if receiver_state_ids.ndim != 1:
-            raise ValueError(f"receiver_state_ids must be 1D, got shape={tuple(receiver_state_ids.shape)}")
+            raise ValueError(
+                f"receiver_state_ids must be 1D, got shape={tuple(receiver_state_ids.shape)}"
+            )
         if ring_compositions.ndim != 3:
-            raise ValueError(f"ring_compositions must be 3D, got shape={tuple(ring_compositions.shape)}")
-        if hlca_features.ndim != 2 or luca_features.ndim != 2 or lr_pathway_summary.ndim != 2 or neighborhood_stats.ndim != 2:
-            raise ValueError("HLCA, LuCA, LR/pathway summary, and neighborhood stats must all be 2D tensors.")
+            raise ValueError(
+                f"ring_compositions must be 3D, got shape={tuple(ring_compositions.shape)}"
+            )
+        if (
+            hlca_features.ndim != 2
+            or luca_features.ndim != 2
+            or lr_pathway_summary.ndim != 2
+            or neighborhood_stats.ndim != 2
+        ):
+            raise ValueError(
+                "HLCA, LuCA, LR/pathway summary, and neighborhood stats must all be 2D tensors."
+            )
 
         batch_size = receiver_embeddings.shape[0]
         if (
@@ -119,29 +139,55 @@ class LocalNicheTokenizer(nn.Module):
             or hlca_features.shape[0] != batch_size
             or luca_features.shape[0] != batch_size
         ):
-            raise ValueError("All local niche tokenizer inputs must share the same batch dimension.")
+            raise ValueError(
+                "All local niche tokenizer inputs must share the same batch dimension."
+            )
 
         receiver_token = self.receiver_proj(receiver_embeddings)
-        receiver_token = receiver_token + self.receiver_state_embedding(receiver_state_ids.clamp_min(0))
-        receiver_token = receiver_token + self.token_type_embedding(torch.zeros(batch_size, dtype=torch.long, device=receiver_embeddings.device))
+        receiver_token = receiver_token + self.receiver_state_embedding(
+            receiver_state_ids.clamp_min(0)
+        )
+        receiver_token = receiver_token + self.token_type_embedding(
+            torch.zeros(batch_size, dtype=torch.long, device=receiver_embeddings.device)
+        )
 
         num_rings = ring_compositions.shape[1]
         ring_tokens = self.ring_proj(ring_compositions)
-        ring_type_ids = torch.ones((batch_size, num_rings), dtype=torch.long, device=ring_compositions.device)
-        ring_ids = torch.arange(num_rings, device=ring_compositions.device, dtype=torch.long).unsqueeze(0).expand(batch_size, -1)
-        ring_tokens = ring_tokens + self.token_type_embedding(ring_type_ids) + self.ring_embedding(ring_ids)
+        ring_type_ids = torch.ones(
+            (batch_size, num_rings), dtype=torch.long, device=ring_compositions.device
+        )
+        ring_ids = (
+            torch.arange(num_rings, device=ring_compositions.device, dtype=torch.long)
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+        )
+        ring_tokens = (
+            ring_tokens + self.token_type_embedding(ring_type_ids) + self.ring_embedding(ring_ids)
+        )
 
-        hlca_token = self._project_optional_token(hlca_features, self.hlca_proj, batch_size=batch_size)
-        hlca_token = hlca_token + self.token_type_embedding(torch.full((batch_size,), 2, dtype=torch.long, device=hlca_features.device))
+        hlca_token = self._project_optional_token(
+            hlca_features, self.hlca_proj, batch_size=batch_size
+        )
+        hlca_token = hlca_token + self.token_type_embedding(
+            torch.full((batch_size,), 2, dtype=torch.long, device=hlca_features.device)
+        )
 
-        luca_token = self._project_optional_token(luca_features, self.luca_proj, batch_size=batch_size)
-        luca_token = luca_token + self.token_type_embedding(torch.full((batch_size,), 3, dtype=torch.long, device=luca_features.device))
+        luca_token = self._project_optional_token(
+            luca_features, self.luca_proj, batch_size=batch_size
+        )
+        luca_token = luca_token + self.token_type_embedding(
+            torch.full((batch_size,), 3, dtype=torch.long, device=luca_features.device)
+        )
 
         lr_token = self.lr_proj(lr_pathway_summary)
-        lr_token = lr_token + self.token_type_embedding(torch.full((batch_size,), 4, dtype=torch.long, device=lr_pathway_summary.device))
+        lr_token = lr_token + self.token_type_embedding(
+            torch.full((batch_size,), 4, dtype=torch.long, device=lr_pathway_summary.device)
+        )
 
         stats_token = self.stats_proj(neighborhood_stats)
-        stats_token = stats_token + self.token_type_embedding(torch.full((batch_size,), 5, dtype=torch.long, device=neighborhood_stats.device))
+        stats_token = stats_token + self.token_type_embedding(
+            torch.full((batch_size,), 5, dtype=torch.long, device=neighborhood_stats.device)
+        )
 
         tokens = torch.cat(
             [
@@ -159,7 +205,9 @@ class LocalNicheTokenizer(nn.Module):
             min_dim = min(self._hlca_dim, self._luca_dim)
             h = hlca_features[:, :min_dim]
             lu = luca_features[:, :min_dim]
-            contrast_input = torch.cat([hlca_features, luca_features, lu - h, h * lu, (lu - h).abs()], dim=-1)
+            contrast_input = torch.cat(
+                [hlca_features, luca_features, lu - h, h * lu, (lu - h).abs()], dim=-1
+            )
             contrast_token = self.atlas_contrast_proj(contrast_input)
             contrast_token = contrast_token + self.token_type_embedding(
                 torch.full((batch_size,), 6, dtype=torch.long, device=hlca_features.device)
@@ -203,9 +251,17 @@ class LocalNicheTransformerEncoder(nn.Module):
             use_atlas_contrast_token=use_atlas_contrast_token,
         )
         self.blocks = nn.ModuleList(
-            [SAB(dim=int(model_dim), num_heads=int(num_heads), dropout=float(dropout)) for _ in range(int(num_layers))]
+            [
+                SAB(dim=int(model_dim), num_heads=int(num_heads), dropout=float(dropout))
+                for _ in range(int(num_layers))
+            ]
         )
-        self.pool = PMA(dim=int(model_dim), num_heads=int(num_heads), num_seed_vectors=1, dropout=float(dropout))
+        self.pool = PMA(
+            dim=int(model_dim),
+            num_heads=int(num_heads),
+            num_seed_vectors=1,
+            dropout=float(dropout),
+        )
         self.norm = nn.LayerNorm(int(model_dim))
 
     def forward(
@@ -274,4 +330,8 @@ class LocalNicheMLPEncoder(nn.Module):
         if flat_features.ndim != 2:
             raise ValueError(f"flat_features must be 2D, got shape={tuple(flat_features.shape)}")
         hidden = self.net(flat_features)
-        return LocalNicheEncoderOutput(neighborhood_embedding=hidden, token_embeddings=hidden.unsqueeze(1), attention_weights=None)
+        return LocalNicheEncoderOutput(
+            neighborhood_embedding=hidden,
+            token_embeddings=hidden.unsqueeze(1),
+            attention_weights=None,
+        )

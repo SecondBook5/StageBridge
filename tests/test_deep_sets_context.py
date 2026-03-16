@@ -1,4 +1,5 @@
 """Mission 3 tests for the Deep Sets context encoder."""
+
 from __future__ import annotations
 
 import torch

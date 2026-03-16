@@ -4,6 +4,7 @@ Integrates source cells forward from stage_src to stage_tgt using the trained
 flow-matching model, then projects the predicted positions onto an existing UMAP
 embedding for visualization as quiver arrows.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -115,13 +116,18 @@ def integrate_trajectories(
             pair_batch = torch.full((end - start,), pair_id, dtype=torch.long, device=device)
 
             x_pred_batch = model.integrate_euler(
-                x_batch, ctx_batch, pair_batch, num_steps=n_steps,
+                x_batch,
+                ctx_batch,
+                pair_batch,
+                num_steps=n_steps,
             )
             x1_pred[start:end] = x_pred_batch.cpu().numpy()
 
     log.info(
         "Integrated %d source cells (%s→%s) using %s context, %d steps.",
-        n_src, stage_src, stage_tgt,
+        n_src,
+        stage_src,
+        stage_tgt,
         "per-cell" if has_per_cell_ctx else "population",
         n_steps,
     )
@@ -195,7 +201,9 @@ def project_trajectories_to_umap(
     return uv0, uv1_pred
 
 
-def summarize_edge_trajectory(x_src: np.ndarray, x_pred: np.ndarray, x_tgt: np.ndarray) -> dict[str, float]:
+def summarize_edge_trajectory(
+    x_src: np.ndarray, x_pred: np.ndarray, x_tgt: np.ndarray
+) -> dict[str, float]:
     """Low-claim summary of source, predicted, and target trajectory geometry."""
     src_mean = x_src.mean(axis=0)
     pred_mean = x_pred.mean(axis=0)

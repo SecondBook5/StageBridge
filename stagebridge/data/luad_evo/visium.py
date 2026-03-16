@@ -27,6 +27,7 @@ Usage (CLI):
     python -m stagebridge.data.luad_evo.visium manifest <samples_dir>   <manifest.csv>
     python -m stagebridge.data.luad_evo.visium merge    <manifest.csv>  <merged.h5ad>
 """
+
 from __future__ import annotations
 
 import gzip
@@ -61,6 +62,7 @@ def resolve_spatial_tangram_path(cfg: Any | None = None) -> Path:
         candidates = [paths.spatial_tangram_h5ad, paths.spatial_h5ad]
     else:
         from stagebridge.config import get_data_root
+
         root = get_data_root()
         candidates = [
             root / "processed" / "tangram" / "spatial_tangram_full.h5ad",
@@ -70,8 +72,7 @@ def resolve_spatial_tangram_path(cfg: Any | None = None) -> Path:
         if candidate.exists():
             return candidate
     raise FileNotFoundError(
-        "Could not resolve a spatial LUAD file. "
-        f"Tried: {[str(path) for path in candidates]}"
+        f"Could not resolve a spatial LUAD file. Tried: {[str(path) for path in candidates]}"
     )
 
 
@@ -87,7 +88,11 @@ def load_luad_evo_spatial_mapping(
     seed: int = 42,
 ) -> SpatialCohort:
     """Load a LUAD spatial provider output with standardized filtering."""
-    spatial_path = Path(mapping_h5ad_path) if mapping_h5ad_path is not None else resolve_spatial_tangram_path(cfg)
+    spatial_path = (
+        Path(mapping_h5ad_path)
+        if mapping_h5ad_path is not None
+        else resolve_spatial_tangram_path(cfg)
+    )
     adata = anndata.read_h5ad(spatial_path)
     if composition_key not in adata.obsm:
         raise KeyError(
@@ -130,9 +135,15 @@ def load_luad_evo_spatial_mapping(
             chosen[keep] = True
         mask &= chosen
 
-    feature_names = tuple(str(name) for name in adata.uns.get(columns_key, adata.obsm[composition_key].dtype.names or []))
+    feature_names = tuple(
+        str(name)
+        for name in adata.uns.get(columns_key, adata.obsm[composition_key].dtype.names or [])
+    )
     if not feature_names:
-        feature_names = tuple(str(name) for name in getattr(adata, "var_names", [])[: adata.obsm[composition_key].shape[1]])
+        feature_names = tuple(
+            str(name)
+            for name in getattr(adata, "var_names", [])[: adata.obsm[composition_key].shape[1]]
+        )
     if not feature_names or len(feature_names) != adata.obsm[composition_key].shape[1]:
         feature_names = tuple(f"ct_{i}" for i in range(adata.obsm[composition_key].shape[1]))
 
@@ -144,11 +155,13 @@ def load_luad_evo_spatial_mapping(
         source_path=spatial_path,
     )
 
+
 # ---------------------------------------------------------------------------
 # squidpy import (optional — graceful fallback)
 # ---------------------------------------------------------------------------
 try:
     import squidpy as sq
+
     _SQUIDPY_AVAILABLE = True
     log.info("squidpy %s available — using sq.read.visium() as primary loader.", sq.__version__)
 except ImportError:
@@ -163,6 +176,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 _STEM_RE = re.compile(r"^(?P<gsm>GSM\d+)_(?P<patient_id>P\d+)_(?P<stage_raw>.+?)$")
+
 
 def _normalize_stage(stage_raw: str) -> str:
     """Return canonical lung stage label or ``Unknown`` when not mappable."""
@@ -190,11 +204,11 @@ def _attach_sample_obs(adata: anndata.AnnData, stem: str) -> None:
     """Add gsm / patient_id / stage / sample_id columns to obs in-place."""
     try:
         info = _parse_stem(stem)
-        adata.obs["gsm"]        = info["gsm"]
+        adata.obs["gsm"] = info["gsm"]
         adata.obs["patient_id"] = info["patient_id"]
-        adata.obs["stage_raw"]  = info["stage_raw"]
-        adata.obs["stage"]      = info["stage_normalized"]
-        adata.obs["sample_id"]  = info["sample_id"]
+        adata.obs["stage_raw"] = info["stage_raw"]
+        adata.obs["stage"] = info["stage_normalized"]
+        adata.obs["sample_id"] = info["sample_id"]
     except ValueError as exc:
         log.warning("Could not parse sample info from stem %r: %s", stem, exc)
 
@@ -202,6 +216,7 @@ def _attach_sample_obs(adata: anndata.AnnData, stem: str) -> None:
 # ---------------------------------------------------------------------------
 # Tarball expansion
 # ---------------------------------------------------------------------------
+
 
 def expand_spatial_tarballs(extracted_dir: Path, samples_dir: Path) -> None:
     """Extract each GSM*.tar.gz in *extracted_dir* into *samples_dir*/<SAMPLE_ID>/.
@@ -217,7 +232,7 @@ def expand_spatial_tarballs(extracted_dir: Path, samples_dir: Path) -> None:
         Destination root; one sub-directory is created per sample.
     """
     extracted_dir = Path(extracted_dir)
-    samples_dir   = Path(samples_dir)
+    samples_dir = Path(samples_dir)
 
     if not extracted_dir.exists():
         raise FileNotFoundError(
@@ -227,9 +242,7 @@ def expand_spatial_tarballs(extracted_dir: Path, samples_dir: Path) -> None:
 
     tarballs = sorted(extracted_dir.glob("GSM*.tar.gz"))
     if not tarballs:
-        raise FileNotFoundError(
-            f"No GSM*.tar.gz files found in: {extracted_dir}"
-        )
+        raise FileNotFoundError(f"No GSM*.tar.gz files found in: {extracted_dir}")
 
     log.info("Found %d tarballs in %s", len(tarballs), extracted_dir)
     samples_dir.mkdir(parents=True, exist_ok=True)
@@ -259,6 +272,7 @@ def expand_spatial_tarballs(extracted_dir: Path, samples_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # squidpy-based loader (primary)
 # ---------------------------------------------------------------------------
+
 
 def _find_matrix_dir_name(sample_dir: Path) -> str:
     """Return the relative name of the matrix sub-directory."""
@@ -303,6 +317,7 @@ def _load_with_squidpy(sample_dir: Path) -> anndata.AnnData:
 # ---------------------------------------------------------------------------
 # Manual fallback loader (used when squidpy is absent)
 # ---------------------------------------------------------------------------
+
 
 def _find_matrix_dir(sample_dir: Path) -> Path:
     for name in ("filtered_feature_bc_matrix", "raw_feature_bc_matrix"):
@@ -373,8 +388,14 @@ def _load_spatial_coords_manual(sample_dir: Path, barcodes: list[str]) -> np.nda
 
         # Detect header: if first token is a barcode-like string (alphanumeric/dash)
         # it may or may not have a header row depending on Visium software version.
-        col_names = ["barcode", "in_tissue", "array_row", "array_col",
-                     "pxl_row_in_fullres", "pxl_col_in_fullres"]
+        col_names = [
+            "barcode",
+            "in_tissue",
+            "array_row",
+            "array_col",
+            "pxl_row_in_fullres",
+            "pxl_col_in_fullres",
+        ]
         first_col = first.split(",")[0].strip()
         has_header = not first_col.replace("-", "").replace("_", "").isdigit()
 
@@ -411,8 +432,7 @@ def _load_with_manual_fallback(sample_dir: Path) -> anndata.AnnData:
     matrix_dir = _find_matrix_dir(sample_dir)
 
     bc_path = next(
-        (matrix_dir / n for n in ("barcodes.tsv.gz", "barcodes.tsv")
-         if (matrix_dir / n).exists()),
+        (matrix_dir / n for n in ("barcodes.tsv.gz", "barcodes.tsv") if (matrix_dir / n).exists()),
         None,
     )
     if bc_path is None:
@@ -421,8 +441,7 @@ def _load_with_manual_fallback(sample_dir: Path) -> anndata.AnnData:
     gene_names = _read_features(matrix_dir)
 
     mtx_path = next(
-        (matrix_dir / n for n in ("matrix.mtx.gz", "matrix.mtx")
-         if (matrix_dir / n).exists()),
+        (matrix_dir / n for n in ("matrix.mtx.gz", "matrix.mtx") if (matrix_dir / n).exists()),
         None,
     )
     if mtx_path is None:
@@ -461,6 +480,7 @@ def _load_with_manual_fallback(sample_dir: Path) -> anndata.AnnData:
 # Public: load one sample
 # ---------------------------------------------------------------------------
 
+
 def load_visium_sample(sample_dir: Path) -> anndata.AnnData:
     """Load a 10x Visium sample directory into AnnData.
 
@@ -486,9 +506,9 @@ def load_visium_sample(sample_dir: Path) -> anndata.AnnData:
             adata = _load_with_squidpy(sample_dir)
         except Exception as exc:
             log.warning(
-                "squidpy.read.visium() failed for %s (%s) — "
-                "falling back to manual parser.",
-                sample_dir.name, exc,
+                "squidpy.read.visium() failed for %s (%s) — falling back to manual parser.",
+                sample_dir.name,
+                exc,
             )
             adata = _load_with_manual_fallback(sample_dir)
     else:
@@ -510,6 +530,7 @@ def load_visium_sample(sample_dir: Path) -> anndata.AnnData:
 # Write single sample h5ad
 # ---------------------------------------------------------------------------
 
+
 def write_spatial_h5ad(sample_dir: Path, output_path: Path) -> None:
     """Load *sample_dir* and write to *output_path* as h5ad."""
     adata = load_visium_sample(Path(sample_dir))
@@ -517,14 +538,14 @@ def write_spatial_h5ad(sample_dir: Path, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     adata.write_h5ad(output_path)
     print(
-        f"\n{'='*60}\n"
+        f"\n{'=' * 60}\n"
         f"  Sample     : {Path(sample_dir).name}\n"
         f"  n_spots    : {adata.n_obs}\n"
         f"  n_genes    : {adata.n_vars}\n"
         f"  has_spatial: {'spatial' in adata.obsm}\n"
         f"  loader     : {'squidpy' if _SQUIDPY_AVAILABLE else 'manual'}\n"
         f"  Output     : {output_path}\n"
-        f"{'='*60}\n"
+        f"{'=' * 60}\n"
     )
 
 
@@ -532,13 +553,14 @@ def write_spatial_h5ad(sample_dir: Path, output_path: Path) -> None:
 # Manifest
 # ---------------------------------------------------------------------------
 
+
 def build_spatial_manifest(samples_dir: Path, output_csv: Path) -> None:
     """Write a manifest CSV for extracted spatial samples.
 
     CSV columns: sample_id, sample_dir, gsm, patient_id, stage
     """
     samples_dir = Path(samples_dir)
-    output_csv  = Path(output_csv)
+    output_csv = Path(output_csv)
 
     if not samples_dir.is_dir():
         raise FileNotFoundError(
@@ -547,8 +569,7 @@ def build_spatial_manifest(samples_dir: Path, output_csv: Path) -> None:
         )
 
     sample_dirs = sorted(
-        p for p in samples_dir.iterdir()
-        if p.is_dir() and p.name.startswith("GSM")
+        p for p in samples_dir.iterdir() if p.is_dir() and p.name.startswith("GSM")
     )
     if not sample_dirs:
         raise FileNotFoundError(f"No GSM* sub-directories found in: {samples_dir}")
@@ -560,13 +581,15 @@ def build_spatial_manifest(samples_dir: Path, output_csv: Path) -> None:
         except ValueError as exc:
             log.warning("Skipping %s: %s", sd.name, exc)
             continue
-        rows.append({
-            "sample_id":  info["sample_id"],
-            "sample_dir": str(sd),
-            "gsm":        info["gsm"],
-            "patient_id": info["patient_id"],
-            "stage":      info["stage_normalized"],
-        })
+        rows.append(
+            {
+                "sample_id": info["sample_id"],
+                "sample_dir": str(sd),
+                "gsm": info["gsm"],
+                "patient_id": info["patient_id"],
+                "stage": info["stage_normalized"],
+            }
+        )
 
     if not rows:
         raise RuntimeError(f"No parseable sample directories in {samples_dir}.")
@@ -582,15 +605,15 @@ def build_spatial_manifest(samples_dir: Path, output_csv: Path) -> None:
 # Merge
 # ---------------------------------------------------------------------------
 
+
 def merge_spatial_h5ad(manifest_csv: Path, output_h5ad: Path) -> None:
     """Concatenate per-sample spatial h5ad files listed in *manifest_csv*."""
     manifest_csv = Path(manifest_csv)
-    output_h5ad  = Path(output_h5ad)
+    output_h5ad = Path(output_h5ad)
 
     if not manifest_csv.exists():
         raise FileNotFoundError(
-            f"Spatial manifest CSV not found: {manifest_csv}\n"
-            f"Run build_spatial_manifest() first."
+            f"Spatial manifest CSV not found: {manifest_csv}\nRun build_spatial_manifest() first."
         )
 
     from stagebridge.config import interim_spatial_dir
@@ -619,13 +642,11 @@ def merge_spatial_h5ad(manifest_csv: Path, output_h5ad: Path) -> None:
     output_h5ad.parent.mkdir(parents=True, exist_ok=True)
     log.info(
         "Writing merged spatial h5ad (%d spots, %d genes): %s",
-        *merged.shape, output_h5ad,
+        *merged.shape,
+        output_h5ad,
     )
     merged.write_h5ad(output_h5ad)
-    print(
-        f"Merged spatial: {merged.shape[0]} spots × {merged.shape[1]} genes "
-        f"→ {output_h5ad}"
-    )
+    print(f"Merged spatial: {merged.shape[0]} spots × {merged.shape[1]} genes → {output_h5ad}")
 
 
 def _sample_stem_from_tar_path(input_path: Path) -> str:
@@ -683,7 +704,7 @@ def apply_spatial_smoke_limits(
             .sort_values(kind="stable")
             .index.tolist()
         )
-        keep_donors = set(donor_order[: max_donors])
+        keep_donors = set(donor_order[:max_donors])
         df = df[df["donor_id"].isin(keep_donors)].copy()
 
     if max_samples_per_stage is not None and max_samples_per_stage > 0:
@@ -733,7 +754,11 @@ def inspect_spatial_tarball_format(tar_path: Path) -> dict[str, Any]:
     )
     has_spatial_dir = any("/spatial/" in m for m in members)
 
-    format_name = "visium_10x" if (has_matrix and has_barcodes and has_features and has_spatial_dir) else "unknown"
+    format_name = (
+        "visium_10x"
+        if (has_matrix and has_barcodes and has_features and has_spatial_dir)
+        else "unknown"
+    )
     return {
         "format": format_name,
         "file_count": len(members),
@@ -833,9 +858,7 @@ def _load_spatial_coords_from_tar(
 
     first_line = coord_text.splitlines()[0].strip().lower()
     has_header = (
-        "barcode" in first_line
-        or "pxl_row_in_fullres" in first_line
-        or "array_row" in first_line
+        "barcode" in first_line or "pxl_row_in_fullres" in first_line or "array_row" in first_line
     )
 
     if has_header:
@@ -1034,6 +1057,7 @@ def load_spatial_dataset(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _usage() -> None:
     print(

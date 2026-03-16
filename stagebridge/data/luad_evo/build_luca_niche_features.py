@@ -1,4 +1,5 @@
 """Build niche-level LuCA similarity features for EA-MIST."""
+
 from __future__ import annotations
 
 import argparse
@@ -78,7 +79,10 @@ def run(
 
     malignant_mask = summary["malignant_flag"].fillna(False).astype(bool).to_numpy()
     immune_mask = summary["immune_flag"].fillna(False).astype(bool).to_numpy()
-    stromal_mask = summary["stromal_flag"].fillna(False).astype(bool).to_numpy() | summary["compartment_group"].astype(str).eq("stromal").to_numpy()
+    stromal_mask = (
+        summary["stromal_flag"].fillna(False).astype(bool).to_numpy()
+        | summary["compartment_group"].astype(str).eq("stromal").to_numpy()
+    )
     invasive_mask = summary["invasive_like_flag"].fillna(False).astype(bool).to_numpy()
     epithelial_mask = summary["epithelial_flag"].fillna(False).astype(bool).to_numpy()
 
@@ -94,7 +98,9 @@ def run(
     invasive_mean = _masked_mean(invasive_mask)
 
     top_entropy = entropy_from_rows(np.clip(top_scores, 0.0, None))
-    result = niche_df.loc[:, ["lesion_id", "sample_id", "niche_id", "donor_id", "patient_id", "stage"]].copy()
+    result = niche_df.loc[
+        :, ["lesion_id", "sample_id", "niche_id", "donor_id", "patient_id", "stage"]
+    ].copy()
     for idx in range(top_scores.shape[1]):
         result[f"luca_top{idx + 1}_similarity"] = top_scores[:, idx].astype(np.float32, copy=False)
         result[f"luca_top{idx + 1}_state"] = top_labels[:, idx].astype(str)
@@ -124,13 +130,18 @@ def run(
         "chosen_scoring_space": "token_composition_space",
         "token_columns_used": token_columns,
         "token_prefix_used": token_prefix,
-        "chosen_luca_state_column": str(summary["state_annotation_column"].dropna().iloc[0]) if "state_annotation_column" in summary.columns and not summary["state_annotation_column"].dropna().empty else "unknown",
+        "chosen_luca_state_column": str(summary["state_annotation_column"].dropna().iloc[0])
+        if "state_annotation_column" in summary.columns
+        and not summary["state_annotation_column"].dropna().empty
+        else "unknown",
         "chosen_top_k": int(min(int(top_k), int(summary.shape[0]))),
         "num_niches_scored": int(result.shape[0]),
         "missing_value_count": int(result.isna().sum().sum()),
         "excluded_luca_states": excluded_states,
         "num_luca_states": int(summary.shape[0]),
-        "centroid_dimension": int(len(centroids["centroid_vector"].iloc[0])) if not centroids.empty else 0,
+        "centroid_dimension": int(len(centroids["centroid_vector"].iloc[0]))
+        if not centroids.empty
+        else 0,
     }
     write_json(out_path.parent / f"{out_path.stem}.audit.json", audit)
     log.info(
@@ -144,11 +155,24 @@ def run(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--niche-parquet", type=Path, required=True, help="Path to niche_tokens_full.parquet")
-    parser.add_argument("--luca-centroids", type=Path, required=True, help="Path to luca_state_centroids.parquet")
-    parser.add_argument("--luca-summary", type=Path, required=True, help="Path to luca_state_summary.parquet")
-    parser.add_argument("--out", type=Path, required=True, help="Output parquet path for niche-level LuCA features")
-    parser.add_argument("--top-k", type=int, default=DEFAULT_LUCA_TOP_K, help="Top-k LuCA state similarities to store per niche")
+    parser.add_argument(
+        "--niche-parquet", type=Path, required=True, help="Path to niche_tokens_full.parquet"
+    )
+    parser.add_argument(
+        "--luca-centroids", type=Path, required=True, help="Path to luca_state_centroids.parquet"
+    )
+    parser.add_argument(
+        "--luca-summary", type=Path, required=True, help="Path to luca_state_summary.parquet"
+    )
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Output parquet path for niche-level LuCA features"
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=DEFAULT_LUCA_TOP_K,
+        help="Top-k LuCA state similarities to store per niche",
+    )
     return parser
 
 

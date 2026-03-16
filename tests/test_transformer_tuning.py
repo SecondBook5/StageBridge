@@ -54,7 +54,9 @@ def test_set_only_objective_is_deterministic_for_fixed_trial(monkeypatch) -> Non
             ],
         )
 
-    monkeypatch.setattr("stagebridge.evaluation.transformer_tuning.evaluate_set_only_candidate", _fake_evaluate)
+    monkeypatch.setattr(
+        "stagebridge.evaluation.transformer_tuning.evaluate_set_only_candidate", _fake_evaluate
+    )
 
     objective = make_set_only_objective(
         _cfg(),
@@ -91,10 +93,30 @@ def test_run_set_only_optuna_study_emits_trial_table_and_confirmation(monkeypatc
         "stagebridge.evaluation.transformer_tuning.run_mode_baseline_summary",
         lambda cfg, modes=None, edges=None, seeds=None: pd.DataFrame(
             [
-                {"edge": "AAH->AIS", "mode": "deep_sets", "sinkhorn_mean": 10.0, "calibration_mean": 1.0},
-                {"edge": "AIS->MIA", "mode": "deep_sets", "sinkhorn_mean": 11.0, "calibration_mean": 1.2},
-                {"edge": "AAH->AIS", "mode": "rna_only", "sinkhorn_mean": 10.4, "calibration_mean": 1.2},
-                {"edge": "AIS->MIA", "mode": "rna_only", "sinkhorn_mean": 11.5, "calibration_mean": 1.3},
+                {
+                    "edge": "AAH->AIS",
+                    "mode": "deep_sets",
+                    "sinkhorn_mean": 10.0,
+                    "calibration_mean": 1.0,
+                },
+                {
+                    "edge": "AIS->MIA",
+                    "mode": "deep_sets",
+                    "sinkhorn_mean": 11.0,
+                    "calibration_mean": 1.2,
+                },
+                {
+                    "edge": "AAH->AIS",
+                    "mode": "rna_only",
+                    "sinkhorn_mean": 10.4,
+                    "calibration_mean": 1.2,
+                },
+                {
+                    "edge": "AIS->MIA",
+                    "mode": "rna_only",
+                    "sinkhorn_mean": 11.5,
+                    "calibration_mean": 1.3,
+                },
             ]
         ),
     )
@@ -129,7 +151,9 @@ def test_run_set_only_optuna_study_emits_trial_table_and_confirmation(monkeypatc
             ],
         )
 
-    monkeypatch.setattr("stagebridge.evaluation.transformer_tuning.evaluate_set_only_candidate", _fake_evaluate)
+    monkeypatch.setattr(
+        "stagebridge.evaluation.transformer_tuning.evaluate_set_only_candidate", _fake_evaluate
+    )
 
     output = run_set_only_optuna_study(
         _cfg(),
@@ -150,10 +174,30 @@ def test_run_set_only_optuna_study_emits_trial_table_and_confirmation(monkeypatc
 def test_summarize_transformer_vs_deep_sets_reports_decision() -> None:
     benchmark = pd.DataFrame(
         [
-            {"edge": "AAH->AIS", "mode": "deep_sets", "sinkhorn_mean": 10.0, "calibration_mean": 1.0},
-            {"edge": "AAH->AIS", "mode": "typed_hierarchical_transformer", "sinkhorn_mean": 9.8, "calibration_mean": 1.1},
-            {"edge": "AIS->MIA", "mode": "deep_sets", "sinkhorn_mean": 11.0, "calibration_mean": 1.2},
-            {"edge": "AIS->MIA", "mode": "typed_hierarchical_transformer", "sinkhorn_mean": 10.9, "calibration_mean": 1.3},
+            {
+                "edge": "AAH->AIS",
+                "mode": "deep_sets",
+                "sinkhorn_mean": 10.0,
+                "calibration_mean": 1.0,
+            },
+            {
+                "edge": "AAH->AIS",
+                "mode": "typed_hierarchical_transformer",
+                "sinkhorn_mean": 9.8,
+                "calibration_mean": 1.1,
+            },
+            {
+                "edge": "AIS->MIA",
+                "mode": "deep_sets",
+                "sinkhorn_mean": 11.0,
+                "calibration_mean": 1.2,
+            },
+            {
+                "edge": "AIS->MIA",
+                "mode": "typed_hierarchical_transformer",
+                "sinkhorn_mean": 10.9,
+                "calibration_mean": 1.3,
+            },
         ]
     )
 
@@ -169,10 +213,30 @@ def test_run_transformer_core_benchmark_uses_fixed_modes(monkeypatch) -> None:
         "stagebridge.evaluation.transformer_tuning.run_mode_baseline_summary",
         lambda cfg, modes=None, edges=None, seeds=None: pd.DataFrame(
             [
-                {"edge": "AAH->AIS", "mode": "deep_sets", "sinkhorn_mean": 10.0, "calibration_mean": 1.0},
-                {"edge": "AAH->AIS", "mode": "typed_hierarchical_transformer", "sinkhorn_mean": 10.2, "calibration_mean": 0.9},
-                {"edge": "AIS->MIA", "mode": "deep_sets", "sinkhorn_mean": 11.0, "calibration_mean": 1.2},
-                {"edge": "AIS->MIA", "mode": "typed_hierarchical_transformer", "sinkhorn_mean": 11.3, "calibration_mean": 1.1},
+                {
+                    "edge": "AAH->AIS",
+                    "mode": "deep_sets",
+                    "sinkhorn_mean": 10.0,
+                    "calibration_mean": 1.0,
+                },
+                {
+                    "edge": "AAH->AIS",
+                    "mode": "typed_hierarchical_transformer",
+                    "sinkhorn_mean": 10.2,
+                    "calibration_mean": 0.9,
+                },
+                {
+                    "edge": "AIS->MIA",
+                    "mode": "deep_sets",
+                    "sinkhorn_mean": 11.0,
+                    "calibration_mean": 1.2,
+                },
+                {
+                    "edge": "AIS->MIA",
+                    "mode": "typed_hierarchical_transformer",
+                    "sinkhorn_mean": 11.3,
+                    "calibration_mean": 1.1,
+                },
             ]
         ),
     )

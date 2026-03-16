@@ -52,7 +52,6 @@ class StageBridgeV1Full(nn.Module):
         hlca_dim: int = 16,
         luca_dim: int = 16,
         fusion_mode: str = "attention",
-
         # Layer B: Local Niche Encoder
         niche_encoder_type: str = "transformer",
         receiver_dim: int = 32,
@@ -60,22 +59,18 @@ class StageBridgeV1Full(nn.Module):
         niche_hidden_dim: int = 128,
         niche_heads: int = 4,
         niche_layers: int = 2,
-
         # Layer C: Set Context Encoder
         use_set_encoder: bool = True,
         set_hidden_dim: int = 256,
         set_heads: int = 8,
-
         # Layer D: Transition Model
         use_ude: bool = False,
         use_cross_attention: bool = True,
         num_edges: int = 3,
-
         # Layer F: WES
         use_wes: bool = True,
         wes_dim: int = 3,
         wes_hidden_dim: int = 64,
-
         # Training
         dropout: float = 0.1,
     ):
@@ -114,6 +109,7 @@ class StageBridgeV1Full(nn.Module):
         else:
             # Fallback to MLP for testing
             from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder
+
             self.niche_encoder = LocalNicheMLPEncoder(
                 input_dim=9 * (latent_dim + 4),
                 hidden_dim=niche_hidden_dim,
@@ -184,6 +180,7 @@ class StageBridgeV1Full(nn.Module):
             # This requires proper tokenization - for now use MLP path
             niche_flat = batch.niche_tokens.reshape(batch.niche_tokens.shape[0], -1)
             from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder
+
             temp_encoder = LocalNicheMLPEncoder(
                 input_dim=niche_flat.shape[1],
                 hidden_dim=128,
@@ -335,11 +332,13 @@ def train_epoch(
         total_wes += outputs["loss_wes"].item()
         n_batches += 1
 
-        pbar.set_postfix({
-            "loss": total_loss / n_batches,
-            "trans": total_transition / n_batches,
-            "wes": total_wes / n_batches,
-        })
+        pbar.set_postfix(
+            {
+                "loss": total_loss / n_batches,
+                "trans": total_transition / n_batches,
+                "wes": total_wes / n_batches,
+            }
+        )
 
     return {
         "loss": total_loss / n_batches,
@@ -413,7 +412,9 @@ def main():
 
     # Output
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
+    )
 
     args = parser.parse_args()
 
@@ -492,7 +493,7 @@ def main():
     # Training loop
     print(f"\n[3/5] Training for {args.n_epochs} epochs...")
     history = {"train": [], "val": []}
-    best_val_loss = float('inf')
+    best_val_loss = float("inf")
 
     for epoch in range(args.n_epochs):
         print(f"\nEpoch {epoch + 1}/{args.n_epochs}")
@@ -511,14 +512,17 @@ def main():
         print(f"  Val W-dist: {val_metrics['wasserstein']:.4f} | MAE: {val_metrics['mae']:.4f}")
 
         # Save best model
-        if val_metrics['loss'] < best_val_loss:
-            best_val_loss = val_metrics['loss']
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_loss': best_val_loss,
-            }, output_dir / "best_model.pt")
+        if val_metrics["loss"] < best_val_loss:
+            best_val_loss = val_metrics["loss"]
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": best_val_loss,
+                },
+                output_dir / "best_model.pt",
+            )
 
         scheduler.step()
 
