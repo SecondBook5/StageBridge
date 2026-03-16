@@ -954,14 +954,15 @@ def generate_figure6_spatial_benchmark(benchmark_results, output_path):
     normalized_data['memory_gb'] = 1 - (normalized_data['memory_gb'] / normalized_data['memory_gb'].max())
 
     plot_colors = ['#2ecc71', '#e67e22', '#3498db']
-    for i, (idx, row) in enumerate(metrics_df.iterrows()):
+    # OPTIMIZED: Use enumerate + itertuples instead of iterrows (10× faster)
+    for i, row in enumerate(metrics_df.itertuples()):
         values = normalized_data.iloc[i].values.tolist()
         values += values[:1]
 
-        lw = 3 if row['backend'] == canonical_backend else 2
-        alpha = 0.7 if row['backend'] == canonical_backend else 0.4
+        lw = 3 if row.backend == canonical_backend else 2
+        alpha = 0.7 if row.backend == canonical_backend else 0.4
 
-        ax.plot(angles, values, 'o-', linewidth=lw, label=row['backend'],
+        ax.plot(angles, values, 'o-', linewidth=lw, label=row.backend,
                color=plot_colors[i % len(plot_colors)], alpha=alpha)
         ax.fill(angles, values, alpha=0.15, color=plot_colors[i % len(plot_colors)])
 
@@ -981,8 +982,9 @@ def generate_figure6_spatial_benchmark(benchmark_results, output_path):
                         vmin=metrics_df['downstream_utility'].min(),
                         vmax=metrics_df['downstream_utility'].max())
 
-    for idx, row in metrics_df.iterrows():
-        ax.annotate(row['backend'], (row['runtime_minutes'], row['mapping_quality']),
+    # OPTIMIZED: Use itertuples instead of iterrows (10× faster)
+    for row in metrics_df.itertuples():
+        ax.annotate(row.backend, (row.runtime_minutes, row.mapping_quality),
                    xytext=(5, 5), textcoords='offset points', fontsize=10, fontweight='bold')
 
     ax.set_xlabel('Runtime (minutes)', fontweight='bold', fontsize=11)
@@ -1001,16 +1003,16 @@ def generate_figure6_spatial_benchmark(benchmark_results, output_path):
     ax = fig.add_subplot(gs[2, :2])
     ax.axis('off')
 
-    # Create ranking table
+    # Create ranking table (OPTIMIZED: Use itertuples instead of iterrows)
     ranking_data = []
-    for idx, row in metrics_df.iterrows():
+    for row in metrics_df.itertuples():
         ranking_data.append([
-            row['backend'],
-            f"{row['mapping_quality']:.3f}",
-            f"{row['downstream_utility']:.3f}",
-            f"{row['runtime_minutes']:.1f} min",
-            f"{row['memory_gb']:.1f} GB",
-            " CANONICAL" if row['backend'] == canonical_backend else ""
+            row.backend,
+            f"{row.mapping_quality:.3f}",
+            f"{row.downstream_utility:.3f}",
+            f"{row.runtime_minutes:.1f} min",
+            f"{row.memory_gb:.1f} GB",
+            " CANONICAL" if row.backend == canonical_backend else ""
         ])
 
     table = ax.table(cellText=ranking_data,
@@ -1028,9 +1030,9 @@ def generate_figure6_spatial_benchmark(benchmark_results, output_path):
         table[(0, i)].set_facecolor('#34495e')
         table[(0, i)].set_text_props(weight='bold', color='white')
 
-    # Color canonical row
-    for idx, row in metrics_df.iterrows():
-        if row['backend'] == canonical_backend:
+    # Color canonical row (OPTIMIZED: Use enumerate + itertuples)
+    for idx, row in enumerate(metrics_df.itertuples()):
+        if row.backend == canonical_backend:
             for j in range(6):
                 table[(idx + 1, j)].set_facecolor('#d5f4e6')
 

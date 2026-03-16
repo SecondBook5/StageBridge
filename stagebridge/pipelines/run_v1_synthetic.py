@@ -28,7 +28,7 @@ from typing import Dict
 
 # StageBridge imports
 from stagebridge.data.synthetic import generate_synthetic_dataset
-from stagebridge.data.loaders import get_dataloader, StageBridgeBatch
+from stagebridge.data.loaders_optimized import get_dataloader_optimized, StageBridgeBatch
 from stagebridge.models.dual_reference import create_dual_reference_mapper
 from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder
 from stagebridge.context_model.set_encoder import SetTransformer
@@ -620,7 +620,7 @@ def main():
 
     # Step 2: Create dataloaders
     print("\n[2/6] Creating dataloaders...")
-    train_loader = get_dataloader(
+    train_loader = get_dataloader_optimized(
         data_dir=data_dir,
         fold=0,
         split="train",
@@ -629,7 +629,7 @@ def main():
         shuffle=True,
     )
 
-    val_loader = get_dataloader(
+    val_loader = get_dataloader_optimized(
         data_dir=data_dir,
         fold=0,
         split="val",
@@ -638,7 +638,7 @@ def main():
         shuffle=False,
     )
 
-    test_loader = get_dataloader(
+    test_loader = get_dataloader_optimized(
         data_dir=data_dir,
         fold=0,
         split="test",
