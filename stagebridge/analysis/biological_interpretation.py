@@ -37,29 +37,29 @@ class InfluenceTensorExtractor:
     @torch.no_grad()
     def extract_attention_weights(
         self,
-        batch: Dict,
+        batch,
     ) -> Tuple[np.ndarray, List[str]]:
         """
         Extract attention weights from niche encoder.
-        
+
         Returns:
             attention: (batch_size, n_tokens, n_tokens) attention matrix
             cell_ids: List of cell IDs
         """
-        batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
-                 for k, v in batch.items()}
-        
+        # Move batch to device
+        batch = batch.to(self.device)
+
         # Forward pass with attention extraction
         outputs = self.model(batch, return_diagnostics=True)
-        
+
         # Get attention from last layer
         if "attention_weights" in outputs:
             attention = outputs["attention_weights"].cpu().numpy()
         else:
             # Fallback: uniform attention
-            attention = np.ones((len(batch["cell_ids"]), 9, 9)) / 9
-        
-        return attention, batch["cell_ids"]
+            attention = np.ones((len(batch.cell_ids), 9, 9)) / 9
+
+        return attention, batch.cell_ids
     
     def compute_influence_tensor(
         self,
@@ -92,8 +92,8 @@ class InfluenceTensorExtractor:
             for i, cell_id in enumerate(cell_ids):
                 results.append({
                     "cell_id": cell_id,
-                    "donor_id": batch["donor_ids"][i],
-                    "stage": batch["source_stages"][i],
+                    "donor_id": batch.donor_ids[i],
+                    "stage": batch.source_stages[i],
                     "ring_influence": float(ring_attention[i]),
                 })
         
@@ -154,7 +154,9 @@ def visualize_niche_influence(
     ax.set_xlabel("Stage")
     
     plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
     print(f"Saved niche influence visualization: {output_path}")
 
 
@@ -178,9 +180,10 @@ def extract_pathway_signatures(
         # Extract cell type composition from ring tokens
         cell_type_counts = {}
         for token in tokens:
-            if "celltype_composition" in token:
+            if "celltype_composition" in token and token["celltype_composition"] is not None:
                 for ct, count in token["celltype_composition"].items():
-                    cell_type_counts[ct] = cell_type_counts.get(ct, 0) + count
+                    if count is not None:
+                        cell_type_counts[ct] = cell_type_counts.get(ct, 0) + count
         
         # Compute signatures
         total_cells = sum(cell_type_counts.values()) or 1
