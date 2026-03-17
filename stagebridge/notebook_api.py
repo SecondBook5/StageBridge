@@ -143,18 +143,19 @@ def _progress_iter(iterable: list[str], *, desc: str, enabled: bool) -> Any:
 
 
 _STEP_REGISTRY: dict[str, StepSpec] = {
-    "data_prep": ("stagebridge.pipelines.run_data_prep", "run_data_prep"),
-    "label_repair": ("stagebridge.pipelines.run_label_repair", "run_label_repair"),
-    "pretrain_local": ("stagebridge.pipelines.pretrain_local", "run_pretrain_local"),
-    "train_lesion": ("stagebridge.pipelines.train_lesion", "run_train_lesion"),
-    "evaluate_lesion": ("stagebridge.pipelines.evaluate_lesion", "run_evaluate_lesion"),
-    "eamist_report": ("stagebridge.pipelines.run_eamist_reporting", "run_eamist_reporting"),
-    "reference": ("stagebridge.pipelines.run_reference", "run_reference"),
-    "spatial_mapping": ("stagebridge.pipelines.run_spatial_mapping", "run_spatial_mapping"),
+    "communication_benchmark": ("stagebridge.pipelines.run_communication_benchmark", "run_communication_benchmark"),
     "context_model": ("stagebridge.pipelines.run_context_model", "run_context_model"),
-    "transition_model": ("stagebridge.pipelines.run_transition_model", "run_transition_model"),
+    "data_prep": ("stagebridge.pipelines.run_data_prep", "run_data_prep"),
+    "eamist_report": ("stagebridge.pipelines.run_eamist_reporting", "run_eamist_reporting"),
+    "evaluate_lesion": ("stagebridge.pipelines.evaluate_lesion", "run_evaluate_lesion"),
     "evaluation": ("stagebridge.pipelines.run_evaluation", "run_evaluation"),
     "full": ("stagebridge.pipelines.run_full", "run_full"),
+    "label_repair": ("stagebridge.pipelines.run_label_repair", "run_label_repair"),
+    "pretrain_local": ("stagebridge.pipelines.pretrain_local", "run_pretrain_local"),
+    "reference": ("stagebridge.pipelines.run_reference", "run_reference"),
+    "spatial_mapping": ("stagebridge.pipelines.run_spatial_mapping", "run_spatial_mapping"),
+    "train_lesion": ("stagebridge.pipelines.train_lesion", "run_train_lesion"),
+    "transition_model": ("stagebridge.pipelines.run_transition_model", "run_transition_model"),
     # compatibility aliases retained at the API boundary only
     "build_snrna": ("stagebridge.pipelines.run_reference", "run_reference"),
     "build_spatial": ("stagebridge.pipelines.run_reference", "run_reference"),
@@ -174,6 +175,10 @@ def _resolve_step_fn(step: str) -> StepFn:
     module = import_module(module_name)
     fn = getattr(module, fn_name)
     return fn
+
+
+def run_communication_benchmark(*args, **kwargs):
+    return _resolve_step_fn("communication_benchmark")(*args, **kwargs)
 
 
 def run_data_prep(*args, **kwargs):
