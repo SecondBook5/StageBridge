@@ -391,7 +391,8 @@ class SyntheticDataGeneratorV2:
         cells["z_luca"] = z_luca_list
         cells["z_fused"] = z_fused_list
 
-        for dim in range(min(4, self.config.latent_dim)):
+        # Create individual dimension columns for all latent dimensions
+        for dim in range(self.config.latent_dim):
             cells[f"z_fused_{dim}"] = cells["z_fused"].apply(lambda x, d=dim: x[d])
             cells[f"z_hlca_{dim}"] = cells["z_hlca"].apply(lambda x, d=dim: x[d])
             cells[f"z_luca_{dim}"] = cells["z_luca"].apply(lambda x, d=dim: x[d])
