@@ -101,7 +101,9 @@ class StageBridgeV1Full(nn.Module):
                 sender_feature_dim=sender_dim,
                 hlca_dim=hlca_dim,
                 luca_dim=luca_dim,
-                hidden_dim=niche_hidden_dim,
+                lr_summary_dim=latent_dim,  # L/R pathway summary dimension
+                stats_dim=8,  # Neighborhood statistics dimension
+                model_dim=niche_hidden_dim,
                 num_heads=niche_heads,
                 num_layers=niche_layers,
                 dropout=dropout,
@@ -122,7 +124,6 @@ class StageBridgeV1Full(nn.Module):
                 input_dim=niche_hidden_dim,
                 hidden_dim=set_hidden_dim,
                 num_heads=set_heads,
-                num_layers=2,
                 dropout=dropout,
             )
             context_dim = set_hidden_dim
