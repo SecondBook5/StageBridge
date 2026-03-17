@@ -15,14 +15,27 @@ from stagebridge.context_model.set_encoder import SetContextSummary
 
 @dataclass(slots=True, frozen=True)
 class RelationalPretrainingConfig:
-    """Configuration for the self-supervised pretraining stage."""
+    """Configuration for the self-supervised pretraining stage.
+
+    Core novelty: Receiver-centered niche context learning.
+    The PRIMARY objective (70% weight) is receiver state reconstruction from
+    local niche context - this is the key representation-learning signal that
+    makes cross-sectional progression identifiable.
+
+    Weight distribution:
+    - masked_token (0.70): PRIMARY - reconstruct receiver from neighbors
+    - ranking (0.10): Auxiliary - positive vs negative control discrimination
+    - provider_consistency (0.10): Auxiliary - cross-view consistency
+    - coordinate_corruption (0.05): Auxiliary - spatial awareness
+    - group_relation (0.05): Auxiliary - biological group structure
+    """
 
     mask_fraction: float = 0.15
-    masked_token_weight: float = 0.35
-    ranking_weight: float = 0.35
-    provider_consistency_weight: float = 0.15
-    coordinate_corruption_weight: float = 0.10
-    group_relation_weight: float = 0.05
+    masked_token_weight: float = 0.70  # PRIMARY - receiver reconstruction from niche
+    ranking_weight: float = 0.10  # Auxiliary
+    provider_consistency_weight: float = 0.10  # Auxiliary
+    coordinate_corruption_weight: float = 0.05  # Auxiliary
+    group_relation_weight: float = 0.05  # Auxiliary
     ranking_margin: float = 0.2
     max_epochs: int = 3
     steps_per_epoch: int = 4

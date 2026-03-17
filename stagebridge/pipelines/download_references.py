@@ -155,8 +155,12 @@ def download_reference_atlases(
 def main():
     parser = argparse.ArgumentParser(description="Download HLCA and LuCA reference atlases")
 
+    # Use centralized data directory by default
+    from pathlib import Path as PathLib
+    default_output = str(PathLib.home() / "data" / "stagebridge" / "processed")
+
     parser.add_argument(
-        "--output_dir", type=str, default="data/references", help="Output directory for references"
+        "--output_dir", type=str, default=default_output, help="Output directory for references"
     )
     parser.add_argument("--download_hlca", action="store_true", help="Download HLCA")
     parser.add_argument("--download_luca", action="store_true", help="Download LuCA")

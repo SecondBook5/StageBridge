@@ -61,6 +61,12 @@ class FeatureHarmonizer:
         self.require_all_sources = require_all_sources
         self.min_overlap_fraction = min_overlap_fraction
         self._report: HarmonizationReport | None = None
+        self._final_genes: list[str] = []
+
+    @property
+    def harmonized_genes(self) -> list[str]:
+        """Get the final harmonized gene list."""
+        return self._final_genes
         self._final_genes: list[str] | None = None
 
     def harmonize(

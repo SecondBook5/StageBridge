@@ -95,9 +95,15 @@ class DataSourceLoader:
             "progression": None,
         }
 
-        # Standard search paths
+        # Standard search paths - check centralized data directory first
+        from pathlib import Path as PathLib
+        centralized_data = PathLib.home() / "data" / "stagebridge" / "processed"
+
         search_paths = [
-            Path("data/references"),
+            centralized_data / "HLCA",  # Centralized data (priority)
+            centralized_data / "LuCA",
+            centralized_data / "luad_evo",
+            Path("data/references"),  # Project-local fallback
             Path("data/processed/hlca"),
             Path("data/processed/luca"),
             Path("data/processed/luad"),

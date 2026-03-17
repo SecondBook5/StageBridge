@@ -1,0 +1,90 @@
+{
+  "n_folds": 5,
+  "folds": [
+    {
+      "fold": 0,
+      "train_donors": [
+        "donor_002",
+        "donor_003",
+        "donor_004",
+        "donor_005",
+        "donor_006",
+        "donor_007"
+      ],
+      "val_donors": [
+        "donor_001"
+      ],
+      "test_donors": [
+        "donor_000"
+      ]
+    },
+    {
+      "fold": 1,
+      "train_donors": [
+        "donor_002",
+        "donor_003",
+        "donor_004",
+        "donor_005",
+        "donor_006",
+        "donor_007"
+      ],
+      "val_donors": [
+        "donor_000"
+      ],
+      "test_donors": [
+        "donor_001"
+      ]
+    },
+    {
+      "fold": 2,
+      "train_donors": [
+        "donor_001",
+        "donor_003",
+        "donor_004",
+        "donor_005",
+        "donor_006",
+        "donor_007"
+      ],
+      "val_donors": [
+        "donor_000"
+      ],
+      "test_donors": [
+        "donor_002"
+      ]
+    },
+    {
+      "fold": 3,
+      "train_donors": [
+        "donor_001",
+        "donor_002",
+        "donor_004",
+        "donor_005",
+        "donor_006",
+        "donor_007"
+      ],
+      "val_donors": [
+        "donor_000"
+      ],
+      "test_donors": [
+        "donor_003"
+      ]
+    },
+    {
+      "fold": 4,
+      "train_donors": [
+        "donor_001",
+        "donor_002",
+        "donor_003"
+      ],
+      "val_donors": [
+        "donor_000"
+      ],
+      "test_donors": [
+        "donor_004",
+        "donor_005",
+        "donor_006",
+        "donor_007"
+      ]
+    }
+  ]
+}
