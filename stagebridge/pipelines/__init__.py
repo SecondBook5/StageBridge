@@ -5,11 +5,11 @@ from __future__ import annotations
 from importlib import import_module
 
 _EXPORTS: dict[str, str] = {
-    "run_data_prep": ".run_data_prep",
-    "run_evaluate_lesion": ".evaluate_lesion",
-    "run_pretrain_local": ".pretrain_local",
+    "run_communication_benchmark": ".run_communication_benchmark",
     "run_context_model": ".run_context_model",
+    "run_data_prep": ".run_data_prep",
     "run_eamist_reporting": ".run_eamist_reporting",
+    "run_evaluate_lesion": ".evaluate_lesion",
     "run_evaluation": ".run_evaluation",
     "run_full": ".run_full",
     "run_label_cna": ".run_label_repair",
@@ -19,6 +19,7 @@ _EXPORTS: dict[str, str] = {
     "run_label_refinement": ".run_label_repair",
     "run_label_repair": ".run_label_repair",
     "run_label_support": ".run_label_repair",
+    "run_pretrain_local": ".pretrain_local",
     "run_reference": ".run_reference",
     "run_spatial_mapping": ".run_spatial_mapping",
     "run_transition_model": ".run_transition_model",
@@ -37,10 +38,11 @@ def __getattr__(name: str):
 
 
 __all__ = [
-    "run_data_prep",
-    "run_evaluate_lesion",
+    "run_communication_benchmark",
     "run_context_model",
+    "run_data_prep",
     "run_eamist_reporting",
+    "run_evaluate_lesion",
     "run_evaluation",
     "run_full",
     "run_label_cna",
