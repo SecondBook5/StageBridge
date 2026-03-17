@@ -1,0 +1,120 @@
+# Default configuration for semi-synthetic benchmark
+# Generates a comprehensive benchmark for StageBridge evaluation
+
+benchmark_name: niche_interaction_v1
+benchmark_family: local_niche
+
+# Feature settings
+n_hvg: 2000
+latent_dim: 32
+
+# World generation
+n_worlds_train: 10
+n_worlds_val: 3
+n_worlds_test: 5
+cells_per_world: 2000
+world_width: 1000.0
+world_height: 1000.0
+
+# Stage structure
+stages:
+  - Normal
+  - AAH
+  - AIS
+  - MIA
+  - LUAD
+
+# Cell group specifications
+cell_groups:
+  - name: epithelial_receiver
+    role: receiver
+    source_datasets:
+      - hlca
+      - progression
+    selection_keywords:
+      - AT2
+      - alveolar
+      - epithelial
+      - EPCAM
+    min_cells: 500
+    max_cells: 3000
+
+  - name: caf_sender
+    role: sender
+    source_datasets:
+      - luca
+      - progression
+    selection_keywords:
+      - fibroblast
+      - CAF
+      - stromal
+      - mesenchymal
+    min_cells: 200
+    max_cells: 1000
+
+  - name: immune_sender
+    role: sender
+    source_datasets:
+      - hlca
+      - luca
+      - progression
+    selection_keywords:
+      - macrophage
+      - T cell
+      - immune
+      - myeloid
+    min_cells: 200
+    max_cells: 1000
+
+  - name: endothelial_background
+    role: background
+    source_datasets:
+      - hlca
+      - luca
+    selection_keywords:
+      - endothelial
+      - vascular
+      - capillary
+    min_cells: 100
+    max_cells: 500
+
+# Interaction rules
+interaction_rules:
+  - rule_id: caf_emt
+    sender_group: caf_sender
+    receiver_group: epithelial_receiver
+    interaction_radius: 100.0
+    effect_strength: 0.6
+    effect_name: CAF_induced_EMT
+    stage_modulation:
+      Normal: 0.3
+      AAH: 0.5
+      AIS: 0.8
+      MIA: 1.0
+      LUAD: 1.2
+
+  - rule_id: immune_modulation
+    sender_group: immune_sender
+    receiver_group: epithelial_receiver
+    interaction_radius: 75.0
+    effect_strength: 0.4
+    effect_name: immune_modulation
+    stage_modulation:
+      Normal: 0.2
+      AAH: 0.4
+      AIS: 0.6
+      MIA: 0.8
+      LUAD: 1.0
+
+  - rule_id: caf_distant
+    sender_group: caf_sender
+    receiver_group: epithelial_receiver
+    interaction_radius: 200.0
+    effect_strength: 0.2
+    effect_name: CAF_distant_effect
+
+# Output location
+output_dir: data/processed/semi_synthetic
+
+# Reproducibility
+seed: 42

@@ -1,0 +1,77 @@
+# Smoke test configuration for semi-synthetic benchmark
+# Minimal configuration for quick pipeline validation
+
+benchmark_name: smoke_test
+benchmark_family: local_niche
+
+# Reduced feature settings
+n_hvg: 500
+latent_dim: 16
+
+# Minimal world generation
+n_worlds_train: 2
+n_worlds_val: 1
+n_worlds_test: 1
+cells_per_world: 200
+world_width: 500.0
+world_height: 500.0
+
+# Stage structure
+stages:
+  - Normal
+  - AIS
+  - LUAD
+
+# Minimal cell groups
+cell_groups:
+  - name: epithelial_receiver
+    role: receiver
+    source_datasets:
+      - hlca
+    selection_keywords:
+      - AT2
+      - epithelial
+    min_cells: 50
+    max_cells: 150
+
+  - name: caf_sender
+    role: sender
+    source_datasets:
+      - luca
+    selection_keywords:
+      - fibroblast
+      - CAF
+    min_cells: 30
+    max_cells: 80
+
+  - name: immune_sender
+    role: sender
+    source_datasets:
+      - hlca
+    selection_keywords:
+      - macrophage
+      - immune
+    min_cells: 30
+    max_cells: 80
+
+# Minimal interaction rules
+interaction_rules:
+  - rule_id: caf_emt
+    sender_group: caf_sender
+    receiver_group: epithelial_receiver
+    interaction_radius: 80.0
+    effect_strength: 0.5
+    effect_name: CAF_induced_EMT
+
+  - rule_id: immune_modulation
+    sender_group: immune_sender
+    receiver_group: epithelial_receiver
+    interaction_radius: 60.0
+    effect_strength: 0.3
+    effect_name: immune_modulation
+
+# Output location
+output_dir: data/processed/semi_synthetic_smoke
+
+# Reproducibility
+seed: 42
