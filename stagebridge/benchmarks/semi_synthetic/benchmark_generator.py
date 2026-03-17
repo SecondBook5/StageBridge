@@ -358,12 +358,96 @@ class SemiSyntheticBenchmarkGenerator:
 
         return reports
 
+    def _extract_expression_for_world(
+        self,
+        world: SyntheticWorld,
+        harmonized_genes: np.ndarray | None = None,
+    ) -> anndata.AnnData:
+        """Extract expression matrices for all cells in a world.
+
+        Args:
+            world: The synthetic world to extract expression for
+            harmonized_genes: List of harmonized gene names to use
+
+        Returns:
+            AnnData object with expression data aligned to world cells
+        """
+        import anndata
+
+        if self.data_loader is None:
+            raise RuntimeError("Data loader not initialized")
+
+        cells_df = world.cell_positions
+
+        # Group cells by source dataset
+        source_groups = cells_df.groupby("_source_name")
+
+        expression_matrices = []
+        obs_records = []
+
+        for source_name, group in source_groups:
+            source_indices = group["_source_idx"].values
+
+            # Get expression matrix from source
+            X = self.data_loader.get_expression_matrix(
+                source_name=source_name,
+                indices=source_indices,
+                genes=harmonized_genes.tolist() if harmonized_genes is not None else None,
+            )
+
+            if X is None:
+                log.warning(f"Could not extract expression from {source_name}")
+                continue
+
+            expression_matrices.append(X)
+
+            # Build obs DataFrame aligned with expression rows
+            obs_subset = group[[
+                "synthetic_cell_id", "x", "y", "cell_group", "stage"
+            ]].copy() if "stage" in group.columns else group[[
+                "synthetic_cell_id", "x", "y", "cell_group"
+            ]].copy()
+            obs_subset["source"] = source_name
+            obs_records.append(obs_subset)
+
+        # Concatenate all expression matrices
+        if not expression_matrices:
+            raise ValueError("No expression data could be extracted")
+
+        X_combined = np.vstack(expression_matrices)
+        obs_combined = pd.concat(obs_records, ignore_index=True)
+
+        # Create AnnData
+        adata = anndata.AnnData(
+            X=X_combined,
+            obs=obs_combined,
+        )
+
+        # Add gene names
+        if harmonized_genes is not None:
+            adata.var_names = harmonized_genes
+        else:
+            adata.var_names = [f"gene_{i}" for i in range(X_combined.shape[1])]
+
+        # Add world metadata
+        adata.uns["world_id"] = world.world_id
+        adata.uns["split"] = world.split
+        adata.uns["world_seed"] = world.seed
+
+        return adata
+
     def _export_benchmark(self) -> list[Path]:
         """Export benchmark to disk in canonical format."""
         output_dir = self.config.output_dir / self.config.benchmark_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
         exported_paths = []
+
+        # Get harmonized gene list
+        harmonized_genes = None
+        if self.harmonizer is not None and len(self.harmonizer.harmonized_genes) > 0:
+            harmonized_genes = np.array(self.harmonizer.harmonized_genes)
+            log.info(f"Using {len(harmonized_genes)} harmonized genes for expression export")
 
         # Export manifest
         manifest = {
@@ -372,6 +456,7 @@ class SemiSyntheticBenchmarkGenerator:
             "n_hvg": self.config.n_hvg,
             "latent_dim": self.config.latent_dim,
             "stages": self.config.stages,
+            "harmonized_genes": harmonized_genes.tolist() if harmonized_genes is not None else None,
             "splits": {
                 "train": len(self.worlds["train"]),
                 "val": len(self.worlds["val"]),
@@ -433,6 +518,17 @@ class SemiSyntheticBenchmarkGenerator:
                 gt_path = world_dir / "ground_truth.parquet"
                 world.cell_positions[gt_cols].to_parquet(gt_path, index=False)
                 exported_paths.append(gt_path)
+
+                # Export expression data
+                if "_source_name" in world.cell_positions.columns and "_source_idx" in world.cell_positions.columns:
+                    expr_path = world_dir / "expression.h5ad"
+                    try:
+                        expr_adata = self._extract_expression_for_world(world, harmonized_genes)
+                        expr_adata.write_h5ad(expr_path)
+                        exported_paths.append(expr_path)
+                        log.info(f"Exported expression for {world.world_id}: {expr_adata.shape}")
+                    except Exception as e:
+                        log.warning(f"Failed to export expression for {world.world_id}: {e}")
 
                 # Export world metadata
                 meta_path = world_dir / "world_metadata.json"
