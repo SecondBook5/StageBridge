@@ -68,6 +68,13 @@ try:
 except ImportError:
     PRETRAINING_HEADS_AVAILABLE = False
 
+# Import data loaders
+try:
+    from stagebridge.data.loaders import StageBridgeDataset, collate_fn
+    REAL_DATA_LOADER_AVAILABLE = True
+except ImportError:
+    REAL_DATA_LOADER_AVAILABLE = False
+
 # Import existing baselines from codebase
 try:
     from stagebridge.transition_model.baselines import DeepSetsEncoder, DeepSetsFlowModel
@@ -564,6 +571,72 @@ def create_semi_synthetic_dataloader(batch_size: int, n_samples: int, latent_dim
 
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
     return BatchWrapper(loader), {'drift_matrix': drift_linear}
+
+
+def create_real_data_loaders(
+    data_dir: str | Path,
+    batch_size: int,
+    latent_dim: int,
+    fold: int = 0
+) -> tuple:
+    """
+    Create train/val dataloaders from real processed data.
+
+    Falls back to synthetic if real data not available.
+    """
+    data_dir = Path(data_dir)
+
+    # Check if processed data exists
+    cells_path = data_dir / "cells.parquet"
+    neighborhoods_path = data_dir / "neighborhoods.parquet"
+
+    if REAL_DATA_LOADER_AVAILABLE and cells_path.exists() and neighborhoods_path.exists():
+        print(f"  Loading real data from {data_dir}")
+        try:
+            train_dataset = StageBridgeDataset(
+                data_dir=data_dir,
+                fold=fold,
+                split="train",
+                latent_dim=latent_dim,
+            )
+            val_dataset = StageBridgeDataset(
+                data_dir=data_dir,
+                fold=fold,
+                split="val",
+                latent_dim=latent_dim,
+            )
+
+            train_loader = torch.utils.data.DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                collate_fn=collate_fn,
+                num_workers=4,
+                pin_memory=True,
+            )
+            val_loader = torch.utils.data.DataLoader(
+                val_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                collate_fn=collate_fn,
+                num_workers=4,
+                pin_memory=True,
+            )
+            return train_loader, val_loader, True
+        except Exception as e:
+            print(f"  Warning: Failed to load real data: {e}")
+            print("  Falling back to synthetic data")
+    else:
+        if not REAL_DATA_LOADER_AVAILABLE:
+            print("  Note: Real data loader not available (import error)")
+        else:
+            print(f"  Note: Processed data not found at {data_dir}")
+        print("  Using synthetic data for demonstration")
+
+    # Fallback to synthetic
+    train_loader, _ = create_semi_synthetic_dataloader(batch_size, 5000, latent_dim, seed=100)
+    val_loader, _ = create_semi_synthetic_dataloader(batch_size, 1000, latent_dim, seed=101)
+    return train_loader, val_loader, False
 
 
 # =============================================================================
@@ -1197,7 +1270,7 @@ def main():
     # ==========================================================================
     if not args.skip_semi_synthetic:
         print("\n[3/6] Semi-Synthetic Data...")
-        train_loader, gt = create_semi_synthetic_dataloader(args.batch_size, 2000, args.latent_dim, args.seed)
+        train_loader, _gt = create_semi_synthetic_dataloader(args.batch_size, 2000, args.latent_dim, args.seed)
         val_loader, _ = create_semi_synthetic_dataloader(args.batch_size, 500, args.latent_dim, args.seed + 1)
 
         history_semi, best_semi = run_on_dataset(
@@ -1212,16 +1285,22 @@ def main():
     if not args.skip_real:
         print("\n[4/6] Real Data...")
 
-        # Reset model for real data (or continue from semi-synthetic)
-        # For now, create fresh loaders with synthetic fallback
-        train_loader, _ = create_semi_synthetic_dataloader(args.batch_size, 5000, args.latent_dim, args.seed + 100)
-        val_loader, _ = create_semi_synthetic_dataloader(args.batch_size, 1000, args.latent_dim, args.seed + 101)
+        # Try to load real processed data, fallback to synthetic
+        train_loader, val_loader, is_real = create_real_data_loaders(
+            data_dir=args.data_dir,
+            batch_size=args.batch_size,
+            latent_dim=args.latent_dim,
+            fold=0
+        )
 
+        dataset_name = "Real" if is_real else "Real (Synthetic Fallback)"
         history_real, best_real = run_on_dataset(
-            "Real", train_loader, val_loader, model, device, output_dir,
+            dataset_name, train_loader, val_loader, model, device, output_dir,
             args.ssl_epochs, args.transition_epochs, args.lr
         )
         print(f"  Best validation loss: {best_real:.4f}")
+        if not is_real:
+            print("  Note: Used synthetic data as placeholder (run data_prep first)")
 
     # ==========================================================================
     # Ablation Studies
