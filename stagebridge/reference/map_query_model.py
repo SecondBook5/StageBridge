@@ -128,11 +128,12 @@ def map_query_with_scanvi_model(
     train_kwargs = {
         "max_epochs": surgery_epochs,
         "early_stopping": True,
-        "early_stopping_monitor": "elbo_train",
-        "early_stopping_patience": 10,
-        "early_stopping_min_delta": 0.001,
-        "plan_kwargs": {"weight_decay": 0.0},
-        "check_val_every_n_epoch": None,  # Disable validation
+        "early_stopping_monitor": "elbo_validation",  # Monitor VALIDATION loss
+        "early_stopping_patience": 15,
+        "early_stopping_min_delta": 0.5,  # Stop if improvement < 0.5
+        "plan_kwargs": {"weight_decay": 0.0, "lr": 2e-4},  # Lower LR for large datasets
+        "check_val_every_n_epoch": 1,  # Enable validation checking
+        "train_size": 0.9,  # 90% train, 10% validation
         "enable_progress_bar": True,  # Show progress even in SLURM
     }
 
@@ -267,11 +268,12 @@ def map_query_with_scvi_model(
     train_kwargs = {
         "max_epochs": surgery_epochs,
         "early_stopping": True,
-        "early_stopping_monitor": "elbo_train",
-        "early_stopping_patience": 10,
-        "early_stopping_min_delta": 0.001,
-        "plan_kwargs": {"weight_decay": 0.0},
-        "check_val_every_n_epoch": None,
+        "early_stopping_monitor": "elbo_validation",  # Monitor VALIDATION loss
+        "early_stopping_patience": 15,
+        "early_stopping_min_delta": 0.5,  # Stop if improvement < 0.5
+        "plan_kwargs": {"weight_decay": 0.0, "lr": 2e-4},  # Lower LR for large datasets
+        "check_val_every_n_epoch": 1,  # Enable validation checking
+        "train_size": 0.9,  # 90% train, 10% validation
         "enable_progress_bar": True,  # Show progress even in SLURM
     }
 
