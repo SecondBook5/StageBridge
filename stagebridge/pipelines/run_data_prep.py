@@ -110,10 +110,28 @@ def process_snrna(
 
     if not force and merged_path.exists():
         log.info("snRNA merged file exists (skipping): %s", merged_path)
-        # Read shape from h5ad without loading data into memory
-        with h5py.File(merged_path, "r") as f:
-            n_cells = f["obs"].shape[0]
-            n_genes = f["var"].shape[0]
+        # Read shape from h5ad - AnnData stores obs/var as groups, get shape from X or index
+        try:
+            with h5py.File(merged_path, "r") as f:
+                # Try X matrix shape first
+                if "X" in f:
+                    if hasattr(f["X"], "shape"):
+                        n_cells, n_genes = f["X"].shape
+                    elif "data" in f["X"]:
+                        # Sparse matrix - get shape from attributes or indices
+                        n_cells = f["X"].attrs.get("shape", [0, 0])[0] if "shape" in f["X"].attrs else len(f["obs/_index"][()])
+                        n_genes = f["X"].attrs.get("shape", [0, 0])[1] if "shape" in f["X"].attrs else len(f["var/_index"][()])
+                    else:
+                        n_cells = len(f["obs/_index"][()])
+                        n_genes = len(f["var/_index"][()])
+                else:
+                    n_cells = len(f["obs/_index"][()])
+                    n_genes = len(f["var/_index"][()])
+        except Exception:
+            # Fallback: open with scanpy backed mode briefly
+            adata = sc.read_h5ad(merged_path, backed="r")
+            n_cells, n_genes = adata.shape
+            adata.file.close()
         manifest = pd.read_csv(manifest_path) if manifest_path.exists() else pd.DataFrame()
         return {
             "ok": True,
@@ -192,10 +210,18 @@ def process_spatial(
 
     if not force and merged_path.exists():
         log.info("Spatial merged file exists (skipping): %s", merged_path)
-        # Read shape from h5ad without loading data into memory
-        with h5py.File(merged_path, "r") as f:
-            n_spots = f["obs"].shape[0]
-            n_genes = f["var"].shape[0]
+        # Read shape from h5ad - AnnData stores obs/var as groups
+        try:
+            with h5py.File(merged_path, "r") as f:
+                if "X" in f and hasattr(f["X"], "shape"):
+                    n_spots, n_genes = f["X"].shape
+                else:
+                    n_spots = len(f["obs/_index"][()])
+                    n_genes = len(f["var/_index"][()])
+        except Exception:
+            adata = sc.read_h5ad(merged_path, backed="r")
+            n_spots, n_genes = adata.shape
+            adata.file.close()
         manifest = pd.read_csv(manifest_path) if manifest_path.exists() else pd.DataFrame()
         return {
             "ok": True,
