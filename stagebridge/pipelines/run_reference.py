@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 import uuid
 
 
@@ -161,6 +161,377 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
     print(f"  Done. Gene names: {list(adata.var_names[:5])}")
 
     return ref_path
+
+
+def run_hpc_reference_mapping(
+    query_path: Path,
+    hlca_path: Path | None,
+    luca_path: Path | None,
+    output_dir: Path,
+    *,
+    mode: Literal["both", "hlca_only", "luca_only"] = "both",
+    k_neighbors: int = 50,
+    hlca_latent_key: str = "X_scanvi_emb",
+    luca_latent_key: str = "X_scVI",
+    chunk_size: int = 50000,
+    smoke_mode: bool = False,
+    run_id: str | None = None,
+) -> int:
+    """HPC mode: Memory-efficient chunked reference mapping with FAISS."""
+    import anndata
+    import pandas as pd
+    import json
+    import time
+
+    from stagebridge.reference.map_query_chunked import map_to_dual_reference_chunked
+
+    run_id = run_id or f"ref_geo_hpc_{uuid.uuid4().hex[:8]}"
+
+    # Determine which references to use
+    use_hlca = mode in ("both", "hlca_only") and hlca_path is not None
+    use_luca = mode in ("both", "luca_only") and luca_path is not None
+
+    if not use_hlca and not use_luca:
+        print("ERROR: No references available for the selected mode.")
+        return 1
+
+    print()
+    print("=" * 60)
+    print("HPC Dual-Reference Mapping (Chunked/Streaming)")
+    print("=" * 60)
+    print(f"  Run ID: {run_id}")
+    print(f"  Mode: {mode}")
+    print(f"  Query: {query_path}")
+    print(f"  HLCA: {hlca_path if use_hlca else 'disabled'}")
+    print(f"  LuCA: {luca_path if use_luca else 'disabled'}")
+    print(f"  Output: {output_dir}")
+    print(f"  k-neighbors: {k_neighbors}")
+    print(f"  Chunk size: {chunk_size:,}")
+    if smoke_mode:
+        print("  SMOKE MODE: Using 1000 cells only")
+    print()
+
+    t0 = time.perf_counter()
+
+    # Load query data
+    print("Loading query data...")
+    query_adata = anndata.read_h5ad(query_path)
+    print(f"  Query: {query_adata.n_obs:,} cells, {query_adata.n_vars:,} genes")
+
+    if smoke_mode:
+        import numpy as np
+        n_smoke = min(1000, query_adata.n_obs)
+        idx = np.random.choice(query_adata.n_obs, n_smoke, replace=False)
+        query_adata = query_adata[idx].copy()
+        print(f"  Smoke mode: subsampled to {query_adata.n_obs} cells")
+
+    # Run chunked mapping
+    results = map_to_dual_reference_chunked(
+        query_adata,
+        hlca_path if use_hlca else None,
+        luca_path if use_luca else None,
+        hlca_latent_key=hlca_latent_key,
+        luca_latent_key=luca_latent_key,
+        k_neighbors=k_neighbors,
+        use_faiss=True,
+    )
+
+    wall_time = time.perf_counter() - t0
+
+    # Save outputs
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get metadata from query
+    cell_ids = results["cell_ids"]
+    donor_ids = query_adata.obs.get("donor_id", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
+    sample_ids = query_adata.obs.get("sample_id", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
+    stage_ids = query_adata.obs.get("stage", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
+
+    # HLCA embedding
+    if results["hlca_embeddings"] is not None:
+        hlca_df = pd.DataFrame({
+            "cell_id": cell_ids,
+            "donor_id": donor_ids,
+            "sample_id": sample_ids,
+            "stage_id": stage_ids,
+        })
+        for i in range(results["hlca_embeddings"].shape[1]):
+            hlca_df[f"hlca_latent_{i}"] = results["hlca_embeddings"][:, i]
+        hlca_df.to_parquet(output_dir / "hlca_embedding.parquet", index=False)
+        print(f"  Saved hlca_embedding.parquet: {results['hlca_embeddings'].shape}")
+
+    # LuCA embedding
+    if results["luca_embeddings"] is not None:
+        luca_df = pd.DataFrame({
+            "cell_id": cell_ids,
+            "donor_id": donor_ids,
+            "sample_id": sample_ids,
+            "stage_id": stage_ids,
+        })
+        for i in range(results["luca_embeddings"].shape[1]):
+            luca_df[f"luca_latent_{i}"] = results["luca_embeddings"][:, i]
+        luca_df.to_parquet(output_dir / "luca_embedding.parquet", index=False)
+        print(f"  Saved luca_embedding.parquet: {results['luca_embeddings'].shape}")
+
+    # Fused embedding
+    if results["fused_embeddings"] is not None:
+        fused_df = pd.DataFrame({
+            "cell_id": cell_ids,
+            "donor_id": donor_ids,
+            "sample_id": sample_ids,
+            "stage_id": stage_ids,
+            "reference_mode_used": mode,
+        })
+        for i in range(results["fused_embeddings"].shape[1]):
+            fused_df[f"fused_latent_{i}"] = results["fused_embeddings"][:, i]
+        fused_df.to_parquet(output_dir / "fused_embedding.parquet", index=False)
+        print(f"  Saved fused_embedding.parquet: {results['fused_embeddings'].shape}")
+
+    # Confidence (based on distances)
+    conf_df = pd.DataFrame({"cell_id": cell_ids})
+    if results["hlca_distances"] is not None:
+        # Convert distance to confidence (inverse, normalized)
+        hlca_conf = 1.0 / (1.0 + results["hlca_distances"])
+        conf_df["hlca_confidence"] = hlca_conf
+    else:
+        conf_df["hlca_confidence"] = 0.0
+
+    if results["luca_distances"] is not None:
+        luca_conf = 1.0 / (1.0 + results["luca_distances"])
+        conf_df["luca_confidence"] = luca_conf
+    else:
+        conf_df["luca_confidence"] = 0.0
+
+    conf_df.to_parquet(output_dir / "reference_confidence.parquet", index=False)
+
+    # Manifest
+    manifest = {
+        "run_id": run_id,
+        "mode": "hpc_chunked",
+        "n_cells": len(cell_ids),
+        "hlca_dim": results["hlca_embeddings"].shape[1] if results["hlca_embeddings"] is not None else 0,
+        "luca_dim": results["luca_embeddings"].shape[1] if results["luca_embeddings"] is not None else 0,
+        "fused_dim": results["fused_embeddings"].shape[1] if results["fused_embeddings"] is not None else 0,
+        "k_neighbors": k_neighbors,
+        "chunk_size": chunk_size,
+        "wall_time_seconds": wall_time,
+        "metadata": results["metadata"],
+    }
+    with open(output_dir / "reference_manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2, default=str)
+
+    # Generate figures
+    print("\nGenerating figures...")
+    plots_dir = output_dir / "plots"
+    plots_dir.mkdir(exist_ok=True)
+
+    try:
+        _generate_reference_figures(
+            results=results,
+            stage_ids=stage_ids,
+            output_dir=plots_dir,
+        )
+        print(f"  Figures saved to: {plots_dir}")
+    except Exception as e:
+        print(f"  Warning: Figure generation failed: {e}")
+
+    print()
+    print("=" * 60)
+    print("HPC Reference Mapping Complete")
+    print("=" * 60)
+    print(f"  Run ID: {run_id}")
+    print(f"  Cells: {len(cell_ids):,}")
+    print(f"  HLCA dim: {manifest['hlca_dim']}")
+    print(f"  LuCA dim: {manifest['luca_dim']}")
+    print(f"  Fused dim: {manifest['fused_dim']}")
+    print(f"  Wall time: {wall_time:.1f}s")
+    print()
+    print(f"Outputs saved to: {output_dir}")
+    print()
+    print("Next step: run_spatial_benchmark.py")
+
+    return 0
+
+
+def _generate_reference_figures(
+    results: dict[str, Any],
+    stage_ids: np.ndarray,
+    output_dir: Path,
+) -> None:
+    """Generate visualization figures for reference mapping results."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from sklearn.decomposition import PCA
+
+    # Stage colors
+    STAGE_COLORS = {
+        "Normal": "#00BA38",
+        "AAH": "#F8766D",
+        "AIS": "#619CFF",
+        "MIA": "#E58700",
+        "LUAD": "#A3A500",
+        "Unknown": "#999999",
+    }
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle("Dual-Reference Mapping Results", fontsize=14, fontweight='bold')
+
+    # 1. Fused embedding UMAP/PCA colored by stage
+    ax = axes[0, 0]
+    if results["fused_embeddings"] is not None:
+        emb = results["fused_embeddings"]
+        # Use PCA for speed (UMAP would be better but slower)
+        if emb.shape[1] > 2:
+            pca = PCA(n_components=2)
+            emb_2d = pca.fit_transform(emb)
+            var_explained = pca.explained_variance_ratio_.sum() * 100
+            ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
+            ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+        else:
+            emb_2d = emb
+            var_explained = 100
+            ax.set_xlabel("Dim 1")
+            ax.set_ylabel("Dim 2")
+
+        for stage in STAGE_COLORS:
+            mask = stage_ids == stage
+            if mask.sum() > 0:
+                ax.scatter(
+                    emb_2d[mask, 0], emb_2d[mask, 1],
+                    c=STAGE_COLORS[stage], label=stage,
+                    s=10, alpha=0.5, edgecolors='none'
+                )
+        ax.legend(loc='upper right', fontsize=8)
+        ax.set_title(f"Fused Embedding (PCA, {var_explained:.0f}% var)")
+    else:
+        ax.text(0.5, 0.5, "No fused embedding", ha='center', va='center')
+        ax.set_title("Fused Embedding")
+
+    # 2. HLCA vs LuCA confidence scatter
+    ax = axes[0, 1]
+    if results["hlca_distances"] is not None and results["luca_distances"] is not None:
+        hlca_conf = 1.0 / (1.0 + results["hlca_distances"])
+        luca_conf = 1.0 / (1.0 + results["luca_distances"])
+
+        for stage in STAGE_COLORS:
+            mask = stage_ids == stage
+            if mask.sum() > 0:
+                ax.scatter(
+                    hlca_conf[mask], luca_conf[mask],
+                    c=STAGE_COLORS[stage], label=stage,
+                    s=10, alpha=0.5, edgecolors='none'
+                )
+
+        ax.plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Equal confidence')
+        ax.set_xlabel("HLCA Confidence (healthy)")
+        ax.set_ylabel("LuCA Confidence (cancer)")
+        ax.set_title("Reference Confidence")
+        ax.legend(loc='upper left', fontsize=8)
+    else:
+        ax.text(0.5, 0.5, "Need both references", ha='center', va='center')
+        ax.set_title("Reference Confidence")
+
+    # 3. Distance distributions by stage
+    ax = axes[1, 0]
+    if results["hlca_distances"] is not None:
+        stages_present = [s for s in STAGE_COLORS if (stage_ids == s).sum() > 0]
+        data = [results["hlca_distances"][stage_ids == s] for s in stages_present]
+        colors = [STAGE_COLORS[s] for s in stages_present]
+
+        bp = ax.boxplot(data, labels=stages_present, patch_artist=True)
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+
+        ax.set_ylabel("HLCA Distance")
+        ax.set_title("HLCA Mapping Distance by Stage")
+        ax.tick_params(axis='x', rotation=45)
+    else:
+        ax.text(0.5, 0.5, "No HLCA mapping", ha='center', va='center')
+        ax.set_title("HLCA Distance by Stage")
+
+    # 4. Stage composition / summary stats
+    ax = axes[1, 1]
+    stage_counts = {}
+    for stage in STAGE_COLORS:
+        count = (stage_ids == stage).sum()
+        if count > 0:
+            stage_counts[stage] = count
+
+    if stage_counts:
+        stages = list(stage_counts.keys())
+        counts = list(stage_counts.values())
+        colors = [STAGE_COLORS[s] for s in stages]
+
+        bars = ax.bar(stages, counts, color=colors, alpha=0.8)
+        ax.set_ylabel("Cell Count")
+        ax.set_title("Stage Distribution")
+        ax.tick_params(axis='x', rotation=45)
+
+        # Add count labels
+        for bar, count in zip(bars, counts):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{count:,}', ha='center', va='bottom', fontsize=8)
+    else:
+        ax.text(0.5, 0.5, "No stage data", ha='center', va='center')
+        ax.set_title("Stage Distribution")
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "reference_mapping_summary.png", dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # Additional: Latent dimension heatmap
+    if results["fused_embeddings"] is not None:
+        _plot_latent_heatmap(results, stage_ids, output_dir)
+
+
+def _plot_latent_heatmap(
+    results: dict[str, Any],
+    stage_ids: np.ndarray,
+    output_dir: Path,
+) -> None:
+    """Plot average latent values per stage as heatmap."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    STAGE_ORDER = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    for idx, (name, emb) in enumerate([
+        ("HLCA", results.get("hlca_embeddings")),
+        ("LuCA", results.get("luca_embeddings")),
+    ]):
+        ax = axes[idx]
+        if emb is None:
+            ax.text(0.5, 0.5, f"No {name} embedding", ha='center', va='center')
+            ax.set_title(f"{name} Latent by Stage")
+            continue
+
+        # Compute mean latent per stage
+        stages_present = [s for s in STAGE_ORDER if (stage_ids == s).sum() > 0]
+        mean_latent = np.zeros((len(stages_present), emb.shape[1]))
+
+        for i, stage in enumerate(stages_present):
+            mask = stage_ids == stage
+            mean_latent[i] = emb[mask].mean(axis=0)
+
+        # Plot heatmap
+        im = ax.imshow(mean_latent, aspect='auto', cmap='RdBu_r')
+        ax.set_yticks(range(len(stages_present)))
+        ax.set_yticklabels(stages_present)
+        ax.set_xlabel("Latent Dimension")
+        ax.set_ylabel("Stage")
+        ax.set_title(f"{name} Mean Latent by Stage")
+        plt.colorbar(im, ax=ax, label="Value")
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "latent_heatmap_by_stage.png", dpi=150, bbox_inches='tight')
+    plt.close()
 
 
 def run_dual_reference_mapping(
@@ -363,6 +734,17 @@ def main():
         help="Run in smoke mode (1000 cells only)",
     )
     parser.add_argument(
+        "--hpc",
+        action="store_true",
+        help="HPC mode: chunked processing, FAISS GPU, memory-efficient",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=50000,
+        help="Reference chunk size for streaming (HPC mode)",
+    )
+    parser.add_argument(
         "--run-id",
         type=str,
         default=None,
@@ -446,20 +828,36 @@ def main():
     if luca_path is not None:
         reindex_reference_to_symbols(luca_path)
 
-    return run_dual_reference_mapping(
-        query_path=snrna_path,
-        hlca_path=hlca_path,
-        luca_path=luca_path,
-        output_dir=output_dir,
-        mode=mode,
-        mapping_method=args.mapping_method,
-        fusion_method=args.fusion_method,
-        k_neighbors=args.k_neighbors,
-        hlca_latent_key=args.hlca_latent_key,
-        luca_latent_key=args.luca_latent_key,
-        smoke_mode=args.smoke,
-        run_id=args.run_id,
-    )
+    # Use HPC mode (chunked, memory-efficient) or standard mode
+    if args.hpc:
+        return run_hpc_reference_mapping(
+            query_path=snrna_path,
+            hlca_path=hlca_path,
+            luca_path=luca_path,
+            output_dir=output_dir,
+            mode=mode,
+            k_neighbors=args.k_neighbors,
+            hlca_latent_key=args.hlca_latent_key,
+            luca_latent_key=args.luca_latent_key,
+            chunk_size=args.chunk_size,
+            smoke_mode=args.smoke,
+            run_id=args.run_id,
+        )
+    else:
+        return run_dual_reference_mapping(
+            query_path=snrna_path,
+            hlca_path=hlca_path,
+            luca_path=luca_path,
+            output_dir=output_dir,
+            mode=mode,
+            mapping_method=args.mapping_method,
+            fusion_method=args.fusion_method,
+            k_neighbors=args.k_neighbors,
+            hlca_latent_key=args.hlca_latent_key,
+            luca_latent_key=args.luca_latent_key,
+            smoke_mode=args.smoke,
+            run_id=args.run_id,
+        )
 
 
 if __name__ == "__main__":
