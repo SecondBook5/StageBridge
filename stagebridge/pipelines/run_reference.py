@@ -33,6 +33,127 @@ import argparse
 from pathlib import Path
 from typing import Any, Literal
 import uuid
+import numpy as np
+
+
+def calibrate_confidence_percentile(
+    distances: np.ndarray,
+    method: str = "percentile",
+) -> tuple[np.ndarray, str]:
+    """Calibrate confidence from distances using percentile/rank-based approach.
+
+    This ensures confidence is comparable across references with different densities.
+    Lower distance = higher percentile rank = higher confidence.
+
+    Parameters
+    ----------
+    distances : np.ndarray
+        Raw k-NN mean distances for each cell (lower = closer match)
+    method : str
+        Calibration method: "percentile" (default), "robust_zscore", or "sigmoid"
+
+    Returns
+    -------
+    confidence : np.ndarray
+        Calibrated confidence values in [0, 1]
+    method_used : str
+        Description of calibration method
+    """
+    if distances is None or len(distances) == 0:
+        return np.array([]), "none"
+
+    distances = np.asarray(distances, dtype=np.float64)
+
+    # Handle NaN/inf
+    valid_mask = np.isfinite(distances)
+    if not valid_mask.all():
+        distances = np.where(valid_mask, distances, np.nanmedian(distances[valid_mask]))
+
+    if method == "percentile":
+        # Percentile rank: lower distance = higher confidence
+        # Rank from 0 (worst/highest distance) to 1 (best/lowest distance)
+        from scipy.stats import rankdata
+        ranks = rankdata(distances, method='average')
+        # Invert: highest rank (highest distance) -> lowest confidence
+        confidence = 1.0 - (ranks - 1) / (len(ranks) - 1 + 1e-10)
+        method_used = "percentile_rank"
+
+    elif method == "robust_zscore":
+        # Robust z-score using median and MAD
+        median = np.median(distances)
+        mad = np.median(np.abs(distances - median))
+        mad = max(mad, 1e-10)  # Avoid division by zero
+
+        # Z-score (inverted: lower distance = higher z)
+        z = (median - distances) / (1.4826 * mad)  # 1.4826 makes MAD consistent with std
+
+        # Map to [0, 1] using sigmoid
+        confidence = 1.0 / (1.0 + np.exp(-z))
+        method_used = "robust_zscore_sigmoid"
+
+    elif method == "sigmoid":
+        # Center by median, scale by IQR, then sigmoid
+        median = np.median(distances)
+        q75, q25 = np.percentile(distances, [75, 25])
+        iqr = max(q75 - q25, 1e-10)
+
+        # Normalized distance (inverted)
+        normalized = (median - distances) / iqr
+
+        # Sigmoid mapping to [0, 1]
+        confidence = 1.0 / (1.0 + np.exp(-normalized))
+        method_used = "iqr_sigmoid"
+
+    else:
+        raise ValueError(f"Unknown calibration method: {method}")
+
+    # Ensure output is in [0, 1]
+    confidence = np.clip(confidence, 0.0, 1.0)
+
+    return confidence.astype(np.float32), method_used
+
+
+def normalize_latent_space(
+    embeddings: np.ndarray,
+    method: str = "l2",
+) -> np.ndarray:
+    """Normalize latent embeddings before fusion.
+
+    Parameters
+    ----------
+    embeddings : np.ndarray
+        Latent embeddings (n_cells, latent_dim)
+    method : str
+        Normalization method: "l2" (unit norm), "zscore" (per-dimension), "none"
+
+    Returns
+    -------
+    normalized : np.ndarray
+        Normalized embeddings
+    """
+    if embeddings is None:
+        return None
+
+    embeddings = np.asarray(embeddings, dtype=np.float32)
+
+    if method == "l2":
+        # L2 normalize each cell's embedding to unit norm
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-10)
+        return embeddings / norms
+
+    elif method == "zscore":
+        # Z-score normalize each dimension
+        mean = embeddings.mean(axis=0, keepdims=True)
+        std = embeddings.std(axis=0, keepdims=True)
+        std = np.maximum(std, 1e-10)
+        return (embeddings - mean) / std
+
+    elif method == "none":
+        return embeddings
+
+    else:
+        raise ValueError(f"Unknown normalization method: {method}")
 
 
 def find_reference_paths(data_root: Path) -> dict[str, Path | None]:
@@ -247,34 +368,60 @@ def run_hpc_reference_mapping(
     sample_ids = query_adata.obs.get("sample_id", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
     stage_ids = query_adata.obs.get("stage", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
 
-    # HLCA embedding
-    if results["hlca_embeddings"] is not None:
+    # Normalize latent spaces BEFORE fusion (per-reference L2 normalization)
+    hlca_emb_normalized = normalize_latent_space(results["hlca_embeddings"], method="l2")
+    luca_emb_normalized = normalize_latent_space(results["luca_embeddings"], method="l2")
+
+    # Build fused embedding from normalized latents
+    if hlca_emb_normalized is not None and luca_emb_normalized is not None:
+        fused_normalized = np.concatenate([hlca_emb_normalized, luca_emb_normalized], axis=1)
+    elif hlca_emb_normalized is not None:
+        fused_normalized = hlca_emb_normalized
+    elif luca_emb_normalized is not None:
+        fused_normalized = luca_emb_normalized
+    else:
+        fused_normalized = None
+
+    # Calibrate confidence using percentile rank (not naive distance conversion)
+    # This ensures HLCA and LuCA confidences are comparable despite density differences
+    hlca_conf, hlca_conf_method = calibrate_confidence_percentile(
+        results["hlca_distances"], method="percentile"
+    ) if results["hlca_distances"] is not None else (np.zeros(len(cell_ids), dtype=np.float32), "none")
+
+    luca_conf, luca_conf_method = calibrate_confidence_percentile(
+        results["luca_distances"], method="percentile"
+    ) if results["luca_distances"] is not None else (np.zeros(len(cell_ids), dtype=np.float32), "none")
+
+    print(f"  Confidence calibration: HLCA={hlca_conf_method}, LuCA={luca_conf_method}")
+
+    # HLCA embedding (normalized)
+    if hlca_emb_normalized is not None:
         hlca_df = pd.DataFrame({
             "cell_id": cell_ids,
             "donor_id": donor_ids,
             "sample_id": sample_ids,
             "stage_id": stage_ids,
         })
-        for i in range(results["hlca_embeddings"].shape[1]):
-            hlca_df[f"hlca_latent_{i}"] = results["hlca_embeddings"][:, i]
+        for i in range(hlca_emb_normalized.shape[1]):
+            hlca_df[f"hlca_latent_{i}"] = hlca_emb_normalized[:, i]
         hlca_df.to_parquet(output_dir / "hlca_embedding.parquet", index=False)
-        print(f"  Saved hlca_embedding.parquet: {results['hlca_embeddings'].shape}")
+        print(f"  Saved hlca_embedding.parquet: {hlca_emb_normalized.shape}")
 
-    # LuCA embedding
-    if results["luca_embeddings"] is not None:
+    # LuCA embedding (normalized)
+    if luca_emb_normalized is not None:
         luca_df = pd.DataFrame({
             "cell_id": cell_ids,
             "donor_id": donor_ids,
             "sample_id": sample_ids,
             "stage_id": stage_ids,
         })
-        for i in range(results["luca_embeddings"].shape[1]):
-            luca_df[f"luca_latent_{i}"] = results["luca_embeddings"][:, i]
+        for i in range(luca_emb_normalized.shape[1]):
+            luca_df[f"luca_latent_{i}"] = luca_emb_normalized[:, i]
         luca_df.to_parquet(output_dir / "luca_embedding.parquet", index=False)
-        print(f"  Saved luca_embedding.parquet: {results['luca_embeddings'].shape}")
+        print(f"  Saved luca_embedding.parquet: {luca_emb_normalized.shape}")
 
-    # Fused embedding
-    if results["fused_embeddings"] is not None:
+    # Fused embedding (from normalized latents)
+    if fused_normalized is not None:
         fused_df = pd.DataFrame({
             "cell_id": cell_ids,
             "donor_id": donor_ids,
@@ -282,39 +429,58 @@ def run_hpc_reference_mapping(
             "stage_id": stage_ids,
             "reference_mode_used": mode,
         })
-        for i in range(results["fused_embeddings"].shape[1]):
-            fused_df[f"fused_latent_{i}"] = results["fused_embeddings"][:, i]
+        for i in range(fused_normalized.shape[1]):
+            fused_df[f"fused_latent_{i}"] = fused_normalized[:, i]
         fused_df.to_parquet(output_dir / "fused_embedding.parquet", index=False)
-        print(f"  Saved fused_embedding.parquet: {results['fused_embeddings'].shape}")
+        print(f"  Saved fused_embedding.parquet: {fused_normalized.shape}")
 
-    # Confidence (based on distances)
-    conf_df = pd.DataFrame({"cell_id": cell_ids})
-    if results["hlca_distances"] is not None:
-        # Convert distance to confidence (inverse, normalized)
-        hlca_conf = 1.0 / (1.0 + results["hlca_distances"])
-        conf_df["hlca_confidence"] = hlca_conf
-    else:
-        conf_df["hlca_confidence"] = 0.0
-
-    if results["luca_distances"] is not None:
-        luca_conf = 1.0 / (1.0 + results["luca_distances"])
-        conf_df["luca_confidence"] = luca_conf
-    else:
-        conf_df["luca_confidence"] = 0.0
-
+    # Confidence with calibration (includes raw distances for reference)
+    conf_df = pd.DataFrame({
+        "cell_id": cell_ids,
+        "donor_id": donor_ids,
+        "sample_id": sample_ids,
+        "stage_id": stage_ids,
+        "reference_mode_used": mode,
+        # Calibrated confidence (comparable across references)
+        "hlca_confidence": hlca_conf if len(hlca_conf) > 0 else 0.0,
+        "luca_confidence": luca_conf if len(luca_conf) > 0 else 0.0,
+        # Raw distances (for debugging/analysis)
+        "hlca_raw_distance": results["hlca_distances"] if results["hlca_distances"] is not None else 0.0,
+        "luca_raw_distance": results["luca_distances"] if results["luca_distances"] is not None else 0.0,
+        # Calibration method used
+        "hlca_confidence_method": hlca_conf_method,
+        "luca_confidence_method": luca_conf_method,
+    })
     conf_df.to_parquet(output_dir / "reference_confidence.parquet", index=False)
+    print(f"  Saved reference_confidence.parquet with calibrated confidence")
+
+    # Feature overlap report
+    feature_overlap = {
+        "hlca": results["metadata"].get("hlca", {}),
+        "luca": results["metadata"].get("luca", {}),
+    }
+    with open(output_dir / "feature_overlap_report.json", "w") as f:
+        json.dump(feature_overlap, f, indent=2, default=str)
 
     # Manifest
     manifest = {
         "run_id": run_id,
-        "mode": "hpc_chunked",
+        "mode": mode,
+        "reference_mode_used": mode,
+        "processing_mode": "hpc_chunked",
         "n_cells": len(cell_ids),
-        "hlca_dim": results["hlca_embeddings"].shape[1] if results["hlca_embeddings"] is not None else 0,
-        "luca_dim": results["luca_embeddings"].shape[1] if results["luca_embeddings"] is not None else 0,
-        "fused_dim": results["fused_embeddings"].shape[1] if results["fused_embeddings"] is not None else 0,
+        "hlca_dim": hlca_emb_normalized.shape[1] if hlca_emb_normalized is not None else 0,
+        "luca_dim": luca_emb_normalized.shape[1] if luca_emb_normalized is not None else 0,
+        "fused_dim": fused_normalized.shape[1] if fused_normalized is not None else 0,
         "k_neighbors": k_neighbors,
         "chunk_size": chunk_size,
         "wall_time_seconds": wall_time,
+        "latent_normalization": "l2",
+        "confidence_calibration": {
+            "hlca_method": hlca_conf_method,
+            "luca_method": luca_conf_method,
+            "description": "Percentile rank calibration ensures comparable confidence across references with different densities",
+        },
         "metadata": results["metadata"],
     }
     with open(output_dir / "reference_manifest.json", "w") as f:
@@ -328,6 +494,9 @@ def run_hpc_reference_mapping(
     try:
         _generate_reference_figures(
             results=results,
+            hlca_conf=hlca_conf,
+            luca_conf=luca_conf,
+            fused_embeddings=fused_normalized,
             stage_ids=stage_ids,
             output_dir=plots_dir,
         )
@@ -340,13 +509,22 @@ def run_hpc_reference_mapping(
     print("HPC Reference Mapping Complete")
     print("=" * 60)
     print(f"  Run ID: {run_id}")
+    print(f"  Mode: {mode}")
     print(f"  Cells: {len(cell_ids):,}")
     print(f"  HLCA dim: {manifest['hlca_dim']}")
     print(f"  LuCA dim: {manifest['luca_dim']}")
     print(f"  Fused dim: {manifest['fused_dim']}")
+    print(f"  Latent normalization: L2 (per-reference)")
+    print(f"  Confidence calibration: percentile rank (comparable across refs)")
     print(f"  Wall time: {wall_time:.1f}s")
     print()
     print(f"Outputs saved to: {output_dir}")
+    print("  - hlca_embedding.parquet (L2-normalized latents)")
+    print("  - luca_embedding.parquet (L2-normalized latents)")
+    print("  - fused_embedding.parquet (concatenated normalized latents)")
+    print("  - reference_confidence.parquet (calibrated confidence + raw distances)")
+    print("  - reference_manifest.json")
+    print("  - feature_overlap_report.json")
     print()
     print("Next step: run_spatial_benchmark.py")
 
@@ -355,6 +533,9 @@ def run_hpc_reference_mapping(
 
 def _generate_reference_figures(
     results: dict[str, Any],
+    hlca_conf: np.ndarray,
+    luca_conf: np.ndarray,
+    fused_embeddings: np.ndarray | None,
     stage_ids: np.ndarray,
     output_dir: Path,
 ) -> None:
@@ -362,7 +543,6 @@ def _generate_reference_figures(
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    import numpy as np
     from sklearn.decomposition import PCA
 
     # Stage colors
@@ -376,12 +556,12 @@ def _generate_reference_figures(
     }
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("Dual-Reference Mapping Results", fontsize=14, fontweight='bold')
+    fig.suptitle("Dual-Reference Mapping Results (Calibrated Confidence)", fontsize=14, fontweight='bold')
 
     # 1. Fused embedding UMAP/PCA colored by stage
     ax = axes[0, 0]
-    if results["fused_embeddings"] is not None:
-        emb = results["fused_embeddings"]
+    if fused_embeddings is not None and not np.isnan(fused_embeddings).any():
+        emb = fused_embeddings
         # Use PCA for speed (UMAP would be better but slower)
         if emb.shape[1] > 2:
             pca = PCA(n_components=2)
@@ -406,15 +586,12 @@ def _generate_reference_figures(
         ax.legend(loc='upper right', fontsize=8)
         ax.set_title(f"Fused Embedding (PCA, {var_explained:.0f}% var)")
     else:
-        ax.text(0.5, 0.5, "No fused embedding", ha='center', va='center')
+        ax.text(0.5, 0.5, "No valid fused embedding", ha='center', va='center')
         ax.set_title("Fused Embedding")
 
-    # 2. HLCA vs LuCA confidence scatter
+    # 2. HLCA vs LuCA calibrated confidence scatter
     ax = axes[0, 1]
-    if results["hlca_distances"] is not None and results["luca_distances"] is not None:
-        hlca_conf = 1.0 / (1.0 + results["hlca_distances"])
-        luca_conf = 1.0 / (1.0 + results["luca_distances"])
-
+    if len(hlca_conf) > 0 and len(luca_conf) > 0 and hlca_conf.max() > 0 and luca_conf.max() > 0:
         for stage in STAGE_COLORS:
             mask = stage_ids == stage
             if mask.sum() > 0:
@@ -425,10 +602,12 @@ def _generate_reference_figures(
                 )
 
         ax.plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Equal confidence')
-        ax.set_xlabel("HLCA Confidence (healthy)")
-        ax.set_ylabel("LuCA Confidence (cancer)")
-        ax.set_title("Reference Confidence")
+        ax.set_xlabel("HLCA Confidence (healthy, calibrated)")
+        ax.set_ylabel("LuCA Confidence (cancer, calibrated)")
+        ax.set_title("Calibrated Reference Confidence")
         ax.legend(loc='upper left', fontsize=8)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
     else:
         ax.text(0.5, 0.5, "Need both references", ha='center', va='center')
         ax.set_title("Reference Confidence")

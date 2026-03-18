@@ -87,6 +87,12 @@ def map_query_chunked(
     latent_dim = ref_latent.shape[1]
     log.info("Reference latent: %d dims", latent_dim)
 
+    # Check for NaN in reference latent
+    nan_count = np.isnan(ref_latent).sum()
+    if nan_count > 0:
+        log.warning("Reference latent has %d NaN values - replacing with 0", nan_count)
+        ref_latent = np.nan_to_num(ref_latent, nan=0.0)
+
     # Build gene mapping (query symbols -> reference indices)
     query_genes = list(query_adata.var_names.astype(str))
     ref_var_names = list(ref_adata.var_names.astype(str))
@@ -142,6 +148,14 @@ def map_query_chunked(
 
     # Cleanup
     ref_adata.file.close()
+
+    # Final NaN check - replace any remaining NaN with 0
+    nan_embed = np.isnan(embeddings).sum()
+    nan_dist = np.isnan(distances).sum()
+    if nan_embed > 0 or nan_dist > 0:
+        log.warning("Final NaN check: %d in embeddings, %d in distances - replacing with 0", nan_embed, nan_dist)
+        embeddings = np.nan_to_num(embeddings, nan=0.0)
+        distances = np.nan_to_num(distances, nan=1.0)
 
     info = {
         "n_query": n_query,
@@ -259,8 +273,21 @@ def _map_with_faiss_streaming(
 
     # Weighted average of latent positions
     log.info("Computing weighted latent embeddings...")
+
+    # Handle any inf/nan in distances
+    distances = np.where(np.isinf(distances) | np.isnan(distances), 1e6, distances)
+
     weights = 1.0 / (distances + 1e-6)
-    weights = weights / weights.sum(axis=1, keepdims=True)
+    weight_sums = weights.sum(axis=1, keepdims=True)
+
+    # Handle cells with zero weight sum - use uniform weights
+    zero_weight_mask = weight_sums.flatten() < 1e-10
+    if zero_weight_mask.any():
+        log.warning("%d cells had invalid distances - using uniform weights", zero_weight_mask.sum())
+        weights[zero_weight_mask] = 1.0 / k_neighbors
+        weight_sums[zero_weight_mask] = 1.0
+
+    weights = weights / weight_sums
 
     embeddings = np.zeros((n_query, latent_dim), dtype=np.float32)
     for i in range(n_query):
@@ -328,8 +355,21 @@ def _map_with_sklearn_streaming(
 
     # Compute weighted embeddings
     log.info("Computing weighted latent embeddings...")
+
+    # Replace inf with large finite value to avoid 0 weights
+    top_k_distances = np.where(np.isinf(top_k_distances), 1e6, top_k_distances)
+
     weights = 1.0 / (top_k_distances + 1e-6)
-    weights = weights / weights.sum(axis=1, keepdims=True)
+    weight_sums = weights.sum(axis=1, keepdims=True)
+
+    # Handle cells with zero weight sum (no valid neighbors) - use uniform weights
+    zero_weight_mask = weight_sums.flatten() < 1e-10
+    if zero_weight_mask.any():
+        log.warning("%d cells had no valid neighbors - using uniform weights", zero_weight_mask.sum())
+        weights[zero_weight_mask] = 1.0 / k_neighbors
+        weight_sums[zero_weight_mask] = 1.0
+
+    weights = weights / weight_sums
 
     embeddings = np.zeros((n_query, latent_dim), dtype=np.float32)
     for i in range(n_query):

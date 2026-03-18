@@ -30,7 +30,16 @@ This directory contains all pipeline scripts for the StageBridge V1 workflow.
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  run_reference.py                                                            │
 │  Map query cells to HLCA (healthy) + LuCA (cancer) reference spaces         │
-│  Output: z_hlca, z_luca, z_fused embeddings per cell                        │
+│  - Dual-reference geometry: healthy anchor + disease anchor                 │
+│  - Calibrated confidence (percentile rank, comparable across refs)          │
+│  - L2-normalized latents before fusion                                      │
+│  Output: reference_geometry/                                                │
+│          ├── hlca_embedding.parquet                                         │
+│          ├── luca_embedding.parquet                                         │
+│          ├── fused_embedding.parquet                                        │
+│          ├── reference_confidence.parquet                                   │
+│          ├── reference_manifest.json                                        │
+│          └── feature_overlap_report.json                                    │
 └─────────────────────────────────────────────────────────────────────────────┘
                                         │
                                         ▼
@@ -185,9 +194,113 @@ $DATA/
 │       ├── neighborhoods.parquet
 │       ├── stage_edges.parquet
 │       └── split_manifest.json
+├── processed/luad_evo/
+│   └── reference_geometry/    # Dual-reference mapping outputs
+│       ├── hlca_embedding.parquet
+│       ├── luca_embedding.parquet
+│       ├── fused_embedding.parquet
+│       ├── reference_confidence.parquet
+│       ├── reference_manifest.json
+│       └── feature_overlap_report.json
 └── runs/
     └── v1_complete/            # Training outputs
         ├── weights/
         ├── figures/
         └── results.json
 ```
+
+## Dual-Reference Mapping Design
+
+### Purpose
+
+The dual-reference mapping provides a **comparative coordinate system** for progression-relevant cells:
+
+- **HLCA** (Human Lung Cell Atlas): Healthy lung anchor - defines "normal" cell states
+- **LuCA** (Lung Cancer Atlas): Disease-aware anchor - defines cancer/progression cell states
+- **Fused**: Combined representation capturing both healthy deviation and disease similarity
+
+### Why Two References?
+
+Single-reference mapping loses information:
+- HLCA-only: Can detect "abnormality" but not cancer-specific patterns
+- LuCA-only: Can detect cancer similarity but not deviation from healthy
+
+Dual-reference captures both signals simultaneously, enabling the model to learn:
+- How far a cell has deviated from healthy (HLCA distance)
+- How similar a cell is to known cancer states (LuCA distance)
+- The trajectory through the healthy→cancer coordinate space
+
+### Confidence Calibration
+
+**Problem**: LuCA (1.3M cells) is denser than HLCA (584K cells). Raw k-NN distances would be systematically smaller for LuCA, causing the model to overtrust LuCA for the wrong reason.
+
+**Solution**: Percentile rank calibration
+
+```python
+# Instead of: conf = 1 / (1 + dist)  # WRONG - density-biased
+# We use:
+ranks = rankdata(distances)
+confidence = 1.0 - (ranks - 1) / (len(ranks) - 1)  # Percentile rank
+```
+
+This ensures:
+- A cell at the 90th percentile of HLCA distances gets the same confidence as a cell at the 90th percentile of LuCA distances
+- Confidence is comparable across references regardless of density
+- The transformer sees balanced signals from both references
+
+### Latent Normalization
+
+Before fusion, each reference's latent space is L2-normalized:
+
+```python
+hlca_normalized = hlca_latent / ||hlca_latent||_2
+luca_normalized = luca_latent / ||luca_latent||_2
+fused = concat(hlca_normalized, luca_normalized)
+```
+
+This prevents one reference from dominating the fused representation due to different latent scales.
+
+### Output Schema
+
+```
+reference_confidence.parquet columns:
+├── cell_id, donor_id, sample_id, stage_id
+├── hlca_confidence          # Calibrated [0,1], comparable
+├── luca_confidence          # Calibrated [0,1], comparable
+├── hlca_raw_distance        # Original k-NN distance (for debugging)
+├── luca_raw_distance        # Original k-NN distance (for debugging)
+├── hlca_confidence_method   # "percentile_rank"
+├── luca_confidence_method   # "percentile_rank"
+└── reference_mode_used      # "both", "hlca_only", or "luca_only"
+```
+
+### Three Modes
+
+```bash
+# Default: Both references (recommended)
+python -m stagebridge.pipelines.run_reference --data-root $DATA
+
+# HLCA-only: Healthy reference only
+python -m stagebridge.pipelines.run_reference --data-root $DATA --hlca-only
+
+# LuCA-only: Cancer reference only
+python -m stagebridge.pipelines.run_reference --data-root $DATA --luca-only
+```
+
+### HPC Mode
+
+For large datasets (>100K cells) or large references (>1M cells):
+
+```bash
+python -m stagebridge.pipelines.run_reference \
+    --data-root $DATA \
+    --luca /path/to/luca_extended.h5ad \
+    --hpc \
+    --chunk-size 50000
+```
+
+HPC mode features:
+- Chunked/streaming processing (never loads full reference matrix)
+- FAISS GPU acceleration for k-NN search
+- Backed mode for memory-efficient h5ad loading
+- Handles references >10GB without OOM
