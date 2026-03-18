@@ -216,13 +216,30 @@ def map_query_with_scvi_model(
     else:
         query_copy = query_adata.copy()
 
+    # Load model var_names from state to check if ENSG conversion needed
+    import torch
+    state = torch.load(f"{model_path}/model.pt", map_location='cpu', weights_only=False)
+    model_var_names = list(state['var_names'])
+    model_uses_ensg = model_var_names[0].startswith('ENSG') if model_var_names else False
+
+    if model_uses_ensg and 'ensembl_id' in query_copy.var.columns:
+        log.info("  Model expects ENSG IDs, converting query var_names...")
+        query_copy.var['gene_symbol'] = query_copy.var_names.tolist()
+        new_var_names = []
+        for i, symbol in enumerate(query_copy.var_names):
+            ensg = query_copy.var['ensembl_id'].iloc[i]
+            new_var_names.append(ensg if ensg else symbol)
+        query_copy.var_names = new_var_names
+        n_converted = sum(1 for n in new_var_names if n.startswith('ENSG'))
+        log.info("  Converted %d/%d genes to ENSG IDs", n_converted, len(new_var_names))
+
     try:
         SCVI.prepare_query_anndata(query_copy, ref_model)
         log.info("  Query prepared - genes matched to reference")
     except Exception as e:
         raise ValueError(f"Failed to prepare query anndata: {e}") from e
 
-    n_ref_genes = ref_model.adata_manager.get_state_registry("var_names").index.shape[0]
+    n_ref_genes = len(model_var_names)
     n_query_genes = query_copy.n_vars
     log.info("  Reference genes: %d, Query genes after prep: %d", n_ref_genes, n_query_genes)
 
