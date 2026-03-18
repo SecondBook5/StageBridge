@@ -682,52 +682,115 @@ def run_data_prep(
                 del adata_snrna_filtered
                 gc.collect()
 
-        # Process spatial (skip if batched - QC can be done per-batch during training)
+        # Process spatial with chunked processing to avoid OOM
         spatial_merged_path = processed_dir / "spatial_merged.h5ad"
         spatial_batch_manifest = processed_dir / "spatial_batches.json"
 
         if spatial_merged_path.exists():
-            log.info("Loading spatial data into memory for QC...")
-            # Load into memory - backed mode doesn't work with scanpy QC
+            log.info("Processing spatial data with chunked QC (memory-efficient)...")
+
+            # QC parameters
+            min_genes = 100
+            min_counts = 200
+            max_pct_mito = DEFAULT_MAX_PCT_MITO
+            min_cells = DEFAULT_MIN_CELLS_PER_GENE
+            chunk_size = 50000  # Process 50k cells at a time
+
             try:
-                adata_spatial = sc.read_h5ad(spatial_merged_path)
-                log.info("Loaded %d spots, %d genes", adata_spatial.n_obs, adata_spatial.n_vars)
+                # First, get total size using backed mode
+                adata_backed = sc.read_h5ad(spatial_merged_path, backed="r")
+                n_spots_before = adata_backed.n_obs
+                n_genes_before = adata_backed.n_vars
+                var_names = adata_backed.var_names.copy()
+                obs_names = adata_backed.obs_names.copy()
 
-                # Calculate QC metrics
-                log.info("Calculating QC metrics...")
-                adata_spatial.var["mt"] = adata_spatial.var_names.str.startswith(("MT-", "mt-"))
-                sc.pp.calculate_qc_metrics(
-                    adata_spatial, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
-                )
+                # Get sample IDs if available for chunk boundaries
+                if "sample_id" in adata_backed.obs.columns:
+                    sample_ids = adata_backed.obs["sample_id"].values
+                else:
+                    sample_ids = None
 
-                # Filter
-                min_genes = 100
-                min_counts = 200
-                max_pct_mito = DEFAULT_MAX_PCT_MITO
-                min_cells = DEFAULT_MIN_CELLS_PER_GENE
+                adata_backed.file.close()
+                del adata_backed
+                gc.collect()
 
-                n_spots_before = adata_spatial.n_obs
-                n_genes_before = adata_spatial.n_vars
+                log.info("Total: %d spots, %d genes. Processing in chunks of %d...",
+                         n_spots_before, n_genes_before, chunk_size)
 
-                sc.pp.filter_cells(adata_spatial, min_genes=min_genes)
-                sc.pp.filter_cells(adata_spatial, min_counts=min_counts)
-                adata_spatial = adata_spatial[adata_spatial.obs["pct_counts_mt"] < max_pct_mito].copy()
-                sc.pp.filter_genes(adata_spatial, min_cells=min_cells)
+                # Identify mitochondrial genes once
+                mt_genes = var_names.str.startswith(("MT-", "mt-"))
 
-                n_spots_after = adata_spatial.n_obs
-                n_genes_after = adata_spatial.n_vars
+                # Process in chunks, keeping track of passing cells
+                filtered_chunks = []
+                n_chunks = (n_spots_before + chunk_size - 1) // chunk_size
 
-                log.info(
-                    "Filtered: %d/%d spots, %d/%d genes",
-                    n_spots_after,
-                    n_spots_before,
-                    n_genes_after,
-                    n_genes_before,
-                )
-            except MemoryError:
-                log.warning("Not enough memory for spatial QC, skipping...")
+                for chunk_idx in range(n_chunks):
+                    start_idx = chunk_idx * chunk_size
+                    end_idx = min((chunk_idx + 1) * chunk_size, n_spots_before)
+
+                    log.info("  Chunk %d/%d: cells %d-%d", chunk_idx + 1, n_chunks, start_idx, end_idx)
+
+                    # Load chunk
+                    adata_chunk = sc.read_h5ad(
+                        spatial_merged_path,
+                        backed="r"
+                    )[start_idx:end_idx].to_memory()
+
+                    # Calculate QC metrics for this chunk
+                    adata_chunk.var["mt"] = mt_genes
+                    sc.pp.calculate_qc_metrics(
+                        adata_chunk, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
+                    )
+
+                    # Filter cells in this chunk
+                    cell_mask = (
+                        (adata_chunk.obs["n_genes_by_counts"] >= min_genes)
+                        & (adata_chunk.obs["total_counts"] >= min_counts)
+                        & (adata_chunk.obs["pct_counts_mt"] < max_pct_mito)
+                    )
+
+                    n_passing = cell_mask.sum()
+                    log.info("    %d/%d cells pass QC", n_passing, len(cell_mask))
+
+                    if n_passing > 0:
+                        # Keep only passing cells
+                        adata_filtered = adata_chunk[cell_mask].copy()
+                        filtered_chunks.append(adata_filtered)
+
+                    del adata_chunk
+                    gc.collect()
+
+                # Concatenate all filtered chunks
+                if filtered_chunks:
+                    log.info("Concatenating %d filtered chunks...", len(filtered_chunks))
+                    adata_spatial = anndata.concat(filtered_chunks, join="outer")
+                    del filtered_chunks
+                    gc.collect()
+
+                    # Now apply gene filtering on the concatenated result
+                    log.info("Applying gene filter (min_cells=%d)...", min_cells)
+                    sc.pp.filter_genes(adata_spatial, min_cells=min_cells)
+
+                    n_spots_after = adata_spatial.n_obs
+                    n_genes_after = adata_spatial.n_vars
+
+                    log.info(
+                        "Filtered: %d/%d spots (%.1f%%), %d/%d genes",
+                        n_spots_after,
+                        n_spots_before,
+                        100 * n_spots_after / n_spots_before,
+                        n_genes_after,
+                        n_genes_before,
+                    )
+                else:
+                    log.warning("No cells passed QC!")
+                    adata_spatial = None
+
+            except Exception as e:
+                log.warning("Chunked spatial QC failed: %s", e)
                 adata_spatial = None
-                qc_results["spatial_qc"] = {"skipped": True, "reason": "memory"}
+                qc_results["spatial_qc"] = {"skipped": True, "reason": str(e)}
+
             gc.collect()
 
             if adata_spatial is not None:
@@ -750,11 +813,13 @@ def run_data_prep(
                     qc_results["spatial_qc"] = qc_summary
 
                 if not skip_normalization:
+                    log.info("Applying normalization...")
                     adata_spatial, norm_summary = apply_normalization(adata_spatial)
                     qc_results["spatial_normalization"] = norm_summary
 
                 # Save processed version
                 processed_spatial_path = processed_dir / "spatial_qc_normalized.h5ad"
+                log.info("Saving to %s...", processed_spatial_path)
                 adata_spatial.write_h5ad(processed_spatial_path)
                 qc_results["spatial_processed_path"] = str(processed_spatial_path)
                 log.info("Spatial processed: %s", processed_spatial_path)
