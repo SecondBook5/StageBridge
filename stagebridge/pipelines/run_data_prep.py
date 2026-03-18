@@ -458,220 +458,6 @@ def apply_normalization(
     return adata, summary
 
 
-def build_canonical_format(
-    processed_dir: Path,
-    output_dir: Path,
-    *,
-    latent_dim: int = 32,
-    n_folds: int = 5,
-    seed: int = 42,
-) -> dict[str, Any]:
-    """Build canonical parquet format for StageBridge training.
-
-    Creates:
-    - cells.parquet: cell-level features with latent embeddings
-    - neighborhoods.parquet: 9-token niche structure per cell
-    - stage_edges.parquet: valid stage transitions
-    - split_manifest.json: donor-held-out CV splits
-
-    Args:
-        processed_dir: Directory with QC'd h5ad files
-        output_dir: Output directory for parquet files
-        latent_dim: Dimensionality for PCA embeddings (placeholder for HLCA/LuCA)
-        n_folds: Number of CV folds
-        seed: Random seed for splits
-
-    Returns:
-        Summary dict
-    """
-    import json
-    from scipy.spatial import cKDTree
-
-    np.random.seed(seed)
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    log.info("Building canonical format for StageBridge training...")
-
-    # Load processed data
-    snrna_path = processed_dir / "snrna_qc_normalized.h5ad"
-    spatial_path = processed_dir / "spatial_qc_normalized.h5ad"
-
-    if not snrna_path.exists():
-        return {"ok": False, "error": f"snRNA file not found: {snrna_path}"}
-
-    log.info("Loading snRNA data...")
-    adata_snrna = sc.read_h5ad(snrna_path)
-    log.info("Loaded %d cells", adata_snrna.n_obs)
-
-    # Extract stage information from sample IDs or obs
-    if "stage" not in adata_snrna.obs.columns:
-        # Try to infer from sample_id (e.g., "donor1_AAH_rep1")
-        if "sample_id" in adata_snrna.obs.columns:
-            stages = []
-            for sid in adata_snrna.obs["sample_id"]:
-                stage = "Unknown"
-                for s in ["Normal", "AAH", "AIS", "MIA", "LUAD"]:
-                    if s in str(sid):
-                        stage = s
-                        break
-                stages.append(stage)
-            adata_snrna.obs["stage"] = stages
-        else:
-            adata_snrna.obs["stage"] = "Unknown"
-
-    # Extract donor information
-    if "donor_id" not in adata_snrna.obs.columns:
-        if "sample_id" in adata_snrna.obs.columns:
-            # Extract donor from sample_id
-            adata_snrna.obs["donor_id"] = adata_snrna.obs["sample_id"].str.split("_").str[0]
-        else:
-            adata_snrna.obs["donor_id"] = "donor_unknown"
-
-    # Create PCA embeddings (placeholder for HLCA/LuCA)
-    log.info("Computing PCA embeddings (placeholder for HLCA/LuCA)...")
-    sc.pp.highly_variable_genes(adata_snrna, n_top_genes=2000, flavor="seurat_v3", subset=True)
-    sc.pp.scale(adata_snrna, max_value=10)
-    sc.tl.pca(adata_snrna, n_comps=min(latent_dim, 50))
-
-    # Build cells DataFrame
-    log.info("Building cells.parquet...")
-    cells_data = {
-        "cell_id": adata_snrna.obs_names.tolist(),
-        "donor_id": adata_snrna.obs["donor_id"].tolist(),
-        "stage": adata_snrna.obs["stage"].tolist(),
-    }
-
-    # Add PCA embeddings as z_fused (placeholder)
-    pca_coords = adata_snrna.obsm["X_pca"][:, :latent_dim]
-    for i in range(latent_dim):
-        cells_data[f"z_fused_{i}"] = pca_coords[:, i]
-
-    cells_df = pd.DataFrame(cells_data)
-    cells_df.to_parquet(output_dir / "cells.parquet", index=False)
-    log.info("Saved cells.parquet: %d cells", len(cells_df))
-
-    # Build neighborhoods (simplified - using random neighbors for now)
-    log.info("Building neighborhoods.parquet...")
-    neighborhoods = []
-    n_cells = len(cells_df)
-
-    for idx in range(n_cells):
-        cell_id = cells_df.iloc[idx]["cell_id"]
-        donor_id = cells_df.iloc[idx]["donor_id"]
-
-        # Build 9-token structure (simplified)
-        # Token 0: receiver, Tokens 1-4: spatial rings, Tokens 5-8: reference/pathway
-        tokens = []
-
-        # Token 0: Receiver
-        tokens.append({
-            "token_idx": 0,
-            "token_type": "receiver",
-            "z_fused": pca_coords[idx, :].tolist(),
-        })
-
-        # Tokens 1-4: Spatial rings (using random neighbors as placeholder)
-        same_donor = cells_df[cells_df["donor_id"] == donor_id].index.tolist()
-        for ring_idx in range(1, 5):
-            if len(same_donor) > 1:
-                # Sample a random neighbor from same donor
-                neighbors = [i for i in same_donor if i != idx]
-                if neighbors:
-                    neighbor_idx = np.random.choice(neighbors)
-                    z_pooled = pca_coords[neighbor_idx, :].tolist()
-                else:
-                    z_pooled = [0.0] * latent_dim
-            else:
-                z_pooled = [0.0] * latent_dim
-
-            tokens.append({
-                "token_idx": ring_idx,
-                "token_type": f"ring_{ring_idx}",
-                "z_pooled": z_pooled,
-                "n_cells": 1,
-            })
-
-        # Tokens 5-8: Reference/pathway (placeholder)
-        for ref_idx, ref_type in enumerate(["hlca", "luca", "pathway", "stats"], start=5):
-            tokens.append({
-                "token_idx": ref_idx,
-                "token_type": ref_type,
-                "z_hlca": [0.0] * latent_dim if ref_type == "hlca" else None,
-                "z_luca": [0.0] * latent_dim if ref_type == "luca" else None,
-            })
-
-        neighborhoods.append({
-            "cell_id": cell_id,
-            "donor_id": donor_id,
-            "tokens": tokens,
-        })
-
-    neighborhoods_df = pd.DataFrame(neighborhoods)
-    # Store tokens as JSON string for parquet compatibility
-    neighborhoods_df["tokens"] = neighborhoods_df["tokens"].apply(json.dumps)
-    neighborhoods_df.to_parquet(output_dir / "neighborhoods.parquet", index=False)
-    log.info("Saved neighborhoods.parquet: %d neighborhoods", len(neighborhoods_df))
-
-    # Build stage edges
-    log.info("Building stage_edges.parquet...")
-    stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
-    edges = []
-    for i, source in enumerate(stage_order[:-1]):
-        target = stage_order[i + 1]
-        edges.append({
-            "edge_id": f"{source}_to_{target}",
-            "source_stage": source,
-            "target_stage": target,
-        })
-    edges_df = pd.DataFrame(edges)
-    edges_df.to_parquet(output_dir / "stage_edges.parquet", index=False)
-    log.info("Saved stage_edges.parquet: %d edges", len(edges_df))
-
-    # Build split manifest (donor-held-out CV)
-    log.info("Building split_manifest.json...")
-    donors = cells_df["donor_id"].unique().tolist()
-    np.random.shuffle(donors)
-
-    folds = []
-    fold_size = len(donors) // n_folds
-    for fold_idx in range(n_folds):
-        start = fold_idx * fold_size
-        end = start + fold_size if fold_idx < n_folds - 1 else len(donors)
-        val_donors = donors[start:end]
-        train_donors = [d for d in donors if d not in val_donors]
-        folds.append({
-            "train_donors": train_donors,
-            "val_donors": val_donors,
-            "test_donors": val_donors,  # Use val as test for simplicity
-        })
-
-    manifest = {
-        "n_folds": n_folds,
-        "n_donors": len(donors),
-        "folds": folds,
-        "created": datetime.now().isoformat(),
-    }
-    with open(output_dir / "split_manifest.json", "w") as f:
-        json.dump(manifest, f, indent=2)
-    log.info("Saved split_manifest.json: %d folds, %d donors", n_folds, len(donors))
-
-    # Cleanup
-    del adata_snrna
-    gc.collect()
-
-    return {
-        "ok": True,
-        "cells_path": str(output_dir / "cells.parquet"),
-        "neighborhoods_path": str(output_dir / "neighborhoods.parquet"),
-        "stage_edges_path": str(output_dir / "stage_edges.parquet"),
-        "split_manifest_path": str(output_dir / "split_manifest.json"),
-        "n_cells": len(cells_df),
-        "n_donors": len(donors),
-        "latent_dim": latent_dim,
-    }
-
-
 # ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
@@ -984,9 +770,30 @@ def run_data_prep(
                     del filtered_chunks
                     gc.collect()
 
-                    # Now apply gene filtering on the concatenated result
-                    log.info("Applying gene filter (min_cells=%d)...", min_cells)
-                    sc.pp.filter_genes(adata_spatial, min_cells=min_cells)
+                    # Memory-efficient gene filtering:
+                    # Compute gene cell counts incrementally to avoid loading full matrix
+                    log.info("Computing gene cell counts (memory-efficient)...")
+                    gene_counts = np.zeros(adata_spatial.n_vars, dtype=np.int32)
+
+                    # Process in chunks to count cells per gene
+                    chunk_size = 50000
+                    for start in range(0, adata_spatial.n_obs, chunk_size):
+                        end = min(start + chunk_size, adata_spatial.n_obs)
+                        chunk_X = adata_spatial.X[start:end]
+                        # Count non-zero entries per gene
+                        if hasattr(chunk_X, 'toarray'):
+                            chunk_X = chunk_X.toarray()
+                        gene_counts += (chunk_X > 0).sum(axis=0).astype(np.int32).flatten()
+
+                    # Filter genes with min_cells
+                    log.info("Filtering genes (min_cells=%d)...", min_cells)
+                    genes_pass = gene_counts >= min_cells
+                    n_genes_pass = genes_pass.sum()
+                    log.info("  %d/%d genes pass filter", n_genes_pass, len(genes_pass))
+
+                    if n_genes_pass < len(genes_pass):
+                        adata_spatial = adata_spatial[:, genes_pass].copy()
+                        gc.collect()
 
                     n_spots_after = adata_spatial.n_obs
                     n_genes_after = adata_spatial.n_vars
@@ -1054,29 +861,7 @@ def run_data_prep(
         results["qc_normalization"] = qc_results
 
     # ---------------------------------------------------------------------------
-    # Step 0.9: Build canonical parquet format for training
-    # ---------------------------------------------------------------------------
-    log.info("-" * 60)
-    log.info("Building canonical training format (cells/neighborhoods/splits)...")
-
-    canonical_result = build_canonical_format(
-        processed_dir=processed_dir,
-        output_dir=processed_dir,
-        latent_dim=32,
-        n_folds=5,
-        seed=42,
-    )
-    results["canonical_format"] = canonical_result
-
-    if canonical_result.get("ok"):
-        log.info("Canonical format built successfully:")
-        log.info("  Cells: %d", canonical_result.get("n_cells", 0))
-        log.info("  Donors: %d", canonical_result.get("n_donors", 0))
-    else:
-        log.warning("Canonical format build failed: %s", canonical_result.get("error"))
-
-    # ---------------------------------------------------------------------------
-    # Step 0.10: Generate audit report
+    # Step 0.9: Generate audit report
     # ---------------------------------------------------------------------------
     log.info("-" * 60)
     log.info("Generating audit report...")
