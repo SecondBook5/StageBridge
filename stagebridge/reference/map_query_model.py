@@ -73,6 +73,30 @@ def map_query_with_scanvi_model(
     else:
         query_copy = query_adata.copy()
 
+    # Check if model expects ENSG IDs (load model state to check)
+    import torch
+    state = torch.load(f"{model_path}/model.pt", map_location='cpu', weights_only=False)
+    model_var_names = list(state['var_names'])
+    model_uses_ensg = model_var_names[0].startswith('ENSG') if model_var_names else False
+
+    if model_uses_ensg:
+        log.info("  Model expects ENSG IDs")
+        # Check if query has ensembl_id column for conversion
+        if 'ensembl_id' in query_copy.var.columns:
+            log.info("  Converting query var_names from symbols to ENSG IDs...")
+            # Store original symbols
+            query_copy.var['gene_symbol'] = query_copy.var_names.tolist()
+            # Convert to ENSG where available
+            new_var_names = []
+            for i, symbol in enumerate(query_copy.var_names):
+                ensg = query_copy.var['ensembl_id'].iloc[i]
+                new_var_names.append(ensg if ensg else symbol)
+            query_copy.var_names = new_var_names
+            n_converted = sum(1 for n in new_var_names if n.startswith('ENSG'))
+            log.info("  Converted %d/%d genes to ENSG IDs", n_converted, len(new_var_names))
+        else:
+            log.warning("  Query lacks ensembl_id column - gene matching may fail!")
+
     try:
         SCANVI.prepare_query_anndata(query_copy, ref_model)
         log.info("  Query prepared - genes matched to reference")
