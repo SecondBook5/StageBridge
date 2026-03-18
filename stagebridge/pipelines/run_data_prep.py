@@ -597,7 +597,7 @@ def run_data_prep(
                 qc_results["snrna_qc"] = {"skipped": True, "reason": "memory"}
                 adata_snrna = None
 
-          if adata_snrna is not None:
+            if adata_snrna is not None:
                 # Get filter masks
                 cell_mask = (
                     (adata_snrna.obs["n_genes_by_counts"] >= DEFAULT_MIN_GENES_PER_CELL)
