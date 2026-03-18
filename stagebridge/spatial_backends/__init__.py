@@ -2,14 +2,15 @@
 Spatial transcriptomics mapping backend wrappers.
 
 Provides unified interface for multiple spatial mapping methods:
-- Tangram: Marker-based mapping with gradient-based optimization
-- DestVI: VAE-based probabilistic mapping with amortized inference
+- Tangram: Marker-based mapping with gradient-based optimization (scvi-tools)
+- DestVI: VAE-based probabilistic mapping with multi-resolution analysis (scvi-tools)
 - TACCO: Compositional transfer with optimal transport
 
 Two interface modes are available:
 
 **Direct backends** (TangramBackend, DestVIBackend, TACCOBackend):
     Take AnnData objects directly. Suitable for benchmarking and testing.
+    Support advanced visualizations and analysis (Squidpy, gamma space exploration).
 
 **Adapters** (TangramAdapter, DestVIAdapter, TACCOAdapter):
     Wrap the production implementations in stagebridge.spatial_mapping.
@@ -22,6 +23,12 @@ Benchmark infrastructure:
 - visualize: Comparison visualizations
 - pipeline: End-to-end benchmark pipeline
 - standardize: Output standardization
+
+Visualization utilities (viz_utils):
+- Spatial proportion plots
+- Gamma space exploration (DestVI)
+- Gene projection visualization (Tangram)
+- Comprehensive report generation
 """
 
 from .base import SpatialBackend, BackendMappingResult
@@ -78,6 +85,18 @@ from .pipeline import (
     get_canonical_backend_result,
 )
 
+# Visualization utilities
+from .viz_utils import (
+    plot_proportions_spatial,
+    plot_gamma_pca_spatial,
+    plot_projected_genes_spatial,
+    plot_proportion_distribution,
+    plot_proportion_heatmap,
+    plot_entropy_vs_sparsity,
+    plot_spatial_autocorrelation,
+    create_comprehensive_report,
+)
+
 __all__ = [
     # Base classes
     "SpatialBackend",
@@ -123,6 +142,15 @@ __all__ = [
     "run_smoke_benchmark",
     "load_benchmark_results",
     "get_canonical_backend_result",
+    # Visualization utilities
+    "plot_proportions_spatial",
+    "plot_gamma_pca_spatial",
+    "plot_projected_genes_spatial",
+    "plot_proportion_distribution",
+    "plot_proportion_heatmap",
+    "plot_entropy_vs_sparsity",
+    "plot_spatial_autocorrelation",
+    "create_comprehensive_report",
     # Factory functions
     "get_backend",
 ]
