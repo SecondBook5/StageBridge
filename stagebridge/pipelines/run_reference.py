@@ -87,11 +87,77 @@ def extract_hlca_reference_from_hub(hub_cache: Path, output_path: Path) -> Path:
         ref_latent = hubmodel.model.get_latent_representation(ref_adata)
         ref_adata.obsm["X_scanvi_emb"] = ref_latent
 
+    # Reindex to gene symbols if feature_name column exists
+    if "feature_name" in ref_adata.var.columns:
+        print("  Reindexing to gene symbols (feature_name)...")
+        # Store original ENSG IDs
+        ref_adata.var["ensembl_id"] = ref_adata.var_names.copy()
+        # Use feature_name as var_names
+        ref_adata.var_names = ref_adata.var["feature_name"].astype(str)
+        # Handle duplicates by making unique
+        ref_adata.var_names_make_unique()
+        print(f"  Gene names: {list(ref_adata.var_names[:5])}")
+
     print(f"  Saving reference to: {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ref_adata.write_h5ad(output_path)
 
     return output_path
+
+
+def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Path:
+    """Reindex a reference h5ad to use gene symbols instead of ENSG IDs.
+
+    For large files (> max_size_gb), creates a gene mapping instead of rewriting.
+    """
+    import anndata
+
+    file_size_gb = ref_path.stat().st_size / (1024**3)
+    print(f"Checking gene format in {ref_path.name} ({file_size_gb:.1f} GB)...")
+
+    # For large files, just check and warn - don't rewrite
+    if file_size_gb > max_size_gb:
+        print(f"  Large file - checking with backed mode...")
+        adata = anndata.read_h5ad(ref_path, backed='r')
+        first_gene = str(adata.var_names[0])
+        if first_gene.startswith("ENSG") and "feature_name" in adata.var.columns:
+            # Create a mapping file instead of rewriting
+            mapping_path = ref_path.parent / f"{ref_path.stem}_gene_mapping.parquet"
+            if not mapping_path.exists():
+                import pandas as pd
+                gene_map = pd.DataFrame({
+                    "ensembl_id": adata.var_names.astype(str),
+                    "gene_symbol": adata.var["feature_name"].astype(str),
+                })
+                gene_map.to_parquet(mapping_path)
+                print(f"  Created gene mapping: {mapping_path}")
+            print(f"  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching.")
+        adata.file.close()
+        return ref_path
+
+    adata = anndata.read_h5ad(ref_path)
+
+    # Check if already using symbols (not ENSG)
+    first_gene = str(adata.var_names[0])
+    if not first_gene.startswith("ENSG"):
+        print(f"  Already using gene symbols: {first_gene}")
+        return ref_path
+
+    # Check for feature_name column
+    if "feature_name" not in adata.var.columns:
+        print(f"  WARNING: No feature_name column, keeping ENSG IDs")
+        return ref_path
+
+    print(f"  Reindexing from ENSG to gene symbols...")
+    adata.var["ensembl_id"] = adata.var_names.copy()
+    adata.var_names = adata.var["feature_name"].astype(str)
+    adata.var_names_make_unique()
+
+    # Save back
+    adata.write_h5ad(ref_path)
+    print(f"  Done. Gene names: {list(adata.var_names[:5])}")
+
+    return ref_path
 
 
 def run_dual_reference_mapping(
@@ -370,6 +436,12 @@ def main():
         return 1
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ensure references use gene symbols (not ENSG IDs) to match query
+    if hlca_path is not None:
+        reindex_reference_to_symbols(hlca_path)
+    if luca_path is not None:
+        reindex_reference_to_symbols(luca_path)
 
     return run_dual_reference_mapping(
         query_path=snrna_path,

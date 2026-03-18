@@ -395,6 +395,8 @@ def _map_knn_projection(
     This is a simple but robust method that:
     1. Finds k nearest reference cells in gene expression space
     2. Computes weighted average of their latent positions
+
+    Handles ENSG vs symbol mismatches automatically using feature_name column.
     """
     from sklearn.neighbors import NearestNeighbors
     import scipy.sparse as sp
@@ -410,12 +412,24 @@ def _map_knn_projection(
         X_ref = X_ref.toarray()
     X_ref = np.asarray(X_ref, dtype=np.float32)
 
-    # Find common genes
-    query_genes = set(query.var_names.astype(str))
-    ref_genes = list(ref_adata.var_names.astype(str))
-    ref_gene_set = set(ref_genes)
+    # Find common genes - handle ENSG vs symbol mismatch
+    query_genes = list(query.var_names.astype(str))
+    query_gene_set = set(query_genes)
+    ref_var_names = list(ref_adata.var_names.astype(str))
 
-    common_genes = sorted(query_genes & ref_gene_set)
+    # Check if reference uses ENSG IDs but has feature_name column
+    first_ref_gene = ref_var_names[0] if ref_var_names else ""
+    if first_ref_gene.startswith("ENSG") and "feature_name" in ref_adata.var.columns:
+        # Build mapping from symbol to reference index
+        ref_symbols = ref_adata.var["feature_name"].astype(str).tolist()
+        ref_symbol_to_idx = {sym: idx for idx, sym in enumerate(ref_symbols)}
+        ref_gene_set = set(ref_symbols)
+        log.info("Using feature_name for gene matching (ENSG -> symbol)")
+    else:
+        ref_symbol_to_idx = {g: idx for idx, g in enumerate(ref_var_names)}
+        ref_gene_set = set(ref_var_names)
+
+    common_genes = sorted(query_gene_set & ref_gene_set)
     if len(common_genes) < 100:
         log.warning(
             "Only %d common genes between query and reference. Mapping quality may be poor.",
@@ -423,8 +437,8 @@ def _map_knn_projection(
         )
 
     # Subset to common genes
-    query_idx = [i for i, g in enumerate(query.var_names.astype(str)) if g in ref_gene_set]
-    ref_idx = [ref_genes.index(g) for g in query.var_names.astype(str) if g in ref_gene_set]
+    query_idx = [i for i, g in enumerate(query_genes) if g in ref_gene_set]
+    ref_idx = [ref_symbol_to_idx[query_genes[i]] for i in query_idx]
 
     X_query_common = X_query[:, query_idx]
     X_ref_common = X_ref[:, ref_idx]
@@ -471,6 +485,8 @@ def _map_pca_projection(
     1. Fit PCA on reference gene expression
     2. Project query into same PCA space
     3. Scale to match reference latent statistics
+
+    Handles ENSG vs symbol mismatches automatically using feature_name column.
     """
     from sklearn.decomposition import TruncatedSVD
     import scipy.sparse as sp
@@ -486,10 +502,21 @@ def _map_pca_projection(
         X_ref = X_ref.toarray()
     X_ref = np.asarray(X_ref, dtype=np.float32)
 
-    # Find common genes
+    # Find common genes - handle ENSG vs symbol mismatch
     query_genes = list(query.var_names.astype(str))
-    ref_genes = list(ref_adata.var_names.astype(str))
-    ref_gene_set = set(ref_genes)
+    query_gene_set = set(query_genes)
+    ref_var_names = list(ref_adata.var_names.astype(str))
+
+    # Check if reference uses ENSG IDs but has feature_name column
+    first_ref_gene = ref_var_names[0] if ref_var_names else ""
+    if first_ref_gene.startswith("ENSG") and "feature_name" in ref_adata.var.columns:
+        ref_symbols = ref_adata.var["feature_name"].astype(str).tolist()
+        ref_symbol_to_idx = {sym: idx for idx, sym in enumerate(ref_symbols)}
+        ref_gene_set = set(ref_symbols)
+        log.info("Using feature_name for gene matching (ENSG -> symbol)")
+    else:
+        ref_symbol_to_idx = {g: idx for idx, g in enumerate(ref_var_names)}
+        ref_gene_set = set(ref_var_names)
 
     common_genes = [g for g in query_genes if g in ref_gene_set]
     if len(common_genes) < 100:
@@ -500,7 +527,7 @@ def _map_pca_projection(
 
     # Subset to common genes
     query_idx = [query_genes.index(g) for g in common_genes]
-    ref_idx = [ref_genes.index(g) for g in common_genes]
+    ref_idx = [ref_symbol_to_idx[g] for g in common_genes]
 
     X_query_common = X_query[:, query_idx]
     X_ref_common = X_ref[:, ref_idx]
