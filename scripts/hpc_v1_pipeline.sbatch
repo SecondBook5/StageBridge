@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=v1_pipeline
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:h100:1
+#SBATCH --gres=gpu:h100:4
 #SBATCH --mem=256G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=12:00:00
