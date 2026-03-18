@@ -92,8 +92,11 @@ def extract_hlca_reference_from_hub(hub_cache: Path, output_path: Path) -> Path:
         print("  Reindexing to gene symbols (feature_name)...")
         # Store original ENSG IDs
         ref_adata.var["ensembl_id"] = ref_adata.var_names.copy()
-        # Use feature_name as var_names
-        ref_adata.var_names = ref_adata.var["feature_name"].astype(str)
+        # Get symbols and drop the column to avoid conflict
+        symbols = ref_adata.var["feature_name"].astype(str).tolist()
+        del ref_adata.var["feature_name"]
+        # Use symbols as var_names
+        ref_adata.var_names = symbols
         # Handle duplicates by making unique
         ref_adata.var_names_make_unique()
         print(f"  Gene names: {list(ref_adata.var_names[:5])}")
