@@ -344,18 +344,29 @@ def compute_feature_overlap(
     if hasattr(reference, "adata"):
         reference = reference.adata
 
-    query_genes = set(query.var_names.astype(str))
-
     # Check if reference uses ENSG IDs but has feature_name column with symbols
     ref_var_names = reference.var_names.astype(str)
+    query_var_names = query.var_names.astype(str)
     first_ref_gene = str(ref_var_names[0]) if len(ref_var_names) > 0 else ""
 
-    if first_ref_gene.startswith("ENSG") and "feature_name" in reference.var.columns:
+    # Determine which column to use for matching
+    use_feature_name = (
+        first_ref_gene.startswith("ENSG") and "feature_name" in reference.var.columns
+    )
+
+    if use_feature_name:
         # Use feature_name for matching instead of var_names
         log.info("Reference uses ENSG IDs, using feature_name column for gene matching")
         ref_genes = set(reference.var["feature_name"].astype(str))
+
+        # Also use feature_name for query if available
+        if "feature_name" in query.var.columns:
+            query_genes = set(query.var["feature_name"].astype(str))
+        else:
+            query_genes = set(query_var_names)
     else:
         ref_genes = set(ref_var_names)
+        query_genes = set(query_var_names)
 
     shared = query_genes & ref_genes
     missing_in_query = sorted(ref_genes - query_genes)[:max_missing_to_report]
