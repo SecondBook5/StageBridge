@@ -22,12 +22,20 @@ if hasattr(model.module, 'var_names'):
 
 # Check the model file directly for var_names
 import torch
-state = torch.load(f"{model_path}/model.pt", map_location='cpu')
+state = torch.load(f"{model_path}/model.pt", map_location='cpu', weights_only=False)
 print(f"\nModel state keys: {list(state.keys())}")
 if 'var_names' in state:
     ref_genes = state['var_names']
     print(f"Found var_names in state: {len(ref_genes)} genes")
     print(f"First 5: {list(ref_genes)[:5]}")
+
+# Also check the HLCA reference h5ad directly
+print("\n--- Checking HLCA reference h5ad ---")
+hlca = anndata.read_h5ad('/scratch/chaunzt1/stagebridge/references/hlca/hlca_reference.h5ad', backed='r')
+print(f"HLCA ref: {hlca.n_vars} genes")
+print(f"First 5: {hlca.var_names.tolist()[:5]}")
+if 'feature_name' in hlca.var.columns:
+    print(f"Has feature_name column, first 5: {hlca.var['feature_name'].tolist()[:5]}")
 
 query = anndata.read_h5ad('/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized.h5ad', backed='r')
 print(f'Query: {query.n_vars} genes')
