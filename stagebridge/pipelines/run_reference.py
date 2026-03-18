@@ -284,6 +284,17 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
     return ref_path
 
 
+def run_reference(cfg: Any) -> dict[str, Any]:
+    """Compatibility wrapper for old API.
+
+    TODO: Implement proper config-based reference mapping.
+    For now, this is a stub to fix imports.
+    """
+    raise NotImplementedError(
+        "run_reference() is deprecated. Use run_hpc_reference_mapping() or run_dual_reference_mapping() directly."
+    )
+
+
 def run_hpc_reference_mapping(
     query_path: Path,
     hlca_path: Path | None,

@@ -212,8 +212,8 @@ class ReferenceGeometryValidationReport:
                 h = self.confidence_report["hlca"]
                 lines.append(f"- HLCA: mean={h.get('mean', 'N/A'):.3f}, std={h.get('std', 'N/A'):.3f}")
             if "luca" in self.confidence_report:
-                l = self.confidence_report["luca"]
-                lines.append(f"- LuCA: mean={l.get('mean', 'N/A'):.3f}, std={l.get('std', 'N/A'):.3f}")
+                luca_stats = self.confidence_report["luca"]
+                lines.append(f"- LuCA: mean={luca_stats.get('mean', 'N/A'):.3f}, std={luca_stats.get('std', 'N/A'):.3f}")
             lines.append("")
 
         return "\n".join(lines)
