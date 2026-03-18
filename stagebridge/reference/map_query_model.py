@@ -103,8 +103,8 @@ def map_query_with_scanvi_model(
     except Exception as e:
         raise ValueError(f"Failed to prepare query anndata: {e}") from e
 
-    # Get gene overlap stats
-    n_ref_genes = ref_model.adata_manager.get_state_registry("var_names").index.shape[0]
+    # Get gene overlap stats (model expects 2000 genes from HVG selection)
+    n_ref_genes = len(model_var_names)  # Already loaded from model state
     n_query_genes = query_copy.n_vars
     log.info("  Reference genes: %d, Query genes after prep: %d", n_ref_genes, n_query_genes)
 
