@@ -31,10 +31,14 @@ import scanpy as sc
 from omegaconf import DictConfig
 
 from stagebridge.logging_utils import get_logger
-from stagebridge.config import (
-    get_data_root,
-    ensure_dir,
-)
+from stagebridge.config import get_paths
+
+
+def ensure_dir(path: Path) -> Path:
+    """Create directory if it doesn't exist and return it."""
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 log = get_logger(__name__)
 
@@ -465,17 +469,18 @@ def run_data_prep(
     # Resolve data root
     if data_root is not None:
         import os
-
         os.environ["STAGEBRIDGE_DATA_ROOT"] = str(data_root)
-
-    try:
-        root = get_data_root()
-    except OSError as e:
-        return {
-            "ok": False,
-            "pipeline": "data_prep",
-            "error": str(e),
-        }
+        root = Path(data_root)
+    else:
+        try:
+            paths = get_paths()
+            root = Path(paths.data_root)
+        except Exception as e:
+            return {
+                "ok": False,
+                "pipeline": "data_prep",
+                "error": str(e),
+            }
 
     log.info("=" * 60)
     log.info("StageBridge Raw Data Preparation Pipeline (Step 0)")
