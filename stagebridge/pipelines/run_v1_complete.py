@@ -643,13 +643,34 @@ def create_real_data_loaders(
 # Training Functions
 # =============================================================================
 
+def _get_batch_tensors(batch, device):
+    """Extract tensors from batch, handling both dict and StageBridgeBatch formats."""
+    # Handle StageBridgeBatch (real data) vs dict (synthetic data)
+    if hasattr(batch, 'niche_tokens'):
+        # StageBridgeBatch object
+        niche_tokens = batch.niche_tokens.to(device)
+        z_source = batch.z_source.to(device)
+        z_target = batch.z_target.to(device)
+        # Receiver is token 0 of niche (doctrine: receiver-centered)
+        receiver = niche_tokens[:, 0, :]
+    else:
+        # Dict-like batch (synthetic)
+        niche_tokens = batch['niche_tokens'].to(device)
+        z_source = batch['z_source'].to(device)
+        z_target = batch['z_target'].to(device)
+        receiver = batch.get('receiver', niche_tokens[:, 0, :])
+        if isinstance(receiver, torch.Tensor):
+            receiver = receiver.to(device)
+
+    return niche_tokens, receiver, z_source, z_target
+
+
 def train_ssl_epoch(model, dataloader, optimizer, device, config):
     model.train()
     total_loss, total_recon, n_batches = 0.0, 0.0, 0
 
     for batch in tqdm(dataloader, desc='SSL', leave=False):
-        niche_tokens = batch['niche_tokens'].to(device)
-        receiver = batch['receiver'].to(device)
+        niche_tokens, receiver, _, _ = _get_batch_tensors(batch, device)
 
         optimizer.zero_grad()
         outputs = model.ssl_forward(niche_tokens, receiver)
@@ -670,9 +691,7 @@ def train_transition_epoch(model, dataloader, optimizer, device):
     total_loss, n_batches = 0.0, 0
 
     for batch in tqdm(dataloader, desc='Transition', leave=False):
-        niche_tokens = batch['niche_tokens'].to(device)
-        z_source = batch['z_source'].to(device)
-        z_target = batch['z_target'].to(device)
+        niche_tokens, _, z_source, z_target = _get_batch_tensors(batch, device)
 
         optimizer.zero_grad()
         context = model.encode_niche(niche_tokens)
@@ -695,9 +714,7 @@ def evaluate_model(model, dataloader, device):
     all_drifts, all_targets = [], []
 
     for batch in dataloader:
-        niche_tokens = batch['niche_tokens'].to(device)
-        z_source = batch['z_source'].to(device)
-        z_target = batch['z_target'].to(device)
+        niche_tokens, _, z_source, z_target = _get_batch_tensors(batch, device)
 
         context = model.encode_niche(niche_tokens)
         outputs = model.transition_forward(z_source, z_target, context)
@@ -756,11 +773,11 @@ def run_ablation_studies(model, dataloader, device, output_dir, n_epochs=10):
         for _ in range(n_epochs):
             baseline.train()
             for batch in dataloader:
-                x = batch['niche_tokens'].to(device).mean(dim=1)
-                target = batch['receiver'].to(device)
+                niche_tokens, receiver, _, _ = _get_batch_tensors(batch, device)
+                x = niche_tokens.mean(dim=1)
                 optimizer.zero_grad()
                 pred = baseline(x)
-                loss = torch.mean((pred - target) ** 2)
+                loss = torch.mean((pred - receiver) ** 2)
                 loss.backward()
                 optimizer.step()
 
@@ -768,10 +785,10 @@ def run_ablation_studies(model, dataloader, device, output_dir, n_epochs=10):
         with torch.no_grad():
             total_loss = 0
             for batch in dataloader:
-                x = batch['niche_tokens'].to(device).mean(dim=1)
-                target = batch['receiver'].to(device)
+                niche_tokens, receiver, _, _ = _get_batch_tensors(batch, device)
+                x = niche_tokens.mean(dim=1)
                 pred = baseline(x)
-                total_loss += torch.mean((pred - target) ** 2).item()
+                total_loss += torch.mean((pred - receiver) ** 2).item()
 
         results.append({'Model': name, 'loss': total_loss / len(dataloader), 'mse': total_loss / len(dataloader)})
 
