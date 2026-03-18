@@ -394,9 +394,27 @@ def _map_with_faiss_streaming(
 
     log.info("Index ready: %d vectors", index.ntotal)
 
-    # Search
-    log.info("Searching k=%d neighbors...", k_neighbors)
-    similarities, indices = index.search(X_query, k_neighbors)
+    # Search in batches to avoid memory/time explosion
+    # 787K queries × 584K refs is too large for one operation
+    log.info("Searching k=%d neighbors (batched)...", k_neighbors)
+    query_batch_size = 10000  # Search 10K query cells at a time
+    all_similarities = []
+    all_indices = []
+
+    for q_start in range(0, n_query, query_batch_size):
+        q_end = min(q_start + query_batch_size, n_query)
+        query_batch = X_query[q_start:q_end]
+
+        sims, idxs = index.search(query_batch, k_neighbors)
+        all_similarities.append(sims)
+        all_indices.append(idxs)
+
+        if (q_start // query_batch_size) % 10 == 0:
+            log.info("  Searched %d / %d query cells", q_end, n_query)
+
+    similarities = np.vstack(all_similarities)
+    indices = np.vstack(all_indices)
+    log.info("Search complete: %d queries processed", n_query)
 
     # Convert similarities to distances
     distances = 1.0 - np.clip(similarities, -1, 1)
