@@ -118,8 +118,8 @@ def download_luca(output_dir: Path) -> Path:
 
 def download_reference_atlases(
     output_dir: Path,
-    download_hlca: bool = True,
-    download_luca: bool = True,
+    fetch_hlca: bool = True,
+    fetch_luca: bool = True,
 ) -> dict:
     """
     Download both HLCA and LuCA reference atlases.
@@ -132,12 +132,12 @@ def download_reference_atlases(
 
     results = {}
 
-    if download_hlca:
+    if fetch_hlca:
         results["hlca"] = download_hlca(output_dir)
     else:
         results["hlca"] = None
 
-    if download_luca:
+    if fetch_luca:
         results["luca"] = download_luca(output_dir)
     else:
         results["luca"] = None
@@ -178,8 +178,8 @@ def main():
 
     results = download_reference_atlases(
         output_dir=args.output_dir,
-        download_hlca=args.download_hlca,
-        download_luca=args.download_luca,
+        fetch_hlca=args.download_hlca,
+        fetch_luca=args.download_luca,
     )
 
     print("\n Done!")
