@@ -209,6 +209,53 @@ $DATA/
         └── results.json
 ```
 
+## Reference Sources and Verification
+
+### HLCA (Human Lung Cell Atlas)
+
+| Property | Value |
+|----------|-------|
+| Source | CZI cellxgene via scvi-tools Hugging Face Hub |
+| Repository | `scvi-tools/human-lung-cell-atlas-scanvi` |
+| Cells | ~584K healthy lung cells |
+| Latent key | `X_scanvi_emb` (30 dimensions) |
+| Download | `python -m stagebridge.pipelines.download_references --download_hlca` |
+
+### LuCA (Lung Cancer Atlas)
+
+| Property | Value |
+|----------|-------|
+| Source | Zenodo / LungCancerAtlas GitHub |
+| Cells | ~790K (core) or ~1.3M (extended) |
+| Latent key | `X_scVI` (10 dimensions) |
+
+**CRITICAL: Use LuCA Core, NOT Extended**
+
+LuCA Extended has 31% NaN in latent embeddings. Always verify before mapping:
+
+```bash
+# Diagnose latent integrity
+python -m stagebridge.reference.diagnose_reference /path/to/luca.h5ad \
+    --latent-key X_scVI --diagnose-only
+
+# Expected output for usable reference:
+# Valid cells: 790,000 (100.0%)
+# Recommendation: usable
+```
+
+If NaN detected, either:
+1. Use LuCA Core instead
+2. Clean the reference: `--output /path/to/luca_cleaned.h5ad`
+
+### Reference Verification Checklist
+
+Before running `run_reference.py`:
+
+1. [ ] HLCA downloaded and model cached
+2. [ ] LuCA is Core version (100% valid latents)
+3. [ ] Run `diagnose_reference.py --diagnose-only` on both
+4. [ ] Gene overlap expected >30% (symbols vs ENSG handled automatically)
+
 ## Dual-Reference Mapping Design
 
 ### Purpose

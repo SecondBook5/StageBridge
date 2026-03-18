@@ -6,13 +6,19 @@ LuCa (disease-aware reference) coordinate systems.
 
 Key modules:
 - loaders: Reference loading and validation
-- prepare: Reference preparation and harmonization
-- map_query: Query-to-reference mapping
+- map_query: Query-to-reference mapping (in-memory)
+- map_query_chunked: Memory-efficient chunked mapping (HPC/large refs)
 - fuse: Dual-reference fusion
 - confidence: Confidence scoring and quality metrics
 - schema: Standardized output schemas
-- visualize: Reference visualizations
+- diagnose_reference: Latent integrity checking tool
 - pipeline: Main pipeline integration
+
+Reference Sources:
+- HLCA: CZI cellxgene via scvi-tools HF Hub, latent_key='X_scanvi_emb' (30 dims)
+- LuCA: Zenodo, latent_key='X_scVI' (10 dims) - USE CORE VERSION (not Extended)
+
+See stagebridge/reference/README.md for full documentation.
 """
 
 from __future__ import annotations
@@ -48,6 +54,14 @@ from stagebridge.reference.map_query import (
     ReferenceNeighborhood,
     map_to_hlca,
     map_to_luca,
+)
+from stagebridge.reference.map_query_chunked import (
+    map_query_chunked,
+    map_to_dual_reference_chunked,
+)
+from stagebridge.reference.diagnose_reference import (
+    diagnose_latent_integrity,
+    clean_reference_latent,
 )
 from stagebridge.reference.fuse import (
     FusedEmbeddingResult,
@@ -103,6 +117,12 @@ __all__ = [
     "ReferenceNeighborhood",
     "map_to_hlca",
     "map_to_luca",
+    # Chunked mapping (HPC)
+    "map_query_chunked",
+    "map_to_dual_reference_chunked",
+    # Diagnostics
+    "diagnose_latent_integrity",
+    "clean_reference_latent",
     # Fusion
     "FusedEmbeddingResult",
     "fuse_dual_reference",
