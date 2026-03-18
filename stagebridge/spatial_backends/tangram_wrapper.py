@@ -8,7 +8,7 @@ Reference: https://docs.scvi-tools.org/en/stable/tutorials/notebooks/spatial/Tan
 """
 
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Any
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -37,7 +37,7 @@ class TangramBackend(SpatialBackend):
         marker_genes: str | list[str] = "auto",
         constrained: bool = True,
         n_epochs: int = 1000,
-        target_count: Optional[int] = None,
+        target_count: int | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -345,7 +345,7 @@ class TangramBackend(SpatialBackend):
         # Check gene availability
         available_genes = list(set(gene_names) & set(self._snrna_ref.var_names))
         if not available_genes:
-            raise ValueError(f"None of the requested genes found in reference data")
+            raise ValueError("None of the requested genes found in reference data")
 
         # Get expression matrix for genes
         gene_expr = self._snrna_ref[:, available_genes].X

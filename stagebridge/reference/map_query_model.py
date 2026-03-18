@@ -200,7 +200,7 @@ def map_query_with_scvi_model(
         query_model = SCVI.load_query_data(query_copy, ref_model)
         log.info("  Query model created for surgery")
     except Exception as e:
-        raise ValueError(f"Failed to load query data: {e}")
+        raise ValueError(f"Failed to load query data: {e}") from e
 
     # Run surgery
     log.info("  Running scArches surgery (max %d epochs)...", surgery_epochs)

@@ -9,7 +9,7 @@ Reference: https://docs.scvi-tools.org/en/stable/tutorials/notebooks/spatial/Des
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 import numpy as np
 import pandas as pd
 import anndata as ad
