@@ -107,21 +107,23 @@ This directory contains all pipeline scripts for the StageBridge V1 workflow.
 python -m stagebridge.pipelines.download_references --output_dir $DATA/references --all
 
 # 2. Data preparation
-python -m stagebridge.pipelines.run_data_prep --data-root $DATA
+#    --spatial-merge-only: Skip spatial QC/norm (backends handle it internally)
+python -m stagebridge.pipelines.run_data_prep --data-root $DATA --spatial-merge-only
 
-# 3. Reference mapping
+# 3. Reference mapping (HLCA + LuCA)
 python -m stagebridge.pipelines.run_reference --data-root $DATA
 
-# 4. Spatial backend benchmark
+# 4. Spatial backend benchmark (Tangram/DestVI/TACCO)
+#    Uses raw spatial_merged.h5ad - backends do their own normalization
 python -m stagebridge.pipelines.run_spatial_benchmark \
     --snrna $DATA/processed/luad_evo/snrna_qc_normalized.h5ad \
-    --spatial $DATA/processed/luad_evo/spatial_qc_normalized.h5ad \
+    --spatial $DATA/processed/luad_evo/spatial_merged.h5ad \
     --output_dir $DATA/processed/luad_evo/spatial_benchmark
 
 # 5. Complete data prep (canonical format)
 python -m stagebridge.pipelines.complete_data_prep \
     --snrna $DATA/processed/luad_evo/snrna_qc_normalized.h5ad \
-    --spatial $DATA/processed/luad_evo/spatial_qc_normalized.h5ad \
+    --spatial $DATA/processed/luad_evo/spatial_merged.h5ad \
     --wes $DATA/processed/luad_evo/wes_features.parquet \
     --spatial_backend_dir $DATA/processed/luad_evo/spatial_benchmark \
     --output_dir $DATA/processed/luad_evo/canonical
