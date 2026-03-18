@@ -1,49 +1,213 @@
-"""Reference-layer pipeline entrypoint.
+"""Dual-reference mapping pipeline entrypoint.
 
-Maps query cells to HLCA (healthy) reference space using scANVI surgery,
-producing latent embeddings and cell-type labels for each cell.
+Maps query cells to BOTH HLCA (healthy) and LuCA (cancer) reference spaces,
+producing separate and fused latent embeddings for each cell.
 
-Uses the proper scANVI query-to-reference workflow:
-1. Load pretrained HLCA scANVI model from Hugging Face Hub
-2. Perform gene set alignment (surgery)
-3. Fine-tune query model on subset
-4. Infer latent embeddings for all query cells
-5. Transfer cell-type labels
+Dual-reference design:
+- HLCA = healthy lung anchor
+- LuCA = disease-aware / malignant-progressive anchor
+- Fused = comparative coordinate system for progression-relevant cells
+
+Supports three modes:
+1. HLCA-only (--hlca-only)
+2. LuCA-only (--luca-only)
+3. HLCA+LuCA fused (default)
 
 Usage:
     python -m stagebridge.pipelines.run_reference \
         --data-root /path/to/stagebridge/data
 
 Output:
-    Creates:
-    - snrna_hlca_latent.h5ad - Query data with HLCA latent embeddings
-    - hlca_labels.parquet - Cell-type label transfer results
-    - hlca_mapping_report.json - Quality metrics
+    Creates reference_geometry/ directory with:
+    - hlca_embedding.parquet
+    - luca_embedding.parquet
+    - fused_embedding.parquet
+    - reference_confidence.parquet
+    - reference_manifest.json
+    - feature_overlap_report.json
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any
+from typing import Literal
 import uuid
 
 
-def find_hlca_cache_dir(data_root: Path) -> Path | None:
-    """Find the HLCA HubModel cache directory."""
-    candidates = [
-        data_root / "references/hlca/hub_cache",
-        data_root / "references/hlca",
+def find_reference_paths(data_root: Path) -> dict[str, Path | None]:
+    """Find HLCA and LuCA reference paths."""
+    results = {"hlca": None, "luca": None, "hlca_hub_cache": None}
+
+    # HLCA: Check for HubModel cache or h5ad
+    hlca_candidates = [
+        data_root / "references/hlca/hlca_reference.h5ad",
+        data_root / "references/hlca/hlca_core.h5ad",
     ]
-    for candidate in candidates:
+    for candidate in hlca_candidates:
         if candidate.exists():
-            return candidate
-    return None
+            results["hlca"] = candidate
+            break
+
+    # HLCA HubModel cache (for scANVI surgery)
+    hub_cache = data_root / "references/hlca/hub_cache"
+    if hub_cache.exists():
+        results["hlca_hub_cache"] = hub_cache
+
+    # LuCA: Check for h5ad
+    luca_candidates = [
+        data_root / "references/luca/luca_reference.h5ad",
+        data_root / "references/luca/luca_luad.h5ad",
+    ]
+    for candidate in luca_candidates:
+        if candidate.exists():
+            results["luca"] = candidate
+            break
+
+    return results
+
+
+def extract_hlca_reference_from_hub(hub_cache: Path, output_path: Path) -> Path:
+    """Extract HLCA reference h5ad from HubModel cache."""
+    from scvi.hub import HubModel
+
+    print("Loading HLCA reference from HubModel cache...")
+    hubmodel = HubModel.pull_from_huggingface_hub(
+        "scvi-tools/human-lung-cell-atlas-scanvi",
+        cache_dir=hub_cache,
+    )
+
+    ref_adata = hubmodel.adata
+    print(f"  Reference cells: {ref_adata.n_obs:,}")
+    print(f"  Reference genes: {ref_adata.n_vars:,}")
+
+    # Ensure latent embedding exists
+    if "X_scanvi_emb" not in ref_adata.obsm:
+        print("  Computing latent embeddings...")
+        ref_latent = hubmodel.model.get_latent_representation(ref_adata)
+        ref_adata.obsm["X_scanvi_emb"] = ref_latent
+
+    print(f"  Saving reference to: {output_path}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    ref_adata.write_h5ad(output_path)
+
+    return output_path
+
+
+def run_dual_reference_mapping(
+    query_path: Path,
+    hlca_path: Path | None,
+    luca_path: Path | None,
+    output_dir: Path,
+    *,
+    mode: Literal["both", "hlca_only", "luca_only"] = "both",
+    mapping_method: str = "knn_projection",
+    fusion_method: str = "concat",
+    k_neighbors: int = 50,
+    hlca_latent_key: str = "X_scanvi_emb",
+    luca_latent_key: str = "X_scVI",
+    smoke_mode: bool = False,
+    run_id: str | None = None,
+) -> int:
+    """Run dual-reference mapping pipeline."""
+    from stagebridge.reference.pipeline import (
+        ReferenceGeometryConfig,
+        run_reference_pipeline,
+    )
+
+    run_id = run_id or f"ref_geo_{uuid.uuid4().hex[:8]}"
+
+    # Determine which references to use
+    use_hlca = mode in ("both", "hlca_only") and hlca_path is not None
+    use_luca = mode in ("both", "luca_only") and luca_path is not None
+
+    if not use_hlca and not use_luca:
+        print("ERROR: No references available for the selected mode.")
+        return 1
+
+    print()
+    print("=" * 60)
+    print("Dual-Reference Mapping Pipeline")
+    print("=" * 60)
+    print(f"  Run ID: {run_id}")
+    print(f"  Mode: {mode}")
+    print(f"  Query: {query_path}")
+    print(f"  HLCA: {hlca_path if use_hlca else 'disabled'}")
+    print(f"  LuCA: {luca_path if use_luca else 'disabled'}")
+    print(f"  Output: {output_dir}")
+    print(f"  Mapping method: {mapping_method}")
+    print(f"  Fusion method: {fusion_method}")
+    print(f"  k-neighbors: {k_neighbors}")
+    if smoke_mode:
+        print("  SMOKE MODE: Using 1000 cells only")
+    print()
+
+    config = ReferenceGeometryConfig(
+        hlca_reference_path=str(hlca_path) if use_hlca else None,
+        luca_reference_path=str(luca_path) if use_luca else None,
+        query_data_path=str(query_path),
+        mapping_method=mapping_method,
+        k_neighbors=k_neighbors,
+        hlca_latent_key=hlca_latent_key,
+        luca_latent_key=luca_latent_key,
+        fusion_method=fusion_method,
+        normalize_fused=True,
+        smoke_mode=smoke_mode,
+        smoke_n_cells=1000,
+    )
+
+    def progress_callback(step: str, pct: float) -> None:
+        print(f"  [{pct*100:5.1f}%] {step}")
+
+    result = run_reference_pipeline(
+        config,
+        run_dir=output_dir,
+        run_id=run_id,
+        progress_callback=progress_callback,
+    )
+
+    print()
+    print("=" * 60)
+    if result.success:
+        print("Dual-Reference Mapping Complete")
+    else:
+        print("Dual-Reference Mapping FAILED")
+    print("=" * 60)
+    print(f"  Run ID: {result.run_id}")
+    print(f"  Cells: {result.n_cells:,}")
+    print(f"  HLCA dim: {result.hlca_dim}")
+    print(f"  LuCA dim: {result.luca_dim}")
+    print(f"  Fused dim: {result.fused_dim}")
+    print(f"  Wall time: {result.wall_time_seconds:.1f}s")
+    print(f"  Validation: {result.validation_status}")
+
+    if result.errors:
+        print("\nErrors:")
+        for err in result.errors:
+            print(f"  - {err}")
+
+    if result.warnings:
+        print("\nWarnings:")
+        for warn in result.warnings:
+            print(f"  - {warn}")
+
+    print(f"\nOutputs saved to: {result.output_dir}")
+    print("  - hlca_embedding.parquet")
+    print("  - luca_embedding.parquet")
+    print("  - fused_embedding.parquet")
+    print("  - reference_confidence.parquet")
+    print("  - reference_manifest.json")
+
+    if result.success:
+        print("\nNext step: run_spatial_benchmark.py")
+        return 0
+    else:
+        return 1
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Map query cells to HLCA reference space using scANVI surgery"
+        description="Map query cells to HLCA and LuCA reference spaces"
     )
     parser.add_argument(
         "--data-root",
@@ -58,22 +222,76 @@ def main():
         help="Path to snRNA h5ad (default: {data-root}/processed/luad_evo/snrna_qc_normalized.h5ad)",
     )
     parser.add_argument(
+        "--hlca",
+        type=str,
+        default=None,
+        help="Path to HLCA reference h5ad (auto-detected if not specified)",
+    )
+    parser.add_argument(
+        "--luca",
+        type=str,
+        default=None,
+        help="Path to LuCA reference h5ad (auto-detected if not specified)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
-        help="Output directory (default: {data-root}/processed/luad_evo/)",
+        help="Output directory (default: {data-root}/processed/luad_evo/reference_geometry/)",
+    )
+
+    # Mode selection
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--hlca-only",
+        action="store_true",
+        help="Map to HLCA only (no LuCA)",
+    )
+    mode_group.add_argument(
+        "--luca-only",
+        action="store_true",
+        help="Map to LuCA only (no HLCA)",
+    )
+
+    # Latent keys (in case references use different names)
+    parser.add_argument(
+        "--hlca-latent-key",
+        type=str,
+        default="X_scanvi_emb",
+        help="Key in HLCA obsm containing latent embeddings",
     )
     parser.add_argument(
-        "--surgery-epochs",
-        type=int,
-        default=500,
-        help="Number of epochs for scANVI query surgery training",
+        "--luca-latent-key",
+        type=str,
+        default="X_scVI",
+        help="Key in LuCA obsm containing latent embeddings",
+    )
+
+    # Mapping parameters
+    parser.add_argument(
+        "--mapping-method",
+        type=str,
+        choices=["knn_projection", "pca_projection"],
+        default="knn_projection",
+        help="Method for mapping query to references",
     )
     parser.add_argument(
-        "--train-max-cells",
+        "--fusion-method",
+        type=str,
+        choices=["concat", "average", "weighted"],
+        default="concat",
+        help="Method for fusing HLCA and LuCA embeddings",
+    )
+    parser.add_argument(
+        "--k-neighbors",
         type=int,
-        default=200000,
-        help="Max cells to use for query model training",
+        default=50,
+        help="Number of neighbors for k-NN projection",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run in smoke mode (1000 cells only)",
     )
     parser.add_argument(
         "--run-id",
@@ -86,105 +304,87 @@ def main():
 
     data_root = Path(args.data_root)
     snrna_path = Path(args.snrna) if args.snrna else data_root / "processed/luad_evo/snrna_qc_normalized.h5ad"
-    output_dir = Path(args.output_dir) if args.output_dir else data_root / "processed/luad_evo"
-    run_id = args.run_id or f"hlca_map_{uuid.uuid4().hex[:8]}"
+    output_dir = Path(args.output_dir) if args.output_dir else data_root / "processed/luad_evo/reference_geometry"
 
-    # Find HLCA cache
-    hlca_cache = find_hlca_cache_dir(data_root)
-    if hlca_cache is None:
-        print("ERROR: HLCA model cache not found. Run download_references.py first.")
-        print(f"Expected at: {data_root / 'references/hlca/hub_cache'}")
-        return 1
+    # Determine mode
+    if args.hlca_only:
+        mode = "hlca_only"
+    elif args.luca_only:
+        mode = "luca_only"
+    else:
+        mode = "both"
 
-    print("=" * 60)
-    print("HLCA Reference Mapping Pipeline (scANVI Surgery)")
-    print("=" * 60)
-    print(f"  Run ID: {run_id}")
-    print(f"  Query data: {snrna_path}")
-    print(f"  HLCA cache: {hlca_cache}")
-    print(f"  Output dir: {output_dir}")
-    print(f"  Surgery epochs: {args.surgery_epochs}")
-    print(f"  Training cells: {args.train_max_cells:,}")
-    print()
+    # Find or use specified reference paths
+    if args.hlca:
+        hlca_path = Path(args.hlca)
+    elif args.luca_only:
+        hlca_path = None
+    else:
+        ref_paths = find_reference_paths(data_root)
+        hlca_path = ref_paths["hlca"]
 
+        # If no h5ad but HubModel cache exists, extract reference
+        if hlca_path is None and ref_paths["hlca_hub_cache"] is not None:
+            print("HLCA h5ad not found, extracting from HubModel cache...")
+            hlca_path = data_root / "references/hlca/hlca_reference.h5ad"
+            try:
+                extract_hlca_reference_from_hub(ref_paths["hlca_hub_cache"], hlca_path)
+            except Exception as e:
+                print(f"ERROR: Failed to extract HLCA reference: {e}")
+                if mode != "luca_only":
+                    return 1
+
+    if args.luca:
+        luca_path = Path(args.luca)
+    elif args.hlca_only:
+        luca_path = None
+    else:
+        ref_paths = find_reference_paths(data_root)
+        luca_path = ref_paths["luca"]
+
+    # Validate inputs
     if not snrna_path.exists():
         print(f"ERROR: snRNA file not found: {snrna_path}")
         print("Run run_data_prep.py first.")
         return 1
 
+    if mode == "both":
+        if hlca_path is None:
+            print("WARNING: HLCA reference not found, falling back to HLCA-only mode")
+            print("  Download with: python -m stagebridge.pipelines.download_references --download_hlca")
+        if luca_path is None:
+            print("WARNING: LuCA reference not found")
+            print("  If LuCA is not available, use --hlca-only mode")
+            if hlca_path is not None:
+                print("  Proceeding with HLCA-only...")
+                mode = "hlca_only"
+            else:
+                return 1
+
+    if hlca_path is not None and not hlca_path.exists():
+        print(f"ERROR: HLCA reference not found: {hlca_path}")
+        return 1
+
+    if luca_path is not None and not luca_path.exists():
+        print(f"ERROR: LuCA reference not found: {luca_path}")
+        return 1
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Define output paths
-    output_latent_h5ad = output_dir / "snrna_hlca_latent.h5ad"
-    output_labels_parquet = output_dir / "hlca_labels.parquet"
-    mapping_report_path = output_dir / "hlca_mapping_report.json"
-    gene_report_path = output_dir / "hlca_gene_report.json"
-    progress_path = output_dir / "hlca_mapping_progress.json"
-    processed_hlca_dir = output_dir / "hlca_processed"
-
-    # Build config for map_full_snrna_with_hlca
-    hlca_cfg = {
-        "hub_repo_id": "scvi-tools/human-lung-cell-atlas-scanvi",
-        "model_cache_dir": str(hlca_cache),
-        "query_model_dir": str(processed_hlca_dir / "query_model"),
-        "surgery_epochs": args.surgery_epochs,
-        "train_max_cells": args.train_max_cells,
-        "batch_size_infer": 1024,
-        "inference_chunk_size": 8192,
-        "early_stopping": True,
-        "early_stopping_patience": 10,
-        "show_progress": True,
-        "resume": True,
-        "export_probs": False,
-        "knn_label_transfer_levels": False,
-    }
-
-    try:
-        from stagebridge.reference.hlca_mapper import map_full_snrna_with_hlca
-
-        print("\nStarting scANVI query mapping...")
-        print("This may take 30-60 minutes for large datasets.\n")
-
-        result = map_full_snrna_with_hlca(
-            run_id=run_id,
-            snrna_h5ad_path=snrna_path,
-            output_latent_h5ad_path=output_latent_h5ad,
-            output_labels_parquet_path=output_labels_parquet,
-            mapping_report_path=mapping_report_path,
-            gene_report_path=gene_report_path,
-            progress_path=progress_path,
-            processed_hlca_dir=processed_hlca_dir,
-            hlca_cfg=hlca_cfg,
-        )
-
-        print()
-        print("=" * 60)
-        print("Reference Mapping Complete")
-        print("=" * 60)
-        print(f"  Run ID: {result.run_id}")
-        print(f"  Latent shape: {result.latent_shape}")
-        print(f"  Gene overlap: {result.overlap_percent:.1f}%")
-        print(f"  Peak memory: {result.peak_rss_mb:.0f} MB")
-        print(f"  Wall time: {result.wall_time_seconds:.1f}s")
-        print()
-        print("Top 10 cell types:")
-        for label, count in result.top10_labels:
-            print(f"    {label}: {count:,}")
-        print()
-        print("Outputs:")
-        print(f"  Latent h5ad: {result.latent_h5ad_path}")
-        print(f"  Labels: {result.labels_parquet_path}")
-        print(f"  Report: {result.mapping_report_path}")
-        print()
-        print("Next step: run_spatial_benchmark.py")
-
-        return 0
-
-    except Exception as e:
-        print(f"\nERROR: Reference mapping failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    return run_dual_reference_mapping(
+        query_path=snrna_path,
+        hlca_path=hlca_path,
+        luca_path=luca_path,
+        output_dir=output_dir,
+        mode=mode,
+        mapping_method=args.mapping_method,
+        fusion_method=args.fusion_method,
+        k_neighbors=args.k_neighbors,
+        hlca_latent_key=args.hlca_latent_key,
+        luca_latent_key=args.luca_latent_key,
+        smoke_mode=args.smoke,
+        run_id=args.run_id,
+    )
 
 
 if __name__ == "__main__":
