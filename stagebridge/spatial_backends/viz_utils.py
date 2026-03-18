@@ -6,7 +6,7 @@ including spatial patterns, cell-type-specific analysis, and gamma space explora
 """
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
