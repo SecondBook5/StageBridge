@@ -579,74 +579,82 @@ def run_data_prep(
         # Process snRNA
         snrna_merged_path = processed_dir / "snrna_merged.h5ad"
         if snrna_merged_path.exists():
-            log.info("Loading snRNA data in backed mode to save memory...")
-            adata_snrna = anndata.read_h5ad(snrna_merged_path, backed="r")
+            log.info("Loading snRNA data for QC...")
 
-            # Calculate QC metrics on backed data
-            log.info("Calculating QC metrics...")
-            adata_snrna.var["mt"] = adata_snrna.var_names.str.startswith(("MT-", "mt-"))
-            sc.pp.calculate_qc_metrics(
-                adata_snrna, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
-            )
+            try:
+                # Try loading into memory if possible
+                adata_snrna = anndata.read_h5ad(snrna_merged_path)
+                log.info("Loaded snRNA into memory: %d cells x %d genes", adata_snrna.n_obs, adata_snrna.n_vars)
 
-            # Get filter masks
-            cell_mask = (
-                (adata_snrna.obs["n_genes_by_counts"] >= DEFAULT_MIN_GENES_PER_CELL)
-                & (adata_snrna.obs["total_counts"] >= DEFAULT_MIN_COUNTS)
-                & (adata_snrna.obs["pct_counts_mt"] < DEFAULT_MAX_PCT_MITO)
-            )
-            gene_mask = adata_snrna.var["n_cells_by_counts"] >= DEFAULT_MIN_CELLS_PER_GENE
+                # Calculate QC metrics
+                log.info("Calculating QC metrics...")
+                adata_snrna.var["mt"] = adata_snrna.var_names.str.startswith(("MT-", "mt-"))
+                sc.pp.calculate_qc_metrics(
+                    adata_snrna, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
+                )
+            except MemoryError:
+                log.warning("Not enough memory for full QC, skipping snRNA QC step")
+                qc_results["snrna_qc"] = {"skipped": True, "reason": "memory"}
+                adata_snrna = None
 
-            n_cells_before = adata_snrna.n_obs
-            n_genes_before = adata_snrna.n_vars
-            n_cells_after = cell_mask.sum()
-            n_genes_after = gene_mask.sum()
+          if adata_snrna is not None:
+                # Get filter masks
+                cell_mask = (
+                    (adata_snrna.obs["n_genes_by_counts"] >= DEFAULT_MIN_GENES_PER_CELL)
+                    & (adata_snrna.obs["total_counts"] >= DEFAULT_MIN_COUNTS)
+                    & (adata_snrna.obs["pct_counts_mt"] < DEFAULT_MAX_PCT_MITO)
+                )
+                gene_mask = adata_snrna.var["n_cells_by_counts"] >= DEFAULT_MIN_CELLS_PER_GENE
 
-            log.info(
-                "Loading filtered subset (%d/%d cells, %d/%d genes)...",
-                n_cells_after,
-                n_cells_before,
-                n_genes_after,
-                n_genes_before,
-            )
+                n_cells_before = adata_snrna.n_obs
+                n_genes_before = adata_snrna.n_vars
+                n_cells_after = cell_mask.sum()
+                n_genes_after = gene_mask.sum()
 
-            # Load only filtered data into memory
-            adata_snrna_filtered = adata_snrna[cell_mask, gene_mask].to_memory()
-            adata_snrna.file.close()
-            del adata_snrna
-            gc.collect()
+                log.info(
+                    "Filtering: %d/%d cells, %d/%d genes",
+                    n_cells_after,
+                    n_cells_before,
+                    n_genes_after,
+                    n_genes_before,
+                )
 
-            qc_summary = {
-                "cells_before": n_cells_before,
-                "cells_after": n_cells_after,
-                "cells_removed": n_cells_before - n_cells_after,
-                "genes_before": n_genes_before,
-                "genes_after": n_genes_after,
-                "genes_removed": n_genes_before - n_genes_after,
-                "qc_params": {
-                    "min_genes": DEFAULT_MIN_GENES_PER_CELL,
-                    "min_cells": DEFAULT_MIN_CELLS_PER_GENE,
-                    "max_pct_mito": DEFAULT_MAX_PCT_MITO,
-                    "min_counts": DEFAULT_MIN_COUNTS,
-                },
-            }
+                # Filter
+                adata_snrna_filtered = adata_snrna[cell_mask, gene_mask].copy()
+                del adata_snrna
+                gc.collect()
 
-            if not skip_qc:
-                qc_results["snrna_qc"] = qc_summary
+                qc_summary = {
+                    "cells_before": n_cells_before,
+                    "cells_after": n_cells_after,
+                    "cells_removed": n_cells_before - n_cells_after,
+                    "genes_before": n_genes_before,
+                    "genes_after": n_genes_after,
+                    "genes_removed": n_genes_before - n_genes_after,
+                    "qc_params": {
+                        "min_genes": DEFAULT_MIN_GENES_PER_CELL,
+                        "min_cells": DEFAULT_MIN_CELLS_PER_GENE,
+                        "max_pct_mito": DEFAULT_MAX_PCT_MITO,
+                        "min_counts": DEFAULT_MIN_COUNTS,
+                    },
+                }
 
-            if not skip_normalization:
-                adata_snrna_filtered, norm_summary = apply_normalization(adata_snrna_filtered)
-                qc_results["snrna_normalization"] = norm_summary
+                if not skip_qc:
+                    qc_results["snrna_qc"] = qc_summary
 
-            # Save processed version
-            processed_snrna_path = processed_dir / "snrna_qc_normalized.h5ad"
-            adata_snrna_filtered.write_h5ad(processed_snrna_path)
-            qc_results["snrna_processed_path"] = str(processed_snrna_path)
-            log.info("snRNA processed: %s", processed_snrna_path)
+                if not skip_normalization:
+                    adata_snrna_filtered, norm_summary = apply_normalization(adata_snrna_filtered)
+                    qc_results["snrna_normalization"] = norm_summary
 
-            # Free memory before loading spatial
-            del adata_snrna_filtered
-            gc.collect()
+                # Save processed version
+                processed_snrna_path = processed_dir / "snrna_qc_normalized.h5ad"
+                adata_snrna_filtered.write_h5ad(processed_snrna_path)
+                qc_results["snrna_processed_path"] = str(processed_snrna_path)
+                log.info("snRNA processed: %s", processed_snrna_path)
+
+                # Free memory before loading spatial
+                del adata_snrna_filtered
+                gc.collect()
 
         # Process spatial (skip if batched - QC can be done per-batch during training)
         spatial_merged_path = processed_dir / "spatial_merged.h5ad"
