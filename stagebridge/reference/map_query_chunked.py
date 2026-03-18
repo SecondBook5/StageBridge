@@ -26,16 +26,16 @@ def map_query_chunked(
     use_faiss: bool = True,
     n_probe: int = 32,
     normalize: bool = True,
+    max_gene_dims: int = 2000,
+    pca_components: int = 100,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Map query cells to reference latent space with chunked processing.
 
     Memory-efficient approach:
     1. Build gene index mapping once
-    2. Build FAISS index from reference latent (not expression)
-    3. For each query chunk:
-       - Load query expression
-       - Compute approximate k-NN in gene space OR use precomputed latent
-       - Get weighted average of reference latent positions
+    2. If too many genes, use PCA-reduced space for k-NN
+    3. Build FAISS index from reduced/gene space
+    4. Find k-NN neighbors, get weighted average of reference latent positions
 
     Parameters
     ----------
@@ -57,6 +57,10 @@ def map_query_chunked(
         FAISS IVF probe parameter (higher = more accurate, slower)
     normalize : bool
         L2 normalize vectors before k-NN
+    max_gene_dims : int
+        If common genes exceed this, use PCA reduction (default 2000)
+    pca_components : int
+        Number of PCA components for dimensionality reduction (default 100)
 
     Returns
     -------
@@ -65,7 +69,7 @@ def map_query_chunked(
     distances : np.ndarray
         Mean k-NN distances per query cell
     info : dict
-        Mapping statistics
+        Mapping statistics including dimensionality reduction method
     """
     import anndata
     import scipy.sparse as sp
@@ -87,11 +91,26 @@ def map_query_chunked(
     latent_dim = ref_latent.shape[1]
     log.info("Reference latent: %d dims", latent_dim)
 
-    # Check for NaN in reference latent
-    nan_count = np.isnan(ref_latent).sum()
-    if nan_count > 0:
-        log.warning("Reference latent has %d NaN values - replacing with 0", nan_count)
-        ref_latent = np.nan_to_num(ref_latent, nan=0.0)
+    # Check for NaN in reference latent - DO NOT zero-fill, filter instead
+    nan_per_cell = np.isnan(ref_latent).any(axis=1)
+    n_invalid = nan_per_cell.sum()
+    if n_invalid > 0:
+        valid_fraction = 1.0 - n_invalid / n_ref
+        if valid_fraction < 0.5:
+            raise ValueError(
+                f"Reference latent has {n_invalid:,} invalid cells ({100*(1-valid_fraction):.1f}%). "
+                f"Run: python -m stagebridge.reference.diagnose_reference {ref_path} --diagnose-only"
+            )
+        log.warning(
+            "Reference latent has %d cells with NaN (%d%%) - filtering them out. "
+            "Consider running diagnose_reference.py to create a cleaned reference.",
+            n_invalid, int(100 * n_invalid / n_ref)
+        )
+        # Create mask for valid cells
+        valid_cell_mask = ~nan_per_cell
+        ref_latent = ref_latent[valid_cell_mask]
+        n_ref = ref_latent.shape[0]
+        log.info("After filtering: %d valid reference cells", n_ref)
 
     # Build gene mapping (query symbols -> reference indices)
     query_genes = list(query_adata.var_names.astype(str))
@@ -117,6 +136,47 @@ def map_query_chunked(
     if n_common < 100:
         log.warning("Low gene overlap - mapping quality may be poor")
 
+    # Determine if we need dimensionality reduction
+    use_pca = n_common > max_gene_dims
+    pca_model = None
+    dim_reduction_method = "none"
+
+    if use_pca:
+        log.info("Gene count (%d) exceeds max (%d) - using PCA reduction to %d dims",
+                 n_common, max_gene_dims, pca_components)
+        dim_reduction_method = f"pca_{pca_components}"
+
+        # Fit PCA on a sample of reference cells
+        from sklearn.decomposition import IncrementalPCA
+        pca_model = IncrementalPCA(n_components=pca_components)
+
+        # Sample cells for PCA fitting
+        n_pca_sample = min(50000, ref_adata.n_obs)
+        pca_sample_idx = np.random.choice(ref_adata.n_obs, n_pca_sample, replace=False)
+        pca_sample_idx.sort()
+
+        log.info("Fitting PCA on %d sampled reference cells...", n_pca_sample)
+
+        # Fit incrementally in chunks
+        for start in range(0, len(pca_sample_idx), ref_chunk_size):
+            end = min(start + ref_chunk_size, len(pca_sample_idx))
+            chunk_idx = pca_sample_idx[start:end]
+
+            chunk = ref_adata.X[chunk_idx, :]
+            if sp.issparse(chunk):
+                chunk = chunk.toarray()
+            chunk = np.asarray(chunk[:, ref_gene_idx], dtype=np.float32)
+
+            # Normalize before PCA
+            if normalize:
+                norms = np.linalg.norm(chunk, axis=1, keepdims=True) + 1e-8
+                chunk = chunk / norms
+
+            pca_model.partial_fit(chunk)
+
+        log.info("PCA fitted. Explained variance: %.1f%%",
+                 100 * pca_model.explained_variance_ratio_.sum())
+
     # Get query expression for common genes
     X_query = query_adata.X
     if sp.issparse(X_query):
@@ -126,8 +186,19 @@ def map_query_chunked(
     if normalize:
         X_query = X_query / (np.linalg.norm(X_query, axis=1, keepdims=True) + 1e-8)
 
+    # Apply PCA to query if needed
+    if use_pca and pca_model is not None:
+        X_query = pca_model.transform(X_query).astype(np.float32)
+        log.info("Query transformed to %d PCA dims", X_query.shape[1])
+
     n_query = X_query.shape[0]
-    log.info("Query: %d cells, %d common genes", n_query, n_common)
+    effective_dims = X_query.shape[1]
+    log.info("Query: %d cells, %d effective dims (method: %s)", n_query, effective_dims, dim_reduction_method)
+
+    # Track valid cell indices if we filtered NaN cells
+    valid_cell_indices = None
+    if 'valid_cell_mask' in dir() and valid_cell_mask is not None:
+        valid_cell_indices = np.where(valid_cell_mask)[0]
 
     # Use FAISS with streaming - never load full reference matrix
     if use_faiss:
@@ -137,6 +208,8 @@ def map_query_chunked(
             n_probe=n_probe,
             chunk_size=ref_chunk_size,
             normalize=normalize,
+            pca_model=pca_model,
+            valid_cell_indices=valid_cell_indices,
         )
     else:
         embeddings, distances = _map_with_sklearn_streaming(
@@ -144,26 +217,40 @@ def map_query_chunked(
             k_neighbors=k_neighbors,
             chunk_size=ref_chunk_size,
             normalize=normalize,
+            pca_model=pca_model,
+            valid_cell_indices=valid_cell_indices,
         )
 
     # Cleanup
     ref_adata.file.close()
 
-    # Final NaN check - replace any remaining NaN with 0
+    # Final NaN check - report but do NOT zero-fill embeddings
     nan_embed = np.isnan(embeddings).sum()
     nan_dist = np.isnan(distances).sum()
     if nan_embed > 0 or nan_dist > 0:
-        log.warning("Final NaN check: %d in embeddings, %d in distances - replacing with 0", nan_embed, nan_dist)
-        embeddings = np.nan_to_num(embeddings, nan=0.0)
-        distances = np.nan_to_num(distances, nan=1.0)
+        log.error(
+            "Final NaN check FAILED: %d NaN in embeddings, %d in distances. "
+            "This indicates a problem with the reference or mapping. "
+            "Do NOT proceed with these outputs.",
+            nan_embed, nan_dist
+        )
+        # Set distances to max for NaN embeddings so confidence will be low
+        nan_rows = np.isnan(embeddings).any(axis=1)
+        distances[nan_rows] = np.inf
 
     info = {
         "n_query": n_query,
         "n_ref": n_ref,
+        "n_ref_original": ref_adata.n_obs,
+        "n_ref_filtered": ref_adata.n_obs - n_ref if n_ref != ref_adata.n_obs else 0,
         "n_common_genes": n_common,
+        "effective_dims": effective_dims,
+        "dim_reduction_method": dim_reduction_method,
         "latent_dim": latent_dim,
         "k_neighbors": k_neighbors,
-        "method": "faiss" if use_faiss else "sklearn",
+        "knn_method": "faiss" if use_faiss else "sklearn",
+        "nan_in_embeddings": int(nan_embed),
+        "nan_in_distances": int(nan_dist),
     }
 
     return embeddings, distances, info
@@ -178,8 +265,18 @@ def _map_with_faiss_streaming(
     n_probe: int,
     chunk_size: int,
     normalize: bool,
+    pca_model: Any = None,
+    valid_cell_indices: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Use FAISS with streaming - build index from chunks without full matrix."""
+    """Use FAISS with streaming - build index from chunks without full matrix.
+
+    Parameters
+    ----------
+    pca_model : IncrementalPCA, optional
+        If provided, transform reference chunks to PCA space before indexing
+    valid_cell_indices : np.ndarray, optional
+        If provided, only use these reference cell indices (for NaN filtering)
+    """
     import scipy.sparse as sp
 
     try:
@@ -189,48 +286,64 @@ def _map_with_faiss_streaming(
         log.warning("FAISS not installed, falling back to streaming sklearn")
         has_faiss = False
 
-    n_ref = ref_adata.n_obs
+    # Determine number of reference cells to use
+    n_ref_full = ref_adata.n_obs
+    if valid_cell_indices is not None:
+        n_ref = len(valid_cell_indices)
+        log.info("Using %d valid reference cells (filtered from %d)", n_ref, n_ref_full)
+    else:
+        n_ref = n_ref_full
+
     n_query = X_query.shape[0]
-    dim = len(ref_gene_idx)
+    # Dimension is PCA dims if using PCA, otherwise gene dims
+    dim = X_query.shape[1]
     latent_dim = ref_latent.shape[1]
 
     if not has_faiss:
         return _map_with_sklearn_streaming(
             X_query, ref_adata, ref_gene_idx, ref_latent,
-            k_neighbors, chunk_size, normalize
+            k_neighbors, chunk_size, normalize,
+            pca_model=pca_model, valid_cell_indices=valid_cell_indices,
         )
 
     log.info("Building FAISS index with streaming (n=%d, d=%d)...", n_ref, dim)
 
+    def _process_chunk(raw_chunk):
+        """Process a raw expression chunk: subset genes, normalize, optionally PCA."""
+        if sp.issparse(raw_chunk):
+            raw_chunk = raw_chunk.toarray()
+        chunk = np.asarray(raw_chunk[:, ref_gene_idx], dtype=np.float32)
+        if normalize:
+            norms = np.linalg.norm(chunk, axis=1, keepdims=True) + 1e-8
+            chunk = chunk / norms
+        if pca_model is not None:
+            chunk = pca_model.transform(chunk).astype(np.float32)
+        return chunk
+
+    # Determine which cells to use
+    if valid_cell_indices is not None:
+        cells_to_use = valid_cell_indices
+    else:
+        cells_to_use = np.arange(n_ref_full)
+
     # For large datasets, use IVF - but need training data first
-    # Sample a subset for training
     if n_ref > 100000:
         n_clusters = min(int(np.sqrt(n_ref)), 2048)
         n_train = min(n_ref, n_clusters * 50)
 
         log.info("Sampling %d cells for IVF training...", n_train)
-        train_idx = np.random.choice(n_ref, n_train, replace=False)
-        train_idx.sort()
+        # Sample from valid cells
+        train_sample_idx = np.random.choice(len(cells_to_use), n_train, replace=False)
+        train_cell_ids = cells_to_use[train_sample_idx]
+        train_cell_ids.sort()
 
-        # Load training data
+        # Load training data in chunks
         train_data = []
-        current_idx = 0
-        for start in range(0, n_ref, chunk_size):
-            end = min(start + chunk_size, n_ref)
-            # Check which training indices fall in this chunk
-            chunk_train_mask = (train_idx >= start) & (train_idx < end)
-            if not chunk_train_mask.any():
-                continue
-
-            chunk_train_idx = train_idx[chunk_train_mask] - start
-            chunk = ref_adata.X[start:end, :]
-            if sp.issparse(chunk):
-                chunk = chunk.toarray()
-            chunk = np.asarray(chunk[:, ref_gene_idx], dtype=np.float32)
-            if normalize:
-                norms = np.linalg.norm(chunk, axis=1, keepdims=True) + 1e-8
-                chunk = chunk / norms
-            train_data.append(chunk[chunk_train_idx])
+        for i in range(0, len(train_cell_ids), chunk_size):
+            batch_ids = train_cell_ids[i:i + chunk_size]
+            chunk = ref_adata.X[batch_ids, :]
+            chunk = _process_chunk(chunk)
+            train_data.append(chunk)
 
         train_data = np.vstack(train_data)
         log.info("Training IVF index with %d samples...", len(train_data))
@@ -246,21 +359,19 @@ def _map_with_faiss_streaming(
         index = faiss.IndexFlatIP(dim)
         log.info("FAISS flat index")
 
-    # Stream through reference and add to index
+    # Stream through valid reference cells and add to index
+    # Also build mapping from index position to latent position
     log.info("Adding reference vectors to index (streaming)...")
-    for start in range(0, n_ref, chunk_size):
-        end = min(start + chunk_size, n_ref)
-        chunk = ref_adata.X[start:end, :]
-        if sp.issparse(chunk):
-            chunk = chunk.toarray()
-        chunk = np.asarray(chunk[:, ref_gene_idx], dtype=np.float32)
-        if normalize:
-            norms = np.linalg.norm(chunk, axis=1, keepdims=True) + 1e-8
-            chunk = chunk / norms
+    n_added = 0
+    for i in range(0, len(cells_to_use), chunk_size):
+        batch_ids = cells_to_use[i:i + chunk_size]
+        chunk = ref_adata.X[batch_ids, :]
+        chunk = _process_chunk(chunk)
         index.add(chunk)
+        n_added += len(batch_ids)
 
-        if (start // chunk_size) % 10 == 0:
-            log.info("  Added %d / %d vectors", end, n_ref)
+        if (i // chunk_size) % 10 == 0:
+            log.info("  Added %d / %d vectors", n_added, n_ref)
 
     log.info("Index ready: %d vectors", index.ntotal)
 
@@ -307,51 +418,77 @@ def _map_with_sklearn_streaming(
     k_neighbors: int,
     chunk_size: int,
     normalize: bool,
+    pca_model: Any = None,
+    valid_cell_indices: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Streaming sklearn - process reference in chunks, keep top-k per query."""
+    """Streaming sklearn - process reference in chunks, keep top-k per query.
+
+    Parameters
+    ----------
+    pca_model : IncrementalPCA, optional
+        If provided, transform reference chunks to PCA space
+    valid_cell_indices : np.ndarray, optional
+        If provided, only use these reference cell indices
+    """
     import scipy.sparse as sp
     from sklearn.metrics.pairwise import cosine_similarity
 
-    n_ref = ref_adata.n_obs
+    n_ref_full = ref_adata.n_obs
+    if valid_cell_indices is not None:
+        n_ref = len(valid_cell_indices)
+        cells_to_use = valid_cell_indices
+    else:
+        n_ref = n_ref_full
+        cells_to_use = np.arange(n_ref_full)
+
     n_query = X_query.shape[0]
     latent_dim = ref_latent.shape[1]
 
     log.info("Streaming sklearn k-NN (n_ref=%d, n_query=%d)...", n_ref, n_query)
 
-    # Track top-k neighbors per query
-    top_k_distances = np.full((n_query, k_neighbors), np.inf, dtype=np.float32)
-    top_k_indices = np.zeros((n_query, k_neighbors), dtype=np.int64)
-
-    # Stream through reference chunks
-    for start in range(0, n_ref, chunk_size):
-        end = min(start + chunk_size, n_ref)
-        chunk = ref_adata.X[start:end, :]
-        if sp.issparse(chunk):
-            chunk = chunk.toarray()
-        chunk = np.asarray(chunk[:, ref_gene_idx], dtype=np.float32)
+    def _process_chunk(raw_chunk):
+        """Process a raw expression chunk: subset genes, normalize, optionally PCA."""
+        if sp.issparse(raw_chunk):
+            raw_chunk = raw_chunk.toarray()
+        chunk = np.asarray(raw_chunk[:, ref_gene_idx], dtype=np.float32)
         if normalize:
             norms = np.linalg.norm(chunk, axis=1, keepdims=True) + 1e-8
             chunk = chunk / norms
+        if pca_model is not None:
+            chunk = pca_model.transform(chunk).astype(np.float32)
+        return chunk
+
+    # Track top-k neighbors per query
+    # Indices here refer to position in ref_latent (which matches cells_to_use order)
+    top_k_distances = np.full((n_query, k_neighbors), np.inf, dtype=np.float32)
+    top_k_indices = np.zeros((n_query, k_neighbors), dtype=np.int64)
+
+    # Stream through valid reference cells in chunks
+    for i in range(0, len(cells_to_use), chunk_size):
+        batch_ids = cells_to_use[i:i + chunk_size]
+        chunk = ref_adata.X[batch_ids, :]
+        chunk = _process_chunk(chunk)
 
         # Compute cosine similarity
         sims = cosine_similarity(X_query, chunk)  # (n_query, chunk_size)
         dists = 1.0 - sims
 
         # Update top-k
-        for i in range(n_query):
-            chunk_dists = dists[i]
+        for q in range(n_query):
+            chunk_dists = dists[q]
             chunk_top_k = np.argsort(chunk_dists)[:k_neighbors]
 
             # Merge with existing top-k
-            all_dists = np.concatenate([top_k_distances[i], chunk_dists[chunk_top_k]])
-            all_indices = np.concatenate([top_k_indices[i], chunk_top_k + start])
+            # Indices are into ref_latent, which is indexed by position in iteration
+            all_dists = np.concatenate([top_k_distances[q], chunk_dists[chunk_top_k]])
+            all_indices = np.concatenate([top_k_indices[q], chunk_top_k + i])
 
             merged_order = np.argsort(all_dists)[:k_neighbors]
-            top_k_distances[i] = all_dists[merged_order]
-            top_k_indices[i] = all_indices[merged_order]
+            top_k_distances[q] = all_dists[merged_order]
+            top_k_indices[q] = all_indices[merged_order]
 
-        if (start // chunk_size) % 5 == 0:
-            log.info("  Processed ref chunk %d-%d / %d", start, end, n_ref)
+        if (i // chunk_size) % 5 == 0:
+            log.info("  Processed ref chunk %d-%d / %d", i, i + len(batch_ids), n_ref)
 
     # Compute weighted embeddings
     log.info("Computing weighted latent embeddings...")
