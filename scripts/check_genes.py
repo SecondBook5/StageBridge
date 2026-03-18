@@ -40,6 +40,8 @@ print(f"HLCA var head:\n{hlca.var.head(3)}")
 query = anndata.read_h5ad('/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized.h5ad', backed='r')
 print(f'Query: {query.n_vars} genes')
 print(f'First 5: {query.var_names.tolist()[:5]}')
+print(f'Query var columns: {query.var.columns.tolist()}')
+print(f'Query var head:\n{query.var.head(3)}')
 
 overlap = set(ref_genes) & set(query.var_names.tolist())
 print(f'Overlap: {len(overlap)} genes')
