@@ -790,7 +790,8 @@ def run_ablation_studies(model, dataloader, device, output_dir, n_epochs=10):
                 pred = baseline(x)
                 total_loss += torch.mean((pred - receiver) ** 2).item()
 
-        results.append({'Model': name, 'loss': total_loss / len(dataloader), 'mse': total_loss / len(dataloader)})
+        n_batches = max(len(dataloader), 1)
+        results.append({'Model': name, 'loss': total_loss / n_batches, 'mse': total_loss / n_batches})
 
     df = pd.DataFrame(results)
     df.to_csv(output_dir / 'ablation_results.csv', index=False)
