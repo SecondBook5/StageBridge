@@ -33,9 +33,9 @@ if 'var_names' in state:
 print("\n--- Checking HLCA reference h5ad ---")
 hlca = anndata.read_h5ad('/scratch/chaunzt1/stagebridge/references/hlca/hlca_reference.h5ad', backed='r')
 print(f"HLCA ref: {hlca.n_vars} genes")
-print(f"First 5: {hlca.var_names.tolist()[:5]}")
-if 'feature_name' in hlca.var.columns:
-    print(f"Has feature_name column, first 5: {hlca.var['feature_name'].tolist()[:5]}")
+print(f"First 5 var_names: {hlca.var_names.tolist()[:5]}")
+print(f"HLCA var columns: {hlca.var.columns.tolist()}")
+print(f"HLCA var head:\n{hlca.var.head(3)}")
 
 query = anndata.read_h5ad('/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized.h5ad', backed='r')
 print(f'Query: {query.n_vars} genes')
