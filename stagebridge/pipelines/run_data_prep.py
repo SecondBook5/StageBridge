@@ -935,10 +935,24 @@ def run_data_prep(
         else "failed",
     }
 
-    # Save audit report
+    # Save audit report (convert numpy types for JSON serialization)
+    def _json_serializable(obj):
+        """Convert numpy types to Python types for JSON."""
+        if isinstance(obj, dict):
+            return {k: _json_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [_json_serializable(v) for v in obj]
+        elif isinstance(obj, (np.integer, np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return obj
+
     audit_path = processed_dir / "data_prep_audit.json"
     with open(audit_path, "w") as f:
-        json.dump(audit_report, f, indent=2)
+        json.dump(_json_serializable(audit_report), f, indent=2)
     log.info("Audit report saved: %s", audit_path)
 
     results["ok"] = audit_report["status"]["overall"] in ("ok", "partial")
