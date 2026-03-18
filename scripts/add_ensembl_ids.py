@@ -1,76 +1,51 @@
-"""Add ENSG IDs to query data for model-based mapping."""
+"""Add ENSG IDs to query using HLCA's own mapping (guaranteed correct for model)."""
 import anndata
-import numpy as np
 
-# Check what's available for gene mapping
-try:
-    import mygene
-    USE_MYGENE = True
-    print("Using mygene for gene ID mapping")
-except ImportError:
-    USE_MYGENE = False
-    print("mygene not installed, trying pybiomart...")
+# Load HLCA reference to get its symbol -> ENSG mapping
+print("Loading HLCA reference for gene mapping...")
+hlca_path = '/scratch/chaunzt1/stagebridge/references/hlca/hlca_reference.h5ad'
+hlca = anndata.read_h5ad(hlca_path, backed='r')
 
-if not USE_MYGENE:
-    try:
-        from pybiomart import Dataset
-        USE_BIOMART = True
-        print("Using pybiomart for gene ID mapping")
-    except ImportError:
-        USE_BIOMART = False
-        print("pybiomart not installed either")
-        print("Install with: pip install mygene")
-        exit(1)
+# Build symbol -> ENSG mapping from HLCA
+symbol_to_ensg = dict(zip(hlca.var_names, hlca.var['ensembl_id']))
+print(f"HLCA mapping: {len(symbol_to_ensg)} genes (symbol -> ENSG)")
+print(f"Sample: {list(symbol_to_ensg.items())[:3]}")
 
 # Load query
 print("\nLoading query...")
 query_path = '/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized.h5ad'
 query = anndata.read_h5ad(query_path)
-symbols = query.var_names.tolist()
-print(f"Query has {len(symbols)} genes")
+query_symbols = set(query.var_names)
+print(f"Query has {len(query_symbols)} genes")
 
-# Map symbols to ENSG IDs
-print("\nMapping gene symbols to ENSG IDs...")
+# Check overlap between query symbols and HLCA symbols
+hlca_symbols = set(hlca.var_names)
+symbol_overlap = query_symbols & hlca_symbols
+print(f"Query symbols that match HLCA symbols: {len(symbol_overlap)}/2000")
 
-if USE_MYGENE:
-    mg = mygene.MyGeneInfo()
-    # Query in batches
-    results = mg.querymany(symbols, scopes='symbol', fields='ensembl.gene', species='human', verbose=False)
-
-    symbol_to_ensg = {}
-    for r in results:
-        symbol = r.get('query')
-        if 'ensembl' in r:
-            ensg = r['ensembl']
-            if isinstance(ensg, list):
-                ensg = ensg[0]['gene']  # Take first if multiple
-            elif isinstance(ensg, dict):
-                ensg = ensg['gene']
-            symbol_to_ensg[symbol] = ensg
-
-elif USE_BIOMART:
-    dataset = Dataset(name='hsapiens_gene_ensembl', host='http://www.ensembl.org')
-    results = dataset.query(attributes=['hgnc_symbol', 'ensembl_gene_id'])
-    symbol_to_ensg = dict(zip(results['HGNC symbol'], results['Gene stable ID']))
-
-print(f"Mapped {len(symbol_to_ensg)} symbols to ENSG IDs")
-
-# Check overlap with model's expected genes
+# This is the key number - how many of the model's 2000 genes are in the query?
 import torch
 model_path = "/scratch/chaunzt1/stagebridge/references/hlca/hub_cache/models--scvi-tools--human-lung-cell-atlas-scanvi/snapshots/6978d287b08ac777ca7c015e5220f2feec29ad0a"
 state = torch.load(f"{model_path}/model.pt", map_location='cpu', weights_only=False)
-model_genes = set(state['var_names'])
-print(f"Model expects {len(model_genes)} genes")
+model_ensg = set(state['var_names'])
+print(f"Model expects {len(model_ensg)} ENSG IDs")
 
-# How many query genes map to model genes?
-mapped_ensg = [symbol_to_ensg.get(s) for s in symbols]
-overlap = sum(1 for e in mapped_ensg if e in model_genes)
-print(f"Query genes that map to model genes: {overlap}")
+# Map query symbols -> ENSG using HLCA mapping, check model coverage
+query_ensg_mapped = {symbol_to_ensg[s] for s in symbol_overlap if s in symbol_to_ensg}
+model_coverage = query_ensg_mapped & model_ensg
+print(f"Query genes that map to model's ENSG IDs: {len(model_coverage)}/2000")
 
-# Add ensembl_id column to query
-query.var['ensembl_id'] = [symbol_to_ensg.get(s, '') for s in symbols]
+if len(model_coverage) < 1500:
+    print("\nWARNING: Low coverage! Model-based mapping may not work well.")
+    print("Consider using k-NN fallback instead.")
+else:
+    print(f"\nGood coverage ({len(model_coverage)/2000:.1%})! Model-based mapping should work.")
+
+# Add ensembl_id column to query var
+print("\nAdding ensembl_id column to query...")
+query.var['ensembl_id'] = [symbol_to_ensg.get(s, '') for s in query.var_names]
 n_mapped = sum(1 for e in query.var['ensembl_id'] if e)
-print(f"Added ensembl_id column: {n_mapped}/{len(symbols)} genes mapped")
+print(f"Mapped {n_mapped}/{query.n_vars} query genes to ENSG IDs")
 
 # Save updated query
 output_path = '/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad'
@@ -78,7 +53,4 @@ print(f"\nSaving to {output_path}...")
 query.write_h5ad(output_path)
 print("Done!")
 
-# Show sample
-print("\nSample mapping:")
-for s in symbols[:5]:
-    print(f"  {s} -> {symbol_to_ensg.get(s, 'NOT FOUND')}")
+print("\nNext: Update pipeline to use this file and convert var_names to ENSG before surgery")
