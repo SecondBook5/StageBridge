@@ -432,14 +432,27 @@ def apply_normalization(
     *,
     target_sum: float | None = 1e4,
     log1p: bool = True,
+    store_raw: bool = True,
+    max_cells_for_raw: int = 500000,
 ) -> tuple[anndata.AnnData, dict[str, Any]]:
     """Apply standard normalization to an AnnData object.
 
     Returns the normalized AnnData and a summary dict.
+
+    Args:
+        adata: AnnData to normalize
+        target_sum: Target sum for normalization (None to skip)
+        log1p: Apply log1p transform
+        store_raw: Store raw counts in layers (skipped for large datasets)
+        max_cells_for_raw: Skip storing raw if n_obs exceeds this (OOM prevention)
     """
-    # Store raw counts if not already stored
-    if "counts" not in adata.layers:
-        adata.layers["counts"] = adata.X.copy()
+    # Store raw counts if not already stored (skip for large datasets to avoid OOM)
+    if store_raw and "counts" not in adata.layers:
+        if adata.n_obs <= max_cells_for_raw:
+            adata.layers["counts"] = adata.X.copy()
+        else:
+            log.info("Skipping raw counts storage (%d cells > %d max, OOM prevention)",
+                     adata.n_obs, max_cells_for_raw)
 
     # Normalize
     if target_sum is not None:
@@ -789,14 +802,23 @@ def run_data_prep(
                     log.info("Filtering genes (min_cells=%d)...", min_cells)
                     genes_pass = gene_counts >= min_cells
                     n_genes_pass = genes_pass.sum()
-                    log.info("  %d/%d genes pass filter", n_genes_pass, len(genes_pass))
+                    n_genes_removed = len(genes_pass) - n_genes_pass
+                    log.info("  %d/%d genes pass filter (%d to remove)", n_genes_pass, len(genes_pass), n_genes_removed)
 
-                    if n_genes_pass < len(genes_pass):
+                    # Only subset if removing more than 1% of genes (avoid OOM for trivial filters)
+                    if n_genes_removed > 0 and n_genes_removed / len(genes_pass) > 0.01:
+                        log.info("  Subsetting genes (removing >1%%)...")
                         adata_spatial = adata_spatial[:, genes_pass].copy()
                         gc.collect()
+                        n_genes_after = adata_spatial.n_vars
+                    elif n_genes_removed > 0:
+                        log.info("  Skipping gene subset (only %.2f%% removed, not worth OOM risk)",
+                                 100 * n_genes_removed / len(genes_pass))
+                        n_genes_after = len(genes_pass)  # Report as-is, minor difference
+                    else:
+                        n_genes_after = len(genes_pass)
 
                     n_spots_after = adata_spatial.n_obs
-                    n_genes_after = adata_spatial.n_vars
 
                     log.info(
                         "Filtered: %d/%d spots (%.1f%%), %d/%d genes",
