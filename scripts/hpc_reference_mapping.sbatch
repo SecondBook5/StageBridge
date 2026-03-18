@@ -13,6 +13,6 @@ source /admin/software/miniforge3/etc/profile.d/conda.sh
 conda activate /scratch/chaunzt1/stagebridge_env
 
 python -m stagebridge.pipelines.run_reference \
-    --data-root /scratch/chaunzt1/stagebridge_data \
+    --data-root /scratch/chaunzt1/stagebridge \
     --hpc \
-    --luca /scratch/chaunzt1/stagebridge_data/references/luca/luca_core_atlas.h5ad
+    --luca /scratch/chaunzt1/stagebridge/references/luca/luca_core_atlas.h5ad
