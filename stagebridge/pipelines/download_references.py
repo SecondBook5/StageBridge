@@ -32,40 +32,54 @@ def download_file_with_progress(url: str, output_path: Path):
 
 def download_hlca(output_dir: Path) -> Path:
     """
-    Download Human Lung Cell Atlas (HLCA).
+    Download Human Lung Cell Atlas (HLCA) scANVI model from scvi-tools hub.
 
-    Official repository: https://github.com/LungCellAtlas/HLCA
+    Uses the official scANVI model for query-to-reference mapping.
+    Repository: scvi-tools/human-lung-cell-atlas-scanvi
 
-    Returns path to downloaded h5ad file.
+    Returns path to the cached model directory.
     """
     print("\n" + "=" * 60)
-    print("Downloading HLCA (Human Lung Cell Atlas)")
+    print("Downloading HLCA scANVI Model (Human Lung Cell Atlas)")
     print("=" * 60)
 
     output_dir = Path(output_dir) / "hlca"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # HLCA core reference (processed, ~500MB)
-    hlca_url = "https://cellxgene.cziscience.com/e/62e8c6e6-d8c8-4c8e-a5d3-f24e16bf69e1.h5ad"
-    hlca_path = output_dir / "hlca_core.h5ad"
+    # Check if model already cached
+    cache_dir = output_dir / "hub_cache"
+    model_marker = cache_dir / "scvi-tools" / "human-lung-cell-atlas-scanvi"
 
-    if hlca_path.exists():
-        print(f" HLCA already exists: {hlca_path}")
-        return hlca_path
+    if model_marker.exists():
+        print(f" HLCA scANVI model already cached: {model_marker}")
+        return model_marker
 
-    print(f"Downloading from: {hlca_url}")
-    print(f"Saving to: {hlca_path}")
+    print("Downloading from: scvi-tools/human-lung-cell-atlas-scanvi (Hugging Face Hub)")
+    print(f"Cache directory: {cache_dir}")
     print("This may take 10-20 minutes...")
 
     try:
-        download_file_with_progress(hlca_url, hlca_path)
-        print(f" Downloaded HLCA: {hlca_path}")
-        print(f"  Size: {hlca_path.stat().st_size / 1024 / 1024:.1f} MB")
-        return hlca_path
+        from scvi.hub import HubModel
+
+        # This downloads the model and reference adata
+        hubmodel = HubModel.pull_from_huggingface_hub(
+            "scvi-tools/human-lung-cell-atlas-scanvi",
+            cache_dir=cache_dir,
+        )
+
+        print(f" Downloaded HLCA scANVI model")
+        print(f"  Reference cells: {hubmodel.adata.n_obs:,}")
+        print(f"  Reference genes: {hubmodel.adata.n_vars:,}")
+        print(f"  Model type: {type(hubmodel.model).__name__}")
+
+        return model_marker
+
+    except ImportError:
+        print(" Error: scvi-tools not installed")
+        print("Install with: pip install scvi-tools")
+        raise
     except Exception as e:
         print(f" Failed to download HLCA: {e}")
-        print("\nAlternative: Download manually from https://cellxgene.cziscience.com/")
-        print(f"and save to: {hlca_path}")
         raise
 
 
