@@ -22,7 +22,7 @@ def map_query_chunked(
     latent_key: str = "X_scVI",
     k_neighbors: int = 50,
     query_chunk_size: int = 10000,
-    ref_chunk_size: int = 100000,
+    ref_chunk_size: int = 50000,  # Reduced from 100K to 50K for memory safety
     use_faiss: bool = True,
     n_probe: int = 32,
     normalize: bool = True,
@@ -177,23 +177,42 @@ def map_query_chunked(
         log.info("PCA fitted. Explained variance: %.1f%%",
                  100 * pca_model.explained_variance_ratio_.sum())
 
-    # Get query expression for common genes
-    X_query = query_adata.X
-    if sp.issparse(X_query):
-        X_query = X_query.toarray()
-    X_query = np.asarray(X_query[:, query_gene_idx], dtype=np.float32)
+    # Process query in chunks to avoid memory explosion
+    # For 787K cells x 15K genes, dense would be 47GB - process in batches instead
+    n_query = query_adata.n_obs
+    effective_dims = pca_components if use_pca else n_common
 
-    if normalize:
-        X_query = X_query / (np.linalg.norm(X_query, axis=1, keepdims=True) + 1e-8)
+    log.info("Processing query in chunks (%d cells, %d effective dims, method: %s)",
+             n_query, effective_dims, dim_reduction_method)
 
-    # Apply PCA to query if needed
-    if use_pca and pca_model is not None:
-        X_query = pca_model.transform(X_query).astype(np.float32)
-        log.info("Query transformed to %d PCA dims", X_query.shape[1])
+    # Prepare query expression in chunks
+    X_query_chunks = []
+    for q_start in range(0, n_query, query_chunk_size):
+        q_end = min(q_start + query_chunk_size, n_query)
 
-    n_query = X_query.shape[0]
-    effective_dims = X_query.shape[1]
-    log.info("Query: %d cells, %d effective dims (method: %s)", n_query, effective_dims, dim_reduction_method)
+        # Get chunk of query expression for common genes only
+        X_chunk = query_adata.X[q_start:q_end, :]
+        if sp.issparse(X_chunk):
+            X_chunk = X_chunk.toarray()
+        X_chunk = np.asarray(X_chunk[:, query_gene_idx], dtype=np.float32)
+
+        if normalize:
+            X_chunk = X_chunk / (np.linalg.norm(X_chunk, axis=1, keepdims=True) + 1e-8)
+
+        # Apply PCA to query chunk if needed
+        if use_pca and pca_model is not None:
+            X_chunk = pca_model.transform(X_chunk).astype(np.float32)
+
+        X_query_chunks.append(X_chunk)
+
+        if (q_start // query_chunk_size) % 10 == 0:
+            log.info("  Prepared query chunk %d-%d / %d", q_start, q_end, n_query)
+
+    # Concatenate processed chunks (now in reduced dimension space)
+    X_query = np.vstack(X_query_chunks)
+    del X_query_chunks  # Free memory
+
+    log.info("Query prepared: %d cells, %d dims", X_query.shape[0], X_query.shape[1])
 
     # Track valid cell indices if we filtered NaN cells
     valid_cell_indices = None

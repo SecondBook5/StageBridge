@@ -24,24 +24,50 @@ Dual-reference captures biological asymmetry:
 
 ### HLCA (Human Lung Cell Atlas)
 
-The healthy lung reference (~500K cells):
+The healthy lung reference (~584K cells):
 
+| Property | Value |
+|----------|-------|
+| Source | CZI cellxgene via scvi-tools Hugging Face Hub |
+| Repository | `scvi-tools/human-lung-cell-atlas-scanvi` |
+| Latent key | `X_scanvi_emb` |
+| Latent dimensions | 30 |
+| Required obs columns | `ann_level_1`, `ann_level_2`, `ann_level_3` |
+
+**Pipeline:**
 1. **Atlas loading** — HLCA reference h5ad with pretrained scVI/scArches model
-2. **Query alignment** — Gene set surgery to match reference
-3. **Embedding** — Project query cells into HLCA latent manifold
-4. **Similarity profile** — 13-dimensional cosine similarity vector against HLCA cell-type centroids
+2. **Query alignment** — Gene set surgery to match reference (handles ENSG vs symbol via `feature_name`)
+3. **Embedding** — Project query cells into HLCA latent manifold via k-NN in gene space
+4. **Confidence** — Percentile-rank calibrated confidence (density-independent)
 
-Output: `hlca_features (13,)` per cell/niche — similarity to healthy lung cell types.
+Output: `hlca_latent_0..29` (30-dim latent) + `hlca_confidence` (calibrated [0,1])
 
 ### LuCA (Lung Cancer Atlas)
 
 The tumor reference for cancer-specific context:
 
-1. **Atlas loading** — LuCA reference covering tumor microenvironment
-2. **Embedding** — Same scArches workflow as HLCA
-3. **Similarity profile** — 15-dimensional cosine similarity vector against LuCA cell-type centroids
+| Property | Value |
+|----------|-------|
+| Source | Zenodo / LungCancerAtlas GitHub |
+| Latent key | `X_scVI` |
+| Latent dimensions | 10 |
+| Required obs columns | `cell_type` |
 
-Output: `luca_features (15,)` per cell/niche — similarity to cancer-associated cell types.
+**CRITICAL: LuCA Core vs Extended**
+
+| Version | Cells | Latent Integrity | Recommendation |
+|---------|-------|------------------|----------------|
+| Core | ~790K | 100% valid | USE THIS |
+| Extended | ~1.3M | 69% valid (31% NaN) | DO NOT USE |
+
+Always verify latent integrity before mapping:
+
+```bash
+python -m stagebridge.reference.diagnose_reference /path/to/luca.h5ad \
+    --latent-key X_scVI --diagnose-only
+```
+
+Output: `luca_latent_0..9` (10-dim latent) + `luca_confidence` (calibrated [0,1])
 
 ## V1: Euclidean Geometry
 
@@ -76,23 +102,38 @@ The evaluation framework tests each atlas configuration:
 ## What Goes In
 
 - snRNA-seq AnnData with raw counts
-- HLCA reference with pretrained model
-- LuCA reference with pretrained model
+- HLCA reference h5ad with `X_scanvi_emb` latent (30 dims)
+- LuCA Core reference h5ad with `X_scVI` latent (10 dims)
 
 ## What Comes Out
 
-- Per-cell cosine similarity vectors: `hlca_features (13,)`, `luca_features (15,)`
-- Cell-type label transfer table
-- Integration quality diagnostics
-- Labels feed receiver state IDs in Layer B
+Output directory: `reference_geometry/`
+
+| File | Contents |
+|------|----------|
+| `hlca_embedding.parquet` | cell_id, donor_id, sample_id, stage_id, hlca_latent_0..29 |
+| `luca_embedding.parquet` | cell_id, donor_id, sample_id, stage_id, luca_latent_0..9 |
+| `fused_embedding.parquet` | All metadata + hlca_latent + luca_latent + fused_latent |
+| `reference_confidence.parquet` | cell_id, hlca_confidence, luca_confidence, *_method, reference_mode_used |
+| `reference_manifest.json` | Run metadata, parameters, timestamps |
+| `feature_overlap_report.json` | Gene overlap statistics for each reference |
 
 ## Quality Diagnostics
 
 Integration quality must be verified:
-- Gene overlap statistics
-- UMAP visualization of query in reference space
-- Label transfer confidence distribution
-- Batch effect assessment
+- **Reference integrity**: `diagnose_reference.py` checks for NaN in latents
+- **Gene overlap**: >30% overlap required (reported in `feature_overlap_report.json`)
+- **Mapping collapse**: Variance check ensures cells don't map to single point
+- **Confidence calibration**: Percentile-rank ensures cross-reference comparability
+
+Tools:
+```bash
+# Check reference latent integrity
+python -m stagebridge.reference.diagnose_reference /path/to/ref.h5ad --diagnose-only
+
+# Full pipeline with validation
+python -m stagebridge.pipelines.run_reference --data-root $DATA
+```
 
 ## Relationship to Other Layers
 

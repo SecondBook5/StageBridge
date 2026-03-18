@@ -334,16 +334,20 @@ def run_hpc_reference_mapping(
 
     t0 = time.perf_counter()
 
-    # Load query data
-    print("Loading query data...")
-    query_adata = anndata.read_h5ad(query_path)
+    # Load query data in backed mode to avoid memory explosion
+    # 787K cells x 15K genes in dense = 47GB - keep sparse/on-disk
+    print("Loading query data (backed mode)...")
+    query_adata = anndata.read_h5ad(query_path, backed='r')
     print(f"  Query: {query_adata.n_obs:,} cells, {query_adata.n_vars:,} genes")
 
     if smoke_mode:
         import numpy as np
         n_smoke = min(1000, query_adata.n_obs)
         idx = np.random.choice(query_adata.n_obs, n_smoke, replace=False)
-        query_adata = query_adata[idx].copy()
+        # Need to copy for smoke mode since we're subsetting
+        query_adata_full = anndata.read_h5ad(query_path)
+        query_adata = query_adata_full[idx].copy()
+        del query_adata_full
         print(f"  Smoke mode: subsampled to {query_adata.n_obs} cells")
 
     # Run chunked mapping
@@ -534,6 +538,13 @@ def run_hpc_reference_mapping(
     with open(output_dir / "diagnostics_report.json", "w") as f:
         json.dump(diagnostics, f, indent=2, default=str)
     print(f"  Diagnostics saved to: {output_dir / 'diagnostics_report.json'}")
+
+    # Cleanup backed file handle
+    try:
+        if hasattr(query_adata, 'file') and query_adata.file is not None:
+            query_adata.file.close()
+    except Exception:
+        pass  # Ignore cleanup errors
 
     print()
     print(f"Outputs saved to: {output_dir}")
