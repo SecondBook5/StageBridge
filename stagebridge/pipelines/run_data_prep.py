@@ -687,82 +687,80 @@ def run_data_prep(
         spatial_batch_manifest = processed_dir / "spatial_batches.json"
 
         if spatial_merged_path.exists():
-            log.info("Loading spatial data in backed mode to save memory...")
-            # Read in backed mode - keeps data on disk
-            adata_spatial_backed = anndata.read_h5ad(spatial_merged_path, backed="r")
+            log.info("Loading spatial data into memory for QC...")
+            # Load into memory - backed mode doesn't work with scanpy QC
+            try:
+                adata_spatial = sc.read_h5ad(spatial_merged_path)
+                log.info("Loaded %d spots, %d genes", adata_spatial.n_obs, adata_spatial.n_vars)
 
-            # Calculate QC metrics on backed data (doesn't load into memory)
-            log.info("Calculating QC metrics on backed data...")
-            adata_spatial_backed.var["mt"] = adata_spatial_backed.var_names.str.startswith(
-                ("MT-", "mt-")
-            )
-            sc.pp.calculate_qc_metrics(
-                adata_spatial_backed, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
-            )
+                # Calculate QC metrics
+                log.info("Calculating QC metrics...")
+                adata_spatial.var["mt"] = adata_spatial.var_names.str.startswith(("MT-", "mt-"))
+                sc.pp.calculate_qc_metrics(
+                    adata_spatial, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
+                )
 
-            # Get boolean mask for cells/genes to keep (still no data loaded)
-            min_genes = 100
-            min_counts = 200
-            max_pct_mito = DEFAULT_MAX_PCT_MITO
-            min_cells = DEFAULT_MIN_CELLS_PER_GENE
+                # Filter
+                min_genes = 100
+                min_counts = 200
+                max_pct_mito = DEFAULT_MAX_PCT_MITO
+                min_cells = DEFAULT_MIN_CELLS_PER_GENE
 
-            cell_mask = (
-                (adata_spatial_backed.obs["n_genes_by_counts"] >= min_genes)
-                & (adata_spatial_backed.obs["total_counts"] >= min_counts)
-                & (adata_spatial_backed.obs["pct_counts_mt"] < max_pct_mito)
-            )
+                n_spots_before = adata_spatial.n_obs
+                n_genes_before = adata_spatial.n_vars
 
-            gene_mask = adata_spatial_backed.var["n_cells_by_counts"] >= min_cells
+                sc.pp.filter_cells(adata_spatial, min_genes=min_genes)
+                sc.pp.filter_cells(adata_spatial, min_counts=min_counts)
+                adata_spatial = adata_spatial[adata_spatial.obs["pct_counts_mt"] < max_pct_mito].copy()
+                sc.pp.filter_genes(adata_spatial, min_cells=min_cells)
 
-            n_spots_before = adata_spatial_backed.n_obs
-            n_genes_before = adata_spatial_backed.n_vars
-            n_spots_after = cell_mask.sum()
-            n_genes_after = gene_mask.sum()
+                n_spots_after = adata_spatial.n_obs
+                n_genes_after = adata_spatial.n_vars
 
-            log.info(
-                "Loading only filtered subset into memory (%d/%d spots, %d/%d genes)...",
-                n_spots_after,
-                n_spots_before,
-                n_genes_after,
-                n_genes_before,
-            )
-
-            # Now load ONLY the filtered subset into memory
-            adata_spatial = adata_spatial_backed[cell_mask, gene_mask].to_memory()
-            adata_spatial_backed.file.close()
-            del adata_spatial_backed
+                log.info(
+                    "Filtered: %d/%d spots, %d/%d genes",
+                    n_spots_after,
+                    n_spots_before,
+                    n_genes_after,
+                    n_genes_before,
+                )
+            except MemoryError:
+                log.warning("Not enough memory for spatial QC, skipping...")
+                adata_spatial = None
+                qc_results["spatial_qc"] = {"skipped": True, "reason": "memory"}
             gc.collect()
 
-            qc_summary = {
-                "cells_before": n_spots_before,
-                "cells_after": n_spots_after,
-                "cells_removed": n_spots_before - n_spots_after,
-                "genes_before": n_genes_before,
-                "genes_after": n_genes_after,
-                "genes_removed": n_genes_before - n_genes_after,
-                "qc_params": {
-                    "min_genes": min_genes,
-                    "min_cells": min_cells,
-                    "max_pct_mito": max_pct_mito,
-                    "min_counts": min_counts,
-                },
-            }
+            if adata_spatial is not None:
+                qc_summary = {
+                    "cells_before": n_spots_before,
+                    "cells_after": n_spots_after,
+                    "cells_removed": n_spots_before - n_spots_after,
+                    "genes_before": n_genes_before,
+                    "genes_after": n_genes_after,
+                    "genes_removed": n_genes_before - n_genes_after,
+                    "qc_params": {
+                        "min_genes": min_genes,
+                        "min_cells": min_cells,
+                        "max_pct_mito": max_pct_mito,
+                        "min_counts": min_counts,
+                    },
+                }
 
-            if not skip_qc:
-                qc_results["spatial_qc"] = qc_summary
+                if not skip_qc:
+                    qc_results["spatial_qc"] = qc_summary
 
-            if not skip_normalization:
-                adata_spatial, norm_summary = apply_normalization(adata_spatial)
-                qc_results["spatial_normalization"] = norm_summary
+                if not skip_normalization:
+                    adata_spatial, norm_summary = apply_normalization(adata_spatial)
+                    qc_results["spatial_normalization"] = norm_summary
 
-            # Save processed version
-            processed_spatial_path = processed_dir / "spatial_qc_normalized.h5ad"
-            adata_spatial.write_h5ad(processed_spatial_path)
-            qc_results["spatial_processed_path"] = str(processed_spatial_path)
-            log.info("Spatial processed: %s", processed_spatial_path)
+                # Save processed version
+                processed_spatial_path = processed_dir / "spatial_qc_normalized.h5ad"
+                adata_spatial.write_h5ad(processed_spatial_path)
+                qc_results["spatial_processed_path"] = str(processed_spatial_path)
+                log.info("Spatial processed: %s", processed_spatial_path)
 
-            del adata_spatial
-            gc.collect()
+                del adata_spatial
+                gc.collect()
 
         elif spatial_batch_manifest.exists():
             # Batched mode - skip QC here, can be done per-batch during training
