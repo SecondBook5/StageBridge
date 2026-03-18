@@ -61,7 +61,7 @@ def map_query_with_scanvi_model(
         ref_model = SCANVI.load(str(model_path), adata=None)
         log.info("  Reference model loaded successfully")
     except Exception as e:
-        raise ValueError(f"Failed to load scANVI model: {e}")
+        raise ValueError(f"Failed to load scANVI model: {e}") from e
 
     # Prepare query anndata - this reorders genes and pads missing ones
     log.info("  Preparing query anndata (gene matching and padding)...")
@@ -71,7 +71,7 @@ def map_query_with_scanvi_model(
         SCANVI.prepare_query_anndata(query_copy, ref_model)
         log.info("  Query prepared - genes matched to reference")
     except Exception as e:
-        raise ValueError(f"Failed to prepare query anndata: {e}")
+        raise ValueError(f"Failed to prepare query anndata: {e}") from e
 
     # Get gene overlap stats
     n_ref_genes = ref_model.adata_manager.get_state_registry("var_names").index.shape[0]
@@ -91,7 +91,7 @@ def map_query_with_scanvi_model(
         query_model = SCANVI.load_query_data(query_copy, ref_model)
         log.info("  Query model created for surgery")
     except Exception as e:
-        raise ValueError(f"Failed to load query data: {e}")
+        raise ValueError(f"Failed to load query data: {e}") from e
 
     # Run scArches surgery (fine-tuning on query)
     log.info("  Running scArches surgery (max %d epochs)...", surgery_epochs)
@@ -121,7 +121,7 @@ def map_query_with_scanvi_model(
             batch_size=batch_size,
         )
     except Exception as e:
-        raise ValueError(f"Failed to get latent representation: {e}")
+        raise ValueError(f"Failed to get latent representation: {e}") from e
 
     log.info("  Encoded %d cells to %d-dimensional latent space",
              embeddings.shape[0], embeddings.shape[1])
@@ -174,7 +174,7 @@ def map_query_with_scvi_model(
         ref_model = SCVI.load(str(model_path), adata=None)
         log.info("  Reference model loaded successfully")
     except Exception as e:
-        raise ValueError(f"Failed to load scVI model: {e}")
+        raise ValueError(f"Failed to load scVI model: {e}") from e
 
     # Prepare query anndata
     log.info("  Preparing query anndata...")
@@ -230,7 +230,7 @@ def map_query_with_scvi_model(
             batch_size=batch_size,
         )
     except Exception as e:
-        raise ValueError(f"Failed to get latent representation: {e}")
+        raise ValueError(f"Failed to get latent representation: {e}") from e
 
     log.info("  Encoded %d cells to %d-dimensional latent space",
              embeddings.shape[0], embeddings.shape[1])
