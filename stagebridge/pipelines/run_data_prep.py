@@ -483,6 +483,7 @@ def run_data_prep(
     force: bool = False,
     skip_qc: bool = False,
     skip_normalization: bool = False,
+    spatial_merge_only: bool = False,
 ) -> dict[str, Any]:
     """Run the complete raw data preparation pipeline (Step 0).
 
@@ -500,6 +501,9 @@ def run_data_prep(
         If True, skip QC filtering.
     skip_normalization : bool
         If True, skip normalization.
+    spatial_merge_only : bool
+        If True, only merge spatial samples without QC/normalization.
+        Recommended: spatial backends (Tangram/DestVI/TACCO) handle their own processing.
 
     Returns
     -------
@@ -702,7 +706,16 @@ def run_data_prep(
         spatial_merged_path = processed_dir / "spatial_merged.h5ad"
         spatial_batch_manifest = processed_dir / "spatial_batches.json"
 
-        if spatial_merged_path.exists():
+        if spatial_merged_path.exists() and spatial_merge_only:
+            # Spatial merge only mode - skip QC/normalization
+            # Spatial backends (Tangram/DestVI/TACCO) handle their own processing
+            log.info("Spatial merge-only mode: skipping QC/normalization")
+            log.info("  Spatial backends will handle processing internally")
+            qc_results["spatial_qc"] = {"skipped": True, "reason": "spatial_merge_only mode"}
+            qc_results["spatial_normalization"] = {"skipped": True, "reason": "spatial_merge_only mode"}
+            qc_results["spatial_merged_path"] = str(spatial_merged_path)
+
+        elif spatial_merged_path.exists():
             log.info("Processing spatial data with chunked QC (memory-efficient)...")
 
             # QC parameters
@@ -974,6 +987,12 @@ def _build_parser():
         action="store_true",
         help="Skip normalization",
     )
+    parser.add_argument(
+        "--spatial-merge-only",
+        action="store_true",
+        help="Only merge spatial samples, skip QC/normalization. "
+             "Recommended: spatial backends (Tangram/DestVI/TACCO) handle their own processing.",
+    )
     return parser
 
 
@@ -986,6 +1005,7 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         skip_qc=args.skip_qc,
         skip_normalization=args.skip_normalization,
+        spatial_merge_only=args.spatial_merge_only,
     )
 
     print(json.dumps(result, indent=2))
