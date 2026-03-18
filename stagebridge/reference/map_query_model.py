@@ -65,7 +65,13 @@ def map_query_with_scanvi_model(
 
     # Prepare query anndata - this reorders genes and pads missing ones
     log.info("  Preparing query anndata (gene matching and padding)...")
-    query_copy = query_adata.copy()
+
+    # Handle backed mode - need to load into memory for scArches surgery
+    if query_adata.isbacked:
+        log.info("  Query is in backed mode - loading into memory for surgery...")
+        query_copy = query_adata.to_memory()
+    else:
+        query_copy = query_adata.copy()
 
     try:
         SCANVI.prepare_query_anndata(query_copy, ref_model)
@@ -178,13 +184,19 @@ def map_query_with_scvi_model(
 
     # Prepare query anndata
     log.info("  Preparing query anndata...")
-    query_copy = query_adata.copy()
+
+    # Handle backed mode - need to load into memory for scArches surgery
+    if query_adata.isbacked:
+        log.info("  Query is in backed mode - loading into memory for surgery...")
+        query_copy = query_adata.to_memory()
+    else:
+        query_copy = query_adata.copy()
 
     try:
         SCVI.prepare_query_anndata(query_copy, ref_model)
         log.info("  Query prepared - genes matched to reference")
     except Exception as e:
-        raise ValueError(f"Failed to prepare query anndata: {e}")
+        raise ValueError(f"Failed to prepare query anndata: {e}") from e
 
     n_ref_genes = ref_model.adata_manager.get_state_registry("var_names").index.shape[0]
     n_query_genes = query_copy.n_vars
