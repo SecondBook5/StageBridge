@@ -517,6 +517,24 @@ def run_hpc_reference_mapping(
     print(f"  Latent normalization: L2 (per-reference)")
     print(f"  Confidence calibration: percentile rank (comparable across refs)")
     print(f"  Wall time: {wall_time:.1f}s")
+    # Run diagnostics
+    print("\nRunning diagnostics...")
+    diagnostics = _run_reference_diagnostics(
+        hlca_distances=results["hlca_distances"],
+        luca_distances=results["luca_distances"],
+        hlca_conf=hlca_conf,
+        luca_conf=luca_conf,
+        hlca_emb=hlca_emb_normalized,
+        luca_emb=luca_emb_normalized,
+        fused_emb=fused_normalized,
+        output_dir=output_dir,
+    )
+
+    # Save diagnostics
+    with open(output_dir / "diagnostics_report.json", "w") as f:
+        json.dump(diagnostics, f, indent=2, default=str)
+    print(f"  Diagnostics saved to: {output_dir / 'diagnostics_report.json'}")
+
     print()
     print(f"Outputs saved to: {output_dir}")
     print("  - hlca_embedding.parquet (L2-normalized latents)")
@@ -525,10 +543,212 @@ def run_hpc_reference_mapping(
     print("  - reference_confidence.parquet (calibrated confidence + raw distances)")
     print("  - reference_manifest.json")
     print("  - feature_overlap_report.json")
+    print("  - diagnostics_report.json")
     print()
     print("Next step: run_spatial_benchmark.py")
 
     return 0
+
+
+def _run_reference_diagnostics(
+    hlca_distances: np.ndarray | None,
+    luca_distances: np.ndarray | None,
+    hlca_conf: np.ndarray,
+    luca_conf: np.ndarray,
+    hlca_emb: np.ndarray | None,
+    luca_emb: np.ndarray | None,
+    fused_emb: np.ndarray | None,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Run diagnostics on dual-reference mapping outputs.
+
+    Checks:
+    1. Raw distance distributions (HLCA vs LuCA)
+    2. Calibrated confidence distributions
+    3. Whether one branch dominates after calibration
+    4. Data integrity (NaN, shape)
+    5. Readiness summary for each mode
+    """
+    diagnostics = {
+        "status": "complete",
+        "issues": [],
+        "warnings": [],
+    }
+
+    # 1. Raw distance statistics
+    dist_stats = {"hlca": {}, "luca": {}}
+
+    if hlca_distances is not None and len(hlca_distances) > 0:
+        dist_stats["hlca"] = {
+            "mean": float(np.nanmean(hlca_distances)),
+            "std": float(np.nanstd(hlca_distances)),
+            "median": float(np.nanmedian(hlca_distances)),
+            "min": float(np.nanmin(hlca_distances)),
+            "max": float(np.nanmax(hlca_distances)),
+            "q25": float(np.nanpercentile(hlca_distances, 25)),
+            "q75": float(np.nanpercentile(hlca_distances, 75)),
+            "nan_count": int(np.isnan(hlca_distances).sum()),
+        }
+    else:
+        dist_stats["hlca"] = {"status": "not_available"}
+
+    if luca_distances is not None and len(luca_distances) > 0:
+        dist_stats["luca"] = {
+            "mean": float(np.nanmean(luca_distances)),
+            "std": float(np.nanstd(luca_distances)),
+            "median": float(np.nanmedian(luca_distances)),
+            "min": float(np.nanmin(luca_distances)),
+            "max": float(np.nanmax(luca_distances)),
+            "q25": float(np.nanpercentile(luca_distances, 25)),
+            "q75": float(np.nanpercentile(luca_distances, 75)),
+            "nan_count": int(np.isnan(luca_distances).sum()),
+        }
+    else:
+        dist_stats["luca"] = {"status": "not_available"}
+
+    diagnostics["raw_distance_stats"] = dist_stats
+
+    # Check for systematic distance bias (before calibration)
+    if "mean" in dist_stats["hlca"] and "mean" in dist_stats["luca"]:
+        hlca_mean = dist_stats["hlca"]["mean"]
+        luca_mean = dist_stats["luca"]["mean"]
+        ratio = hlca_mean / (luca_mean + 1e-10)
+        diagnostics["raw_distance_ratio_hlca_over_luca"] = float(ratio)
+        if ratio > 2.0:
+            diagnostics["warnings"].append(
+                f"HLCA raw distances {ratio:.1f}x larger than LuCA - density difference detected, calibration applied"
+            )
+        elif ratio < 0.5:
+            diagnostics["warnings"].append(
+                f"LuCA raw distances {1/ratio:.1f}x larger than HLCA - unusual, check references"
+            )
+
+    # 2. Calibrated confidence statistics
+    conf_stats = {"hlca": {}, "luca": {}}
+
+    if len(hlca_conf) > 0 and hlca_conf.max() > 0:
+        conf_stats["hlca"] = {
+            "mean": float(np.nanmean(hlca_conf)),
+            "std": float(np.nanstd(hlca_conf)),
+            "median": float(np.nanmedian(hlca_conf)),
+            "min": float(np.nanmin(hlca_conf)),
+            "max": float(np.nanmax(hlca_conf)),
+            "nan_count": int(np.isnan(hlca_conf).sum()),
+        }
+    else:
+        conf_stats["hlca"] = {"status": "not_available"}
+
+    if len(luca_conf) > 0 and luca_conf.max() > 0:
+        conf_stats["luca"] = {
+            "mean": float(np.nanmean(luca_conf)),
+            "std": float(np.nanstd(luca_conf)),
+            "median": float(np.nanmedian(luca_conf)),
+            "min": float(np.nanmin(luca_conf)),
+            "max": float(np.nanmax(luca_conf)),
+            "nan_count": int(np.isnan(luca_conf).sum()),
+        }
+    else:
+        conf_stats["luca"] = {"status": "not_available"}
+
+    diagnostics["calibrated_confidence_stats"] = conf_stats
+
+    # 3. Check if one branch dominates after calibration
+    if "mean" in conf_stats["hlca"] and "mean" in conf_stats["luca"]:
+        hlca_mean_conf = conf_stats["hlca"]["mean"]
+        luca_mean_conf = conf_stats["luca"]["mean"]
+        conf_ratio = hlca_mean_conf / (luca_mean_conf + 1e-10)
+        diagnostics["calibrated_confidence_ratio_hlca_over_luca"] = float(conf_ratio)
+
+        # After percentile calibration, means should be ~0.5 for both
+        if abs(hlca_mean_conf - 0.5) > 0.1 or abs(luca_mean_conf - 0.5) > 0.1:
+            diagnostics["warnings"].append(
+                f"Calibrated confidence means deviate from expected 0.5: HLCA={hlca_mean_conf:.3f}, LuCA={luca_mean_conf:.3f}"
+            )
+
+        if abs(conf_ratio - 1.0) < 0.2:
+            diagnostics["calibration_balance"] = "GOOD - references are balanced after calibration"
+        else:
+            diagnostics["calibration_balance"] = f"CHECK - ratio={conf_ratio:.2f}, may indicate reference quality difference"
+
+    # 4. Embedding integrity checks
+    emb_checks = {}
+
+    if hlca_emb is not None:
+        emb_checks["hlca"] = {
+            "shape": list(hlca_emb.shape),
+            "nan_count": int(np.isnan(hlca_emb).sum()),
+            "inf_count": int(np.isinf(hlca_emb).sum()),
+            "mean_norm": float(np.linalg.norm(hlca_emb, axis=1).mean()),
+            "ready": bool(np.isnan(hlca_emb).sum() == 0 and np.isinf(hlca_emb).sum() == 0),
+        }
+        if not emb_checks["hlca"]["ready"]:
+            diagnostics["issues"].append("HLCA embeddings contain NaN or Inf")
+    else:
+        emb_checks["hlca"] = {"status": "not_available", "ready": False}
+
+    if luca_emb is not None:
+        emb_checks["luca"] = {
+            "shape": list(luca_emb.shape),
+            "nan_count": int(np.isnan(luca_emb).sum()),
+            "inf_count": int(np.isinf(luca_emb).sum()),
+            "mean_norm": float(np.linalg.norm(luca_emb, axis=1).mean()),
+            "ready": bool(np.isnan(luca_emb).sum() == 0 and np.isinf(luca_emb).sum() == 0),
+        }
+        if not emb_checks["luca"]["ready"]:
+            diagnostics["issues"].append("LuCA embeddings contain NaN or Inf")
+    else:
+        emb_checks["luca"] = {"status": "not_available", "ready": False}
+
+    if fused_emb is not None:
+        emb_checks["fused"] = {
+            "shape": list(fused_emb.shape),
+            "nan_count": int(np.isnan(fused_emb).sum()),
+            "inf_count": int(np.isinf(fused_emb).sum()),
+            "ready": bool(np.isnan(fused_emb).sum() == 0 and np.isinf(fused_emb).sum() == 0),
+        }
+        if not emb_checks["fused"]["ready"]:
+            diagnostics["issues"].append("Fused embeddings contain NaN or Inf")
+    else:
+        emb_checks["fused"] = {"status": "not_available", "ready": False}
+
+    diagnostics["embedding_integrity"] = emb_checks
+
+    # 5. Readiness summary for each mode
+    readiness = {
+        "hlca_only": emb_checks.get("hlca", {}).get("ready", False),
+        "luca_only": emb_checks.get("luca", {}).get("ready", False),
+        "fused": emb_checks.get("fused", {}).get("ready", False),
+    }
+    diagnostics["mode_readiness"] = readiness
+
+    # Overall status
+    if diagnostics["issues"]:
+        diagnostics["status"] = "issues_detected"
+    elif diagnostics["warnings"]:
+        diagnostics["status"] = "complete_with_warnings"
+    else:
+        diagnostics["status"] = "complete"
+
+    # Print summary
+    print("\n  === Diagnostics Summary ===")
+    print(f"  Status: {diagnostics['status']}")
+    if "raw_distance_ratio_hlca_over_luca" in diagnostics:
+        print(f"  Raw distance ratio (HLCA/LuCA): {diagnostics['raw_distance_ratio_hlca_over_luca']:.2f}")
+    if "calibrated_confidence_ratio_hlca_over_luca" in diagnostics:
+        print(f"  Calibrated confidence ratio (HLCA/LuCA): {diagnostics['calibrated_confidence_ratio_hlca_over_luca']:.2f}")
+    if "calibration_balance" in diagnostics:
+        print(f"  Calibration balance: {diagnostics['calibration_balance']}")
+    print(f"  Mode readiness: HLCA-only={readiness['hlca_only']}, LuCA-only={readiness['luca_only']}, Fused={readiness['fused']}")
+    if diagnostics["warnings"]:
+        print(f"  Warnings: {len(diagnostics['warnings'])}")
+        for w in diagnostics["warnings"]:
+            print(f"    - {w}")
+    if diagnostics["issues"]:
+        print(f"  Issues: {len(diagnostics['issues'])}")
+        for i in diagnostics["issues"]:
+            print(f"    - {i}")
+
+    return diagnostics
 
 
 def _generate_reference_figures(
@@ -665,6 +885,15 @@ def _generate_reference_figures(
     if results["fused_embeddings"] is not None:
         _plot_latent_heatmap(results, stage_ids, output_dir)
 
+    # Additional: Calibration diagnostics
+    _plot_calibration_diagnostics(
+        results["hlca_distances"],
+        results["luca_distances"],
+        hlca_conf,
+        luca_conf,
+        output_dir,
+    )
+
 
 def _plot_latent_heatmap(
     results: dict[str, Any],
@@ -710,6 +939,83 @@ def _plot_latent_heatmap(
 
     plt.tight_layout()
     plt.savefig(output_dir / "latent_heatmap_by_stage.png", dpi=150, bbox_inches='tight')
+    plt.close()
+
+
+def _plot_calibration_diagnostics(
+    hlca_distances: np.ndarray | None,
+    luca_distances: np.ndarray | None,
+    hlca_conf: np.ndarray,
+    luca_conf: np.ndarray,
+    output_dir: Path,
+) -> None:
+    """Plot diagnostic figures comparing raw distances vs calibrated confidence."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle("Confidence Calibration Diagnostics", fontsize=14, fontweight='bold')
+
+    # 1. Raw distance distributions (showing density bias)
+    ax = axes[0, 0]
+    if hlca_distances is not None:
+        ax.hist(hlca_distances, bins=50, alpha=0.6, label=f"HLCA (mean={np.nanmean(hlca_distances):.3f})", color='blue', density=True)
+    if luca_distances is not None:
+        ax.hist(luca_distances, bins=50, alpha=0.6, label=f"LuCA (mean={np.nanmean(luca_distances):.3f})", color='red', density=True)
+    ax.set_xlabel("Raw k-NN Distance")
+    ax.set_ylabel("Density")
+    ax.set_title("Raw Distance Distributions (BEFORE calibration)")
+    ax.legend()
+    ax.axvline(np.nanmean(hlca_distances) if hlca_distances is not None else 0, color='blue', linestyle='--', alpha=0.5)
+    ax.axvline(np.nanmean(luca_distances) if luca_distances is not None else 0, color='red', linestyle='--', alpha=0.5)
+
+    # 2. Calibrated confidence distributions (should be similar)
+    ax = axes[0, 1]
+    if len(hlca_conf) > 0 and hlca_conf.max() > 0:
+        ax.hist(hlca_conf, bins=50, alpha=0.6, label=f"HLCA (mean={np.nanmean(hlca_conf):.3f})", color='blue', density=True)
+    if len(luca_conf) > 0 and luca_conf.max() > 0:
+        ax.hist(luca_conf, bins=50, alpha=0.6, label=f"LuCA (mean={np.nanmean(luca_conf):.3f})", color='red', density=True)
+    ax.set_xlabel("Calibrated Confidence")
+    ax.set_ylabel("Density")
+    ax.set_title("Calibrated Confidence Distributions (AFTER calibration)")
+    ax.legend()
+    ax.axvline(0.5, color='black', linestyle='--', alpha=0.5, label='Expected mean')
+
+    # 3. Raw distance scatter (HLCA vs LuCA per cell)
+    ax = axes[1, 0]
+    if hlca_distances is not None and luca_distances is not None:
+        ax.scatter(hlca_distances, luca_distances, s=5, alpha=0.3, c='gray')
+        ax.plot([0, max(hlca_distances.max(), luca_distances.max())],
+                [0, max(hlca_distances.max(), luca_distances.max())],
+                'k--', alpha=0.3, label='Equal distance')
+        ax.set_xlabel("HLCA Raw Distance")
+        ax.set_ylabel("LuCA Raw Distance")
+        ax.set_title("Raw Distance: HLCA vs LuCA per cell")
+        # Add correlation
+        corr = np.corrcoef(hlca_distances, luca_distances)[0, 1]
+        ax.text(0.05, 0.95, f"r = {corr:.3f}", transform=ax.transAxes, fontsize=10, va='top')
+    else:
+        ax.text(0.5, 0.5, "Need both references", ha='center', va='center')
+
+    # 4. Calibrated confidence scatter (should be more balanced)
+    ax = axes[1, 1]
+    if len(hlca_conf) > 0 and len(luca_conf) > 0 and hlca_conf.max() > 0 and luca_conf.max() > 0:
+        ax.scatter(hlca_conf, luca_conf, s=5, alpha=0.3, c='gray')
+        ax.plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Equal confidence')
+        ax.set_xlabel("HLCA Calibrated Confidence")
+        ax.set_ylabel("LuCA Calibrated Confidence")
+        ax.set_title("Calibrated Confidence: HLCA vs LuCA per cell")
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        # Add correlation
+        corr = np.corrcoef(hlca_conf, luca_conf)[0, 1]
+        ax.text(0.05, 0.95, f"r = {corr:.3f}", transform=ax.transAxes, fontsize=10, va='top')
+    else:
+        ax.text(0.5, 0.5, "Need both references", ha='center', va='center')
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "calibration_diagnostics.png", dpi=150, bbox_inches='tight')
     plt.close()
 
 
