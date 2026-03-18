@@ -297,14 +297,13 @@ def run_hpc_reference_mapping(
     chunk_size: int = 50000,
     smoke_mode: bool = False,
     run_id: str | None = None,
+    use_model_based: bool = True,
 ) -> int:
-    """HPC mode: Memory-efficient chunked reference mapping with FAISS."""
+    """HPC mode: Model-based reference projection (primary) or chunked k-NN (fallback)."""
     import anndata
     import pandas as pd
     import json
     import time
-
-    from stagebridge.reference.map_query_chunked import map_to_dual_reference_chunked
 
     run_id = run_id or f"ref_geo_hpc_{uuid.uuid4().hex[:8]}"
 
@@ -350,16 +349,83 @@ def run_hpc_reference_mapping(
         del query_adata_full
         print(f"  Smoke mode: subsampled to {query_adata.n_obs} cells")
 
-    # Run chunked mapping
-    results = map_to_dual_reference_chunked(
-        query_adata,
-        hlca_path if use_hlca else None,
-        luca_path if use_luca else None,
-        hlca_latent_key=hlca_latent_key,
-        luca_latent_key=luca_latent_key,
-        k_neighbors=k_neighbors,
-        use_faiss=True,
-    )
+    # Determine model paths (for model-based mapping)
+    hlca_model_path = None
+    luca_model_path = None
+
+    if use_model_based and use_hlca:
+        # Check for HLCA scANVI model (HubModel cache or saved model)
+        hlca_dir = hlca_path.parent if hlca_path else None
+        if hlca_dir:
+            candidates = [
+                # HubModel cache (downloaded from scvi-hub)
+                hlca_dir / "models--scvi-tools--human-lung-cell-atlas" / "snapshots",
+                # Direct model directory
+                hlca_dir / "hlca_scanvi_model",
+                hlca_dir / "model",
+            ]
+            for candidate in candidates:
+                if not candidate.exists():
+                    continue
+
+                # For HubModel cache, find the snapshot subdirectory
+                if "snapshots" in str(candidate):
+                    try:
+                        snapshot_dirs = list(candidate.iterdir())
+                        if snapshot_dirs:
+                            model_dir = snapshot_dirs[0]  # Latest snapshot
+                            if (model_dir / "model.pt").exists():
+                                hlca_model_path = model_dir
+                                print(f"  Found HLCA scANVI HubModel: {hlca_model_path.name}")
+                                break
+                    except:
+                        continue
+                elif (candidate / "model.pt").exists():
+                    hlca_model_path = candidate
+                    print(f"  Found HLCA scANVI model: {hlca_model_path}")
+                    break
+
+    if use_model_based and use_luca:
+        # Check for LuCA scANVI model (extracted from core_atlas_scanvi_model.tar.gz)
+        data_root = luca_path.parent.parent if luca_path else None
+        if data_root:
+            candidates = [
+                # Extracted core atlas model (nested path from tar.gz)
+                data_root / "processed/LuCA/data/20_build_atlas/annotate_datasets/35_final_atlas/full_atlas_hvg_integrated_scvi_scanvi_model",
+                # Alternative: if moved to references/
+                data_root / "references/luca/luca_scanvi_model",
+                data_root / "references/luca/model",
+            ]
+            for candidate in candidates:
+                if candidate.exists() and (candidate / "model.pt").exists():
+                    luca_model_path = candidate
+                    print(f"  Found LuCA scANVI model: {luca_model_path}")
+                    break
+
+    # Run model-based mapping (primary) or chunked k-NN (fallback)
+    if use_model_based and (hlca_model_path or luca_model_path):
+        print("  Using MODEL-BASED projection (principled)")
+        from stagebridge.reference.map_query_model import map_to_dual_reference_model_based
+        results = map_to_dual_reference_model_based(
+            query_adata,
+            hlca_model_path if use_hlca else None,
+            luca_model_path if use_luca else None,
+            fallback_hlca_h5ad=hlca_path if use_hlca else None,
+            fallback_luca_h5ad=luca_path if use_luca else None,
+            batch_size=10000,
+        )
+    else:
+        print("  Using k-NN projection (models not available)")
+        from stagebridge.reference.map_query_chunked import map_to_dual_reference_chunked
+        results = map_to_dual_reference_chunked(
+            query_adata,
+            hlca_path if use_hlca else None,
+            luca_path if use_luca else None,
+            hlca_latent_key=hlca_latent_key,
+            luca_latent_key=luca_latent_key,
+            k_neighbors=k_neighbors,
+            use_faiss=True,
+        )
 
     wall_time = time.perf_counter() - t0
 
@@ -1235,10 +1301,22 @@ def main():
         help="HPC mode: chunked processing, FAISS GPU, memory-efficient",
     )
     parser.add_argument(
+        "--use-model-based",
+        action="store_true",
+        default=True,
+        help="Use pretrained scVI/scANVI models for projection (default: True)",
+    )
+    parser.add_argument(
+        "--no-model-based",
+        dest="use_model_based",
+        action="store_false",
+        help="Force k-NN projection instead of model-based",
+    )
+    parser.add_argument(
         "--chunk-size",
         type=int,
         default=50000,
-        help="Reference chunk size for streaming (HPC mode)",
+        help="Reference chunk size for streaming (HPC mode with k-NN fallback)",
     )
     parser.add_argument(
         "--run-id",
@@ -1338,6 +1416,7 @@ def main():
             chunk_size=args.chunk_size,
             smoke_mode=args.smoke,
             run_id=args.run_id,
+            use_model_based=args.use_model_based,
         )
     else:
         return run_dual_reference_mapping(
