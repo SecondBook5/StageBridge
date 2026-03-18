@@ -301,6 +301,7 @@ def run_hpc_reference_mapping(
     luca_path: Path | None,
     output_dir: Path,
     *,
+    data_root: Path | None = None,
     mode: Literal["both", "hlca_only", "luca_only"] = "both",
     k_neighbors: int = 50,
     hlca_latent_key: str = "X_scanvi_emb",
@@ -369,8 +370,10 @@ def run_hpc_reference_mapping(
         hlca_dir = hlca_path.parent if hlca_path else None
         if hlca_dir:
             candidates = [
-                # HubModel cache (downloaded from scvi-hub)
-                hlca_dir / "models--scvi-tools--human-lung-cell-atlas" / "snapshots",
+                # HubModel cache (downloaded from scvi-hub) - note: model is -scanvi suffix
+                hlca_dir / "hub_cache" / "models--scvi-tools--human-lung-cell-atlas-scanvi" / "snapshots",
+                # Legacy path without hub_cache
+                hlca_dir / "models--scvi-tools--human-lung-cell-atlas-scanvi" / "snapshots",
                 # Direct model directory
                 hlca_dir / "hlca_scanvi_model",
                 hlca_dir / "model",
@@ -398,14 +401,15 @@ def run_hpc_reference_mapping(
 
     if use_model_based and use_luca:
         # Check for LuCA scANVI model (extracted from core_atlas_scanvi_model.tar.gz)
-        data_root = luca_path.parent.parent if luca_path else None
-        if data_root:
+        # Use passed data_root, or try to infer from luca_path
+        luca_data_root = data_root or (luca_path.parent.parent.parent if luca_path else None)
+        if luca_data_root:
             candidates = [
                 # Extracted core atlas model (nested path from tar.gz)
-                data_root / "processed/LuCA/data/20_build_atlas/annotate_datasets/35_final_atlas/full_atlas_hvg_integrated_scvi_scanvi_model",
+                luca_data_root / "processed/LuCA/data/20_build_atlas/annotate_datasets/35_final_atlas/full_atlas_hvg_integrated_scvi_scanvi_model",
                 # Alternative: if moved to references/
-                data_root / "references/luca/luca_scanvi_model",
-                data_root / "references/luca/model",
+                luca_data_root / "references/luca/luca_scanvi_model",
+                luca_data_root / "references/luca/model",
             ]
             for candidate in candidates:
                 if candidate.exists() and (candidate / "model.pt").exists():
@@ -1420,6 +1424,7 @@ def main():
             hlca_path=hlca_path,
             luca_path=luca_path,
             output_dir=output_dir,
+            data_root=data_root,
             mode=mode,
             k_neighbors=args.k_neighbors,
             hlca_latent_key=args.hlca_latent_key,
