@@ -500,7 +500,11 @@ def _slice_source_to_csr(
     dense_max_elements: int,
     state: dict[str, Any],
 ) -> sp.csr_matrix:
-    chunk = source_matrix[row_indexer, col_indexer]
+    # Two-step indexing: first rows, then columns
+    # Cannot do matrix[row_array, col_array] with different-shaped arrays on sparse matrices
+    row_chunk = source_matrix[row_indexer, :]
+    chunk = row_chunk[:, col_indexer]
+
     if sp.issparse(chunk):
         return chunk.tocsr()
 
