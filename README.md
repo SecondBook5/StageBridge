@@ -29,7 +29,7 @@ The framework integrates three data modalities—10x Visium spatial transcriptom
 
 - **Cell-level learning**: The scientific object is cell-state transition, not patient classification
 - **Niche conditioning**: Transitions depend on local neighborhood context
-- **Dual-reference geometry**: Cells are embedded relative to healthy (HLCA) and tumor (LuCA) atlases
+- **Dual-reference geometry**: Cells are embedded relative to healthy (HLCA) and tumor (LuCA) atlases using model-based scArches surgery
 - **Evolutionary constraints**: WES-derived features enforce biologically plausible transitions
 - **Spatial backend agnostic**: Benchmarked across Tangram, TACCO, and DestVI
 
@@ -155,7 +155,7 @@ pip install -e ".[all]"
 export STAGEBRIDGE_DATA_ROOT=/path/to/your/data
 ```
 
-**Requirements:** Python 3.11+, PyTorch 2.2+, CUDA 12.x (recommended)
+**Requirements:** Python 3.11+, PyTorch 2.2+, CUDA 12.4 (cu124 recommended for HPC compatibility)
 
 ---
 

@@ -106,7 +106,7 @@ conda activate "$ENV_PATH"
 # Install PyTorch with GPU support
 echo ""
 echo "[2/7] Installing PyTorch with CUDA..."
-conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y
+conda install pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia -y
 
 # Install core scientific packages
 echo ""
@@ -437,19 +437,39 @@ python -m ipykernel install --user --name=stagebridge
 
 The `hpc_setup.sh` (or `hpc_setup_custom.sh`) script:
 
-1. ✅ Loads miniforge3 module
-2. ✅ Creates Python 3.11 environment
-3. ✅ Installs PyTorch with CUDA 12.1 support
-4. ✅ Installs scientific packages (numpy, pandas, sklearn, etc.)
-5. ✅ Installs single-cell tools (scanpy, anndata, scvi-tools)
-6. ✅ Installs spatial backends (tangram, destvi, tacco)
-7. ✅ Installs analysis tools (umap, phate, pot)
-8. ✅ Registers Jupyter kernel
-9. ✅ Installs StageBridge package
+1. Loads miniforge3 module
+2. Creates Python 3.11 environment
+3. Installs PyTorch with CUDA 12.4 support (cu124)
+4. Installs scientific packages (numpy, pandas, sklearn, etc.)
+5. Installs single-cell tools (scanpy, anndata, scvi-tools)
+6. Installs spatial backends (tangram, destvi, tacco)
+7. Installs analysis tools (umap, phate, pot)
+8. Registers Jupyter kernel
+9. Installs StageBridge package
 
 **Total install time:** ~15-20 minutes
 **Total disk space:** ~8-10GB
 
 ---
 
-**Ready to set up! Choose Option 1 (simple) or Option 2 (custom location) based on your needs.**
+## Important Notes
+
+**PyTorch CUDA Version:**
+- Use cu124 (CUDA 12.4) for best compatibility with HPC systems
+- Even if nvidia-smi shows CUDA 13.x, drivers are backward compatible
+- cu130 may have missing runtime libraries
+
+**GPU Detection:**
+- Always set `export CUDA_VISIBLE_DEVICES=0,1,2,3` before running
+- Verify with: `python -c "import torch; print(torch.cuda.is_available())"`
+
+**If PyTorch shows CUDA: False:**
+```bash
+# Reinstall with CUDA support
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
+pip install torchmetrics
+```
+
+---
+
+**Ready to set up. Choose Option 1 (simple) or Option 2 (custom location) based on your needs.**

@@ -1,7 +1,7 @@
 # V1 Synthetic Implementation - Complete
 
 **Date:** 2026-03-15
-**Status:** ✅ READY FOR TESTING
+**Status:** [DONE] READY FOR TESTING
 
 ---
 
@@ -45,7 +45,7 @@ data_dir = generate_synthetic_dataset(
 - `split_manifest.json` - donor-held-out CV splits
 - `metadata.json` - dataset metadata
 
-**Testing:** ✅ Verified - generates 1000 cells across 4 stages
+**Testing:** [DONE] Verified - generates 1000 cells across 4 stages
 
 ---
 
@@ -84,7 +84,7 @@ batch = next(iter(train_loader))
 # batch.niche_influence: (B,) - ground truth for synthetic
 ```
 
-**Testing:** ✅ Verified - loads 16-sample batches with correct shapes
+**Testing:** [DONE] Verified - loads 16-sample batches with correct shapes
 
 ---
 
@@ -116,7 +116,7 @@ mapper = create_dual_reference_mapper(
 z_fused, z_hlca, z_luca = mapper(x, return_intermediates=True)
 ```
 
-**Testing:** ✅ Verified - attention fusion works, passthrough correct
+**Testing:** [DONE] Verified - attention fusion works, passthrough correct
 
 ---
 
@@ -194,7 +194,7 @@ class SetTransformer(nn.Module):
 
 ### Package Installation
 
-✅ Installed in development mode:
+[DONE] Installed in development mode:
 ```bash
 pip install -e .
 ```
@@ -204,10 +204,10 @@ This allows importing `stagebridge` modules from anywhere.
 ### Dependencies Verified
 
 All required packages available:
-- ✅ torch (PyTorch 2.2+)
-- ✅ pandas, numpy
-- ✅ anndata, scanpy
-- ✅ tqdm, matplotlib
+- [DONE] torch (PyTorch 2.2+)
+- [DONE] pandas, numpy
+- [DONE] anndata, scanpy
+- [DONE] tqdm, matplotlib
 
 ---
 
@@ -217,10 +217,10 @@ All required packages available:
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Synthetic Data Generator** | ✅ PASS | 1000 cells, 4 stages, 9-token niches |
-| **Data Loaders** | ✅ PASS | Batches with correct shapes |
-| **Dual Reference Mapper** | ✅ PASS | Attention fusion, passthrough |
-| **Set Transformer** | ✅ PASS | ISAB + PMA integration |
+| **Synthetic Data Generator** | [DONE] PASS | 1000 cells, 4 stages, 9-token niches |
+| **Data Loaders** | [DONE] PASS | Batches with correct shapes |
+| **Dual Reference Mapper** | [DONE] PASS | Attention fusion, passthrough |
+| **Set Transformer** | [DONE] PASS | ISAB + PMA integration |
 | **Full Pipeline** | 🔄 RUNNING | Smoke test in progress |
 
 ### Smoke Test Progress
@@ -234,8 +234,8 @@ python stagebridge/pipelines/run_v1_synthetic.py \
 
 **Expected Output:**
 ```
-[1/6] Generating synthetic dataset... ✓
-[2/6] Creating dataloaders... ✓
+[1/6] Generating synthetic dataset... [OK]
+[2/6] Creating dataloaders... [OK]
 [3/6] Initializing model... (in progress)
 [4/6] Training for 1 epoch... (pending)
 [5/6] Testing... (pending)
@@ -253,9 +253,9 @@ python stagebridge/pipelines/run_v1_synthetic.py \
 
 ### Immediate (After Smoke Test Completes)
 
-1. ✅ Verify smoke test passes (finite loss, reasonable metrics)
-2. ✅ Check visualization shows learned transitions
-3. ✅ Commit all new files to `docs/v1-architecture-update` branch
+1. [DONE] Verify smoke test passes (finite loss, reasonable metrics)
+2. [DONE] Check visualization shows learned transitions
+3. [DONE] Commit all new files to `docs/v1-architecture-update` branch
 
 ### Short-term (Days 1-3)
 
@@ -295,12 +295,12 @@ python stagebridge/pipelines/run_v1_synthetic.py \
 
 ## Implementation Confidence
 
-**Overall: 95%** ✅ READY
+**Overall: 95%** [DONE] READY
 
-- ✅ **Data pipeline:** Synthetic generation + loading complete and tested
-- ✅ **Model layers:** All critical components implemented or wrapped
-- ✅ **Training loop:** Full end-to-end integration complete
-- ✅ **Evaluation:** Metrics + visualization pipeline ready
+- [DONE] **Data pipeline:** Synthetic generation + loading complete and tested
+- [DONE] **Model layers:** All critical components implemented or wrapped
+- [DONE] **Training loop:** Full end-to-end integration complete
+- [DONE] **Evaluation:** Metrics + visualization pipeline ready
 - 🔄 **Real data:** Requires completing `run_data_prep.py` (separate task)
 
 ---
@@ -339,24 +339,24 @@ python stagebridge/pipelines/run_v1_synthetic.py \
 
 ### Created (4 files)
 
-- ✅ `stagebridge/data/synthetic.py` (520 lines)
-- ✅ `stagebridge/data/loaders.py` (430 lines)
-- ✅ `stagebridge/models/dual_reference.py` (380 lines)
-- ✅ `stagebridge/pipelines/run_v1_synthetic.py` (730 lines)
+- [DONE] `stagebridge/data/synthetic.py` (520 lines)
+- [DONE] `stagebridge/data/loaders.py` (430 lines)
+- [DONE] `stagebridge/models/dual_reference.py` (380 lines)
+- [DONE] `stagebridge/pipelines/run_v1_synthetic.py` (730 lines)
 
 ### Modified (1 file)
 
-- ✅ `stagebridge/context_model/set_encoder.py` (+85 lines - SetTransformer class)
+- [DONE] `stagebridge/context_model/set_encoder.py` (+85 lines - SetTransformer class)
 
 ### To Document (1 file)
 
-- ✅ `docs/implementation_notes/v1_synthetic_implementation.md` (this file)
+- [DONE] `docs/implementation_notes/v1_synthetic_implementation.md` (this file)
 
 ---
 
 ## Success Criteria
 
-### ✅ Smoke Test Pass Conditions
+### [DONE] Smoke Test Pass Conditions
 
 1. **Data generation:** 200 cells generated with correct structure
 2. **Data loading:** Batches load with correct shapes
@@ -365,7 +365,7 @@ python stagebridge/pipelines/run_v1_synthetic.py \
 5. **Evaluation:** Test metrics computed (W-dist, MSE)
 6. **Visualization:** PNG file generated showing transitions
 
-### 🎯 Full Validation Criteria (Next Phase)
+### [TARGET] Full Validation Criteria (Next Phase)
 
 1. **Training convergence:** Val loss decreases over 20 epochs
 2. **Prediction quality:** Test W-dist < 0.5, MSE < 0.3
@@ -401,7 +401,7 @@ python stagebridge/pipelines/run_v1_synthetic.py \
 
 ---
 
-**Status:** ✅ V1 SYNTHETIC IMPLEMENTATION COMPLETE
+**Status:** [DONE] V1 SYNTHETIC IMPLEMENTATION COMPLETE
 
 **Next Action:** Wait for smoke test to finish, then commit all files
 

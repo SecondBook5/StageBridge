@@ -112,6 +112,11 @@ This directory contains all pipeline scripts for the StageBridge V1 workflow.
 ## HPC Execution Order
 
 ```bash
+# 0. Environment setup (CRITICAL)
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+python -c "import torch; print('CUDA:', torch.cuda.is_available())"
+# Must show True before proceeding
+
 # 1. Download references (once)
 python -m stagebridge.pipelines.download_references --output_dir $DATA/references --all
 
@@ -119,17 +124,36 @@ python -m stagebridge.pipelines.download_references --output_dir $DATA/reference
 #    --spatial-merge-only: Skip spatial QC/norm (backends handle it internally)
 python -m stagebridge.pipelines.run_data_prep --data-root $DATA --spatial-merge-only
 
-# 3. Reference mapping (HLCA + LuCA)
-python -m stagebridge.pipelines.run_reference --data-root $DATA
+# 3. Add ENSG IDs to query (required for model-based mapping)
+python scripts/add_ensembl_ids.py \
+    --query $DATA/processed/luad_evo/snrna_qc_normalized.h5ad \
+    --hlca $DATA/references/hlca/hlca_reference.h5ad \
+    --output $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
 
-# 4. Spatial backend benchmark (Tangram/DestVI/TACCO)
+# 4. Reference mapping (model-based scArches surgery)
+#    Run HLCA first (works with current pandas)
+python -m stagebridge.pipelines.run_reference \
+    --data-root $DATA \
+    --hpc \
+    --hlca-only \
+    --snrna $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
+
+#    Run LuCA separately (may need pandas 1.5.x environment)
+python -m stagebridge.pipelines.run_reference \
+    --data-root $DATA \
+    --hpc \
+    --luca-only \
+    --snrna $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad \
+    --luca $DATA/references/luca/luca_core_atlas.h5ad
+
+# 5. Spatial backend benchmark (Tangram/DestVI/TACCO)
 #    Uses raw spatial_merged.h5ad - backends do their own normalization
 python -m stagebridge.pipelines.run_spatial_benchmark \
     --snrna $DATA/processed/luad_evo/snrna_qc_normalized.h5ad \
     --spatial $DATA/processed/luad_evo/spatial_merged.h5ad \
     --output_dir $DATA/processed/luad_evo/spatial_benchmark
 
-# 5. Complete data prep (canonical format)
+# 6. Complete data prep (canonical format)
 python -m stagebridge.pipelines.complete_data_prep \
     --snrna $DATA/processed/luad_evo/snrna_qc_normalized.h5ad \
     --spatial $DATA/processed/luad_evo/spatial_merged.h5ad \
@@ -137,7 +161,7 @@ python -m stagebridge.pipelines.complete_data_prep \
     --spatial_backend_dir $DATA/processed/luad_evo/spatial_benchmark \
     --output_dir $DATA/processed/luad_evo/canonical
 
-# 6. Training (both semi-synthetic + real)
+# 7. Training (both semi-synthetic + real)
 python -m stagebridge.pipelines.run_v1_complete \
     --data_dir $DATA/processed/luad_evo/canonical \
     --output_dir $DATA/runs/v1_complete
@@ -351,3 +375,71 @@ HPC mode features:
 - FAISS GPU acceleration for k-NN search
 - Backed mode for memory-efficient h5ad loading
 - Handles references >10GB without OOM
+
+### Model-Based Projection (scArches Surgery)
+
+The primary method for reference mapping uses **scArches surgery** - fine-tuning pretrained scANVI models on query data. This is more principled than k-NN projection because the latent space was learned to capture biological variation.
+
+```bash
+# Model-based is used automatically when pretrained models are available
+python -m stagebridge.pipelines.run_reference \
+    --data-root $DATA \
+    --hpc \
+    --snrna $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
+```
+
+**How it works:**
+1. Load pretrained scANVI model (HLCA from HuggingFace Hub, LuCA from local)
+2. Match query genes to model genes (auto-converts symbols to ENSG if needed)
+3. Run scArches surgery (200 epochs, fine-tunes batch correction layers)
+4. Extract latent representations from the adapted model
+
+**Gene ID Format:**
+- HLCA model expects ENSG IDs (Ensembl gene identifiers)
+- Query data typically uses gene symbols
+- The pipeline auto-converts using the `ensembl_id` column in `adata.var`
+- Prepare query with: `scripts/add_ensembl_ids.py`
+
+**Fallback:**
+If model-based fails (model not found, version incompatibility), the pipeline falls back to k-NN projection with PCA reduction.
+
+### LuCA Model Compatibility
+
+The LuCA scANVI model may fail with newer pandas versions:
+```
+Argument 'placement' has incorrect type (expected pandas._libs.internals.BlockPlacement, got slice)
+```
+
+**Solution:** Create a separate environment with pandas 1.5.x:
+```bash
+conda create -n luca_compat python=3.11 -y
+conda activate luca_compat
+pip install scvi-tools pandas==1.5.3 torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+Or run HLCA-only first, then LuCA separately:
+```bash
+# HLCA only (works with current pandas)
+python -m stagebridge.pipelines.run_reference --data-root $DATA --hpc --hlca-only
+
+# LuCA in compat environment
+conda activate luca_compat
+python -m stagebridge.pipelines.run_reference --data-root $DATA --hpc --luca-only
+```
+
+### PyTorch CUDA Setup
+
+Before running on HPC with GPUs:
+```bash
+# Set visible GPUs
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+# Verify PyTorch sees GPUs
+python -c "import torch; print('CUDA:', torch.cuda.is_available(), 'Devices:', torch.cuda.device_count())"
+
+# If False, reinstall PyTorch with CUDA 12.4
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
+pip install torchmetrics
+```
+
+Use cu124 (CUDA 12.4) for best compatibility. Even if nvidia-smi shows CUDA 13.x, drivers are backward compatible.

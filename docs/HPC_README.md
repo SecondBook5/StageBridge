@@ -87,7 +87,7 @@ Edit job parameters in `run_hpc_full.slurm`:
 #SBATCH --account=YOUR_ACCOUNT               # Your account/allocation (if needed)
 
 # Also update module names if different on your system:
-module load cuda/12.1    # Check: module avail cuda
+module load cuda/12.4    # Check: module avail cuda (use 12.4, NOT 13.x)
 module load gcc/11.2.0   # Check: module avail gcc
 ```
 
@@ -135,11 +135,23 @@ The full pipeline runs these steps automatically:
 - Processes snRNA-seq data
 - Processes Visium spatial data
 - Processes WES features
-- Integrates with references
-- Generates canonical artifacts
-- Output: `data/processed/luad/`
+- Output: `data/processed/luad_evo/`
 
-### Step 2: Spatial Backend Benchmark (~2-4 hours)
+### Step 1.5: Gene ID Preparation (~5 minutes)
+- Adds ENSG IDs to query using HLCA mapping
+- Required for model-based scArches surgery
+- Command: `python scripts/add_ensembl_ids.py --query ... --hlca ... --output ...`
+- Output: `snrna_qc_normalized_with_ensg.h5ad`
+
+### Step 2: Reference Mapping (~1-2 hours)
+- Maps query cells to HLCA and LuCA using scArches surgery
+- Uses model-based projection (primary) with k-NN fallback
+- Produces fused 40-dim embeddings (30 HLCA + 10 LuCA)
+- Output: `data/processed/luad_evo/reference_geometry/`
+
+Note: LuCA may require separate environment with pandas 1.5.x due to model compatibility.
+
+### Step 3: Spatial Backend Benchmark (~2-4 hours)
 - Runs Tangram
 - Runs DestVI
 - Runs TACCO
@@ -147,20 +159,26 @@ The full pipeline runs these steps automatically:
 - Selects canonical backend
 - Output: `outputs/luad_v1_comprehensive/spatial_benchmark/`
 
-### Step 3: Model Training (~15-20 hours)
+### Step 3.5: Complete Data Prep (~30 minutes)
+- Builds canonical training format from spatial results
+- Creates cells.parquet, neighborhoods.parquet, stage_edges.parquet
+- Prepares donor-held-out CV splits
+- Output: `data/processed/luad_evo/canonical/`
+
+### Step 4: Model Training (~15-20 hours)
 - Trains full model across 5 folds
 - 50 epochs per fold
 - Saves attention weights
 - Computes metrics (W-distance, MSE, MAE)
 - Output: `outputs/luad_v1_comprehensive/training/fold_*/`
 
-### Step 4: Ablation Suite (~20-30 hours)
-- Runs 8 ablations × 5 folds = 40 models
+### Step 5: Ablation Suite (~20-30 hours)
+- Runs 8 ablations x 5 folds = 40 models
 - Compares to full model
 - Generates comparison tables
 - Output: `outputs/luad_v1_comprehensive/ablations/`
 
-### Step 5: Analysis & Figures (~1-2 hours)
+### Step 6: Analysis & Figures (~1-2 hours)
 - Transformer attention analysis
 - Biological interpretation
 - Niche influence extraction
@@ -315,10 +333,33 @@ done
 # Request interactive GPU node
 srun --partition=gpu --gres=gpu:1 --cpus-per-task=8 --mem=64G --time=4:00:00 --pty bash
 
-# Once on node, activate and test
+# Once on node, set up environment
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 conda activate stagebridge
-python -c "import torch; print(torch.cuda.is_available())"
+
+# Verify GPU detection
+python -c "import torch; print('CUDA:', torch.cuda.is_available(), 'Devices:', torch.cuda.device_count())"
+
+# If CUDA shows False, reinstall PyTorch with CUDA support
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
+pip install torchmetrics
 ```
+
+### PyTorch CUDA Troubleshooting
+
+If `torch.cuda.is_available()` returns False but `nvidia-smi` shows GPUs:
+
+1. **Check PyTorch CUDA version**: `python -c "import torch; print(torch.version.cuda)"`
+   - If None, you have CPU-only PyTorch
+
+2. **Reinstall with CUDA**:
+   ```bash
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
+   ```
+
+3. **Use cu124 (CUDA 12.4)** - even if nvidia-smi shows 13.x, drivers are backward compatible
+
+4. **Avoid cu130** - may have missing runtime libraries (libnvrtc-builtins.so.13.0)
 
 ---
 
@@ -384,4 +425,4 @@ rsync -avz USERNAME@hpc:~/StageBridge/outputs/ ./outputs/
 
 ---
 
-**Ready to run! Start with the test job, then launch the full pipeline.** 
+**Ready to run! Start with the test job, then launch the full pipeline.**
