@@ -272,7 +272,7 @@ def map_query_with_scvi_model(
         "early_stopping_min_delta": 0.001,
         "plan_kwargs": {"weight_decay": 0.0},
         "check_val_every_n_epoch": None,
-        "enable_progress_bar": False,
+        "enable_progress_bar": True,  # Show progress even in SLURM
     }
 
     try:
