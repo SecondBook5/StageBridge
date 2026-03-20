@@ -1,56 +1,87 @@
-"""Add ENSG IDs to query using HLCA's own mapping (guaranteed correct for model)."""
+#!/usr/bin/env python
+"""Add ENSG IDs to query using HLCA's own mapping (guaranteed correct for model).
+
+Usage:
+    python scripts/add_ensembl_ids.py \
+        --query $DATA/processed/luad_evo/snrna_qc_normalized.h5ad \
+        --hlca $DATA/references/hlca/hlca_reference.h5ad \
+        --output $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
+
+This script:
+1. Loads HLCA reference to extract symbol -> ENSG mapping
+2. Adds ensembl_id column to query.var
+3. Saves updated query
+
+The pipeline's model-based mapping will then auto-convert var_names to ENSG IDs.
+"""
+import argparse
+from pathlib import Path
+
 import anndata
 
-# Load HLCA reference to get its symbol -> ENSG mapping
-print("Loading HLCA reference for gene mapping...")
-hlca_path = '/scratch/chaunzt1/stagebridge/references/hlca/hlca_reference.h5ad'
-hlca = anndata.read_h5ad(hlca_path, backed='r')
 
-# Build symbol -> ENSG mapping from HLCA
-symbol_to_ensg = dict(zip(hlca.var_names, hlca.var['ensembl_id']))
-print(f"HLCA mapping: {len(symbol_to_ensg)} genes (symbol -> ENSG)")
-print(f"Sample: {list(symbol_to_ensg.items())[:3]}")
+def main():
+    parser = argparse.ArgumentParser(description="Add ENSG IDs to query using HLCA mapping")
+    parser.add_argument("--query", required=True, help="Path to query h5ad file")
+    parser.add_argument("--hlca", required=True, help="Path to HLCA reference h5ad file")
+    parser.add_argument("--output", required=True, help="Output path for updated query")
+    parser.add_argument("--model-path", default=None, help="Optional: path to scANVI model to check coverage")
+    args = parser.parse_args()
 
-# Load query
-print("\nLoading query...")
-query_path = '/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized.h5ad'
-query = anndata.read_h5ad(query_path)
-query_symbols = set(query.var_names)
-print(f"Query has {len(query_symbols)} genes")
+    # Load HLCA reference to get its symbol -> ENSG mapping
+    print("Loading HLCA reference for gene mapping...")
+    hlca = anndata.read_h5ad(args.hlca, backed='r')
 
-# Check overlap between query symbols and HLCA symbols
-hlca_symbols = set(hlca.var_names)
-symbol_overlap = query_symbols & hlca_symbols
-print(f"Query symbols that match HLCA symbols: {len(symbol_overlap)}/2000")
+    # Build symbol -> ENSG mapping from HLCA
+    if 'ensembl_id' not in hlca.var.columns:
+        raise ValueError("HLCA reference missing 'ensembl_id' column in var")
 
-# This is the key number - how many of the model's 2000 genes are in the query?
-import torch
-model_path = "/scratch/chaunzt1/stagebridge/references/hlca/hub_cache/models--scvi-tools--human-lung-cell-atlas-scanvi/snapshots/6978d287b08ac777ca7c015e5220f2feec29ad0a"
-state = torch.load(f"{model_path}/model.pt", map_location='cpu', weights_only=False)
-model_ensg = set(state['var_names'])
-print(f"Model expects {len(model_ensg)} ENSG IDs")
+    symbol_to_ensg = dict(zip(hlca.var_names, hlca.var['ensembl_id']))
+    print(f"HLCA mapping: {len(symbol_to_ensg)} genes (symbol -> ENSG)")
+    print(f"Sample: {list(symbol_to_ensg.items())[:3]}")
 
-# Map query symbols -> ENSG using HLCA mapping, check model coverage
-query_ensg_mapped = {symbol_to_ensg[s] for s in symbol_overlap if s in symbol_to_ensg}
-model_coverage = query_ensg_mapped & model_ensg
-print(f"Query genes that map to model's ENSG IDs: {len(model_coverage)}/2000")
+    # Load query
+    print("\nLoading query...")
+    query = anndata.read_h5ad(args.query)
+    query_symbols = set(query.var_names)
+    print(f"Query has {len(query_symbols)} genes")
 
-if len(model_coverage) < 1500:
-    print("\nWARNING: Low coverage! Model-based mapping may not work well.")
-    print("Consider using k-NN fallback instead.")
-else:
-    print(f"\nGood coverage ({len(model_coverage)/2000:.1%})! Model-based mapping should work.")
+    # Check overlap between query symbols and HLCA symbols
+    hlca_symbols = set(hlca.var_names)
+    symbol_overlap = query_symbols & hlca_symbols
+    print(f"Query symbols that match HLCA symbols: {len(symbol_overlap)}/{len(hlca_symbols)}")
 
-# Add ensembl_id column to query var
-print("\nAdding ensembl_id column to query...")
-query.var['ensembl_id'] = [symbol_to_ensg.get(s, '') for s in query.var_names]
-n_mapped = sum(1 for e in query.var['ensembl_id'] if e)
-print(f"Mapped {n_mapped}/{query.n_vars} query genes to ENSG IDs")
+    # Optionally check model coverage
+    if args.model_path:
+        import torch
+        state = torch.load(f"{args.model_path}/model.pt", map_location='cpu', weights_only=False)
+        model_ensg = set(state['var_names'])
+        print(f"Model expects {len(model_ensg)} ENSG IDs")
 
-# Save updated query
-output_path = '/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad'
-print(f"\nSaving to {output_path}...")
-query.write_h5ad(output_path)
-print("Done!")
+        # Map query symbols -> ENSG using HLCA mapping, check model coverage
+        query_ensg_mapped = {symbol_to_ensg[s] for s in symbol_overlap if s in symbol_to_ensg}
+        model_coverage = query_ensg_mapped & model_ensg
+        print(f"Query genes that map to model's ENSG IDs: {len(model_coverage)}/{len(model_ensg)}")
 
-print("\nNext: Update pipeline to use this file and convert var_names to ENSG before surgery")
+        if len(model_coverage) < 1500:
+            print("\nWARNING: Low coverage! Model-based mapping may not work well.")
+            print("Consider using k-NN fallback instead.")
+        else:
+            print(f"\nGood coverage ({len(model_coverage)/len(model_ensg):.1%})! Model-based mapping should work.")
+
+    # Add ensembl_id column to query var
+    print("\nAdding ensembl_id column to query...")
+    query.var['ensembl_id'] = [symbol_to_ensg.get(s, '') for s in query.var_names]
+    n_mapped = sum(1 for e in query.var['ensembl_id'] if e)
+    print(f"Mapped {n_mapped}/{query.n_vars} query genes to ENSG IDs")
+
+    # Save updated query
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"\nSaving to {output_path}...")
+    query.write_h5ad(output_path)
+    print("Done!")
+
+
+if __name__ == "__main__":
+    main()

@@ -133,7 +133,7 @@ def map_query_with_scanvi_model(
         "early_stopping_min_delta": 0.001,
         "plan_kwargs": {"weight_decay": 0.0},
         "check_val_every_n_epoch": None,  # Disable validation
-        "enable_progress_bar": False,  # Disable tqdm for cleaner logs
+        "enable_progress_bar": True,  # Show progress even in SLURM
     }
 
     try:
@@ -142,6 +142,12 @@ def map_query_with_scanvi_model(
     except Exception as e:
         log.warning("  Surgery training had issues: %s", e)
         log.warning("  Proceeding to get embeddings anyway...")
+
+    # Extract training history for visualization
+    training_history = None
+    if hasattr(query_model, 'history') and query_model.history:
+        training_history = {k: list(v) for k, v in query_model.history.items()}
+        log.info("  Training history captured: %s", list(training_history.keys()))
 
     # Get latent representation
     log.info("  Getting latent representation...")
@@ -158,6 +164,7 @@ def map_query_with_scanvi_model(
 
     info = {
         "method": "scanvi_scarches",
+        "training_history": training_history,
         "model_path": str(model_path),
         "n_query": query_copy.n_obs,
         "n_genes_reference": n_ref_genes,
@@ -275,6 +282,12 @@ def map_query_with_scvi_model(
         log.warning("  Surgery training had issues: %s", e)
         log.warning("  Proceeding to get embeddings anyway...")
 
+    # Extract training history for visualization
+    training_history = None
+    if hasattr(query_model, 'history') and query_model.history:
+        training_history = {k: list(v) for k, v in query_model.history.items()}
+        log.info("  Training history captured: %s", list(training_history.keys()))
+
     # Get latent representation
     log.info("  Getting latent representation...")
     try:
@@ -290,6 +303,7 @@ def map_query_with_scvi_model(
 
     info = {
         "method": "scvi_scarches",
+        "training_history": training_history,
         "model_path": str(model_path),
         "n_query": query_copy.n_obs,
         "n_genes_reference": n_ref_genes,

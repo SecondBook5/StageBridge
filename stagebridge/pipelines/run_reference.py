@@ -589,6 +589,16 @@ def run_hpc_reference_mapping(
     except Exception as e:
         print(f"  Warning: Figure generation failed: {e}")
 
+    # Plot training curves if available (from model-based mapping)
+    try:
+        hlca_history = results["metadata"].get("hlca", {}).get("training_history")
+        luca_history = results["metadata"].get("luca", {}).get("training_history")
+        if hlca_history or luca_history:
+            _plot_training_curves(hlca_history, luca_history, plots_dir)
+            print(f"  Training curves saved to: {plots_dir / 'scarches_training_curves.png'}")
+    except Exception as e:
+        print(f"  Warning: Training curve plotting failed: {e}")
+
     print()
     print("=" * 60)
     print("HPC Reference Mapping Complete")
@@ -1109,6 +1119,102 @@ def _plot_calibration_diagnostics(
     plt.tight_layout()
     plt.savefig(output_dir / "calibration_diagnostics.png", dpi=150, bbox_inches='tight')
     plt.close()
+
+
+def _plot_training_curves(
+    hlca_history: dict | None,
+    luca_history: dict | None,
+    output_dir: Path,
+) -> None:
+    """Plot scArches surgery training curves (ELBO loss over epochs).
+
+    Parameters
+    ----------
+    hlca_history : dict | None
+        Training history from HLCA scArches surgery
+    luca_history : dict | None
+        Training history from LuCA scArches surgery
+    output_dir : Path
+        Directory to save plots
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import json
+
+    if hlca_history is None and luca_history is None:
+        return
+
+    n_plots = sum(1 for h in [hlca_history, luca_history] if h is not None)
+    fig, axes = plt.subplots(1, n_plots, figsize=(6 * n_plots, 5))
+    if n_plots == 1:
+        axes = [axes]
+
+    plot_idx = 0
+
+    # Plot HLCA training curve
+    if hlca_history is not None:
+        ax = axes[plot_idx]
+        plot_idx += 1
+
+        if 'elbo_train' in hlca_history:
+            epochs = list(range(1, len(hlca_history['elbo_train']) + 1))
+            ax.plot(epochs, hlca_history['elbo_train'], 'b-', label='Training ELBO', linewidth=2)
+        if 'elbo_validation' in hlca_history:
+            epochs = list(range(1, len(hlca_history['elbo_validation']) + 1))
+            ax.plot(epochs, hlca_history['elbo_validation'], 'r--', label='Validation ELBO', linewidth=2)
+
+        ax.set_xlabel('Epoch', fontsize=12)
+        ax.set_ylabel('ELBO Loss', fontsize=12)
+        ax.set_title('HLCA scArches Surgery Training', fontsize=14, fontweight='bold')
+        ax.legend(loc='upper right')
+        ax.grid(True, alpha=0.3)
+
+        # Add final loss annotation
+        if 'elbo_train' in hlca_history:
+            final_loss = hlca_history['elbo_train'][-1]
+            ax.annotate(f'Final: {final_loss:.2f}',
+                       xy=(len(hlca_history['elbo_train']), final_loss),
+                       xytext=(10, 10), textcoords='offset points',
+                       fontsize=10, ha='left')
+
+    # Plot LuCA training curve
+    if luca_history is not None:
+        ax = axes[plot_idx]
+
+        if 'elbo_train' in luca_history:
+            epochs = list(range(1, len(luca_history['elbo_train']) + 1))
+            ax.plot(epochs, luca_history['elbo_train'], 'b-', label='Training ELBO', linewidth=2)
+        if 'elbo_validation' in luca_history:
+            epochs = list(range(1, len(luca_history['elbo_validation']) + 1))
+            ax.plot(epochs, luca_history['elbo_validation'], 'r--', label='Validation ELBO', linewidth=2)
+
+        ax.set_xlabel('Epoch', fontsize=12)
+        ax.set_ylabel('ELBO Loss', fontsize=12)
+        ax.set_title('LuCA scArches Surgery Training', fontsize=14, fontweight='bold')
+        ax.legend(loc='upper right')
+        ax.grid(True, alpha=0.3)
+
+        if 'elbo_train' in luca_history:
+            final_loss = luca_history['elbo_train'][-1]
+            ax.annotate(f'Final: {final_loss:.2f}',
+                       xy=(len(luca_history['elbo_train']), final_loss),
+                       xytext=(10, 10), textcoords='offset points',
+                       fontsize=10, ha='left')
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "scarches_training_curves.png", dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # Also save training history as JSON for future analysis
+    history_data = {}
+    if hlca_history is not None:
+        history_data['hlca'] = hlca_history
+    if luca_history is not None:
+        history_data['luca'] = luca_history
+
+    with open(output_dir / "training_history.json", 'w') as f:
+        json.dump(history_data, f, indent=2)
 
 
 def run_dual_reference_mapping(

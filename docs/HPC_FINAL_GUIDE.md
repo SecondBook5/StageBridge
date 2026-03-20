@@ -4,30 +4,30 @@
 
 ---
 
-## 📋 Pre-Flight Checklist
+## Pre-Flight Checklist
 
 Before you start, verify these are complete:
 
-✅ **Code Quality**
+**Code Quality**
 - [x] Ruff linting: ALL ISSUES FIXED
 - [x] Pytest: 100 TESTS PASSING
 - [x] Git branch: `docs/v1-architecture-update`
 - [x] Notebook: 24 cells, fully end-to-end
 
-✅ **Documentation**
+**Documentation**
 - [x] `HPC_README.md` - General HPC guide
 - [x] `IRIS_MINIFORGE_SETUP.md` - Miniforge-specific setup
 - [x] `NOTEBOOK_VERIFICATION.md` - Comprehensive checklist
 - [x] `HPC_FINAL_GUIDE.md` - This file (execution guide)
 
-✅ **Scripts Ready**
+**Scripts Ready**
 - [x] `hpc_setup.sh` - Environment setup (miniforge)
 - [x] `transfer_to_hpc.sh` - Data transfer script
 - [x] `activate_stagebridge.sh` - Will be created during setup
 
 ---
 
-## 🚀 Execution Steps
+## Execution Steps
 
 ### STEP 1: Configure Transfer Script (5 minutes)
 
@@ -78,7 +78,7 @@ Target: your_username@isxfer01.mskcc.org:~/StageBridge
 [2/3] No raw data to transfer
 [3/3] Creating directory structure...
 
-✓ Transfer Complete!
+Transfer Complete!
 ```
 
 ---
@@ -109,14 +109,20 @@ chmod +x hpc_setup.sh
 ```
 
 **What this installs:**
-1. ✅ Python 3.11 environment (via miniforge)
-2. ✅ PyTorch with CUDA 12.1
-3. ✅ Scientific packages (numpy, pandas, sklearn, matplotlib)
-4. ✅ Single-cell tools (scanpy, anndata, scvi-tools)
-5. ✅ Spatial backends (tangram, destvi, tacco)
-6. ✅ Analysis tools (umap, phate, pot)
-7. ✅ Jupyter kernel registration
-8. ✅ StageBridge package
+1. Python 3.11 environment (via miniforge)
+2. PyTorch with CUDA 12.4 (cu124 - most stable for HPC)
+3. Scientific packages (numpy, pandas, sklearn, matplotlib)
+4. Single-cell tools (scanpy, anndata, scvi-tools)
+5. Spatial backends (tangram, destvi, tacco)
+6. Analysis tools (umap, phate, pot)
+7. Jupyter kernel registration
+8. StageBridge package
+
+**IMPORTANT: PyTorch CUDA Version**
+- Use `cu124` (CUDA 12.4) for best compatibility
+- Even if nvidia-smi shows CUDA 13.x, use cu124 (drivers are backward compatible)
+- cu130 may have missing runtime libraries (libnvrtc-builtins.so.13.0)
+- Install command: `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124`
 
 **Expected output:**
 ```
@@ -131,7 +137,7 @@ StageBridge HPC Environment Setup (Iris)
 [6/7] Installing additional packages...
 [7/7] Installing Jupyter kernel support...
 
-✓ HPC Environment Setup Complete!
+HPC Environment Setup Complete!
 ```
 
 ---
@@ -145,17 +151,22 @@ Still on **Iris**:
 module load miniforge3
 conda activate stagebridge
 
-# Test imports
+# CRITICAL: Set visible GPUs first
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+# Test imports and GPU detection
 python -c "
 import torch
-print(f'✓ PyTorch: {torch.__version__}')
-print(f'✓ CUDA: {torch.cuda.is_available()}')
+print(f'PyTorch: {torch.__version__}')
+print(f'CUDA available: {torch.cuda.is_available()}')
+print(f'GPU count: {torch.cuda.device_count()}')
+print(f'CUDA compiled for: {torch.version.cuda}')
 
 import stagebridge
-print('✓ StageBridge loaded!')
+print('StageBridge loaded!')
 
 import scanpy, anndata
-print('✓ Single-cell tools ready')
+print('Single-cell tools ready')
 "
 
 # Check kernel is registered
@@ -164,13 +175,20 @@ jupyter kernelspec list | grep stagebridge
 
 **Expected output:**
 ```
-✓ PyTorch: 2.x.x+cu121
-✓ CUDA: True
-✓ StageBridge loaded!
-✓ Single-cell tools ready
+PyTorch: 2.x.x+cu124
+CUDA available: True
+GPU count: 4
+CUDA compiled for: 12.4
+StageBridge loaded!
+Single-cell tools ready
 
 stagebridge    /home/username/.local/share/jupyter/kernels/stagebridge
 ```
+
+**If CUDA shows False but nvidia-smi shows GPUs:**
+1. Check PyTorch was installed with CUDA: `python -c "import torch; print(torch.version.cuda)"` should NOT be None
+2. If None, reinstall: `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --force-reinstall`
+3. Ensure CUDA_VISIBLE_DEVICES is set: `export CUDA_VISIBLE_DEVICES=0,1,2,3`
 
 ---
 
@@ -198,7 +216,7 @@ references = download_reference_atlases(
     download_hlca=True,
     download_luca=True,
 )
-print('\n✓ Complete!')
+print('\nComplete!')
 print(f'HLCA: {references[\"hlca\"]}')
 print(f'LuCA: {references[\"luca\"]}')
 "
@@ -306,11 +324,11 @@ SYNTHETIC_MODE = True  # ← Already set!
 - Or press **Shift+Enter** repeatedly to step through
 
 **What happens in synthetic mode:**
-- ✓ Generates synthetic data (no GEO downloads needed)
-- ✓ Skips spatial benchmark (not needed for testing)
-- ✓ Skips ablations (too long for testing)
-- ✓ Uses MLP instead of transformer (faster)
-- ✓ 3 folds, 5 epochs (~30 minutes total)
+- Generates synthetic data (no GEO downloads needed)
+- Skips spatial benchmark (not needed for testing)
+- Skips ablations (too long for testing)
+- Uses MLP instead of transformer (faster)
+- 3 folds, 5 epochs (~30 minutes total)
 
 **Expected outputs:**
 ```
@@ -430,13 +448,13 @@ find . -name "*.pt" | wc -l     # Should have 5+ models (folds)
 **Expected final structure:**
 ```
 outputs/luad_v1_comprehensive/
-├── spatial_benchmark/         ✓ 3 backends compared
-├── training/                  ✓ 5 folds trained
-├── ablations/                 ✓ 8 ablations complete
-├── transformer_analysis/      ✓ Attention extracted
-├── biology/                   ✓ Biology interpreted
-├── figures/                   ✓ 8 figures generated
-└── tables/                    ✓ 6 tables generated
+├── spatial_benchmark/         # 3 backends compared
+├── training/                  # 5 folds trained
+├── ablations/                 # 8 ablations complete
+├── transformer_analysis/      # Attention extracted
+├── biology/                   # Biology interpreted
+├── figures/                   # 8 figures generated
+└── tables/                    # 6 tables generated
 ```
 
 ---
@@ -467,11 +485,11 @@ rsync -avz your_username@isxfer01.mskcc.org:~/StageBridge/outputs/luad_v1_compre
 
 ---
 
-## 🎯 Success Criteria
+## Success Criteria
 
 Your pipeline was successful if you have:
 
-✅ **8 Publication Figures**
+**8 Publication Figures**
 - figure1_architecture.png
 - figure2_data_overview.png
 - figure3_niche_influence.png (MAIN DISCOVERY)
@@ -481,7 +499,7 @@ Your pipeline was successful if you have:
 - figure7_multihead_specialization.png
 - figure8_flagship_biology.png
 
-✅ **6 Publication Tables**
+**6 Publication Tables**
 - table1_dataset_statistics.csv
 - table2_spatial_backend_comparison.csv
 - table3_main_results.csv (MAIN RESULTS - ablations)
@@ -489,19 +507,85 @@ Your pipeline was successful if you have:
 - table5_biological_validation.csv
 - table6_computational_requirements.csv
 
-✅ **Trained Models**
+**Trained Models**
 - 5 fold models (fold_0 through fold_4)
 - Each with best_model.pt and results.json
 - 8 ablation variants × 5 folds = 40 additional models
 
-✅ **Analysis Outputs**
+**Analysis Outputs**
 - Transformer analysis reports
 - Biological interpretation summaries
 - Spatial backend comparison
 
 ---
 
-## 🔧 Troubleshooting
+## Reference Mapping Pipeline
+
+The reference mapping step maps query cells to both HLCA and LuCA atlases using scArches surgery (model-based projection).
+
+### Running Reference Mapping
+
+```bash
+# Activate environment
+module load miniforge3
+conda activate stagebridge
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+# HLCA only (recommended first)
+python -m stagebridge.pipelines.run_reference \
+    --data-root $DATA \
+    --hpc \
+    --hlca-only \
+    --snrna $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
+
+# Both references (after LuCA compat env is set up)
+python -m stagebridge.pipelines.run_reference \
+    --data-root $DATA \
+    --hpc \
+    --snrna $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad \
+    --luca $DATA/references/luca/luca_core_atlas.h5ad
+```
+
+### Gene ID Format
+
+- HLCA model expects ENSG IDs (Ensembl gene identifiers)
+- Query data typically uses gene symbols
+- The pipeline auto-converts symbols to ENSG IDs using the `ensembl_id` column
+- Ensure your query has `ensembl_id` in `adata.var` (use `scripts/add_ensembl_ids.py` if needed)
+
+### LuCA Pandas Compatibility Issue
+
+The LuCA scANVI model may fail to load with newer pandas versions:
+```
+Argument 'placement' has incorrect type (expected pandas._libs.internals.BlockPlacement, got slice)
+```
+
+**Solution**: Create a separate environment with pandas 1.5.x for LuCA:
+```bash
+conda create -n luca_compat python=3.11 -y
+conda activate luca_compat
+pip install scvi-tools pandas==1.5.3 torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# Test LuCA model loads
+python -c "
+from scvi.model import SCANVI
+model = SCANVI.load('/path/to/luca_scanvi_model', adata=None)
+print('LuCA model loaded successfully!')
+"
+```
+
+### Output Files
+
+Reference mapping produces these files in `reference_geometry/`:
+- `hlca_embedding.parquet` - L2-normalized HLCA latents (30 dims)
+- `luca_embedding.parquet` - L2-normalized LuCA latents (10 dims)
+- `fused_embedding.parquet` - Concatenated normalized latents (40 dims)
+- `reference_confidence.parquet` - Calibrated confidence scores
+- `reference_manifest.json` - Run metadata
+
+---
+
+## Troubleshooting
 
 ### Issue: Kernel not found in Jupyter
 
@@ -536,6 +620,46 @@ BATCH_SIZE = 8  # Reduce further
 USE_TRANSFORMER = False  # Use MLP instead
 ```
 
+### Issue: PyTorch shows CUDA available: False but nvidia-smi shows GPUs
+
+**Cause 1**: CPU-only PyTorch installed
+```bash
+python -c "import torch; print(torch.version.cuda)"
+# If this shows None, you have CPU-only PyTorch
+```
+
+**Solution**: Reinstall with CUDA support
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
+pip install torchmetrics  # Required by scvi-tools
+```
+
+**Cause 2**: CUDA_VISIBLE_DEVICES not set
+```bash
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+```
+
+**Cause 3**: Missing CUDA runtime libraries (nvrtc error)
+```
+nvrtc: error: failed to open libnvrtc-builtins.so.13.0
+```
+This happens with cu130. Use cu124 instead which is more stable.
+
+### Issue: scArches surgery fails with "untrained model"
+
+**Cause**: CUDA kernel compilation failed during training (nvrtc error).
+
+**Solution**: Use cu124 instead of cu130:
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
+```
+
+### Issue: LuCA model fails to load (BlockPlacement error)
+
+**Cause**: Pandas version mismatch between when model was saved and current environment.
+
+**Solution**: Use separate environment with pandas 1.5.x (see Reference Mapping section above).
+
 ### Issue: Session disconnected
 
 **What happened:** Jupyter session timed out
@@ -562,7 +686,7 @@ rsync -avz data/raw/*.tar your_username@isxfer01.mskcc.org:~/StageBridge/data/ra
 
 ---
 
-## 📊 Performance Benchmarks
+## Performance Benchmarks
 
 Expected runtimes on Iris GPUs:
 
@@ -577,7 +701,7 @@ Expected runtimes on Iris GPUs:
 
 ---
 
-## ✅ Final Checklist
+## Final Checklist
 
 Before you start:
 - [ ] Transfer script configured with your username
@@ -603,14 +727,14 @@ After completion:
 
 ---
 
-## 🚀 YOU ARE READY TO RUN!
+## YOU ARE READY TO RUN
 
 **The notebook is:**
-- ✅ Comprehensive (all 8 steps + ablations + figures + tables)
-- ✅ End-to-end (raw data → publication-ready outputs)
-- ✅ Tested (ruff + pytest passing)
-- ✅ HPC-ready (Iris miniforge compatible)
-- ✅ Documented (this guide + 3 other guides)
+- Comprehensive (all 8 steps + ablations + figures + tables)
+- End-to-end (raw data to publication-ready outputs)
+- Tested (ruff + pytest passing)
+- HPC-ready (Iris miniforge compatible)
+- Documented (this guide + 3 other guides)
 
 **Execute these commands to start:**
 
@@ -632,4 +756,4 @@ cd ~/StageBridge
 
 ---
 
-**Good luck! The notebook will generate everything you need for publication. 🎉**
+**Good luck! The notebook will generate everything you need for publication.**
