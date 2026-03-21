@@ -15,6 +15,7 @@
 # Retrain LuCA scANVI model with current environment
 # Uses 4x H100 GPUs with Distributed Data Parallel (DDP)
 # Goal: Identical quality to original, compatible with current pandas/anndata
+# Memory: 790K cells × 6000 genes ≈ 19GB, 512GB gives max headroom
 
 set -e
 
