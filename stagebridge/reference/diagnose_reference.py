@@ -215,7 +215,7 @@ def main():
             # Default output path
             args.output = args.reference.parent / f"{args.reference.stem}_cleaned.h5ad"
 
-        print(f"\nCleaning reference...")
+        print("\nCleaning reference...")
         clean_report = clean_reference_latent(args.reference, args.output, args.latent_key)
         report["cleaning"] = clean_report
 
