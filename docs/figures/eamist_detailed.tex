@@ -1,0 +1,166 @@
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{
+    positioning,
+    shapes.geometric,
+    arrows.meta,
+    calc,
+    fit,
+    backgrounds,
+    decorations.pathreplacing,
+    matrix
+}
+
+% Colors
+\definecolor{receivercolor}{RGB}{255, 165, 0}
+\definecolor{ringcolor}{RGB}{60, 179, 113}
+\definecolor{hlcacolor}{RGB}{70, 130, 180}
+\definecolor{lucacolor}{RGB}{205, 92, 92}
+\definecolor{attncolor}{RGB}{255, 215, 0}
+\definecolor{milcolor}{RGB}{180, 180, 220}
+
+\begin{document}
+\begin{tikzpicture}[
+    cell/.style={circle, draw=#1, fill=#1!30, minimum size=0.5cm, line width=0.8pt},
+    token/.style={rectangle, draw=#1, fill=#1!25, rounded corners=2pt,
+                  minimum width=1.2cm, minimum height=0.6cm, font=\tiny\sffamily\bfseries},
+    milblock/.style={rectangle, draw=milcolor!80!black, fill=milcolor!30, rounded corners=3pt,
+                     minimum width=1.8cm, minimum height=0.8cm, font=\tiny\sffamily},
+    attnblock/.style={rectangle, draw=attncolor!80!black, fill=attncolor!20, rounded corners=3pt,
+                      minimum width=2cm, minimum height=0.6cm, font=\tiny\sffamily\bfseries},
+    arrow/.style={->, >=Stealth, line width=0.6pt, #1}
+]
+
+% Title
+\node[font=\normalsize\sffamily\bfseries] at (0, 6) {EA-MIST: Evolution-Aware Multiple Instance Set Transformer};
+
+% ============================================
+% LAYER A: SPATIAL NICHE
+% ============================================
+\node[font=\scriptsize\sffamily\bfseries, anchor=west] at (-6, 5) {Layer A: Spatial Niche};
+
+% Receiver cell
+\node[cell=receivercolor, minimum size=0.8cm] (recv_cell) at (-4, 4) {};
+\node[font=\tiny\sffamily, below=0.05cm of recv_cell] {Receiver};
+
+% Ring 1 cells (closest)
+\foreach \i/\a in {1/30, 2/90, 3/150, 4/210, 5/270, 6/330} {
+    \node[cell=ringcolor!80] (r1_\i) at ($(recv_cell) + (\a:1.2cm)$) {};
+}
+\node[font=\tiny\sffamily, ringcolor] at (-4, 2.3) {Ring 1 (0-50$\mu$m)};
+
+% Ring 2 cells (farther)
+\foreach \i/\a in {1/15, 2/75, 3/135, 4/195, 5/255, 6/315} {
+    \node[cell=ringcolor!50] (r2_\i) at ($(recv_cell) + (\a:2cm)$) {};
+}
+\node[font=\tiny\sffamily, ringcolor!70] at (-4, 1.5) {Ring 2 (50-100$\mu$m)};
+
+% ============================================
+% MIL AGGREGATION (per ring)
+% ============================================
+\node[milblock] (mil1) at (-0.5, 4.5) {Set Transformer\\(ISAB/PMA)};
+\node[milblock] (mil2) at (-0.5, 3.5) {Set Transformer\\(ISAB/PMA)};
+
+% Arrows from rings to MIL
+\draw[arrow=ringcolor, dashed] (-2.5, 4.5) -- (mil1);
+\draw[arrow=ringcolor!70, dashed] (-2.5, 3.5) -- (mil2);
+
+\node[font=\tiny\sffamily, text width=1.5cm, align=center] at (-1.5, 4.5) {$k_1$ cells};
+\node[font=\tiny\sffamily, text width=1.5cm, align=center] at (-1.5, 3.5) {$k_2$ cells};
+
+% Ring tokens output
+\node[token=ringcolor] (ring1_tok) at (1.8, 4.5) {Ring 1};
+\node[token=ringcolor!70] (ring2_tok) at (1.8, 3.5) {Ring 2};
+
+\draw[arrow=ringcolor] (mil1) -- (ring1_tok);
+\draw[arrow=ringcolor!70] (mil2) -- (ring2_tok);
+
+% ============================================
+% LAYER A: REFERENCE EMBEDDINGS
+% ============================================
+\node[font=\scriptsize\sffamily\bfseries, anchor=west] at (-6, 2.5) {Layer A: References};
+
+% Reference embedding boxes
+\node[token=hlcacolor, minimum width=1.5cm] (hlca_emb) at (-3, 1.5) {HLCA\\(30D)};
+\node[token=lucacolor, minimum width=1.5cm] (luca_emb) at (-1, 1.5) {LuCA\\(10D)};
+
+% Project to tokens
+\node[token=hlcacolor] (hlca_tok) at (1.8, 1.8) {HLCA};
+\node[token=lucacolor] (luca_tok) at (1.8, 1.0) {LuCA};
+
+\draw[arrow=hlcacolor] (hlca_emb) -- (hlca_tok);
+\draw[arrow=lucacolor] (luca_emb) -- (luca_tok);
+
+\node[font=\tiny\sffamily] at (0.3, 1.8) {project};
+\node[font=\tiny\sffamily] at (0.3, 1.0) {project};
+
+% ============================================
+% RECEIVER TOKEN
+% ============================================
+\node[token=receivercolor] (recv_tok) at (1.8, 5.5) {Receiver};
+\draw[arrow=receivercolor] (recv_cell) -- ++(2, 1) -- (recv_tok);
+\node[font=\tiny\sffamily] at (-1, 5.2) {encode};
+
+% ============================================
+% LAYER B+C: UNIFIED SELF-ATTENTION
+% ============================================
+\node[font=\scriptsize\sffamily\bfseries, anchor=west] at (3.5, 5.5) {Layer B+C: Self-Attention};
+
+% Token sequence bracket
+\draw[decorate, decoration={brace, amplitude=5pt}] (3.5, 5.8) -- (3.5, 0.7)
+    node[midway, right=8pt, font=\tiny\sffamily, text width=1.2cm, align=left] {
+        9-token\\sequence
+    };
+
+% Self-attention block
+\node[attnblock, minimum width=2.5cm, minimum height=3cm] (sattn) at (5.5, 3.2) {};
+\node[font=\tiny\sffamily\bfseries, rotate=90] at (5.5, 3.2) {Multi-Head Self-Attention};
+
+% Connect all tokens to attention
+\draw[arrow=gray] (recv_tok) -- (sattn);
+\draw[arrow=gray] (ring1_tok) -- (sattn);
+\draw[arrow=gray] (ring2_tok) -- (sattn);
+\draw[arrow=gray] (hlca_tok) -- (sattn);
+\draw[arrow=gray] (luca_tok) -- (sattn);
+
+% ============================================
+% OUTPUT
+% ============================================
+\node[token=receivercolor, minimum width=2cm] (output) at (8, 3.2) {Receiver\\State};
+\draw[arrow=receivercolor, line width=1.2pt] (sattn) -- (output);
+
+% ============================================
+% ANNOTATIONS
+% ============================================
+
+% MIL explanation
+\node[rectangle, draw=gray!50, fill=gray!5, rounded corners, font=\tiny\sffamily,
+      text width=2.5cm, align=left] at (-4, -0.3) {
+    \textbf{MIL Aggregation:}\\
+    Permutation invariant\\
+    over cells in each ring.\\
+    Variable $k$ per ring.
+};
+
+% Attention explanation
+\node[rectangle, draw=gray!50, fill=gray!5, rounded corners, font=\tiny\sffamily,
+      text width=2.8cm, align=left] at (5.5, -0.5) {
+    \textbf{Self-Attention:}\\
+    All tokens attend to all.\\
+    HLCA/LuCA provide\\
+    healthy vs cancer bias.\\
+    Learns niche influence.
+};
+
+% AMICI connection
+\node[rectangle, draw=black!50, fill=yellow!10, rounded corners, font=\tiny\sffamily,
+      text width=3.5cm, align=left] at (8, 0) {
+    \textbf{From AMICI:}\\
+    $Q$: Receiver identity\\
+    $K$: Neighbor phenotypes\\
+    $V$: Neighbor influence\\
+    + Reference geometry
+};
+
+\end{tikzpicture}
+\end{document}
