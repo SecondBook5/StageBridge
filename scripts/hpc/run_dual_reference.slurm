@@ -2,9 +2,9 @@
 #SBATCH --job-name=dual_ref
 #SBATCH --output=logs/dual_reference_%j.out
 #SBATCH --error=logs/dual_reference_%j.err
-#SBATCH --partition=gpuq
+#SBATCH --partition=gpu
 #SBATCH --qos=gpu
-#SBATCH --gres=gpu:H100:4
+#SBATCH --gres=gpu:h100:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=4
@@ -16,7 +16,7 @@
 set -e
 
 # Setup
-cd ~/StageBridge
+cd $SLURM_SUBMIT_DIR
 export DATA=/scratch/chaunzt1/stagebridge
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 mkdir -p logs
@@ -41,7 +41,8 @@ echo "Step 1: HLCA Mapping (stagebridge_env)"
 echo "Started: $(date)"
 echo "=============================================="
 
-source /opt/conda/etc/profile.d/conda.sh
+module load miniforge3
+eval "$(conda shell.bash hook)"
 conda activate /scratch/chaunzt1/stagebridge_env
 
 python -m stagebridge.pipelines.run_reference \
