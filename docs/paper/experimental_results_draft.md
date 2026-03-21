@@ -1,0 +1,170 @@
+# Experimental Results
+
+## Dataset
+
+Experiments were conducted on a lung adenocarcinoma (LUAD) evolution cohort comprising matched single-nucleus RNA sequencing (snRNA-seq) and spatial transcriptomics data spanning five histopathological stages: Normal, atypical adenomatous hyperplasia (AAH), adenocarcinoma in situ (AIS), minimally invasive adenocarcinoma (MIA), and invasive LUAD.
+
+**[DATA STATISTICS: Report exact cell counts, patient numbers, spot counts, and tissue section numbers after QC.]**
+
+Quality control filtering removed cells with fewer than 200 detected genes or greater than 20% mitochondrial reads. Genes expressed in fewer than 10 cells were excluded. Expression values were normalized to counts per 10,000 and log-transformed. Batch effects across samples were corrected using Harmony integration prior to downstream analysis.
+
+## Spatial Mapping Backend Comparison
+
+Three spatial mapping backends were evaluated to determine the optimal method for projecting snRNA-seq cells onto tissue coordinates: Tangram, DestVI, and TACCO. Each backend was assessed on mapping accuracy using held-out spatial spots with known cell type composition, cell type assignment quality via macro-averaged F1 score, spatial coherence measured by local Moran's I statistic, and computational cost measured as wall-clock runtime on standardized hardware.
+
+**[TABLE 1: Spatial backend comparison]**
+
+| Backend | Mapping Accuracy | Cell Type F1 | Spatial Coherence | Runtime (hrs) |
+|---------|------------------|--------------|-------------------|---------------|
+| Tangram | -- | -- | -- | -- |
+| DestVI | -- | -- | -- | -- |
+| TACCO | -- | -- | -- | -- |
+
+**[FIGURE 1: Spatial backend comparison]**
+
+*Figure 1. Comparison of spatial mapping backends. (A) Cell type assignment accuracy on held-out spots. (B) Spatial coherence measured by local Moran's I. (C) Runtime scaling. (D) Example spatial maps.*
+
+**[RESULTS: Describe which backend performed best and why it was selected. Report accuracy, coherence, and runtime metrics. Justify backend choice for downstream analyses.]**
+
+## Self-Supervised Pretraining
+
+The self-supervised pretraining stage was evaluated by monitoring convergence of the primary masked reconstruction objective and four auxiliary losses over training epochs. Validation metrics were tracked to assess generalization and detect potential overfitting. The learned representations were qualitatively examined via dimensionality reduction to assess whether biologically meaningful structure emerged prior to downstream fine-tuning.
+
+**[FIGURE 2: SSL pretraining curves]**
+
+*Figure 2. Self-supervised pretraining convergence. (A) Total loss over training epochs. (B) Individual loss components. (C) Validation loss. (D) Learning rate schedule.*
+
+**[TABLE 2: SSL pretraining metrics]**
+
+| Metric | Initial | Final | Improvement |
+|--------|---------|-------|-------------|
+| Masked reconstruction MSE | -- | -- | -- |
+| Ranking accuracy | -- | -- | -- |
+| Cross-view correlation | -- | -- | -- |
+| Spatial smoothness | -- | -- | -- |
+
+**[RESULTS: Report convergence behavior, final loss values, and validation metrics. Describe whether overfitting occurred. Note any observations about learned representations prior to downstream tasks.]**
+
+## Continuous Flow Matching with Optimal Transport
+
+The continuous flow matching transition model was evaluated on its ability to learn biologically coherent dynamics between adjacent disease stages. Training convergence was assessed via Sinkhorn divergence between predicted and ground-truth optimal transport couplings. Trajectory quality was measured by path straightness, comparing learned flows to linear interpolation baselines. Biological plausibility was validated by examining gene expression dynamics and pathway activation patterns along predicted trajectories.
+
+**[FIGURE 3: CFM-OT transition model]**
+
+*Figure 3. Continuous flow matching results. (A) Learned vector field visualization. (B) Sinkhorn divergence over training. (C) Trajectory straightness metrics. (D) Stage transition probability matrix.*
+
+**[TABLE 3: CFM-OT transition metrics]**
+
+| Transition | Sinkhorn Div. | Path Straightness | Biological Plausibility |
+|------------|---------------|-------------------|------------------------|
+| Normal → AAH | -- | -- | -- |
+| AAH → AIS | -- | -- | -- |
+| AIS → MIA | -- | -- | -- |
+| MIA → LUAD | -- | -- | -- |
+
+**[FIGURE 4: Transition analysis]**
+
+*Figure 4. Biological analysis of learned transitions. (A) Gene expression along trajectories. (B) Pathway activity dynamics. (C) Cell type composition shifts. (D) Predicted vs observed intermediate states.*
+
+**[RESULTS: Report Sinkhorn divergence values, path straightness metrics, and biological validation of learned transitions. Describe gene expression dynamics and pathway activation patterns along predicted trajectories.]**
+
+## Architecture Baseline Comparison
+
+To validate the architectural contributions of StageBridge, the full model was compared against four baselines representing progressively richer structural inductive biases: PoolingMLP (no structure), DeepSets (permutation invariance), SetTransformer (attention without spatial structure), and GraphSAGE (symmetric spatial message passing). All models were trained with identical hyperparameters and evaluated on held-out donors using five-fold cross-validation. Performance was assessed across reconstruction quality (MSE), representation quality (silhouette score, ARI), progression discrimination (AUROC), and batch integration (kBET).
+
+**[TABLE 4: Baseline comparison results]**
+
+| Model | MSE ($\downarrow$) | Silhouette ($\uparrow$) | ARI ($\uparrow$) | AUROC ($\uparrow$) | kBET ($\uparrow$) |
+|-------|-----|------------|-----|-------|------|
+| PoolingMLP | -- | -- | -- | -- | -- |
+| DeepSets | -- | -- | -- | -- | -- |
+| SetTransformer | -- | -- | -- | -- | -- |
+| GraphSAGE | -- | -- | -- | -- | -- |
+| **StageBridge** | -- | -- | -- | -- | -- |
+
+**[FIGURE 5: Baseline comparison bar chart]**
+
+*Figure 5. Quantitative comparison of StageBridge against baselines. (A) Reconstruction MSE. (B) Silhouette score. (C) AUROC for stage classification. (D) kBET score. Error bars: std across CV folds.*
+
+**[RESULTS: Report metrics for each baseline. Discuss which architectural components explain performance differences.]**
+
+## Ablation Studies
+
+Systematic ablations were conducted to quantify the contribution of each architectural component to overall model performance. Reference ablations assessed the necessity of dual-reference geometry by comparing against single-reference variants. Spatial ablations removed the ring structure to isolate the contribution of explicit distance discretization. Receiver ablations replaced asymmetric attention with symmetric message passing. Loss ablations removed each auxiliary objective individually to quantify regularization benefits. All ablations were evaluated using the same cross-validation protocol as the baseline comparison.
+
+**[TABLE 5: Ablation study results]**
+
+| Ablation | MSE | $\Delta$ MSE | Silhouette | $\Delta$ Sil. |
+|----------|-----|--------------|------------|---------------|
+| Full model | -- | -- | -- | -- |
+| − Dual reference (HLCA only) | -- | -- | -- | -- |
+| − Dual reference (LuCA only) | -- | -- | -- | -- |
+| − Spatial rings (flat attention) | -- | -- | -- | -- |
+| − Receiver centering (symmetric) | -- | -- | -- | -- |
+| − Ranking loss | -- | -- | -- | -- |
+| − Consistency loss | -- | -- | -- | -- |
+| − Spatial loss | -- | -- | -- | -- |
+| − Group loss | -- | -- | -- | -- |
+
+**[FIGURE 6: Ablation importance visualization]**
+
+*Figure 6. Contribution of architectural components. (A) Relative change in MSE. (B) Relative change in silhouette score.*
+
+**[RESULTS: Report ablation metrics. Discuss which components contribute most. Interpret what this reveals about the importance of dual-reference geometry, spatial structure, and receiver-centering.]**
+
+## Representation Quality
+
+The quality of learned cell representations was assessed through dimensionality reduction visualization and quantitative clustering metrics. UMAP projections were generated to examine whether representations organized by disease stage while preserving cell type identity. Batch integration was evaluated by coloring embeddings by donor to detect patient-specific clustering artifacts. Reference confidence scores were visualized to assess uncertainty distribution across the embedding space.
+
+**[FIGURE 7: UMAP visualizations]**
+
+*Figure 7. UMAP projections of learned representations. (A) Colored by stage. (B) Colored by cell type. (C) Colored by donor. (D) Colored by reference confidence.*
+
+**[RESULTS: Describe stage separation, cell type preservation, and batch integration observed in learned embeddings.]**
+
+## Attention Analysis
+
+The interpretability of learned attention patterns was examined to assess whether the model captured biologically meaningful sender-receiver relationships. Attention weights were aggregated across the test set and analyzed by spatial ring to characterize distance-dependent information flow. Cell type-specific attention patterns were computed by stratifying receivers into epithelial, stromal, and immune populations. Stage-specific patterns were examined to identify progression-dependent changes in niche interactions.
+
+**[FIGURE 8: Attention weight analysis]**
+
+*Figure 8. Learned attention patterns. (A) Mean attention by spatial ring. (B) Attention by sender type for epithelial receivers. (C) Attention by sender type for stromal receivers. (D) Stage-specific attention patterns.*
+
+**[RESULTS: Report distance-dependent attention weighting. Describe cell type-specific and stage-specific attention patterns. Interpret biological meaning of learned attention.]**
+
+## Biological Validation
+
+Biological relevance of the learned representations was validated through multiple orthogonal analyses. Pathway activity scores were computed using PROGENy for both original and reconstructed expression profiles to assess preservation of functional signals. Marker gene expression was compared across cell types to verify that reconstructions maintained cell identity signatures. Gene set enrichment analysis was performed on genes with highest attention weights to characterize the biological processes captured by the model. Learned representations were compared against established EMT and cancer-associated fibroblast (CAF) gene signatures.
+
+**[FIGURE 9: Biological validation]**
+
+*Figure 9. Biological validation. (A) Pathway activity correlation (original vs reconstructed). (B) Marker gene preservation. (C) Gene set enrichment of attention-weighted genes. (D) EMT and CAF signature comparison.*
+
+**[RESULTS: Report pathway activity correlations. Quantify marker gene preservation by cell type. Describe enriched pathways from attention analysis.]**
+
+## Progression Discrimination
+
+The ability of learned representations to discriminate disease progression stages was evaluated through classification and trajectory analysis. Pairwise binary classification was performed between adjacent stages (Normal vs AAH, AAH vs AIS, AIS vs MIA, MIA vs LUAD) using logistic regression on the learned embeddings. Five-way multiclass classification assessed overall stage discrimination. Pseudotime analysis using diffusion pseudotime was conducted to evaluate whether the embedding geometry recovered the expected histopathological ordering.
+
+**[FIGURE 10: Progression analysis]**
+
+*Figure 10. Progression discrimination. (A) ROC curves for pairwise stage classification. (B) Five-way classification confusion matrix. (C) Pseudotime trajectory. (D) Stage transition probabilities.*
+
+**[RESULTS: Report AUROC for each pairwise stage comparison. Describe confusion matrix patterns. Report pseudotime trajectory analysis results.]**
+
+## Computational Efficiency
+
+Computational requirements were measured for each stage of the StageBridge pipeline to characterize scalability and resource demands. Wall-clock runtime was recorded for reference mapping via scArches surgical fine-tuning, self-supervised pretraining, and CFM-OT transition model training. All experiments were conducted on NVIDIA H100 GPUs. Inference time was measured per cell to assess deployment feasibility for large-scale single-cell atlases.
+
+**[TABLE 6: Computational requirements]**
+
+| Component | Time | Hardware |
+|-----------|------|----------|
+| Reference mapping (HLCA) | -- | 4× H100 GPU |
+| Reference mapping (LuCA) | -- | 4× H100 GPU |
+| SSL pretraining | -- | 4× H100 GPU |
+| CFM-OT training | -- | 4× H100 GPU |
+| Inference (per cell) | -- | Single H100 |
+
+**[RESULTS: Report actual runtime for each pipeline component. Note early stopping behavior and convergence epochs.]**
+

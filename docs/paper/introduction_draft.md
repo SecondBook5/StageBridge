@@ -1,0 +1,100 @@
+# Introduction
+
+## Motivation and Biological Context
+
+Predicting how cells change state across disease progression is a foundational objective in computational biology, with applications spanning developmental biology, immune activation, and cancer evolution. Recent advances in transformer-based foundation models have demonstrated that single-cell transcriptomics data can support predictive modeling beyond purely descriptive embeddings, with models trained on hundreds of millions of cells increasingly evaluated on their capacity to generalize across perturbations, conditions, and cellular contexts (Szałata et al., 2024; Dong et al., 2026; Adduri et al., 2025). The emerging virtual cell paradigm formalizes this direction through standardized evaluation datasets and metrics that explicitly reward predictive modeling of cellular responses (Roohani et al., 2025), motivating methods that can infer transformations between distributions of cell states rather than merely clustering or visualization.
+
+A fundamental barrier to learning such transition operators is the cross-sectional nature of most disease progression data. Unlike developmental lineage tracing or perturbation response datasets where temporal measurements may be available, disease progression studies typically provide snapshots of tissue at discrete histopathological stages—for example, lesion grades or treatment phases—rather than longitudinally tracked single cells (Peng et al., 2025). Single-cell measurements are inherently destructive, precluding direct cell tracking through time. Consequently, the learning task must be formulated as inferring mappings between stage-specific distributions rather than between paired individual cells, creating an identifiability bottleneck that has limited the application of generative models to progression modeling.
+
+This work addressed the problem of learning progression-aware cell representations from cross-sectional single-nucleus RNA sequencing (snRNA-seq) data, with particular emphasis on how spatial context and tumor microenvironment structure inform cell state transitions. The central hypothesis motivating the approach was that cross-sectional disease progression becomes more identifiable when conditioned on receiver-centered local niche context. That is, a cell's transcriptional state and its position along the disease trajectory were hypothesized to be jointly determined by intrinsic properties and extrinsic signals from the cellular microenvironment.
+
+## Problem Setting
+
+Let $\mathcal{D} = \{(x_i, s_i, \mathcal{N}_i)\}_{i=1}^{N}$ denote a dataset of $N$ cells, where $x_i \in \mathbb{R}^{G}$ represented the gene expression profile over $G$ genes, $s_i \in \mathcal{S} = \{\text{Normal}, \text{AAH}, \text{AIS}, \text{MIA}, \text{LUAD}\}$ denoted the histopathological stage along the lung adenocarcinoma progression sequence, and $\mathcal{N}_i = \{x_j : j \in \text{neighbors}(i)\}$ represented the local spatial neighborhood derived from matched spatial transcriptomics. The objective was twofold: first, to learn cell representations that captured progression-relevant variation while preserving cell type identity and integrating across patients; and second, to model the continuous dynamics connecting cell states across adjacent disease stages using learned transition operators.
+
+For the transition modeling component, consider stage-specific distributions $P_s$ and $P_{s+1}$ over cell states. The goal was to learn a transition operator $T_{s \rightarrow s+1}$ such that the pushforward of the source distribution approximated the target distribution:
+
+$$(T_{s \rightarrow s+1})_{\sharp} P_s \approx P_{s+1} \tag{1}$$
+
+This formulation acknowledged that without additional inductive bias, infinitely many transports could map one distribution to another. The StageBridge framework addressed this underdetermination through two complementary mechanisms: dual-reference geometry that anchored cells to biologically interpretable coordinate systems, and receiver-centered niche encoding that conditioned transition dynamics on local microenvironment structure.
+
+## Formal Hypotheses
+
+Two formal hypotheses were tested through systematic ablation experiments.
+
+**Hypothesis 1 (Receiver-centered conditioning improves representation quality):** Let $\mathcal{M}_{\text{niche}}$ denote the full StageBridge model with receiver-centered niche encoding, and let $\mathcal{M}_{\text{no-niche}}$ denote an ablation that removes spatial neighborhood conditioning. Define $Q(\cdot)$ as a representation quality metric (e.g., silhouette score for stage discrimination). Then:
+
+$$H_0^{(1)}: Q(\mathcal{M}_{\text{niche}}) \leq Q(\mathcal{M}_{\text{no-niche}}) \tag{2}$$
+
+$$H_1^{(1)}: Q(\mathcal{M}_{\text{niche}}) > Q(\mathcal{M}_{\text{no-niche}}) \tag{3}$$
+
+The alternative hypothesis posited that conditioning on receiver-centered local context improved the ability to discriminate disease stages in the learned embedding space.
+
+**Hypothesis 2 (Dual-reference geometry improves generalization):** Let $\mathcal{M}_{\text{dual}}$ denote the model with dual-reference mapping to both HLCA and LuCA atlases, and let $\mathcal{M}_{\text{single}}$ denote ablations using only one reference. Define $\mathcal{G}$ as expected held-out discrepancy across test donors:
+
+$$\mathcal{G} = \mathbb{E}_{\kappa \in \mathcal{K}_{\text{test}}} \left[ D(\tilde{P}_{s,\kappa}, \hat{P}_{s,\kappa}) \right] \tag{4}$$
+
+where $D(\cdot, \cdot)$ measured distributional distance and $\kappa$ indexed held-out donors. Then:
+
+$$H_0^{(2)}: \mathcal{G}_{\text{dual}} \geq \mathcal{G}_{\text{single}} \tag{5}$$
+
+$$H_1^{(2)}: \mathcal{G}_{\text{dual}} < \mathcal{G}_{\text{single}} \tag{6}$$
+
+The alternative hypothesis posited that anchoring cells to both healthy (HLCA) and disease (LuCA) reference coordinates improved generalization to held-out patients.
+
+## Contributions
+
+The contributions of this work were as follows. First, a receiver-centered niche encoding architecture based on the Set Transformer was developed that explicitly modeled the flow of information from spatial microenvironment to receiver cell state, enabling permutation-invariant aggregation over variable-cardinality neighborhoods with linear computational complexity in neighborhood size. Second, a dual-reference geometry framework was introduced that anchored query cells to complementary healthy and disease coordinate systems through scArches surgical fine-tuning against the Human Lung Cell Atlas (HLCA) and Lung Cancer Atlas (LuCA). Third, a multi-task self-supervised learning objective was designed with masked receiver reconstruction as the primary task, directly operationalizing the hypothesis that receiver state was predictable from niche context. Fourth, a continuous flow matching transition model with optimal transport couplings was implemented to learn biologically coherent dynamics between adjacent disease stages. Fifth, systematic ablation experiments quantified the contribution of each architectural component, including dual-reference geometry, spatial ring structure, and receiver-centered attention.
+
+# Related Work
+
+## Transformers in Single-Cell Biology
+
+The transformer architecture introduced by Vaswani et al. (2017) has become the dominant paradigm for large-scale representation learning across modalities, and recent surveys argue that single-cell modeling is approaching a similar inflection point as atlas-scale datasets proliferate (Szałata et al., 2024). The attention mechanism supports flexible conditioning and long-range interactions that can be repurposed to model sets of cells, spatial neighborhoods, and gene regulatory programs. Foundation models trained on massive observational datasets have demonstrated the capacity to generalize to unseen conditions and perform context-dependent inference, including models that predict perturbation effects across diverse cellular contexts (Adduri et al., 2025) and architectures that exploit tabular attention for in-context learning at the scale of hundreds of millions of cells (Dong et al., 2026).
+
+Of particular relevance to the present work was Nicheformer (Tejada-Lapuerta et al., 2025), a transformer-based foundation model trained to capture spatial context across both dissociated and spatial transcriptomics modalities. Nicheformer demonstrated that models trained only on dissociated data failed to recover the complexity of spatial microenvironments, underscoring the need for multiscale integration that explicitly represented tissue architecture. The StageBridge architecture shared this motivation but differed in its focus on receiver-centered encoding with explicit spatial ring discretization, dual-reference geometry for progression-specific anchoring, and continuous transition modeling between disease stages.
+
+## Set Transformer Architecture
+
+The Set Transformer introduced by Lee et al. (2018) formalized permutation-invariant representation learning using attention mechanisms. Unlike recurrent or convolutional architectures that impose sequential or spatial ordering, the Set Transformer operated on unordered collections through permutation-equivariant Self-Attention Blocks (SAB) and permutation-invariant Pooling by Multihead Attention (PMA). A key contribution was the Induced Set Attention Block (ISAB), which reduced the quadratic complexity of standard self-attention to linear complexity through a set of learned inducing points that served as a communication bottleneck between input elements.
+
+The StageBridge niche encoder employed a hierarchical variant of the Set Transformer architecture. Neighbors were first grouped into spatial rings based on radial distance from the receiver cell, and ISAB modules aggregated information within each ring. Cross-ring attention then allowed the receiver token to attend to ring summaries and auxiliary context tokens, implementing a learned receptive field that adapted to local tissue organization. This hierarchical design combined the permutation invariance of set-based processing with explicit spatial organization reflecting the radial structure of cellular niches.
+
+## Optimal Transport for Single-Cell Analysis
+
+Optimal transport (OT) provides a principled framework for comparing and aligning distributions and has become increasingly central in single-cell and spatial omics applications (Bunne et al., 2024). The Sinkhorn algorithm introduced efficient computation of entropically regularized transport couplings (Cuturi, 2013), enabling scalable distributional alignment even for large-scale single-cell datasets. Neural OT methods demonstrated that learning perturbation responses could be framed as transporting cell populations under unpaired observations, with gains in generalization to unseen conditions (Bunne et al., 2023).
+
+Wasserstein flow matching extended flow-based generative modeling to operate directly on families of distributions using Wasserstein geometry (Haviv et al., 2024a), with applications to generating cellular microenvironments from spatial transcriptomics data. Related work on the covariance environment (COVET) representation leveraged gene-gene covariate structure across cells in the niche to capture multivariate interactions, defining OT-based distance metrics between niche representations that scaled to millions of cells (Haviv et al., 2025). Transformer-based approaches for approximating OT distances in Euclidean embedding spaces addressed scalability concerns and enabled transport-aware operations such as barycenter estimation (Haviv et al., 2024b).
+
+The StageBridge transition model employed OT primarily as an alignment prior for flow matching training. Sinkhorn couplings computed between adjacent disease stages provided pseudo-pairings that defined linear interpolation paths, enabling flow matching objectives to learn continuous vector fields governing stage-to-stage dynamics.
+
+## Flow Matching and Continuous Generative Models
+
+Flow matching introduced by Lipman et al. (2022) provides a simulation-free objective for training continuous normalizing flows, supporting probability paths defined by OT displacement interpolation. Unlike diffusion-based approaches that require reverse-time simulation, flow matching directly regresses a neural vector field toward target velocities along interpolation paths between source and target samples. This framework has proven particularly effective when source and target distributions differ substantially, as in disease progression where early and late stages may occupy distinct regions of transcriptional space.
+
+Recent extensions to single-cell phenotype modeling demonstrated that flow matching could accurately predict expression responses to diverse perturbations including drug treatments and genetic knockouts (Klein et al., 2025). The CellFlow framework applied flow matching to model developmental perturbations at whole-embryo scale and guide cell fate engineering through virtual organoid protocol screens. The StageBridge transition model adopted the conditional flow matching paradigm, with the key distinction that flow dynamics were conditioned on niche context representations from the pretrained encoder, enabling microenvironment-aware trajectory modeling.
+
+## Deep Generative Models for Single-Cell Data
+
+Deep generative modeling has extensive precedent in single-cell transcriptomics. The variational autoencoder framework underlying scVI (Lopez et al., 2018) addressed technical noise and batch effects through probabilistic modeling, enabling downstream tasks including visualization, clustering, and differential expression. Disentanglement-oriented approaches such as biolord (Piran et al., 2024) aimed to separate known and unknown biological attributes, supporting counterfactual generation where cells could be virtually shifted across conditions. Methods that imposed topological templates, such as scPrisma (Karin et al., 2023), highlighted that mixing of biological programs motivated structured inductive bias when reconstructing latent trajectories. Recent work on hierarchical cross-entropy loss demonstrated that incorporating biological ontologies into training objectives improved out-of-distribution performance without increasing model complexity (Cultrera di Montesano et al., 2026).
+
+The StageBridge framework built on this foundation while introducing several architectural innovations. Rather than operating on individual cells in isolation, the niche encoder aggregated neighborhood information using attention-based pooling. Rather than learning a single reference embedding, dual-reference mapping provided complementary healthy and disease anchors. Rather than purely discriminative or reconstructive objectives, the multi-task self-supervised framework balanced masked reconstruction with auxiliary losses that promoted progression-aware structure.
+
+## Spatial Transcriptomics Integration
+
+Integration of dissociated single-cell data with spatial transcriptomics has been addressed through multiple complementary approaches. Tangram (Biancalani et al., 2021) formulated spatial mapping as optimal transport, minimizing Wasserstein distance between single-cell and spatial expression distributions. DestVI (Lopez et al., 2022) employed deep generative modeling with variational inference for joint cell type deconvolution and spatial assignment. Cell2location (Kleshchevnikov et al., 2022) used Bayesian hierarchical modeling to account for technical variation while resolving fine-grained cell types in tissue coordinates. NovoSpaRc (Moriel et al., 2021) leveraged structural correspondence hypotheses that cells in physical proximity share similar expression profiles. Comprehensive benchmarking studies demonstrated that performance depended strongly on task definition, dataset properties, and evaluation metrics (Li et al., 2022), motivating careful backend selection for specific applications.
+
+The StageBridge pipeline incorporated spatial backend benchmarking as a preprocessing step, evaluating Tangram, DestVI, and TACCO on the specific task of mapping snRNA-seq cells to tissue coordinates derived from matched spatial transcriptomics. The selected backend provided spatial assignments that enabled construction of niche neighborhoods for downstream receiver-centered encoding.
+
+## Reference-Based Cell Annotation
+
+Large-scale single-cell atlases have enabled reference-based approaches to cell annotation and embedding. The integrated Human Lung Cell Atlas (HLCA) combined 49 datasets spanning over 2.4 million cells from 486 individuals, providing consensus cell type annotations and serving as a reference for mapping new lung data (Sikkema et al., 2023). The scArches framework enabled transfer learning by surgically fine-tuning pretrained models on query datasets, projecting new cells into reference latent spaces while preserving the coordinate system learned from atlas-scale data.
+
+The StageBridge dual-reference geometry exploited two complementary atlases: HLCA representing healthy lung tissue with 584,000 cells and 30 latent dimensions, and LuCA (Lung Cancer Atlas) capturing malignant and stromal heterogeneity with 790,000 cells and 10 latent dimensions. Query cells were mapped to both references via scArches surgery, with resulting embeddings L2-normalized and concatenated to form a 40-dimensional fused representation. This dual anchoring captured complementary biological signals: proximity to healthy cell states indicated by HLCA distance, and similarity to known cancer phenotypes indicated by LuCA distance.
+
+## Lung Adenocarcinoma Progression
+
+The biological application domain was lung adenocarcinoma (LUAD) progression, where multimodal spatial profiling has revealed stage-specific programs and epithelial-immune interactions across the canonical histopathological sequence: normal tissue, atypical adenomatous hyperplasia (AAH), adenocarcinoma in situ (AIS), minimally invasive adenocarcinoma (MIA), and invasive LUAD (Peng et al., 2025). This progression is typically observed through cross-sectional snapshots rather than longitudinal cell tracking, providing a realistic setting where stage-to-stage transitions are biologically meaningful and plausibly depend on local microenvironment composition. The spatial maps generated by Peng et al. identified epithelial alveolar progenitors residing in niches enriched with proinflammatory subsets, with epithelial-inflammatory interactions prevalent in precursor lesions but less frequent in invasive tumors.
+
+The StageBridge framework was developed and evaluated on this LUAD progression cohort, comprising matched snRNA-seq and spatial transcriptomics data spanning all five histopathological stages. The cross-sectional nature of these measurements motivated the distributional framing of transition modeling, while the matched spatial data enabled construction of receiver-centered niche neighborhoods that captured the microenvironmental context hypothesized to inform progression dynamics.
+
