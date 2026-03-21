@@ -353,7 +353,12 @@ def run_hpc_reference_mapping(
     # Load query data in backed mode to avoid memory explosion
     # 787K cells x 15K genes in dense = 47GB - keep sparse/on-disk
     print("Loading query data (backed mode)...")
-    query_adata = anndata.read_h5ad(query_path, backed='r')
+    try:
+        query_adata = anndata.read_h5ad(query_path, backed='r')
+    except Exception as e:
+        # Fallback to non-backed mode for older anndata versions
+        print(f"  Warning: Backed mode failed ({e.__class__.__name__}), loading fully into memory...")
+        query_adata = anndata.read_h5ad(query_path)
     print(f"  Query: {query_adata.n_obs:,} cells, {query_adata.n_vars:,} genes")
 
     if smoke_mode:
