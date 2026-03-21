@@ -1374,11 +1374,11 @@ def main():
     print("Research Director Compliance:")
     print(f"  ✓ SSL Pretraining (70% receiver reconstruction)")
     print(f"  ✓ Doctrine encoder: {'ReceiverCenteredNicheEncoder' if DOCTRINE_ENCODER_AVAILABLE else 'fallback'}")
-    print(f"  ✓ Baseline ladder: PoolingMLP, DeepSets, SetTransformer, GraphSAGE")
-    print(f"  ✓ Flow matching transitions")
-    print(f"  ✓ Semi-synthetic + Real data")
+    print("  ✓ Baseline ladder: PoolingMLP, DeepSets, SetTransformer, GraphSAGE")
+    print("  ✓ Flow matching transitions")
+    print("  ✓ Semi-synthetic + Real data")
     print(f"  ✓ Hyperparameter optimization: {'Optuna' if OPTUNA_AVAILABLE else 'skipped'}")
-    print(f"  ✓ Publication figures (300 DPI)")
+    print("  ✓ Publication figures (300 DPI)")
     print("=" * 70)
 
 
