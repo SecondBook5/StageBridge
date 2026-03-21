@@ -243,21 +243,25 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
     # For large files, just check and warn - don't rewrite
     if file_size_gb > max_size_gb:
         print("  Large file - checking with backed mode...")
-        adata = anndata.read_h5ad(ref_path, backed='r')
-        first_gene = str(adata.var_names[0])
-        if first_gene.startswith("ENSG") and "feature_name" in adata.var.columns:
-            # Create a mapping file instead of rewriting
-            mapping_path = ref_path.parent / f"{ref_path.stem}_gene_mapping.parquet"
-            if not mapping_path.exists():
-                import pandas as pd
-                gene_map = pd.DataFrame({
-                    "ensembl_id": adata.var_names.astype(str),
-                    "gene_symbol": adata.var["feature_name"].astype(str),
-                })
-                gene_map.to_parquet(mapping_path)
-                print(f"  Created gene mapping: {mapping_path}")
-            print("  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching.")
-        adata.file.close()
+        try:
+            adata = anndata.read_h5ad(ref_path, backed='r')
+            first_gene = str(adata.var_names[0])
+            if first_gene.startswith("ENSG") and "feature_name" in adata.var.columns:
+                # Create a mapping file instead of rewriting
+                mapping_path = ref_path.parent / f"{ref_path.stem}_gene_mapping.parquet"
+                if not mapping_path.exists():
+                    import pandas as pd
+                    gene_map = pd.DataFrame({
+                        "ensembl_id": adata.var_names.astype(str),
+                        "gene_symbol": adata.var["feature_name"].astype(str),
+                    })
+                    gene_map.to_parquet(mapping_path)
+                    print(f"  Created gene mapping: {mapping_path}")
+                print("  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching.")
+            adata.file.close()
+        except (ValueError, OSError) as e:
+            # h5py version incompatibility - skip check and proceed
+            print(f"  Warning: Could not read in backed mode ({e.__class__.__name__}), skipping gene format check")
         return ref_path
 
     adata = anndata.read_h5ad(ref_path)
