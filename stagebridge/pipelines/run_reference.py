@@ -177,6 +177,7 @@ def find_reference_paths(data_root: Path) -> dict[str, Path | None]:
 
     # LuCA: Check for h5ad
     luca_candidates = [
+        data_root / "references/luca/luca_core_atlas.h5ad",  # Primary: CORE atlas
         data_root / "references/luca/luca_reference.h5ad",
         data_root / "references/luca/luca_luad.h5ad",
     ]
