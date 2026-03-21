@@ -352,7 +352,6 @@ def run_hpc_reference_mapping(
     print(f"  Query: {query_adata.n_obs:,} cells, {query_adata.n_vars:,} genes")
 
     if smoke_mode:
-        import numpy as np
         n_smoke = min(1000, query_adata.n_obs)
         idx = np.random.choice(query_adata.n_obs, n_smoke, replace=False)
         # Need to copy for smoke mode since we're subsetting
