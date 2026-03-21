@@ -21,6 +21,20 @@ context_model:
   token_dropout_rate: 0.05
   auxiliary_context_shuffle_weight: 0.1
 
+# SSL pretraining loss weights (can be tuned via HPO)
+ssl_loss_weights:
+  masked_token: 0.70      # PRIMARY - receiver reconstruction from niche
+  ranking: 0.10           # Auxiliary - positive vs negative discrimination
+  provider_consistency: 0.10  # Auxiliary - cross-view consistency
+  coordinate_corruption: 0.05  # Auxiliary - spatial awareness
+  group_relation: 0.05    # Auxiliary - biological group structure
+
+# Fusion strategy for dual-reference embeddings
+fusion:
+  method: concat  # Options: concat, average, weighted, learned
+  learned_init_hlca_weight: 0.5  # Initial weight for HLCA (learned fusion only)
+  normalize: true
+
 reference:
   method: hlca
   latent_backend: hlca

@@ -2,9 +2,27 @@ evaluation:
   profile: ablation
   report_level: ablation
   ablations:
+    # Baseline ladder
     - rna_only
     - pooled
     - deep_sets
     - set_only
     - graph_of_sets
     - graph_of_sets_plus_wes
+    # Reference ablations
+    - hlca_only
+    - luca_only
+    # Architecture ablations
+    - no_niche
+    - pooled_niche
+    - flat_hierarchy
+    - deterministic
+    # Fusion strategy ablations
+    - learned_fusion
+    - weighted_fusion
+    # SSL loss weight ablations
+    - equal_loss_weights
+    - no_auxiliary_losses
+    # Calibration ablations
+    - no_calibration
+    - temperature_calibration

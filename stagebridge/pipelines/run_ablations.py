@@ -101,6 +101,76 @@ ABLATION_CONFIGS = {
         "fusion_mode": "attention",
         "note": "No hierarchical Set Transformer",
     },
+    # === NEW ABLATIONS: Fusion Strategy ===
+    "learned_fusion": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_ude": False,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "learned",
+        "fusion_hlca_weight": 0.5,
+        "note": "Learned weighted fusion instead of concatenation",
+    },
+    "weighted_fusion": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_ude": False,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "weighted",
+        "note": "Confidence-weighted fusion",
+    },
+    # === NEW ABLATIONS: SSL Loss Weights ===
+    "equal_loss_weights": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_ude": False,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "attention",
+        "ssl_masked_token_weight": 0.20,
+        "ssl_ranking_weight": 0.20,
+        "ssl_provider_consistency_weight": 0.20,
+        "ssl_coordinate_corruption_weight": 0.20,
+        "ssl_group_relation_weight": 0.20,
+        "note": "Equal weights for all SSL losses",
+    },
+    "no_auxiliary_losses": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_ude": False,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "attention",
+        "ssl_masked_token_weight": 1.0,
+        "ssl_ranking_weight": 0.0,
+        "ssl_provider_consistency_weight": 0.0,
+        "ssl_coordinate_corruption_weight": 0.0,
+        "ssl_group_relation_weight": 0.0,
+        "note": "Only masked token loss, no auxiliary objectives",
+    },
+    # === NEW ABLATIONS: Confidence Calibration ===
+    "no_calibration": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_ude": False,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "attention",
+        "calibration_method": "none",
+        "note": "No temperature scaling for confidence",
+    },
+    "temperature_calibration": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_ude": False,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "attention",
+        "calibration_method": "temperature",
+        "note": "Temperature scaling for calibrated confidence",
+    },
 }
 
 
@@ -420,9 +490,41 @@ def main():
     # Generate outputs
     output_dir = Path(args.output_dir)
 
+    # Legacy outputs (Table 3, Figure 7)
     generate_table3(results_df, output_dir)
     generate_figure7(results_df, output_dir)
     generate_statistical_comparisons(results_df, output_dir)
+
+    # New comprehensive visualizations
+    print("\nGenerating comprehensive ablation visualizations...")
+    try:
+        from stagebridge.ablations import generate_ablation_visualizations
+
+        # Convert results_df to format expected by visualization
+        viz_df = results_df.groupby("ablation").agg({
+            "wasserstein": "mean",
+            "mse": "mean",
+            "mae": "mean",
+        }).reset_index()
+        viz_df["label"] = viz_df["ablation"].str.replace("_", " ").str.title()
+
+        # Add delta columns (relative to full_model baseline)
+        if "full_model" in viz_df["ablation"].values:
+            baseline = viz_df[viz_df["ablation"] == "full_model"].iloc[0]
+            for col in ["wasserstein", "mse", "mae"]:
+                viz_df[f"{col}_delta"] = viz_df[col] - baseline[col]
+
+        # Generate visualizations
+        figures = generate_ablation_visualizations(
+            viz_df,
+            output_dir / "advanced_figures",
+        )
+        print(f"  Generated {len(figures)} advanced figures:")
+        for name, path in figures.items():
+            print(f"    - {name}: {path}")
+
+    except Exception as e:
+        print(f"  Warning: Advanced visualizations failed: {e}")
 
     print("\n" + "=" * 80)
     print(" Ablation suite complete!")
