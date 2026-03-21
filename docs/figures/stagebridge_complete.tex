@@ -1,0 +1,248 @@
+\documentclass[tikz,border=5pt]{standalone}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usetikzlibrary{
+    positioning,
+    shapes.geometric,
+    shapes.multipart,
+    arrows.meta,
+    calc,
+    fit,
+    backgrounds,
+    decorations.pathreplacing,
+    patterns,
+    shadows.blur,
+    matrix,
+    chains
+}
+
+% Publication color palette (colorblind-safe)
+\definecolor{recv}{RGB}{230, 159, 0}      % Orange - receiver
+\definecolor{niche}{RGB}{0, 158, 115}     % Teal - spatial niche
+\definecolor{hlca}{RGB}{86, 180, 233}     % Sky blue - healthy ref
+\definecolor{luca}{RGB}{213, 94, 0}       % Vermillion - cancer ref
+\definecolor{attn}{RGB}{240, 228, 66}     % Yellow - attention
+\definecolor{repr}{RGB}{0, 114, 178}      % Blue - representations
+\definecolor{loss}{RGB}{204, 121, 167}    % Pink - loss
+\definecolor{down}{RGB}{117, 112, 179}    % Purple - downstream
+\definecolor{bgbox}{RGB}{245, 245, 250}   % Light background
+
+\begin{document}
+\begin{tikzpicture}[
+    % === STYLES ===
+    inputbox/.style={
+        rectangle, draw=gray!70, fill=white,
+        rounded corners=2pt, minimum width=1.6cm, minimum height=0.65cm,
+        font=\scriptsize\sffamily, line width=0.6pt, align=center
+    },
+    procbox/.style={
+        rectangle, draw=#1!80!black, fill=#1!20,
+        rounded corners=3pt, minimum width=2cm, minimum height=0.7cm,
+        font=\scriptsize\sffamily\bfseries, line width=0.8pt, align=center
+    },
+    tokenbox/.style={
+        rectangle, draw=#1!80!black, fill=#1!35,
+        rounded corners=2pt, minimum width=0.9cm, minimum height=0.55cm,
+        font=\tiny\sffamily\bfseries, line width=0.6pt
+    },
+    bigblock/.style={
+        rectangle, draw=#1!70!black, fill=#1!15,
+        rounded corners=5pt, minimum width=3cm, minimum height=1.2cm,
+        font=\small\sffamily\bfseries, line width=1.2pt, align=center,
+        blur shadow={shadow blur steps=5, shadow xshift=0.5pt, shadow yshift=-0.5pt}
+    },
+    lossbox/.style={
+        rectangle, draw=loss!70!black, fill=loss!20,
+        rounded corners=2pt, minimum width=2.2cm, minimum height=0.5cm,
+        font=\tiny\sffamily, line width=0.5pt
+    },
+    outbox/.style={
+        rectangle, draw=#1!70!black, fill=#1!25,
+        rounded corners=3pt, minimum width=1.8cm, minimum height=0.6cm,
+        font=\scriptsize\sffamily, line width=0.8pt
+    },
+    arr/.style={-{Stealth[length=2mm, width=1.5mm]}, line width=0.7pt, #1},
+    arrdash/.style={-{Stealth[length=2mm, width=1.5mm]}, line width=0.6pt, dashed, #1},
+    brace/.style={decorate, decoration={brace, amplitude=4pt, raise=2pt}},
+    annot/.style={font=\tiny\sffamily, text=gray!70!black},
+    sectitle/.style={font=\scriptsize\sffamily\bfseries, anchor=west}
+]
+
+% ============================================
+% TITLE
+% ============================================
+\node[font=\normalsize\sffamily\bfseries] at (4.5, 8.8) {StageBridge: Receiver-Centered Niche Encoder};
+\node[font=\tiny\sffamily, text=gray] at (4.5, 8.4) {Self-supervised representation learning for spatial transcriptomics};
+
+% ============================================
+% A. INPUT LAYER
+% ============================================
+\node[sectitle] at (-1.5, 7.8) {A. Inputs};
+
+\node[inputbox] (st_data) at (0, 7) {Spatial\\Transcriptomics};
+\node[inputbox] (recv_expr) at (1.8, 7) {Receiver\\$\mathbf{x}_r \in \mathbb{R}^G$};
+\node[inputbox] (niche_cells) at (3.6, 7) {Niche Cells\\$\{\mathbf{x}_i\}_{i=1}^k$};
+\node[inputbox] (coords) at (5.4, 7) {Coordinates\\$\{(x,y)_i\}$};
+
+% Reference inputs
+\node[inputbox, fill=hlca!10] (hlca_ref) at (7.5, 7) {HLCA\\$\mathbf{z}^h \in \mathbb{R}^{30}$};
+\node[inputbox, fill=luca!10] (luca_ref) at (9.3, 7) {LuCA\\$\mathbf{z}^c \in \mathbb{R}^{10}$};
+
+\draw[arr=gray] (st_data) -- (recv_expr);
+\draw[arr=gray] (st_data) -- (niche_cells);
+
+% ============================================
+% B. NICHE CONSTRUCTION
+% ============================================
+\node[sectitle] at (-1.5, 5.8) {B. Niche Construction};
+
+% Ring diagram (small)
+\begin{scope}[shift={(1.2, 4.8)}]
+    \fill[recv!30] (0,0) circle (0.25cm);
+    \draw[niche!60, line width=0.8pt] (0,0) circle (0.5cm);
+    \draw[niche!45, line width=0.6pt] (0,0) circle (0.75cm);
+    \draw[niche!30, line width=0.5pt] (0,0) circle (1cm);
+    \draw[niche!20, line width=0.4pt] (0,0) circle (1.25cm);
+    \node[font=\tiny\sffamily] at (0, -1.6) {Concentric rings};
+    % Ring labels
+    \node[font=\tiny\ttfamily, niche] at (0.65, 0.3) {$r_1$};
+    \node[font=\tiny\ttfamily, niche!70] at (0.9, 0.5) {$r_2$};
+\end{scope}
+
+% MIL aggregation
+\node[procbox=niche, minimum width=2.5cm] (mil) at (4.5, 4.8) {Set Transformer\\(ISAB $\rightarrow$ PMA)};
+\node[annot, below=0.1cm of mil] {Permutation invariant};
+
+\draw[arr=niche] (2.5, 4.8) -- (mil);
+
+% ============================================
+% C. TOKEN SEQUENCE
+% ============================================
+\node[sectitle] at (-1.5, 3.5) {C. Token Sequence};
+
+% 9 tokens in a row
+\node[tokenbox=recv] (t0) at (0, 2.8) {$\tau_0$};
+\node[tokenbox=niche] (t1) at (1, 2.8) {$\tau_1$};
+\node[tokenbox=niche!80] (t2) at (1.8, 2.8) {$\tau_2$};
+\node[tokenbox=niche!60] (t3) at (2.6, 2.8) {$\tau_3$};
+\node[tokenbox=niche!40] (t4) at (3.4, 2.8) {$\tau_4$};
+\node[tokenbox=hlca] (t5) at (4.5, 2.8) {$\tau_5$};
+\node[tokenbox=luca] (t6) at (5.3, 2.8) {$\tau_6$};
+\node[tokenbox=down!50] (t7) at (6.3, 2.8) {$\tau_7$};
+\node[tokenbox=gray] (t8) at (7.1, 2.8) {$\tau_8$};
+
+% Token labels below
+\node[font=\tiny\sffamily, below=0.05cm of t0] {Recv};
+\node[font=\tiny\sffamily, below=0.05cm of t2] {Rings};
+\node[font=\tiny\sffamily, below=0.05cm of t5] {HLCA};
+\node[font=\tiny\sffamily, below=0.05cm of t6] {LuCA};
+\node[font=\tiny\sffamily, below=0.05cm of t7] {Path};
+\node[font=\tiny\sffamily, below=0.05cm of t8] {Stats};
+
+% Type embeddings
+\draw[brace] (0, 3.15) -- (0, 3.15) node[above=4pt, font=\tiny\ttfamily] {type 0};
+\draw[brace] (1, 3.15) -- (3.4, 3.15) node[midway, above=4pt, font=\tiny\ttfamily] {type 1};
+\draw[brace] (4.5, 3.15) -- (4.5, 3.15) node[above=4pt, font=\tiny\ttfamily] {type 2};
+\draw[brace] (5.3, 3.15) -- (5.3, 3.15) node[above=4pt, font=\tiny\ttfamily] {type 3};
+
+% Connections
+\draw[arr=recv] (recv_expr) -- ++(0, -1.5) -| (t0);
+\draw[arr=niche] (mil) -- ++(0, -0.8) -| (t2);
+\draw[arr=hlca] (hlca_ref) -- ++(0, -2.5) -| (t5);
+\draw[arr=luca] (luca_ref) -- ++(0, -2.5) -| (t6);
+
+% ============================================
+% D. ENCODER (Self-Attention)
+% ============================================
+\node[sectitle] at (-1.5, 1.5) {D. Encoder};
+
+\node[bigblock=attn, minimum width=8cm, minimum height=1.4cm] (encoder) at (3.5, 0.8) {
+    Multi-Head Self-Attention\\[-2pt]
+    \tiny $\text{Attention}(Q,K,V) = \text{softmax}\left(\frac{QK^\top}{\sqrt{d}}\right)V$
+};
+
+% Connect tokens to encoder
+\foreach \t in {t0, t1, t2, t3, t4, t5, t6, t7, t8} {
+    \draw[arr=gray!50] (\t) -- (encoder);
+}
+
+% Representation output
+\node[procbox=repr, minimum width=2.5cm] (repr) at (3.5, -0.8) {Representations $\mathbf{H}$};
+\draw[arr=repr, line width=1pt] (encoder) -- (repr);
+
+% ============================================
+% E. SSL OBJECTIVES (Representation Learning)
+% ============================================
+\node[sectitle] at (7, 1.5) {E. SSL Objectives};
+
+\node[lossbox, minimum width=2.8cm] (l1) at (9, 0.9) {$\mathcal{L}_\text{recon}$ \textbf{(70\%)}};
+\node[lossbox] (l2) at (9, 0.3) {$\mathcal{L}_\text{rank}$ (10\%)};
+\node[lossbox] (l3) at (9, -0.3) {$\mathcal{L}_\text{consist}$ (10\%)};
+\node[lossbox] (l4) at (9, -0.9) {$\mathcal{L}_\text{coord}$ (5\%)};
+
+% Highlight primary
+\node[rectangle, draw=loss!80!black, rounded corners=2pt, dashed,
+      fit=(l1), inner sep=1pt, line width=0.8pt] {};
+
+\draw[arr=repr] (encoder.east) -- ++(0.3, 0) |- (l1.west);
+\draw[arr=repr!70] (encoder.east) -- ++(0.3, 0) |- (l2.west);
+\draw[arr=repr!50] (encoder.east) -- ++(0.3, 0) |- (l3.west);
+\draw[arr=repr!30] (encoder.east) -- ++(0.3, 0) |- (l4.west);
+
+\node[annot, right=0.1cm of l1] {Primary};
+
+% ============================================
+% F. DOWNSTREAM TASKS
+% ============================================
+\node[sectitle] at (-1.5, -1.8) {F. Downstream};
+
+\node[outbox=down] (d1) at (0.8, -2.5) {Gene Programs};
+\node[outbox=down] (d2) at (2.8, -2.5) {Regulons};
+\node[outbox=down] (d3) at (4.8, -2.5) {Trajectories};
+\node[outbox=down] (d4) at (6.8, -2.5) {Stage Pred};
+
+\draw[arrdash=repr] (repr) -- ++(0, -0.5) -| (d1);
+\draw[arrdash=repr] (repr) -- ++(0, -0.5) -| (d2);
+\draw[arrdash=repr] (repr) -- ++(0, -0.5) -| (d3);
+\draw[arrdash=repr] (repr) -- ++(0, -0.5) -| (d4);
+
+\node[annot] at (3.5, -1.5) {freeze or fine-tune};
+
+% ============================================
+% ANNOTATIONS & EQUATIONS
+% ============================================
+
+% Main equation box
+\node[rectangle, draw=gray!40, fill=bgbox, rounded corners=3pt,
+      font=\tiny, align=left, text width=3.2cm] at (9.5, 4.8) {
+    \textbf{Receiver Reconstruction:}\\[2pt]
+    $\hat{\mathbf{x}}_r = f_\theta(\text{Niche}(r))$\\[2pt]
+    $\mathcal{L}_\text{recon} = \|\mathbf{x}_r - \hat{\mathbf{x}}_r\|^2$\\[4pt]
+    \textit{Mask receiver, predict}\\
+    \textit{from niche context}
+};
+
+% Architecture summary
+\node[rectangle, draw=gray!40, fill=bgbox, rounded corners=3pt,
+      font=\tiny, align=left, text width=2.8cm] at (-0.8, 0.3) {
+    \textbf{EA-MIST Encoder:}\\[2pt]
+    $\bullet$ 9 typed tokens\\
+    $\bullet$ 4 attention heads\\
+    $\bullet$ 256D hidden dim\\
+    $\bullet$ 2 transformer layers
+};
+
+% Dual reference note
+\node[rectangle, draw=hlca!50!luca, fill=hlca!5!luca!5, rounded corners=2pt,
+      font=\tiny, align=center, text width=2.2cm] at (7.8, 5.8) {
+    \textbf{Dual References}\\
+    HLCA: healthy anchor\\
+    LuCA: cancer anchor
+};
+
+\draw[arr=hlca!60, densely dotted] (hlca_ref) -- (7.8, 6.3);
+\draw[arr=luca!60, densely dotted] (luca_ref) -- (7.8, 6.3);
+
+\end{tikzpicture}
+\end{document}

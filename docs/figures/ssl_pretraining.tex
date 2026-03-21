@@ -1,0 +1,119 @@
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{
+    positioning,
+    shapes.geometric,
+    arrows.meta,
+    calc,
+    fit,
+    backgrounds,
+    decorations.pathreplacing
+}
+
+% Colors
+\definecolor{receivercolor}{RGB}{255, 165, 0}
+\definecolor{nichecolor}{RGB}{60, 179, 113}
+\definecolor{hlcacolor}{RGB}{70, 130, 180}
+\definecolor{lucacolor}{RGB}{205, 92, 92}
+\definecolor{losscolor}{RGB}{220, 60, 60}
+\definecolor{reprcolor}{RGB}{100, 149, 237}
+
+\begin{document}
+\begin{tikzpicture}[
+    block/.style={rectangle, draw=#1, fill=#1!20, rounded corners=3pt,
+                  minimum width=2cm, minimum height=0.7cm, font=\scriptsize\sffamily},
+    lossblock/.style={rectangle, draw=losscolor!80!black, fill=losscolor!15, rounded corners=3pt,
+                      minimum width=2.8cm, minimum height=0.6cm, font=\scriptsize\sffamily},
+    arrow/.style={->, >=Stealth, line width=0.7pt, #1}
+]
+
+% Title
+\node[font=\large\sffamily\bfseries] at (0, 6) {StageBridge: Two-Stage Learning};
+
+% ============================================
+% STAGE 1: SSL PRETRAINING
+% ============================================
+\node[font=\small\sffamily\bfseries, anchor=west] at (-6, 5) {Stage 1: Self-Supervised Pretraining};
+
+% Input
+\node[block=gray] (input) at (-4, 4) {Spatial Niche Data};
+
+% Encoder (the architecture we diagrammed)
+\node[block=reprcolor, minimum width=3cm, minimum height=1.2cm] (encoder) at (-4, 2.5) {
+    \begin{tabular}{c}
+    EA-MIST Encoder\\
+    \tiny(9-token self-attention)
+    \end{tabular}
+};
+
+\draw[arrow=gray] (input) -- (encoder);
+
+% Learned representations
+\node[block=reprcolor, minimum width=2.5cm] (repr) at (-4, 0.8) {Learned Representations};
+\draw[arrow=reprcolor] (encoder) -- (repr);
+
+% SSL Objectives (the key!)
+\node[font=\scriptsize\sffamily\bfseries, losscolor] at (1, 4.2) {SSL Objectives};
+
+\node[lossblock] (loss1) at (1, 3.5) {Masked Receiver Recon (70\%)};
+\node[lossblock] (loss2) at (1, 2.7) {Ranking Loss (10\%)};
+\node[lossblock] (loss3) at (1, 1.9) {Provider Consistency (10\%)};
+\node[lossblock] (loss4) at (1, 1.1) {Coord Corruption (5\%)};
+\node[lossblock] (loss5) at (1, 0.3) {Group Relation (5\%)};
+
+% Connect encoder to losses
+\draw[arrow=reprcolor] (encoder.east) -- ++(0.5, 0) |- (loss1.west);
+\draw[arrow=reprcolor] (encoder.east) -- ++(0.5, 0) |- (loss2.west);
+\draw[arrow=reprcolor] (encoder.east) -- ++(0.5, 0) |- (loss3.west);
+\draw[arrow=reprcolor] (encoder.east) -- ++(0.5, 0) |- (loss4.west);
+\draw[arrow=reprcolor] (encoder.east) -- ++(0.5, 0) |- (loss5.west);
+
+% Primary objective highlight
+\node[rectangle, draw=losscolor, fill=losscolor!5, rounded corners, dashed,
+      fit=(loss1), inner sep=2pt] {};
+\node[font=\tiny\sffamily\bfseries, losscolor, anchor=west] at (2.8, 3.5) {PRIMARY};
+
+% ============================================
+% STAGE 2: DOWNSTREAM
+% ============================================
+\node[font=\small\sffamily\bfseries, anchor=west] at (-6, -0.8) {Stage 2: Downstream Analysis};
+
+% Frozen encoder
+\node[block=reprcolor!50, minimum width=2.5cm] (frozen) at (-4, -1.8) {Frozen Representations};
+\draw[arrow=reprcolor, dashed] (repr) -- (frozen);
+\node[font=\tiny\sffamily] at (-4, -0.5) {freeze or fine-tune};
+
+% Downstream tasks
+\node[block=nichecolor] (task1) at (-1, -1.5) {Gene Programs};
+\node[block=hlcacolor] (task2) at (-1, -2.3) {Regulon Analysis};
+\node[block=lucacolor] (task3) at (1.5, -1.5) {Trajectory Inference};
+\node[block=receivercolor] (task4) at (1.5, -2.3) {Stage Prediction};
+
+\draw[arrow=gray] (frozen) -- (task1);
+\draw[arrow=gray] (frozen) -- (task2);
+\draw[arrow=gray] (frozen.east) -- ++(0.3, 0) |- (task3);
+\draw[arrow=gray] (frozen.east) -- ++(0.3, 0) |- (task4);
+
+% ============================================
+% KEY INSIGHT
+% ============================================
+\node[rectangle, draw=black!50, fill=yellow!10, rounded corners,
+      font=\tiny\sffamily, text width=5cm, align=left] at (1, -3.5) {
+    \textbf{Key Principle:}\\
+    SSL pretraining learns \textbf{niche-aware, progression-relevant}\\
+    representations via receiver reconstruction from context.\\
+    Gene programs / regulons analyzed \textbf{after}, using learned repr.\\
+    Do NOT add biology objectives to SSL stage.
+};
+
+% AMICI connection
+\node[rectangle, draw=reprcolor!60, fill=reprcolor!10, rounded corners,
+      font=\tiny\sffamily, text width=3.5cm, align=left] at (-4, -3.5) {
+    \textbf{From AMICI:}\\
+    Mask receiver expression,\\
+    predict from niche context.\\
+    This IS representation learning.
+};
+
+\end{tikzpicture}
+\end{document}
