@@ -60,11 +60,102 @@ output_dir = Path(DATA) / "references/luca/retrained_model"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print("=" * 60)
+print("PRE-FLIGHT CHECK: Validating atlas before training")
+print("=" * 60)
+
+# Check file exists
+if not luca_path.exists():
+    raise FileNotFoundError(f"LuCA atlas not found at: {luca_path}")
+print(f"✓ Atlas file exists: {luca_path}")
+
+# Load just metadata first (fast)
+print("Loading atlas metadata (backed mode for speed)...")
+adata_backed = ad.read_h5ad(luca_path, backed='r')
+print(f"✓ Atlas shape: {adata_backed.shape}")
+
+# Check obs columns
+obs_cols = list(adata_backed.obs.columns)
+print(f"\nObs columns ({len(obs_cols)}): {obs_cols[:20]}{'...' if len(obs_cols) > 20 else ''}")
+
+# Find batch key
+batch_candidates = ['dataset', 'batch', 'study', 'sample', 'patient', 'donor']
+found_batch = [c for c in batch_candidates if c in obs_cols]
+if not found_batch:
+    print(f"\n❌ FATAL: No batch key found!")
+    print(f"   Expected one of: {batch_candidates}")
+    print(f"   Available columns: {obs_cols}")
+    raise ValueError("No batch key found in atlas. Cannot proceed.")
+print(f"✓ Batch key candidates found: {found_batch}")
+
+# Find labels key
+label_candidates = ['cell_type', 'cell_type_fine', 'cell_type_coarse', 'celltype',
+                    'ann_level_1', 'ann_level_2', 'ann_level_3', 'annotation']
+found_labels = [c for c in label_candidates if c in obs_cols]
+if not found_labels:
+    print(f"\n❌ FATAL: No cell type label key found!")
+    print(f"   Expected one of: {label_candidates}")
+    print(f"   Available columns: {obs_cols}")
+    raise ValueError("No labels key found in atlas. Cannot proceed.")
+print(f"✓ Label key candidates found: {found_labels}")
+
+# Check for raw counts
+has_raw = adata_backed.raw is not None
+has_counts_layer = 'counts' in (adata_backed.layers.keys() if adata_backed.layers else [])
+if not has_raw and not has_counts_layer:
+    print(f"\n⚠ WARNING: No .raw or layers['counts'] found")
+    print(f"   Will use .X directly (may be normalized - check if this is correct)")
+else:
+    print(f"✓ Raw counts available: .raw={has_raw}, layers['counts']={has_counts_layer}")
+
+# Check for original embedding
+obsm_keys = list(adata_backed.obsm.keys())
+has_scanvi = 'X_scANVI' in obsm_keys
+has_scvi = 'X_scVI' in obsm_keys
+print(f"✓ Obsm keys: {obsm_keys}")
+if has_scanvi:
+    n_latent_orig = adata_backed.obsm['X_scANVI'].shape[1]
+    print(f"✓ Original X_scANVI found: {n_latent_orig} dimensions (will compare for validation)")
+elif has_scvi:
+    n_latent_orig = adata_backed.obsm['X_scVI'].shape[1]
+    print(f"⚠ Only X_scVI found (no X_scANVI): {n_latent_orig} dimensions")
+else:
+    print(f"⚠ No original embedding found - cannot validate against original")
+
+# Check for HVG
+has_hvg = 'highly_variable' in adata_backed.var.columns
+if has_hvg:
+    # Can't easily count in backed mode, just note it exists
+    print(f"✓ Pre-computed highly_variable genes found in .var")
+else:
+    print(f"✓ No pre-computed HVG - will compute fresh (6000 genes, seurat_v3)")
+
+# Check unlabeled cells
+best_label_key = found_labels[0]
+label_counts = adata_backed.obs[best_label_key].value_counts()
+unknown_variants = ['unknown', 'Unknown', 'UNKNOWN', 'unlabeled', 'Unlabeled', None]
+n_unknown = sum(label_counts.get(u, 0) for u in unknown_variants if u in label_counts.index)
+n_total = len(adata_backed)
+pct_unknown = 100 * n_unknown / n_total
+print(f"✓ Cell type distribution ({best_label_key}): {len(label_counts)} types")
+print(f"  Top 5: {dict(label_counts.head())}")
+if pct_unknown > 50:
+    print(f"⚠ WARNING: {pct_unknown:.1f}% cells are unlabeled - scANVI may underperform")
+else:
+    print(f"✓ Unlabeled cells: {n_unknown:,} ({pct_unknown:.1f}%) - acceptable")
+
+# Close backed file
+del adata_backed
+
+print("\n" + "=" * 60)
+print("PRE-FLIGHT CHECK PASSED - Proceeding with training")
+print("=" * 60)
+
+print("\n" + "=" * 60)
 print("Step 1: Load and inspect LuCA Core Atlas")
 print("=" * 60)
 
-# Load atlas
-print(f"Loading: {luca_path}")
+# Load atlas fully now
+print(f"Loading full atlas: {luca_path}")
 adata = ad.read_h5ad(luca_path)
 print(f"Shape: {adata.shape}")
 print(f"Obs columns: {list(adata.obs.columns)}")
@@ -187,21 +278,54 @@ print(f"scVI model: {vae}")
 print(f"Training on {adata_train.n_obs} cells, {adata_train.n_vars} genes")
 print("Using scArches-optimized parameters from original LuCA build")
 
-# Train with multi-GPU DDP
+# Check GPU availability
+import torch
+n_gpus = torch.cuda.device_count()
+print(f"\nGPU check: {n_gpus} GPUs available")
+for i in range(n_gpus):
+    print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+
+if n_gpus == 0:
+    raise RuntimeError("No GPUs available! Cannot train scVI model efficiently.")
+
+# Train with multi-GPU DDP (with fallback to single GPU)
 # Original used vae.train(use_gpu=True) with defaults, but we add early stopping for safety
-vae.train(
-    max_epochs=400,
-    early_stopping=True,
-    early_stopping_patience=30,
-    early_stopping_monitor="elbo_validation",
-    train_size=0.9,
-    validation_size=0.1,
-    batch_size=1024,
-    accelerator="gpu",
-    devices=4,
-    strategy="ddp_find_unused_parameters_true",
-    check_val_every_n_epoch=1,
-)
+use_devices = min(n_gpus, 4)  # Use up to 4 GPUs
+use_strategy = "ddp_find_unused_parameters_true" if use_devices > 1 else "auto"
+print(f"Training with {use_devices} GPU(s), strategy={use_strategy}")
+
+try:
+    vae.train(
+        max_epochs=400,
+        early_stopping=True,
+        early_stopping_patience=30,
+        early_stopping_monitor="elbo_validation",
+        train_size=0.9,
+        validation_size=0.1,
+        batch_size=1024,
+        accelerator="gpu",
+        devices=use_devices,
+        strategy=use_strategy,
+        check_val_every_n_epoch=1,
+    )
+except Exception as e:
+    if use_devices > 1:
+        print(f"\n⚠ Multi-GPU training failed: {e}")
+        print("Falling back to single GPU...")
+        vae.train(
+            max_epochs=400,
+            early_stopping=True,
+            early_stopping_patience=30,
+            early_stopping_monitor="elbo_validation",
+            train_size=0.9,
+            validation_size=0.1,
+            batch_size=512,  # Smaller batch for single GPU
+            accelerator="gpu",
+            devices=1,
+            check_val_every_n_epoch=1,
+        )
+    else:
+        raise
 
 print(f"scVI training complete. Best epoch: {vae.history['elbo_validation'].idxmin()}")
 
@@ -226,20 +350,40 @@ scanvi = scvi.model.SCANVI.from_scvi_model(
 
 print(f"scANVI model: {scanvi}")
 
-# Train scANVI
-scanvi.train(
-    max_epochs=200,
-    early_stopping=True,
-    early_stopping_patience=15,
-    early_stopping_monitor="elbo_validation",
-    train_size=0.9,
-    validation_size=0.1,
-    batch_size=1024,
-    accelerator="gpu",
-    devices=4,
-    strategy="ddp_find_unused_parameters_true",
-    check_val_every_n_epoch=1,
-)
+# Train scANVI (same GPU strategy as scVI)
+print(f"Training scANVI with {use_devices} GPU(s)")
+try:
+    scanvi.train(
+        max_epochs=200,
+        early_stopping=True,
+        early_stopping_patience=15,
+        early_stopping_monitor="elbo_validation",
+        train_size=0.9,
+        validation_size=0.1,
+        batch_size=1024,
+        accelerator="gpu",
+        devices=use_devices,
+        strategy=use_strategy,
+        check_val_every_n_epoch=1,
+    )
+except Exception as e:
+    if use_devices > 1:
+        print(f"\n⚠ Multi-GPU scANVI training failed: {e}")
+        print("Falling back to single GPU...")
+        scanvi.train(
+            max_epochs=200,
+            early_stopping=True,
+            early_stopping_patience=15,
+            early_stopping_monitor="elbo_validation",
+            train_size=0.9,
+            validation_size=0.1,
+            batch_size=512,
+            accelerator="gpu",
+            devices=1,
+            check_val_every_n_epoch=1,
+        )
+    else:
+        raise
 
 print(f"scANVI training complete. Best epoch: {scanvi.history['elbo_validation'].idxmin()}")
 
@@ -548,14 +692,42 @@ if has_original:
     plt.close()
     print(f"Saved UMAP comparison to: {output_dir / 'umap_comparison.png'}")
 
+# Final verdict
 print("\n" + "=" * 60)
-print("DONE! Model ready for scArches surgery.")
-print("=" * 60)
-print(f"\nModel saved to: {model_path}")
+verdict = metadata.get('verdict', 'UNKNOWN')
+if verdict == 'PASS':
+    print("✅ SUCCESS: Model trained and validated!")
+    print("=" * 60)
+    print(f"\nModel saved to: {model_path}")
+    print(f"Gene list saved to: {output_dir / 'gene_list.json'}")
+    print(f"\nscIB Overall Score: {retrained_metrics['overall_score']:.4f}")
+    if has_original:
+        print(f"Original Score:     {original_metrics['overall_score']:.4f}")
+        print(f"Difference:         {retrained_metrics['overall_score'] - original_metrics['overall_score']:+.4f}")
+    print("\n>>> Model is ready for scArches surgery!")
+elif verdict == 'NEEDS_REVIEW':
+    print("⚠️  WARNING: Model trained but underperforms original")
+    print("=" * 60)
+    print(f"\nModel saved to: {model_path}")
+    print(f"\nscIB Overall Score: {retrained_metrics['overall_score']:.4f}")
+    if has_original:
+        print(f"Original Score:     {original_metrics['overall_score']:.4f}")
+        print(f"Difference:         {retrained_metrics['overall_score'] - original_metrics['overall_score']:+.4f}")
+    print("\n>>> Review the metrics. Model may still be usable.")
+    print(">>> Check scib_comparison.png and umap_comparison.png")
+else:
+    print("✅ DONE: Model trained (no original to compare)")
+    print("=" * 60)
+    print(f"\nModel saved to: {model_path}")
+    print(f"scIB Overall Score: {retrained_metrics['overall_score']:.4f}")
+    print("\n>>> Model is ready for scArches surgery!")
+
 print(f"\nTo use this model for reference mapping (scArches surgery):")
-print("""
-# Load model
-scanvi_ref = scvi.model.SCANVI.load(model_path, adata_ref)
+print(f"""
+# Load reference atlas and model
+adata_ref = ad.read_h5ad('{luca_path}')
+adata_ref = adata_ref[:, gene_list].copy()  # Match genes
+scanvi_ref = scvi.model.SCANVI.load('{model_path}', adata_ref)
 
 # Load query (must have same genes - see gene_list.json)
 vae_q = scvi.model.SCANVI.load_query_data(query_hvg, scanvi_ref)
