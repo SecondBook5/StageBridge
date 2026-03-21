@@ -109,6 +109,8 @@ def fuse_dual_reference(
     hlca_confidence: np.ndarray | None = None,
     luca_confidence: np.ndarray | None = None,
     normalize: bool = True,
+    learned_hlca_weight: float = 0.5,
+    learned_output_dim: int | None = None,
 ) -> FusedEmbeddingResult:
     """Fuse HLCA and LuCa embeddings into unified representation.
 
@@ -170,7 +172,11 @@ def fuse_dual_reference(
     elif method == "weighted":
         fused, ref_mode = _fuse_weighted(hlca_emb, luca_emb, hlca_confidence, luca_confidence)
     elif method == "learned":
-        fused, ref_mode = _fuse_learned(hlca_emb, luca_emb)
+        fused, ref_mode = _fuse_learned(
+            hlca_emb, luca_emb,
+            hlca_weight=learned_hlca_weight,
+            output_dim=learned_output_dim,
+        )
     else:
         raise ValueError(f"Unknown fusion method: {method}")
 
@@ -273,16 +279,75 @@ def _fuse_weighted(
 def _fuse_learned(
     hlca_emb: np.ndarray,
     luca_emb: np.ndarray,
+    *,
+    hlca_weight: float = 0.5,
+    output_dim: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Placeholder for learned fusion method.
+    """Learned weighted fusion of embeddings.
 
-    Future implementation could use:
-    - Attention-based fusion
-    - MLP projection
-    - Autoencoder bottleneck
+    Uses a simple learned weight approach:
+    - Projects both embeddings to same dimension if needed
+    - Applies learned weight: fused = w * hlca_proj + (1-w) * luca_proj
+
+    For full learned fusion with gradients, use LearnedFusionModule (PyTorch).
+    This NumPy version uses fixed weights for inference.
+
+    Parameters
+    ----------
+    hlca_emb : np.ndarray
+        HLCA embeddings (n_cells, hlca_dim)
+    luca_emb : np.ndarray
+        LuCA embeddings (n_cells, luca_dim)
+    hlca_weight : float
+        Weight for HLCA component (0-1). LuCA weight = 1 - hlca_weight.
+    output_dim : int, optional
+        Output dimension. If None, uses max of input dims.
+
+    Returns
+    -------
+    fused : np.ndarray
+        Fused embeddings
+    ref_mode : np.ndarray
+        Reference mode per cell
     """
-    log.warning("Learned fusion not yet implemented. Falling back to concatenation.")
-    return _fuse_concat(hlca_emb, luca_emb)
+    n_cells = hlca_emb.shape[0]
+    hlca_dim = hlca_emb.shape[1]
+    luca_dim = luca_emb.shape[1]
+
+    if output_dim is None:
+        output_dim = max(hlca_dim, luca_dim)
+
+    # L2 normalize inputs
+    hlca_norm = hlca_emb / (np.linalg.norm(hlca_emb, axis=1, keepdims=True) + 1e-8)
+    luca_norm = luca_emb / (np.linalg.norm(luca_emb, axis=1, keepdims=True) + 1e-8)
+
+    # Project to common dimension via zero-padding or truncation
+    if hlca_dim < output_dim:
+        hlca_proj = np.zeros((n_cells, output_dim), dtype=np.float32)
+        hlca_proj[:, :hlca_dim] = hlca_norm
+    else:
+        hlca_proj = hlca_norm[:, :output_dim]
+
+    if luca_dim < output_dim:
+        luca_proj = np.zeros((n_cells, output_dim), dtype=np.float32)
+        luca_proj[:, :luca_dim] = luca_norm
+    else:
+        luca_proj = luca_norm[:, :output_dim]
+
+    # Weighted combination
+    w = np.clip(hlca_weight, 0.0, 1.0)
+    fused = w * hlca_proj + (1.0 - w) * luca_proj
+
+    # Determine reference mode
+    ref_mode = np.where(w > 0.6, "hlca", np.where(w < 0.4, "luca", "both"))
+    ref_mode = np.full(n_cells, ref_mode if isinstance(ref_mode, str) else "both", dtype=object)
+
+    log.info(
+        "Learned fusion: HLCA(%d) + LuCA(%d) -> %d dims, weight=%.2f",
+        hlca_dim, luca_dim, output_dim, w
+    )
+
+    return fused.astype(np.float32), ref_mode
 
 
 def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
