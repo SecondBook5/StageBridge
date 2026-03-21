@@ -140,8 +140,8 @@ class TestComputeFeatureOverlap:
         ref_path = _create_mock_reference(tmp_path, "ref", n_genes=100)
         ref = ad.read_h5ad(ref_path)
 
-        # Query with 50% overlapping genes
-        query_genes = list(ref.var_names[:50]) + [f"NOVEL{i}" for i in range(50)]
+        # Query with 50% overlapping genes (use feature_name symbols, not ENSG IDs)
+        query_genes = list(ref.var["feature_name"][:50]) + [f"NOVEL{i}" for i in range(50)]
         query = ad.AnnData(
             X=np.random.randn(50, 100).astype(np.float32),
             var=pd.DataFrame(index=query_genes),
@@ -157,8 +157,8 @@ class TestComputeFeatureOverlap:
         ref_path = _create_mock_reference(tmp_path, "ref", n_genes=100)
         ref = ad.read_h5ad(ref_path)
 
-        # Query with only 10% overlapping genes
-        query_genes = list(ref.var_names[:10]) + [f"NOVEL{i}" for i in range(90)]
+        # Query with only 10% overlapping genes (use feature_name symbols, not ENSG IDs)
+        query_genes = list(ref.var["feature_name"][:10]) + [f"NOVEL{i}" for i in range(90)]
         query = ad.AnnData(
             X=np.random.randn(50, 100).astype(np.float32),
             var=pd.DataFrame(index=query_genes),

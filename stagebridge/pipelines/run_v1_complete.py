@@ -857,7 +857,7 @@ def generate_all_figures(
     plt.tight_layout()
     plt.savefig(figures_dir / 'fig1_training_curves.png', dpi=300, facecolor='white')
     plt.close()
-    print(f"    Saved: fig1_training_curves.png")
+    print("    Saved: fig1_training_curves.png")
 
     # Figure 2: Ablation comparison
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -875,7 +875,7 @@ def generate_all_figures(
     plt.tight_layout()
     plt.savefig(figures_dir / 'fig2_ablation.png', dpi=300, facecolor='white')
     plt.close()
-    print(f"    Saved: fig2_ablation.png")
+    print("    Saved: fig2_ablation.png")
 
     # Figure 3: Trajectory visualization
     model.eval()
@@ -925,7 +925,7 @@ def generate_all_figures(
     plt.tight_layout()
     plt.savefig(figures_dir / 'fig3_trajectories.png', dpi=300, facecolor='white')
     plt.close()
-    print(f"    Saved: fig3_trajectories.png")
+    print("    Saved: fig3_trajectories.png")
 
     # Figure 4: Summary
     fig = plt.figure(figsize=(16, 12))
@@ -970,7 +970,7 @@ def generate_all_figures(
     plt.tight_layout()
     plt.savefig(figures_dir / 'fig4_summary.png', dpi=300, facecolor='white')
     plt.close()
-    print(f"    Saved: fig4_summary.png")
+    print("    Saved: fig4_summary.png")
 
 
 # =============================================================================
@@ -1046,7 +1046,7 @@ def run_hyperparameter_optimization(
     best_params = study.best_params
     best_value = study.best_value
 
-    print(f"\n  Best trial:")
+    print("\n  Best trial:")
     print(f"    Value: {best_value:.4f}")
     print(f"    Params: {best_params}")
 
@@ -1072,7 +1072,7 @@ def run_hyperparameter_optimization(
         fig = optuna.visualization.plot_param_importances(study)
         fig.write_image(str(output_dir / 'figures' / 'hpo_importance.png'))
 
-        print(f"    Saved HPO figures")
+        print("    Saved HPO figures")
     except Exception as e:
         print(f"    Could not generate HPO figures: {e}")
 
@@ -1122,7 +1122,7 @@ def generate_hpo_figure(study, output_dir: Path, colors: dict):
     plt.tight_layout()
     plt.savefig(output_dir / 'figures' / 'fig5_hpo.png', dpi=300, facecolor='white')
     plt.close()
-    print(f"    Saved: fig5_hpo.png")
+    print("    Saved: fig5_hpo.png")
 
 
 # =============================================================================
@@ -1372,7 +1372,7 @@ def main():
     print("  - ablation_results.csv")
     print()
     print("Research Director Compliance:")
-    print(f"  ✓ SSL Pretraining (70% receiver reconstruction)")
+    print("  ✓ SSL Pretraining (70% receiver reconstruction)")
     print(f"  ✓ Doctrine encoder: {'ReceiverCenteredNicheEncoder' if DOCTRINE_ENCODER_AVAILABLE else 'fallback'}")
     print("  ✓ Baseline ladder: PoolingMLP, DeepSets, SetTransformer, GraphSAGE")
     print("  ✓ Flow matching transitions")

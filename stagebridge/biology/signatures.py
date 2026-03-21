@@ -303,7 +303,8 @@ def score_signature(
         import warnings
         warnings.warn(
             f"Only {len(gene_idx)}/{len(genes)} genes found for {signature_name}. "
-            f"Missing: {[g for g in genes if g not in var_names][:5]}..."
+            f"Missing: {[g for g in genes if g not in var_names][:5]}...",
+            stacklevel=2,
         )
 
     # Extract expression

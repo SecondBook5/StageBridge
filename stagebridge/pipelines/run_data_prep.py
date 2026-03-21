@@ -201,7 +201,6 @@ def process_spatial(
     force: bool = False,
 ) -> dict[str, Any]:
     """Process Visium spatial data: discover, load from tarballs, merge."""
-    import gc
     from stagebridge.data.luad_evo.visium import (
         discover_spatial_tarballs,
         load_spatial_sample_from_tarball,

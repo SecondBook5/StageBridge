@@ -241,7 +241,7 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
 
     # For large files, just check and warn - don't rewrite
     if file_size_gb > max_size_gb:
-        print(f"  Large file - checking with backed mode...")
+        print("  Large file - checking with backed mode...")
         adata = anndata.read_h5ad(ref_path, backed='r')
         first_gene = str(adata.var_names[0])
         if first_gene.startswith("ENSG") and "feature_name" in adata.var.columns:
@@ -255,7 +255,7 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
                 })
                 gene_map.to_parquet(mapping_path)
                 print(f"  Created gene mapping: {mapping_path}")
-            print(f"  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching.")
+            print("  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching.")
         adata.file.close()
         return ref_path
 
@@ -269,10 +269,10 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
 
     # Check for feature_name column
     if "feature_name" not in adata.var.columns:
-        print(f"  WARNING: No feature_name column, keeping ENSG IDs")
+        print("  WARNING: No feature_name column, keeping ENSG IDs")
         return ref_path
 
-    print(f"  Reindexing from ENSG to gene symbols...")
+    print("  Reindexing from ENSG to gene symbols...")
     adata.var["ensembl_id"] = adata.var_names.copy()
     adata.var_names = adata.var["feature_name"].astype(str)
     adata.var_names_make_unique()
@@ -391,7 +391,7 @@ def run_hpc_reference_mapping(
                                 hlca_model_path = model_dir
                                 print(f"  Found HLCA scANVI HubModel: {hlca_model_path.name}")
                                 break
-                    except:
+                    except Exception:
                         continue
                 elif (candidate / "model.pt").exists():
                     hlca_model_path = candidate
@@ -536,7 +536,7 @@ def run_hpc_reference_mapping(
         "luca_confidence_method": luca_conf_method,
     })
     conf_df.to_parquet(output_dir / "reference_confidence.parquet", index=False)
-    print(f"  Saved reference_confidence.parquet with calibrated confidence")
+    print("  Saved reference_confidence.parquet with calibrated confidence")
 
     # Feature overlap report
     feature_overlap = {
@@ -608,8 +608,8 @@ def run_hpc_reference_mapping(
     print(f"  HLCA dim: {manifest['hlca_dim']}")
     print(f"  LuCA dim: {manifest['luca_dim']}")
     print(f"  Fused dim: {manifest['fused_dim']}")
-    print(f"  Latent normalization: L2 (per-reference)")
-    print(f"  Confidence calibration: percentile rank (comparable across refs)")
+    print("  Latent normalization: L2 (per-reference)")
+    print("  Confidence calibration: percentile rank (comparable across refs)")
     print(f"  Wall time: {wall_time:.1f}s")
     # Run diagnostics
     print("\nRunning diagnostics...")

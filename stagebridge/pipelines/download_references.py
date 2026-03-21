@@ -67,7 +67,7 @@ def download_hlca(output_dir: Path) -> Path:
             cache_dir=cache_dir,
         )
 
-        print(f" Downloaded HLCA scANVI model")
+        print(" Downloaded HLCA scANVI model")
         print(f"  Reference cells: {hubmodel.adata.n_obs:,}")
         print(f"  Reference genes: {hubmodel.adata.n_vars:,}")
         print(f"  Model type: {type(hubmodel.model).__name__}")

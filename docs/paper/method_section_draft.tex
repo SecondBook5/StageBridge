@@ -40,7 +40,7 @@ For each reference, we apply scArches surgical fine-tuning to pretrained scANVI 
 \begin{equation}
     \mathcal{L}_{\text{surgery}} = -\mathbb{E}_{q_{\phi'}(z|x)}[\log p_\theta(x|z)] + \text{KL}(q_{\phi'}(z|x) \| p(z))
 \end{equation}
-Training proceeds for up to 200 epochs with early stopping on validation ELBO (patience 20). This yields embeddings $z_i^{\text{HLCA}} \in \mathbb{R}^{30}$ and $z_i^{\text{LuCA}} \in \mathbb{R}^{10}$.
+Training proceeds for up to 200 epochs with early stopping on validation ELBO (patience 15, 90/10 train-validation split). This yields embeddings $z_i^{\text{HLCA}} \in \mathbb{R}^{30}$ and $z_i^{\text{LuCA}} \in \mathbb{R}^{10}$.
 
 Since these spaces have different scales and semantics, we L2-normalize before fusion. The default concatenation strategy produces:
 \begin{equation}
