@@ -41,6 +41,10 @@ env/
 *.png
 *.jpg
 *.jpeg
+*.zip
+
+# Reference code/papers (local only)
+docs/luca_code/
 
 # Generated outputs (local only)
 outputs/

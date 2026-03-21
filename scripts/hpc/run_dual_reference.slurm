@@ -1,73 +1,74 @@
 #!/bin/bash
-#SBATCH --job-name=dual_ref
+#SBATCH --job-name=dual_ref_knn
 #SBATCH --output=logs/dual_reference_%j.out
 #SBATCH --error=logs/dual_reference_%j.err
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu
-#SBATCH --gres=gpu:h100:4
+#SBATCH --gres=gpu:h100:1
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
-#SBATCH --time=12:00:00
+#SBATCH --time=06:00:00
 #SBATCH --mail-type=END,FAIL
 
-# Exit on error
+# Dual-reference mapping using k-NN projection for BOTH references
+# This ensures methodological consistency between HLCA and LuCA
+# Single environment - no pandas version conflicts
+
 set -e
 
-# Setup
 cd $SLURM_SUBMIT_DIR
 export DATA=/scratch/chaunzt1/stagebridge
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0
 mkdir -p logs
 
 echo "=============================================="
-echo "Dual Reference Mapping Pipeline"
+echo "Dual Reference Mapping Pipeline (k-NN mode)"
 echo "Started: $(date)"
 echo "Node: $(hostname)"
+echo "Method: k-NN projection (consistent for both references)"
 echo "=============================================="
 
-# Verify GPUs
 echo ""
 echo "GPU Status:"
 nvidia-smi --query-gpu=name,memory.total --format=csv
-
-# ============================================
-# Step 1: HLCA with stagebridge_env
-# ============================================
-echo ""
-echo "=============================================="
-echo "Step 1: HLCA Mapping (stagebridge_env)"
-echo "Started: $(date)"
-echo "=============================================="
 
 module load miniforge3
 eval "$(conda shell.bash hook)"
 conda activate /scratch/chaunzt1/stagebridge_env
 
+# ============================================
+# Step 1: HLCA k-NN Mapping
+# ============================================
+echo ""
+echo "=============================================="
+echo "Step 1: HLCA Mapping (k-NN projection)"
+echo "Started: $(date)"
+echo "=============================================="
+
 python -m stagebridge.pipelines.run_reference \
     --data-root $DATA \
     --hpc \
     --hlca-only \
+    --no-model-based \
     --snrna $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
 
 echo "HLCA completed: $(date)"
 
 # ============================================
-# Step 2: LuCA with luca_compat
+# Step 2: LuCA k-NN Mapping
 # ============================================
 echo ""
 echo "=============================================="
-echo "Step 2: LuCA Mapping (luca_compat)"
+echo "Step 2: LuCA Mapping (k-NN projection)"
 echo "Started: $(date)"
 echo "=============================================="
-
-conda activate /home/booka/luca_compat
 
 python -m stagebridge.pipelines.run_reference \
     --data-root $DATA \
     --hpc \
     --luca-only \
+    --no-model-based \
     --snrna $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
 
 echo "LuCA completed: $(date)"
@@ -81,8 +82,7 @@ echo "Step 3: Merging embeddings and generating figures"
 echo "Started: $(date)"
 echo "=============================================="
 
-# Switch back to main env for figure generation
-conda activate /scratch/chaunzt1/stagebridge_env
+# Same environment throughout (k-NN has no pandas version conflicts)
 
 python << 'PYTHON_SCRIPT'
 import pandas as pd
@@ -173,7 +173,7 @@ print('Generating reference_mapping_summary.png...')
 from sklearn.decomposition import PCA
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-fig.suptitle("Dual-Reference Mapping Summary", fontsize=14, fontweight='bold')
+fig.suptitle("Dual-Reference Mapping Summary (k-NN Projection)", fontsize=14, fontweight='bold')
 
 # 1. Fused embedding PCA colored by stage
 ax = axes[0, 0]
@@ -266,43 +266,38 @@ plt.close()
 print('  Saved latent_heatmap_by_stage.png')
 
 # ============================================
-# Figure 3: Training Curves (if available)
+# Figure 3: k-NN Distance Distributions
 # ============================================
-print('Checking for training history...')
+print('Generating knn_distance_distributions.png...')
 manifest_path = output_dir / 'reference_manifest.json'
 if manifest_path.exists():
     manifest = json.loads(manifest_path.read_text())
-    hlca_history = manifest.get('hlca', {}).get('training_history')
-    luca_history = manifest.get('luca', {}).get('training_history')
 
-    if hlca_history or luca_history:
-        print('Generating scarches_training_curves.png...')
-        n_plots = sum(1 for h in [hlca_history, luca_history] if h)
-        fig, axes = plt.subplots(1, max(n_plots, 1), figsize=(6 * max(n_plots, 1), 5))
-        if n_plots == 1:
-            axes = [axes]
+    # For k-NN mode, show distance statistics instead of training curves
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-        plot_idx = 0
-        for name, history in [("HLCA", hlca_history), ("LuCA", luca_history)]:
-            if history is None:
-                continue
-            ax = axes[plot_idx]
-            if 'elbo_train' in history:
-                epochs = range(1, len(history['elbo_train']) + 1)
-                ax.plot(epochs, history['elbo_train'], 'b-', label='Train ELBO', linewidth=2)
-            if 'elbo_validation' in history:
-                ax.plot(epochs, history['elbo_validation'], 'r--', label='Val ELBO', linewidth=2)
-            ax.set_xlabel('Epoch')
-            ax.set_ylabel('ELBO Loss')
-            ax.set_title(f'{name} scArches Surgery Training')
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-            plot_idx += 1
+    # HLCA distance histogram from confidence
+    ax = axes[0]
+    ax.hist(hlca_conf, bins=50, alpha=0.7, color='steelblue', edgecolor='white')
+    ax.axvline(np.median(hlca_conf), color='red', linestyle='--', label=f'Median: {np.median(hlca_conf):.3f}')
+    ax.set_xlabel('Calibrated Confidence')
+    ax.set_ylabel('Count')
+    ax.set_title('HLCA k-NN Confidence Distribution')
+    ax.legend()
 
-        plt.tight_layout()
-        plt.savefig(plots_dir / 'scarches_training_curves.png', dpi=150, bbox_inches='tight')
-        plt.close()
-        print('  Saved scarches_training_curves.png')
+    # LuCA distance histogram from confidence
+    ax = axes[1]
+    ax.hist(luca_conf, bins=50, alpha=0.7, color='coral', edgecolor='white')
+    ax.axvline(np.median(luca_conf), color='red', linestyle='--', label=f'Median: {np.median(luca_conf):.3f}')
+    ax.set_xlabel('Calibrated Confidence')
+    ax.set_ylabel('Count')
+    ax.set_title('LuCA k-NN Confidence Distribution')
+    ax.legend()
+
+    plt.tight_layout()
+    plt.savefig(plots_dir / 'knn_distance_distributions.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    print('  Saved knn_distance_distributions.png')
 
 # ============================================
 # Figure 4: UMAP colored by stage
