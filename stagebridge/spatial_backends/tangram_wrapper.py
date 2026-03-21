@@ -162,8 +162,16 @@ class TangramBackend(SpatialBackend):
         # Compute confidence (based on entropy of predictions)
         confidence = self._compute_mapping_confidence(cell_type_proportions)
 
+        # Create preliminary result for metrics computation
+        preliminary_result = BackendMappingResult(
+            cell_type_proportions=cell_type_proportions,
+            confidence=confidence,
+            upstream_metrics={},
+            metadata={},
+        )
+
         # Compute upstream metrics
-        upstream_metrics = self.compute_upstream_metrics(snrna, spatial, mapper)
+        upstream_metrics = self.compute_upstream_metrics(snrna, spatial, preliminary_result)
 
         # Save if output_dir provided
         if output_dir:
@@ -226,6 +234,42 @@ class TangramBackend(SpatialBackend):
         confidence = 1.0 - (entropy / max_entropy)
 
         return confidence
+
+    def compute_upstream_metrics(
+        self,
+        snrna: ad.AnnData,
+        spatial: ad.AnnData,
+        result: BackendMappingResult | None,
+    ) -> dict[str, float]:
+        """Compute upstream quality metrics for Tangram mapping."""
+        metrics = {}
+
+        if result is not None and result.cell_type_proportions is not None:
+            props = result.cell_type_proportions.values
+            # Cell type entropy (diversity)
+            metrics["mean_entropy"] = float(compute_cell_type_entropy(props).mean())
+            # Sparsity
+            metrics["sparsity"] = float(compute_sparsity(props))
+            # Coverage (spots with confident mapping)
+            if result.confidence is not None:
+                conf = result.confidence if isinstance(result.confidence, np.ndarray) else result.confidence.values
+                metrics["coverage_0.5"] = float((conf > 0.5).mean())
+                metrics["mean_confidence"] = float(conf.mean())
+
+        return metrics
+
+    def estimate_confidence(
+        self,
+        snrna: ad.AnnData,
+        spatial: ad.AnnData,
+        result: BackendMappingResult | None,
+    ) -> pd.Series:
+        """Return confidence scores (already computed in map())."""
+        if result is not None and result.confidence is not None:
+            if isinstance(result.confidence, pd.Series):
+                return result.confidence
+            return pd.Series(result.confidence, index=spatial.obs_names)
+        return pd.Series(np.zeros(spatial.n_obs), index=spatial.obs_names)
 
     def _select_marker_genes(
         self,
