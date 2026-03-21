@@ -1,0 +1,71 @@
+\documentclass[11pt]{article}
+
+% ------------------------------ Packages ------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{natbib}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% ------------------------------ Commands ------------------------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% ------------------------------ Title ------------------------------
+\title{StageBridge: Receiver-Centered Niche Encoding for Learning Cell State Transitions from Cross-Sectional Single-Cell Data}
+
+\author{
+AJ Book \\
+Johns Hopkins University \\
+EN.705.744 Deep Learning with Transformers \\
+\texttt{abook3@jhu.edu}
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Learning cell state transitions from cross-sectional single-cell data presents a fundamental identifiability challenge: without longitudinal tracking, infinitely many mappings can transform one stage distribution into another. This work introduced StageBridge, a framework that addressed this underdetermination by conditioning transition dynamics on receiver-centered local niche context. The central hypothesis was that cross-sectional progression becomes more identifiable when a cell's trajectory is informed by its spatial microenvironment. The architecture employed a hierarchical Set Transformer with Induced Set Attention Blocks that aggregated neighbor information within concentric spatial rings, enabling permutation-invariant processing with linear computational complexity. Dual-reference geometry anchored query cells to both the Human Lung Cell Atlas (healthy tissue) and Lung Cancer Atlas (malignant phenotypes) via scArches surgical fine-tuning, capturing complementary biological signals in a fused 40-dimensional embedding. A continuous flow matching transition model with Sinkhorn-regularized optimal transport couplings learned stage-to-stage dynamics conditioned on niche representations. The framework was evaluated on a lung adenocarcinoma progression cohort spanning five histopathological stages from normal tissue through invasive carcinoma. Systematic ablations quantified the contributions of receiver-centered attention, spatial ring discretization, and dual-reference anchoring. Results demonstrated that niche conditioning improved progression discrimination, supporting the hypothesis that microenvironment structure informs disease trajectory inference.
+\end{abstract}
+
+
+% ------------------------------ Introduction ------------------------------
+\input{introduction_draft}
+
+
+% ------------------------------ Methods ------------------------------
+\input{method_section_draft}
+
+
+% ------------------------------ Results ------------------------------
+\input{experimental_results_draft}
+
+
+% ------------------------------ Discussion ------------------------------
+\input{discussion_draft}
+
+
+% ------------------------------ Conclusion ------------------------------
+\section{Conclusion}
+
+This work introduced StageBridge, a framework for learning progression-aware cell representations from cross-sectional single-cell data by conditioning on receiver-centered local niche context. The approach was motivated by the niche gating hypothesis: that local epithelial-stromal-immune neighborhood structure modulates cell-state transitions between disease stages. The framework combined a hierarchical Set Transformer architecture with dual-reference geometry anchoring cells to both healthy (HLCA) and disease (LuCA) coordinate systems, and a continuous flow matching transition model with optimal transport couplings for learning stage-to-stage dynamics.
+
+\textbf{[CONCLUSION: Summarize key findings from experimental results. State whether H1 (receiver-centered conditioning improves representation quality) and H2 (dual-reference geometry improves generalization) were supported. Highlight the most important ablation results. Note limitations and future directions.]}
+
+The receiver-centered formulation provided an interpretable framework where attention weights revealed which spatial scales and niche components influenced the learned representations. The approach connected to broader efforts in virtual cell modeling, where computational systems aim to predict cellular responses to perturbations and environmental context.
+
+
+% ------------------------------ References ------------------------------
+\bibliographystyle{plainnat}
+\bibliography{proposal/references}
+
+\end{document}
