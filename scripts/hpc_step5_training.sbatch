@@ -374,61 +374,71 @@ echo "Starting V1 Complete Training Pipeline"
 echo "=============================================="
 echo ""
 
-# Build training command
-TRAIN_CMD="python -m stagebridge.pipelines.run_v1_complete \
-    --data_dir \"$CANONICAL\" \
-    --output_dir \"$OUTPUT\" \
-    --hlca_path \"$HLCA\" \
-    --luca_path \"$LUCA\" \
-    --latent_dim $LATENT_DIM \
-    --ssl_epochs $SSL_EPOCHS \
-    --transition_epochs $TRANSITION_EPOCHS \
-    --batch_size $BATCH_SIZE \
-    --lr $LEARNING_RATE \
-    --seed $SEED \
-    --device auto \
-    --hpo_trials $HPO_TRIALS \
-    --use_best_hparams"
-
-# Add checkpoint-related flags if the pipeline supports them
-if [ -n "$RESUME_CHECKPOINT" ]; then
-    TRAIN_CMD="$TRAIN_CMD --resume_checkpoint \"$RESUME_CHECKPOINT\""
+# Determine which training module to use
+# Prefer DDP module for multi-GPU, fallback to original for single GPU
+USE_DDP_MODULE=false
+if [ "$N_GPUS" -gt 1 ]; then
+    # Check if DDP module exists
+    if python -c "from stagebridge.pipelines.run_v1_ddp import train" 2>/dev/null; then
+        USE_DDP_MODULE=true
+        echo "Using DDP-aware training module (run_v1_ddp)"
+    else
+        echo "DDP module not available, using run_v1_complete with DataParallel fallback"
+    fi
 fi
 
-# For multi-GPU with DDP, use torchrun
-# Note: This requires the training script to support DDP
-# If not, it will run on single GPU which is still fine
-if [ "$N_GPUS" -gt 1 ]; then
+# Build training command
+if [ "$USE_DDP_MODULE" = true ]; then
+    # Use torchrun with DDP module
     echo "Using torchrun for multi-GPU DDP training..."
     echo "  Number of processes: $N_GPUS"
     echo ""
 
-    # Check if training script supports DDP
-    if python -c "from stagebridge.pipelines.run_v1_complete import main; import inspect; 'distributed' in inspect.signature(main).parameters or True" 2>/dev/null; then
-        TRAIN_CMD="torchrun \
-            --nproc_per_node=$N_GPUS \
-            --master_addr=$MASTER_ADDR \
-            --master_port=$MASTER_PORT \
-            -m stagebridge.pipelines.run_v1_complete \
-            --data_dir \"$CANONICAL\" \
-            --output_dir \"$OUTPUT\" \
-            --hlca_path \"$HLCA\" \
-            --luca_path \"$LUCA\" \
-            --latent_dim $LATENT_DIM \
-            --ssl_epochs $SSL_EPOCHS \
-            --transition_epochs $TRANSITION_EPOCHS \
-            --batch_size $BATCH_SIZE \
-            --lr $LEARNING_RATE \
-            --seed $SEED \
-            --device auto \
-            --hpo_trials $HPO_TRIALS \
-            --use_best_hparams"
+    TRAIN_CMD="torchrun \
+        --nproc_per_node=$N_GPUS \
+        --master_addr=$MASTER_ADDR \
+        --master_port=$MASTER_PORT \
+        -m stagebridge.pipelines.run_v1_ddp \
+        --data_dir \"$CANONICAL\" \
+        --output_dir \"$OUTPUT\" \
+        --hlca_path \"$HLCA\" \
+        --luca_path \"$LUCA\" \
+        --latent_dim $LATENT_DIM \
+        --ssl_epochs $SSL_EPOCHS \
+        --transition_epochs $TRANSITION_EPOCHS \
+        --batch_size $BATCH_SIZE \
+        --lr $LEARNING_RATE \
+        --seed $SEED \
+        --hpo_trials $HPO_TRIALS \
+        --checkpoint_every $CHECKPOINT_EVERY"
 
-        if [ -n "$RESUME_CHECKPOINT" ]; then
-            TRAIN_CMD="$TRAIN_CMD --resume_checkpoint \"$RESUME_CHECKPOINT\""
-        fi
-    else
-        echo "Note: Training script may not support DDP - running with DataParallel fallback"
+    if [ "$USE_BEST_HPARAMS" = true ] 2>/dev/null || [ -n "$HPO_TRIALS" ]; then
+        TRAIN_CMD="$TRAIN_CMD --use_best_hparams"
+    fi
+
+    if [ -n "$RESUME_CHECKPOINT" ]; then
+        TRAIN_CMD="$TRAIN_CMD --resume_checkpoint \"$RESUME_CHECKPOINT\""
+    fi
+else
+    # Use original module (single GPU or fallback)
+    TRAIN_CMD="python -m stagebridge.pipelines.run_v1_complete \
+        --data_dir \"$CANONICAL\" \
+        --output_dir \"$OUTPUT\" \
+        --hlca_path \"$HLCA\" \
+        --luca_path \"$LUCA\" \
+        --latent_dim $LATENT_DIM \
+        --ssl_epochs $SSL_EPOCHS \
+        --transition_epochs $TRANSITION_EPOCHS \
+        --batch_size $BATCH_SIZE \
+        --lr $LEARNING_RATE \
+        --seed $SEED \
+        --device auto \
+        --hpo_trials $HPO_TRIALS \
+        --use_best_hparams"
+
+    # Add checkpoint-related flags if the pipeline supports them
+    if [ -n "$RESUME_CHECKPOINT" ]; then
+        TRAIN_CMD="$TRAIN_CMD --resume_checkpoint \"$RESUME_CHECKPOINT\""
     fi
 fi
 
