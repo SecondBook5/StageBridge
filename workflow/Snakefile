@@ -155,13 +155,15 @@ rule fuse_embeddings:
 
 # =============================================================================
 # Stage 3: Spatial Backend Benchmark (4 backends in parallel)
+# NOTE: Requires HLCA cell types, so runs AFTER hlca_mapping completes
+#       BUT runs IN PARALLEL with luca_mapping
 # =============================================================================
 
 rule spatial_backend:
     input:
         snrna = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
         spatial = f"{PROCESSED}/spatial_merged.h5ad",
-        hlca_labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet"  # Need cell types
+        hlca_labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet"  # Cell types from HLCA
     output:
         metrics = f"{SPATIAL}/{{backend}}/upstream_metrics.json",
         proportions = f"{SPATIAL}/{{backend}}/cell_type_proportions.parquet"
@@ -380,10 +382,29 @@ rule dag:
 
 
 # =============================================================================
-# Rule Ordering Hints (for readability, Snakemake handles deps automatically)
+# Execution DAG (Snakemake handles this automatically based on input/output)
 # =============================================================================
-
-# Reference mapping (parallel)
-# hlca_mapping ──┬──→ fuse_embeddings ──→ data_preparation ──→ training ──→ ablations ──→ figures
-# luca_mapping ──┘                    ↗
-# spatial_backend ────────────────────┘
+#
+#                    ┌─────────────────────────────────────┐
+#                    │                                     │
+#  hlca_mapping ─────┼──→ spatial_backend (4x parallel) ──┼──┐
+#       │            │                                     │  │
+#       │            └─────────────────────────────────────┘  │
+#       │                                                     │
+#       └──→ fuse_embeddings ←── luca_mapping (parallel)      │
+#                   │                                         │
+#                   └────────────────┬────────────────────────┘
+#                                    ▼
+#                           data_preparation
+#                                    │
+#                                    ▼
+#                              training (4-GPU DDP)
+#                                    │
+#                                    ▼
+#                           ablation (14x parallel)
+#                                    │
+#                                    ▼
+#                         publication_figures
+#
+# Key insight: Spatial backends need cell types from HLCA, so they run
+# AFTER hlca_mapping but IN PARALLEL with luca_mapping.
