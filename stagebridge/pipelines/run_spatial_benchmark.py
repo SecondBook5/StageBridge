@@ -29,6 +29,7 @@ from stagebridge.spatial_backends import (
     TangramBackend,
     DestVIBackend,
     TACCOBackend,
+    Cell2locationBackend,
 )
 
 
@@ -64,7 +65,7 @@ def run_backend_comparison(
     print(f"  Spatial: {spatial.shape[0]} spots × {spatial.shape[1]} genes")
     print(f"  Cell types: {snrna.obs['cell_type'].nunique()}")
 
-    backends_to_run = backends or ["tangram", "destvi", "tacco"]
+    backends_to_run = backends or ["tangram", "destvi", "tacco", "cell2location"]
     results = {}
 
     # Run each backend
@@ -91,6 +92,11 @@ def run_backend_comparison(
                 )
             elif backend_name == "tacco":
                 backend = TACCOBackend(method="OT")
+            elif backend_name == "cell2location":
+                backend = Cell2locationBackend(
+                    max_epochs_ref=50 if quick else 250,
+                    max_epochs_spatial=500 if quick else 30000,
+                )
             else:
                 raise ValueError(f"Unknown backend: {backend_name}")
 
