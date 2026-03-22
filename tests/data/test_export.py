@@ -265,7 +265,7 @@ class TestExportCanonicalDataset:
         """Test saving export result."""
         output_dir = tmp_path / "output"
 
-        result = export_canonical_dataset(
+        export_canonical_dataset(
             adata=simple_adata,
             output_dir=output_dir,
             dataset_name="test",

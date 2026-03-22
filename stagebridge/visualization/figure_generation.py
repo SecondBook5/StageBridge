@@ -156,7 +156,7 @@ def generate_figure5_attention_patterns(model, test_loader, output_path):
     importance = mean_attn.sum(axis=0)
     importance = importance / importance.sum()
     colors = plt.cm.viridis(np.linspace(0.3, 0.9, len(importance)))
-    bars = ax.barh(token_labels, importance, color=colors, edgecolor="black", linewidth=1.5)
+    ax.barh(token_labels, importance, color=colors, edgecolor="black", linewidth=1.5)
     ax.set_xlabel("Aggregated Attention", fontweight="bold")
     ax.set_title("B. Token Importance", fontsize=12, fontweight="bold")
     ax.grid(axis="x", alpha=0.3, linestyle="--")
@@ -223,7 +223,7 @@ def generate_figure5_attention_patterns(model, test_loader, output_path):
     ring_attn = mean_attn[:, 1:5].mean(axis=0)
     ring_labels = ["Ring 1\n(closest)", "Ring 2", "Ring 3", "Ring 4\n(distant)"]
     x = np.arange(len(ring_labels))
-    bars = ax.bar(
+    ax.bar(
         x,
         ring_attn,
         color=["#e74c3c", "#e67e22", "#f39c12", "#f1c40f"],
@@ -356,7 +356,7 @@ def generate_figure3_niche_influence_biology(influence_df, pathway_df, cells_df,
         [s for s in stage_order if s in stage_influence.index]
     )
     colors = ["#3498db", "#2ecc71", "#f39c12", "#e74c3c"][: len(stage_influence)]
-    bars = ax.bar(
+    ax.bar(
         range(len(stage_influence)),
         stage_influence.values,
         color=colors,
@@ -527,7 +527,7 @@ def generate_figure8_flagship_biology(cells_df, influence_df, pathway_df, output
     # Add correlation values
     for i in range(4):
         for j in range(4):
-            text = ax.text(
+            ax.text(
                 j,
                 i,
                 f"{sig_corr.iloc[i, j]:.2f}",
@@ -1022,7 +1022,7 @@ def generate_figure4_model_performance(
     # Add values to heatmap
     for i in range(4):
         for j in range(5):
-            text = ax.text(
+            ax.text(
                 j,
                 i,
                 f"{comparison_metrics[i, j]:.2f}",
@@ -1431,7 +1431,7 @@ def generate_flow_matching_dynamics(model, test_loader, cells_df, output_path):
     if stages is not None:
         stage_labels = pd.Categorical(stages)
         colors_stage = stage_labels.codes
-        scatter = ax.scatter(
+        ax.scatter(
             Z_2d[:, 0],
             Z_2d[:, 1],
             c=colors_stage,
@@ -1701,8 +1701,6 @@ def generate_set_transformer_mechanics(model, test_loader, output_path):
 
     # Generate synthetic attention data
     n_tokens = 9
-    n_heads = 8
-    n_layers = 3
 
     token_labels = ["Recv", "R1", "R2", "R3", "R4", "HLCA", "LuCA", "Path", "Stats"]
 
@@ -1948,10 +1946,9 @@ def generate_set_transformer_mechanics(model, test_loader, output_path):
     ax = fig.add_subplot(gs[2, :2])
 
     # Show pooling operation
-    n_seeds = 1
 
     # Input tokens (9)
-    input_tokens = np.random.rand(n_tokens, 3)  # 3D for visualization
+    np.random.rand(n_tokens, 3)  # 3D for visualization
 
     # Attention weights from seed to tokens
     pool_weights = np.random.dirichlet(np.ones(n_tokens) * 3)
@@ -2057,7 +2054,7 @@ def generate_ablation_impact_visualization(ablation_results_df, output_path):
     drops = [0] + [full_auc - auc for auc in aucs[1:]]
 
     # Create waterfall
-    cumsum = np.cumsum(drops)
+    np.cumsum(drops)
     bars = ax.bar(
         range(len(model_names)), aucs, color=colors, alpha=0.8, edgecolor="black", linewidth=2
     )
@@ -2166,7 +2163,7 @@ def generate_ablation_impact_visualization(ablation_results_df, output_path):
     # Add values to cells
     for i in range(len(model_names)):
         for j in range(len(metrics)):
-            text = ax.text(
+            ax.text(
                 j,
                 i,
                 f"{metric_data[i, j]:.2f}",
@@ -2260,7 +2257,7 @@ def generate_ablation_impact_visualization(ablation_results_df, output_path):
 
     # Plot performance vs number of components
     n_components = [ablations[m]["components"] for m in model_names]
-    scatter = ax.scatter(
+    ax.scatter(
         n_components,
         aucs,
         s=[200 if m == "Full Model" else 150 for m in model_names],
@@ -2322,7 +2319,7 @@ def generate_ablation_impact_visualization(ablation_results_df, output_path):
     for i in range(n_comp):
         for j in range(n_comp):
             if i != j:
-                text = ax.text(
+                ax.text(
                     j,
                     i,
                     f"{synergy[i, j]:.2f}",
@@ -2513,7 +2510,7 @@ def generate_cross_modal_integration(cells_df, output_path):
     # Add correlation values
     for i in range(n_features):
         for j in range(n_features):
-            text = ax.text(
+            ax.text(
                 j,
                 i,
                 f"{corr_matrix[i, j]:.2f}",
@@ -2595,7 +2592,7 @@ def generate_cross_modal_integration(cells_df, output_path):
     x = np.arange(len(stages))
     width = 0.35
 
-    bars1 = ax.bar(
+    ax.bar(
         x - width / 2,
         hlca_score,
         width,
@@ -2605,7 +2602,7 @@ def generate_cross_modal_integration(cells_df, output_path):
         edgecolor="black",
         linewidth=1.5,
     )
-    bars2 = ax.bar(
+    ax.bar(
         x + width / 2,
         luca_score,
         width,

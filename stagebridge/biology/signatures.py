@@ -294,7 +294,7 @@ def score_signature(
 
     # Find overlapping genes
     gene_idx = [var_names.index(g) for g in genes if g in var_names]
-    found_genes = [genes[i] for i, g in enumerate(genes) if g in var_names]
+    [genes[i] for i, g in enumerate(genes) if g in var_names]
 
     if len(gene_idx) == 0:
         return np.zeros(adata.n_obs)

@@ -157,7 +157,7 @@ class TestGenerateSelectionReport:
         )
 
         output_path = tmp_output_dir / "test_report.md"
-        report = generate_selection_report(comparison, selection, output_path=output_path)
+        generate_selection_report(comparison, selection, output_path=output_path)
 
         assert output_path.exists()
         with open(output_path) as f:

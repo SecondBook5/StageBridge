@@ -382,7 +382,7 @@ def plot_metric_violin(
         groups = df[group_col].unique()
         data_by_group = [df[df[group_col] == g][metric_col].values for g in groups]
 
-        bp = ax.boxplot(
+        ax.boxplot(
             data_by_group,
             labels=groups,
             patch_artist=True,

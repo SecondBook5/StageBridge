@@ -643,7 +643,7 @@ def run_hpc_reference_mapping(
         # Add cell type labels from model prediction
         if results.get("hlca_cell_types") is not None:
             hlca_df["cell_type"] = results["hlca_cell_types"]
-            print(f"  Added cell_type column from HLCA scANVI prediction")
+            print("  Added cell_type column from HLCA scANVI prediction")
         hlca_df.to_parquet(output_dir / "hlca_embedding.parquet", index=False)
         print(f"  Saved hlca_embedding.parquet: {hlca_emb_normalized.shape}")
 
@@ -660,7 +660,7 @@ def run_hpc_reference_mapping(
         # Add cell type labels from model prediction
         if results.get("luca_cell_types") is not None:
             luca_df["luca_cell_type"] = results["luca_cell_types"]
-            print(f"  Added luca_cell_type column from LuCA scANVI prediction")
+            print("  Added luca_cell_type column from LuCA scANVI prediction")
         luca_df.to_parquet(output_dir / "luca_embedding.parquet", index=False)
         print(f"  Saved luca_embedding.parquet: {luca_emb_normalized.shape}")
 

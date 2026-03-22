@@ -259,7 +259,7 @@ def _module_tables(
     lr_rows: list[dict[str, Any]] = []
     program_rows: list[dict[str, Any]] = []
     for batch_payload in prediction_batches:
-        batch = batch_payload["batch"]
+        batch_payload["batch"]
         query_probs = torch.sigmoid(
             torch.tensor(
                 scaler.apply(batch_payload["forward"].query_logits.detach().cpu().numpy()),
@@ -374,7 +374,7 @@ def _query_predictions_frame(
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for batch_payload in prediction_batches:
-        batch = batch_payload["batch"]
+        batch_payload["batch"]
         scaled_logits = scaler.apply(batch_payload["forward"].query_logits.detach().cpu().numpy())
         probs = 1.0 / (1.0 + np.exp(-scaled_logits))
         query_ptr = 0

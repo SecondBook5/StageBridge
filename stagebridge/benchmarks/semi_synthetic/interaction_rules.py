@@ -142,8 +142,11 @@ class InteractionRuleEngine:
 
         # Compute stage-specific interaction rates
         if stages is not None:
-            for stage in np.unique(stages):
-                stage_mask = (stages == stage) & (cell_positions[cell_group_column].isin(receiver_groups))
+            # Filter out NaN values and get unique stages
+            valid_stages = stages.dropna() if hasattr(stages, 'dropna') else stages[~pd.isna(stages)]
+            unique_stages = np.unique(valid_stages.astype(str))
+            for stage in unique_stages:
+                stage_mask = (stages.astype(str) == stage) & (cell_positions[cell_group_column].isin(receiver_groups))
                 if stage_mask.sum() > 0:
                     rate = cell_positions.loc[stage_mask, "is_interacting"].mean()
                     report.stage_interaction_rates[str(stage)] = float(rate)

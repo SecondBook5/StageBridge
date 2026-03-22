@@ -338,7 +338,6 @@ class StageBridgeV1Model(nn.Module):
 
         # Layer B: Encode 9-token neighborhoods
         niche_tokens = batch.niche_tokens  # (B, 9, token_dim)
-        niche_mask = batch.niche_mask  # (B, 9)
 
         # Flatten tokens for MLP encoder
         batch_size = niche_tokens.shape[0]

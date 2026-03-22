@@ -268,7 +268,7 @@ def run_leakage_audit(
 
     # 3. Neighborhood leakage (if graph provided)
     if neighbor_graph is not None and "split" in adata.obs.columns:
-        cell_splits = dict(zip(adata.obs.index, adata.obs["split"]))
+        dict(zip(adata.obs.index, adata.obs["split"]))
         # This would require the actual neighbor structure
         log.info("Neighborhood leakage check requires explicit neighbor structure")
 

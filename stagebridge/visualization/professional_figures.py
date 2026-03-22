@@ -502,7 +502,7 @@ def generate_figure5_attention_heatmap(
     # Token importance
     ax = axes[1, 0]
     token_importance = mean_attn.sum(axis=0)
-    bars = ax.barh(token_labels, token_importance, color=COLORS["performance"][1])
+    ax.barh(token_labels, token_importance, color=COLORS["performance"][1])
     ax.set_xlabel("Total Attention Received")
     ax.set_title("Token Importance", fontsize=12, fontweight="bold")
     ax.grid(True, alpha=0.2, axis="x")

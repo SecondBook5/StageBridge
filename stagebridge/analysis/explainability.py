@@ -201,7 +201,7 @@ class BaselineSHAPAnalyzer:
         Returns:
             SHAPResult with SHAP values
         """
-        shap = self._get_shap()
+        self._get_shap()
 
         try:
             import torch

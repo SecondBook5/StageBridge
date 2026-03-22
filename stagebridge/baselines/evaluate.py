@@ -251,7 +251,7 @@ def run_baseline_comparison(
     test_worlds = load_benchmark_split(benchmark_dir, "test")
 
     # Create dataloaders
-    train_loader = DataLoader(BenchmarkDataset(train_worlds), batch_size=1, shuffle=False)
+    DataLoader(BenchmarkDataset(train_worlds), batch_size=1, shuffle=False)
     val_loader = DataLoader(BenchmarkDataset(val_worlds), batch_size=1, shuffle=False)
     test_loader = DataLoader(BenchmarkDataset(test_worlds), batch_size=1, shuffle=False)
 

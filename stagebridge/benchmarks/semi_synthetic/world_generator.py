@@ -285,7 +285,7 @@ class WorldGenerator:
             Boolean matrix where [i, j] = True if cell j is within radius of cell i
         """
         coords = cell_positions[["x", "y"]].values
-        n = len(coords)
+        len(coords)
 
         # Compute pairwise distances
         # Using broadcasting for efficiency

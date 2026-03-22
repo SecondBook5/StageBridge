@@ -357,7 +357,6 @@ class PipelineProgress:
             self._pbar.close()
             self._pbar = None
 
-        duration = self.duration
         summary = self._build_summary()
 
         self._print_summary(summary)

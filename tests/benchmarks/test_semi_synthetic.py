@@ -319,15 +319,22 @@ class TestMetrics:
         assert metrics.attribution_correlation > 0.5  # Should be positively correlated
 
 
+@pytest.mark.slow
 class TestBenchmarkGenerator:
-    """Tests for full benchmark generation."""
+    """Tests for full benchmark generation.
+
+    These tests load large datasets and are marked slow.
+    Run with: pytest -m slow
+    Skip with: pytest -m "not slow"
+    """
 
     def test_smoke_benchmark_generates(self, tmp_path):
         """Smoke benchmark should generate successfully with fallback data."""
         config = SmokeConfig()
         config.output_dir = tmp_path
 
-        report = generate_benchmark(config=config, use_fallback=True)
+        # Use fallback_only to skip loading huge real datasets (avoids OOM)
+        report = generate_benchmark(config=config, fallback_only=True)
 
         assert report.success
         assert len(report.output_paths) > 0
@@ -338,7 +345,7 @@ class TestBenchmarkGenerator:
         config.output_dir = tmp_path
 
         generator = SemiSyntheticBenchmarkGenerator(config)
-        report = generator.generate(use_fallback_if_missing=True)
+        generator.generate(fallback_only=True)
 
         assert "train" in generator.worlds
         assert "val" in generator.worlds
@@ -350,7 +357,7 @@ class TestBenchmarkGenerator:
         config = SmokeConfig()
         config.output_dir = tmp_path
 
-        report = generate_benchmark(config=config, use_fallback=True)
+        generate_benchmark(config=config, fallback_only=True)
 
         # Check for ground truth files
         benchmark_dir = tmp_path / config.benchmark_name

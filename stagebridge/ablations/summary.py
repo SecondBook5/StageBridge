@@ -474,9 +474,9 @@ def _plot_degradation_comparison(df: pd.DataFrame, output_dir: Path) -> plt.Figu
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#FAFAFA")
 
-    bars1 = ax.bar(x - width/2, df["expected_num"], width, label="Expected",
+    ax.bar(x - width/2, df["expected_num"], width, label="Expected",
                    color="#3B82F6", alpha=0.8, edgecolor="white", linewidth=1.5)
-    bars2 = ax.bar(x + width/2, df["actual_num"], width, label="Observed",
+    ax.bar(x + width/2, df["actual_num"], width, label="Observed",
                    color="#F97316", alpha=0.8, edgecolor="white", linewidth=1.5)
 
     ax.set_ylabel("Degradation Level", fontsize=12, fontweight="bold")

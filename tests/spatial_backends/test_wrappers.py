@@ -102,7 +102,7 @@ def test_destvi_backend_has_advanced_methods():
 @pytest.mark.slow
 def test_tangram_backend_map_synthetic(synthetic_snrna, synthetic_spatial, tmp_output_dir):
     """Test Tangram mapping with synthetic data."""
-    scvi = pytest.importorskip("scvi", reason="scvi-tools not installed")
+    pytest.importorskip("scvi", reason="scvi-tools not installed")
     pytest.importorskip("mudata", reason="mudata not installed")
 
     # Check scvi.external.Tangram is available (requires scvi-tools[jax])
@@ -275,7 +275,7 @@ def test_tangram_project_genes(synthetic_snrna, synthetic_spatial):
     )
 
     # Map first
-    result = backend.map(synthetic_snrna, synthetic_spatial)
+    backend.map(synthetic_snrna, synthetic_spatial)
 
     # Project genes
     genes_to_project = synthetic_snrna.var_names[:5].tolist()

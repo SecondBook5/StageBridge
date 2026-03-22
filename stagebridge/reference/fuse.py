@@ -151,7 +151,6 @@ def fuse_dual_reference(
             "Ensure both mappings use the same query data."
         )
 
-    n_cells = hlca_result.n_cells
     hlca_emb = hlca_result.embeddings.astype(np.float32)
     luca_emb = luca_result.embeddings.astype(np.float32)
 

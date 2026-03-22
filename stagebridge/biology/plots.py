@@ -311,7 +311,7 @@ def plot_emt_caf_immune_triangle(
 
     # Normalize to sum to 1
     total = emt + caf + immune
-    emt_norm = emt / total
+    emt / total
     caf_norm = caf / total
     immune_norm = immune / total
 

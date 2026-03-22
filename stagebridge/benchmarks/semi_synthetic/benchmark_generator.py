@@ -10,10 +10,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    import anndata
 
 from stagebridge.logging_utils import get_logger
 from stagebridge.benchmarks.semi_synthetic.configs import (
@@ -102,12 +105,18 @@ class SemiSyntheticBenchmarkGenerator:
         self.worlds: dict[str, list[SyntheticWorld]] = {"train": [], "val": [], "test": []}
         self._report: BenchmarkGenerationReport | None = None
 
-    def generate(self, use_fallback_if_missing: bool = True) -> BenchmarkGenerationReport:
+    def generate(
+        self,
+        use_fallback_if_missing: bool = True,
+        fallback_only: bool = False,
+    ) -> BenchmarkGenerationReport:
         """Generate the complete benchmark dataset.
 
         Args:
             use_fallback_if_missing: If True, use synthetic fallback data
                 when real data sources are unavailable.
+            fallback_only: If True, skip loading real data entirely and use
+                only synthetic fallback data. Use for tests to avoid OOM.
 
         Returns:
             BenchmarkGenerationReport with generation details
@@ -117,7 +126,11 @@ class SemiSyntheticBenchmarkGenerator:
         try:
             # Step 1: Load data sources
             log.info("Step 1: Loading data sources...")
-            report.data_source_report = self._load_data_sources(use_fallback_if_missing)
+            if fallback_only:
+                log.info("  Using fallback data only (skipping real data)")
+                report.data_source_report = self._use_fallback_data()
+            else:
+                report.data_source_report = self._load_data_sources(use_fallback_if_missing)
 
             # Step 2: Harmonize features
             log.info("Step 2: Harmonizing features...")
@@ -175,6 +188,27 @@ class SemiSyntheticBenchmarkGenerator:
             log.warning("No real data sources found, using fallback synthetic data")
             self._create_fallback_sources()
             report.warnings.append("Using fallback synthetic data (no real sources)")
+
+        return report
+
+    def _use_fallback_data(self) -> DataSourceReport:
+        """Use only fallback synthetic data (skip loading real data).
+
+        This is faster and avoids OOM when real datasets are huge.
+        """
+        report = DataSourceReport()
+        report.warnings.append("Using fallback synthetic data only (real data skipped)")
+
+        # Initialize data_loader with no paths (won't try to load anything)
+        self.data_loader = DataSourceLoader(
+            hlca_path=None,
+            luca_path=None,
+            progression_path=None,
+        )
+
+        self._create_fallback_sources()
+        report.sources_loaded = ["fallback"]
+        report.total_cells_available = self.config.cells_per_world * 2
 
         return report
 
@@ -362,7 +396,7 @@ class SemiSyntheticBenchmarkGenerator:
         self,
         world: SyntheticWorld,
         harmonized_genes: np.ndarray | None = None,
-    ) -> anndata.AnnData:
+    ) -> "anndata.AnnData":
         """Extract expression matrices for all cells in a world.
 
         Args:
@@ -549,6 +583,7 @@ def generate_benchmark(
     config: BenchmarkConfig | None = None,
     smoke: bool = False,
     use_fallback: bool = True,
+    fallback_only: bool = False,
 ) -> BenchmarkGenerationReport:
     """Convenience function to generate a benchmark.
 
@@ -556,6 +591,7 @@ def generate_benchmark(
         config: Benchmark configuration (uses default if None)
         smoke: If True, use smoke test configuration
         use_fallback: If True, use fallback data when real data unavailable
+        fallback_only: If True, skip loading real data entirely (use for tests)
 
     Returns:
         BenchmarkGenerationReport
@@ -564,4 +600,7 @@ def generate_benchmark(
         config = SmokeConfig() if smoke else BenchmarkConfig()
 
     generator = SemiSyntheticBenchmarkGenerator(config)
-    return generator.generate(use_fallback_if_missing=use_fallback)
+    return generator.generate(
+        use_fallback_if_missing=use_fallback,
+        fallback_only=fallback_only,
+    )

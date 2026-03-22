@@ -233,7 +233,7 @@ def plot_proportion_distribution(
     fig, ax = plt.subplots(figsize=figsize)
 
     if kind == "violin":
-        parts = ax.violinplot(
+        ax.violinplot(
             [prop_data[ct].values for ct in cell_types],
             positions=range(len(cell_types)),
             showmeans=True,

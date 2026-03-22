@@ -2070,7 +2070,7 @@ def plot_transformer_attention_frontend(context_output: dict[str, Any]) -> Figur
         g_conf = [float(g.get("mean_confidence", 0.0)) for g in group_diagnostics]
         group_colors = ["#A63A2B", "#D18A00", "#0F766E", "#245C73"]
         x = np.arange(len(g_names))
-        bars = ax_groups.bar(
+        ax_groups.bar(
             x,
             g_counts,
             color=[group_colors[i % len(group_colors)] for i in range(len(g_names))],

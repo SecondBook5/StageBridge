@@ -187,7 +187,7 @@ def load_slideseq_sample(
                     raw = fobj.read()
                     # Read header line for barcodes
                     header_end = raw.index(b"\n")
-                    header = gzip.decompress(raw[: max(header_end + 4096, len(raw))])
+                    gzip.decompress(raw[: max(header_end + 4096, len(raw))])
                     # Actually, decompress fully — Slide-seq samples are ~50k beads
                     text = gzip.decompress(raw).decode("utf-8")
                     lines = text.split("\n")
@@ -213,9 +213,9 @@ def load_slideseq_sample(
     coord_barcodes = coords_df.index.values.astype(str)
     # Replace dots with dashes to match (R export replaces - with .)
     if count_barcodes is not None:
-        count_barcodes_fixed = np.array([b.replace(".", "-") for b in count_barcodes])
+        np.array([b.replace(".", "-") for b in count_barcodes])
     else:
-        count_barcodes_fixed = coord_barcodes
+        pass
 
     return {
         "barcodes": coord_barcodes,

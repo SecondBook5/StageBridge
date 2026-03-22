@@ -255,7 +255,7 @@ class TestUnifiedGenerator:
         config.output_dir = tmp_path
 
         generator = UnifiedBenchmarkGenerator(config)
-        report = generator.generate(use_fallback=True)
+        generator.generate(use_fallback=True)
 
         assert "train" in generator.worlds
         assert "val" in generator.worlds
@@ -351,7 +351,7 @@ class TestUnifiedGenerator:
         config = SmokeTestConfig()
         config.output_dir = tmp_path
 
-        report = generate_benchmark(config=config, use_fallback=True)
+        generate_benchmark(config=config, use_fallback=True)
 
         gt_path = tmp_path / config.benchmark_name / "ground_truth.json"
         assert gt_path.exists()
@@ -361,7 +361,7 @@ class TestUnifiedGenerator:
         config = SmokeTestConfig()
         config.output_dir = tmp_path
 
-        report = generate_benchmark(config=config, use_fallback=True)
+        generate_benchmark(config=config, use_fallback=True)
 
         manifest_path = tmp_path / config.benchmark_name / "benchmark_manifest.json"
         assert manifest_path.exists()
@@ -371,7 +371,7 @@ class TestUnifiedGenerator:
         config = SmokeTestConfig()
         config.output_dir = tmp_path
 
-        report = generate_benchmark(config=config, use_fallback=True)
+        generate_benchmark(config=config, use_fallback=True)
 
         # Check first train world
         train_dir = tmp_path / config.benchmark_name / "train"

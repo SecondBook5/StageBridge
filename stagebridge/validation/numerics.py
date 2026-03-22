@@ -98,7 +98,7 @@ def check_gradient_health(model: "torch.nn.Module") -> dict[str, Any]:
             continue
 
         grad = param.grad
-        grad_np = grad.detach().cpu().numpy()
+        grad.detach().cpu().numpy()
 
         param_report = {
             "shape": list(grad.shape),

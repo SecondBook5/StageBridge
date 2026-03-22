@@ -433,7 +433,7 @@ def _map_pca_projection(
 
     # Find common genes - handle ENSG vs symbol mismatch
     query_genes = list(query.var_names.astype(str))
-    query_gene_set = set(query_genes)
+    set(query_genes)
     ref_var_names = list(ref_adata.var_names.astype(str))
 
     # Check if reference uses ENSG IDs but has feature_name column

@@ -111,7 +111,7 @@ def plot_reference_structure(
             cmap = plt.cm.get_cmap("tab20", n_colors)
             color_map = {c: cmap(i) for i, c in enumerate(unique_colors)}
             c = [color_map[cc] for cc in colors]
-            scatter = ax.scatter(
+            ax.scatter(
                 coords_2d[:, 0],
                 coords_2d[:, 1],
                 c=c,
@@ -140,7 +140,7 @@ def plot_reference_structure(
             )
         else:
             # Too many categories, use default coloring
-            scatter = ax.scatter(
+            ax.scatter(
                 coords_2d[:, 0],
                 coords_2d[:, 1],
                 c=pd.Categorical(colors).codes,
@@ -150,7 +150,7 @@ def plot_reference_structure(
                 rasterized=True,
             )
     else:
-        scatter = ax.scatter(
+        ax.scatter(
             coords_2d[:, 0],
             coords_2d[:, 1],
             c=kwargs.get("c", "steelblue"),

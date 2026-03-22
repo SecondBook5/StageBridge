@@ -361,7 +361,7 @@ def run_qc(
     tuple[AnnData, QCResult]
         Filtered AnnData and QC result.
     """
-    anndata = _require_anndata()
+    _require_anndata()
 
     if copy:
         adata = adata.copy()

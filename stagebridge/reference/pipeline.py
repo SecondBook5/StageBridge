@@ -410,7 +410,7 @@ def run_reference_pipeline(
         )
 
         # Export
-        output_paths = export_reference_outputs(
+        export_reference_outputs(
             hlca_df=hlca_df,
             luca_df=luca_df,
             fused_df=fused_df,

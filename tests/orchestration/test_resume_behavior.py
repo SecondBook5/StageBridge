@@ -79,7 +79,7 @@ class TestResumeDetection:
     ) -> None:
         """Test that incomplete stages are run on resume."""
         # First run - start but don't complete
-        ctx1 = initialize_run(
+        initialize_run(
             sample_config,
             run_id="test_resume_incomplete",
             artifacts_root=str(temp_artifacts_root),
@@ -197,7 +197,7 @@ class TestResumeState:
         )
 
         # Create run
-        ctx1 = manager.initialize_run(sample_config, run_id="test_env")
+        manager.initialize_run(sample_config, run_id="test_env")
 
         # Resume
         ctx2 = manager.initialize_run(

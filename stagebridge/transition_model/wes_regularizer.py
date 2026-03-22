@@ -26,7 +26,10 @@ FiLM or concatenation, just like the existing WES feature path.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pandas
 
 import torch
 from torch import Tensor, nn
@@ -138,8 +141,8 @@ class GenomicNicheEncoder(nn.Module):
 
 
 def build_niche_lookup(
-    wes_df: "pd.DataFrame | None" = None,
-    lpwgs_df: "pd.DataFrame | None" = None,
+    wes_df: "pandas.DataFrame | None" = None,
+    lpwgs_df: "pandas.DataFrame | None" = None,
     wes_feature_cols: list[str] | None = None,
     lpwgs_feature_cols: list[str] | None = None,
 ) -> dict[str, dict[str, object]]:

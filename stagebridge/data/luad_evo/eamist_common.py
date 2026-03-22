@@ -339,7 +339,6 @@ def choose_best_embedding(path: Path) -> SelectedEmbedding:
         n_obs, n_dim = int(shape[0]), int(shape[1])
         lower = key.lower()
         score = 0.0
-        source = "obsm"
         if any(token in lower for token in ("latent", "scvi", "scanvi", "embedding", "embed")):
             score += 30.0
         if "pca" in lower:

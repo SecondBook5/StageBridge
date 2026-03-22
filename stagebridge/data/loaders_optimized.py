@@ -110,7 +110,7 @@ class StageBridgeDatasetOptimized(Dataset):
         if load_wes:
             wes_cols = ["tmb", "smoking_signature", "uv_signature"]
             # Check if WES columns exist
-            sample_df = pd.read_parquet(self.data_dir / "cells.parquet", columns=["cell_id"])
+            pd.read_parquet(self.data_dir / "cells.parquet", columns=["cell_id"])
             full_df = pd.read_parquet(self.data_dir / "cells.parquet")
             if "tmb" in full_df.columns:
                 required_cols.extend(wes_cols)

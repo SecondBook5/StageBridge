@@ -32,6 +32,9 @@ def test_run_v1_complete_imports():
 
 def test_reference_pipeline_cli():
     """Test reference pipeline has a main() function."""
-    from stagebridge.pipelines import run_reference
-    assert hasattr(run_reference, "main")
-    assert callable(run_reference.main)
+    # Import the module directly (not via lazy import which gives the function)
+    from stagebridge.pipelines import run_reference as run_reference_module
+    import importlib
+    module = importlib.import_module("stagebridge.pipelines.run_reference")
+    assert hasattr(module, "main")
+    assert callable(module.main)

@@ -239,7 +239,7 @@ def run_spatial_benchmark(
         raise
 
     # Generate report
-    report = generate_selection_report(
+    generate_selection_report(
         comparison,
         selection,
         output_path=output_dir / "backend_selection_report.md",

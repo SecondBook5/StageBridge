@@ -310,7 +310,7 @@ class TestUnpackArchive:
         output_dir = tmp_path / "output"
         gz_path = temp_archive_dir / "file.txt.gz"
 
-        result = unpack_archive(gz_path, output_dir)
+        unpack_archive(gz_path, output_dir)
 
         assert (output_dir / "file.txt").exists()
         assert (output_dir / "file.txt").read_text() == "gzip content"

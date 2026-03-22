@@ -329,7 +329,7 @@ def plot_donor_robustness(
         offset = (idx - len(metrics) / 2 + 0.5) * width
         values = df[metric].fillna(0).values
 
-        bars = ax.bar(
+        ax.bar(
             x + offset,
             values,
             width,
@@ -440,7 +440,7 @@ def create_comparison_summary_figure(
     gs = gridspec.GridSpec(3, 4, figure=fig, hspace=0.3, wspace=0.3)
 
     backends = list(results.keys())
-    n_backends = len(backends)
+    len(backends)
 
     # Row 1: Spatial maps for dominant cell type
     for idx, backend_name in enumerate(backends[:4]):
@@ -454,7 +454,7 @@ def create_comparison_summary_figure(
         type_to_int = {t: i for i, t in enumerate(unique_types)}
         colors = [type_to_int[t] for t in dominant]
 
-        scatter = ax.scatter(
+        ax.scatter(
             spatial_coords[:, 0],
             spatial_coords[:, 1],
             c=colors,

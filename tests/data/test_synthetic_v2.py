@@ -334,8 +334,8 @@ class TestTransitionDynamics:
             tgt_centroid = gen.stage_centroids[row["target_stage"]]
 
             # Target should be closer to target centroid than source was
-            dist_src_to_tgt_centroid = np.linalg.norm(z_src - tgt_centroid)
-            dist_tgt_to_tgt_centroid = np.linalg.norm(z_tgt - tgt_centroid)
+            np.linalg.norm(z_src - tgt_centroid)
+            np.linalg.norm(z_tgt - tgt_centroid)
 
             # Allow some noise but trend should be toward target
             # (Not strict because of diffusion)
@@ -344,7 +344,7 @@ class TestTransitionDynamics:
             expected_direction = expected_direction / np.linalg.norm(expected_direction)
 
             # Dot product should be positive (moving in right direction)
-            alignment = np.dot(movement, expected_direction)
+            np.dot(movement, expected_direction)
             # Most transitions should have positive alignment
             # (We'll check aggregate below)
 

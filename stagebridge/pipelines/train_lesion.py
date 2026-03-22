@@ -1542,7 +1542,7 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                         cfg=run_cfg,
                         stage_class_weights=stage_class_weights,
                     )
-                    val_metrics = _epoch_metrics(
+                    _epoch_metrics(
                         val_epoch, edge_target_labels=edge_target_labels, use_grouped=use_grouped
                     )
                     test_metrics = _epoch_metrics(

@@ -334,8 +334,8 @@ def create_dataloaders(
 
             # Extract embedding columns
             fused_cols = [c for c in cells_df.columns if c.startswith('fused_latent_')]
-            hlca_cols = [c for c in cells_df.columns if c.startswith('hlca_latent_')]
-            luca_cols = [c for c in cells_df.columns if c.startswith('luca_latent_')]
+            [c for c in cells_df.columns if c.startswith('hlca_latent_')]
+            [c for c in cells_df.columns if c.startswith('luca_latent_')]
 
             if fused_cols:
                 log(f"  Fused embedding: {len(fused_cols)} dims")
@@ -354,7 +354,7 @@ def create_dataloaders(
                 if 'stage' in cells_df.columns:
                     stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
                     stage_to_idx = {s: i for i, s in enumerate(stage_order)}
-                    stages = cells_df['stage'].map(stage_to_idx).fillna(0).astype(int).values
+                    cells_df['stage'].map(stage_to_idx).fillna(0).astype(int).values
 
                     # z_source = current embedding, z_target = shifted embedding (next stage cells)
                     z_source = embeddings
@@ -714,14 +714,14 @@ def train(config: TrainingConfig):
     log("Creating dataloaders...")
     train_loader, val_loader, benchmark_loader = create_dataloaders(config, distributed=distributed)
     if benchmark_loader is not None:
-        log(f"Semi-synthetic benchmark loader ready for evaluation")
+        log("Semi-synthetic benchmark loader ready for evaluation")
 
     # ==========================================================================
     # STAGE 1: SSL Pretraining (masked receiver reconstruction from niche)
     # ==========================================================================
     log(f"\n{'='*60}")
     log(f"STAGE 1: SSL Pretraining ({config.ssl_epochs} epochs)")
-    log(f"Objective: Masked receiver reconstruction from niche context")
+    log("Objective: Masked receiver reconstruction from niche context")
     log(f"{'='*60}\n")
 
     for epoch in range(start_epoch, min(start_epoch + config.ssl_epochs, config.ssl_epochs)):
@@ -777,7 +777,7 @@ def train(config: TrainingConfig):
     # ==========================================================================
     log(f"\n{'='*60}")
     log(f"STAGE 2: Transition Model ({config.transition_epochs} epochs)")
-    log(f"Objective: Learn stage transition dynamics (flow field)")
+    log("Objective: Learn stage transition dynamics (flow field)")
     log(f"{'='*60}\n")
 
     # Reset optimizer for transition phase (optional: lower LR)

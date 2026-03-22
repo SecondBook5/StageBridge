@@ -406,7 +406,7 @@ def plot_umap_with_trajectories(
     dy = uv1_pred[idx, 1] - uv0[idx, 1]
 
     # Draw arrows with gradient effect (thicker at base)
-    quiver = ax.quiver(
+    ax.quiver(
         uv0[idx, 0],
         uv0[idx, 1],
         dx,
@@ -443,7 +443,7 @@ def plot_umap_with_trajectories(
     legend1.get_frame().set_linewidth(1.5)
 
     # Add arrow legend manually
-    arrow_patch = mpatches.FancyArrow(
+    mpatches.FancyArrow(
         0, 0, 0.1, 0.1, width=0.05, color=arrow_color, alpha=arrow_alpha
     )
     from matplotlib.lines import Line2D
@@ -563,7 +563,7 @@ def plot_context_vector_umap(
             density = np.reshape(kde(positions).T, xx.shape)
 
             # Use filled contours for better visual effect
-            contourf = ax.contourf(xx, yy, density, levels=8, cmap="Greys", alpha=0.3)
+            ax.contourf(xx, yy, density, levels=8, cmap="Greys", alpha=0.3)
             ax.contour(
                 xx,
                 yy,

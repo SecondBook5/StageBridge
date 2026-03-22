@@ -523,7 +523,7 @@ class DestVIBackend(SpatialBackend):
         # Project single-cell embeddings onto spatial PCs
         sc_embeddings = self.sc_model.get_latent_representation()
         ct_mask = self._snrna_ref.obs["cell_type"] == cell_type
-        sc_ct_embeddings = sc_embeddings[ct_mask]
+        sc_embeddings[ct_mask]
 
         # For gene enrichment, we'd need to correlate PC loadings with gene expression
         # This is a simplified version - full implementation would use gene-PC correlation

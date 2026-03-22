@@ -1000,7 +1000,7 @@ def run_hyperparameter_optimization(
         context_dim = trial.suggest_categorical('context_dim', [128, 256, 512])
         dropout = trial.suggest_float('dropout', 0.0, 0.3)
         ssl_weight = trial.suggest_float('ssl_weight', 0.5, 0.9)
-        n_layers = trial.suggest_int('n_layers', 1, 4)
+        trial.suggest_int('n_layers', 1, 4)
 
         # Create model with trial hyperparameters
         model = StageBridgeV1Complete(

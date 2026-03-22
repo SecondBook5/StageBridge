@@ -443,7 +443,7 @@ def plot_ridge_distributions(
         raise ValueError("data_dict is empty")
 
     n_distributions = len(data_dict)
-    labels = list(data_dict.keys())
+    list(data_dict.keys())
 
     # Set up colors
     if colors is None:

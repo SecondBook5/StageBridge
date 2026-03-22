@@ -809,9 +809,9 @@ def run_transition_model(
             "Held-out edge cells unavailable for one stage; using training split for evaluation fallback."
         )
         if x_src_test.shape[0] == 0:
-            x_src_test, src_test_obs = x_src_train, src_train_obs
+            x_src_test, _src_test_obs = x_src_train, src_train_obs
         if x_tgt_test.shape[0] == 0:
-            x_tgt_test, tgt_test_obs = x_tgt_train, tgt_train_obs
+            x_tgt_test, _tgt_test_obs = x_tgt_train, tgt_train_obs
 
     typed, spatial_payload, resolved_context_output = _resolve_typed_tokens(
         cfg,

@@ -163,7 +163,7 @@ class TestExportAndLoadOutputs:
             query_path="/path/query",
         )
 
-        paths = export_reference_outputs(
+        export_reference_outputs(
             hlca_df=hlca_df,
             luca_df=luca_df,
             fused_df=fused_df,

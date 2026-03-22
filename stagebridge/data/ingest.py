@@ -426,7 +426,7 @@ def discover_raw_files(
 
         try:
             entries = list(dir_path.iterdir())
-        except PermissionError as e:
+        except PermissionError:
             result.warnings.append(f"Permission denied: {dir_path}")
             return
 

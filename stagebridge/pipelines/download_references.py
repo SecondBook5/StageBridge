@@ -190,7 +190,7 @@ def main():
         print("Specify --download_hlca, --download_luca, or --all")
         return
 
-    results = download_reference_atlases(
+    download_reference_atlases(
         output_dir=args.output_dir,
         fetch_hlca=args.download_hlca,
         fetch_luca=args.download_luca,

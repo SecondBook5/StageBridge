@@ -246,7 +246,7 @@ def normalize_counts(
                 from rpy2.robjects import numpy2ri
 
                 numpy2ri.activate()
-                scran = importr("scran")
+                importr("scran")
 
                 # This is a simplified version - full scran would cluster first
                 log.info("Using scran size factors...")
@@ -694,7 +694,7 @@ def batch_correct_hvgs(
     list[str]
         Selected HVG names.
     """
-    sc = _require_scanpy()
+    _require_scanpy()
 
     if batch_key not in adata.obs.columns:
         raise KeyError(f"Batch key '{batch_key}' not found in obs")

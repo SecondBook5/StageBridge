@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor, nn
 
 from stagebridge.context_model.set_encoder import ISAB, PMA, SAB, SinusoidalTimeEmbedding
+
+if TYPE_CHECKING:
+    from stagebridge.context_model.graph_of_sets import SetGraph
 from stagebridge.transition_model.diffusion_network import StateDependentDiffusionNetwork
 from stagebridge.transition_model.drift_network import (
     BiologicalBaselineDrift,

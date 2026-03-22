@@ -95,7 +95,7 @@ def run_backend_comparison(
             elif backend_name == "cell2location":
                 backend = Cell2locationBackend(
                     max_epochs_ref=50 if quick else 250,
-                    max_epochs_spatial=500 if quick else 30000,
+                    max_epochs_spatial=500 if quick else 2500,  # Reduced from 30k
                 )
             else:
                 raise ValueError(f"Unknown backend: {backend_name}")
