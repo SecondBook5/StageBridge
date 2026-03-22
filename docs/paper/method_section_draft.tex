@@ -36,6 +36,8 @@ Spatial coordinates are converted to micrometers using the 100 $\mu$m spot pitch
 
 Raw expression vectors live in a space where Euclidean distance poorly reflects biological similarity. We address this through dual-reference mapping onto two complementary atlases: the Human Lung Cell Atlas (HLCA), providing a healthy anchor with 584,944 cells across 58 types, and the Lung Cancer Atlas (LuCA), capturing 790,079 cells representing malignant heterogeneity.
 
+Since reference models expect Ensembl gene identifiers (ENSG) while query data typically uses gene symbols, we first construct a symbol$\to$ENSG mapping by combining annotations from both references. This reconciliation step ensures maximum gene overlap: HLCA provides mappings for its 2,000 highly variable genes, while LuCA contributes mappings for all 17,764 genes in the Core Atlas. The combined mapping enables conversion of $>$85\% of query genes to ENSG identifiers.
+
 For each reference, we apply scArches surgical fine-tuning to pretrained scANVI models. The procedure freezes decoder weights $\theta$ while training a query-specific encoder $\phi'$:
 \begin{equation}
     \mathcal{L}_{\text{surgery}} = -\mathbb{E}_{q_{\phi'}(z|x)}[\log p_\theta(x|z)] + \text{KL}(q_{\phi'}(z|x) \| p(z))

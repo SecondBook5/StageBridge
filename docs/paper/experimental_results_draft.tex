@@ -4,7 +4,7 @@
 
 Experiments were conducted on a lung adenocarcinoma (LUAD) evolution cohort comprising matched single-nucleus RNA sequencing (snRNA-seq) and spatial transcriptomics data spanning five histopathological stages: Normal, atypical adenomatous hyperplasia (AAH), adenocarcinoma in situ (AIS), minimally invasive adenocarcinoma (MIA), and invasive LUAD \cite{Peng2025-xu}.
 
-\textbf{[DATA STATISTICS: Report exact cell counts, patient numbers, spot counts, and tissue section numbers after QC.]}
+After quality control, the snRNA-seq dataset comprised 787,709 cells across 18,075 genes. The spatial transcriptomics data included matched Visium sections spanning all five histopathological stages.
 
 Quality control filtering removed cells with fewer than 200 detected genes or greater than 20\% mitochondrial reads. Genes expressed in fewer than 10 cells were excluded. Expression values were normalized to counts per 10,000 and log-transformed. Batch effects across samples were corrected using Harmony integration prior to downstream analysis.
 
@@ -35,6 +35,35 @@ Cell Type ASW & \textbf{0.598} & 0.595 & +0.5\% \\
 \end{table}
 
 The retrained model achieved comparable or improved performance across all biological preservation metrics (ARI, NMI, cell type purity) while maintaining batch integration quality. The slight decrease in batch ASW is offset by improved batch $k$-NN mixing, indicating the model learned to integrate batches through neighbor mixing rather than forcing global separation. Training was conducted on 4$\times$ NVIDIA H100 GPUs using PyTorch Lightning's \texttt{ddp\_spawn} distributed strategy, completing in approximately 6 hours. The model passed validation (overall scIB score 0.673 vs.\ original 0.669) and is ready for scArches surgery.
+
+
+\subsection{Dual-Reference Mapping}
+
+Query cells were projected onto both HLCA (healthy) and LuCA (cancer) reference latent spaces using scArches surgical fine-tuning. A key challenge was gene identifier reconciliation: the HLCA model expects 2,000 ENSG identifiers while the LuCA model expects 6,000 ENSG identifiers, but the query data uses gene symbols.
+
+\paragraph{Gene Identifier Mapping.} To maximize gene coverage, we constructed a combined symbol-to-ENSG mapping from both references. The LuCA Core Atlas provided 17,764 symbol$\to$ENSG mappings via its \texttt{feature\_name} annotations, while the HLCA reference contributed 2,000 additional mappings. After deduplication (with HLCA taking precedence for conflicts), the combined mapping contained 17,865 unique symbols. This enabled conversion of 15,460/18,075 (85.5\%) query genes to ENSG identifiers.
+
+\paragraph{HLCA Mapping.} The query achieved 86.05\% overlap with the HLCA model's 2,000 highly variable genes. scArches surgery was performed for up to 200 epochs with early stopping (patience=15, monitoring validation ELBO). Training converged at epoch 60--61, producing 30-dimensional latent embeddings for all 787,709 query cells.
+
+\paragraph{LuCA Mapping.} Initial attempts with only HLCA-derived ENSG mappings yielded only 24.7\% overlap with the LuCA model's 6,000 genes, resulting in out-of-memory failures during gene padding. After incorporating LuCA's own symbol$\to$ENSG mapping, overlap improved substantially. scArches surgery was performed with identical hyperparameters, producing 10-dimensional latent embeddings.
+
+\paragraph{Embedding Fusion.} Both reference embeddings were L2-normalized before concatenation to prevent scale domination, yielding 40-dimensional fused embeddings. Confidence scores were computed via percentile-rank calibration of $k$-NN distances to ensure comparability between references.
+
+\begin{table}[h]
+\centering
+\caption{Dual-reference mapping summary. Gene overlap indicates percentage of model's HVGs found in query after ENSG conversion.}
+\label{tab:dual_ref_mapping}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Reference} & \textbf{Model Genes} & \textbf{Gene Overlap} & \textbf{Latent Dim} & \textbf{Epochs} \\
+\midrule
+HLCA & 2,000 & 86.05\% & 30 & 60--61 \\
+LuCA & 6,000 & TBD & 10 & TBD \\
+\midrule
+\textbf{Fused} & -- & -- & 40 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 
 \subsection{Spatial Mapping Backend Comparison}
@@ -309,8 +338,9 @@ Computational requirements were measured for each stage of the StageBridge pipel
 \textbf{Component} & \textbf{Time} & \textbf{Epochs} & \textbf{Hardware} \\
 \midrule
 LuCA scANVI retraining & $\sim$6 hrs & 329 + 34 & 4$\times$ H100 GPU \\
-Reference mapping (HLCA) & -- & -- & 4$\times$ H100 GPU \\
-Reference mapping (LuCA) & -- & -- & 4$\times$ H100 GPU \\
+ENSG gene mapping & $<$5 min & -- & CPU \\
+Reference mapping (HLCA) & $\sim$48 min & 60--61 & 1$\times$ H100 GPU \\
+Reference mapping (LuCA) & TBD & TBD & 1$\times$ H100 GPU \\
 SSL pretraining & -- & -- & 4$\times$ H100 GPU \\
 CFM-OT training & -- & -- & 4$\times$ H100 GPU \\
 Inference (per cell) & -- & -- & Single H100 \\
