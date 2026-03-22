@@ -22,10 +22,11 @@ def map_query_with_scanvi_model(
     query_adata: Any,
     model_path: Path,
     *,
+    reference_h5ad: Path | None = None,
     batch_size: int = 10000,
     surgery_epochs: int = 200,
 ) -> tuple[np.ndarray, dict]:
-    """Map query to HLCA using scArches surgery with scANVI.
+    """Map query to HLCA/LuCA using scArches surgery with scANVI.
 
     Follows official scvi-tools HLCA tutorial workflow:
     1. Load reference model
@@ -40,6 +41,8 @@ def map_query_with_scanvi_model(
         Query data (cells × genes)
     model_path : Path
         Path to scANVI model directory or HubModel cache
+    reference_h5ad : Path, optional
+        Path to reference h5ad file. Required if model was saved without adata.
     batch_size : int
         Batch size for encoding
     surgery_epochs : int
@@ -53,15 +56,27 @@ def map_query_with_scanvi_model(
         Mapping metadata
     """
     from scvi.model import SCANVI
+    import anndata
 
     log.info("Loading scANVI reference model from %s", model_path)
 
-    # Load reference model
+    # Load reference model - try without adata first, then with reference h5ad
+    ref_model = None
     try:
         ref_model = SCANVI.load(str(model_path), adata=None)
-        log.info("  Reference model loaded successfully")
+        log.info("  Reference model loaded successfully (no adata needed)")
     except Exception as e:
-        raise ValueError(f"Failed to load scANVI model: {e}") from e
+        log.warning("  Failed to load without adata: %s", e)
+        if reference_h5ad is not None and reference_h5ad.exists():
+            log.info("  Trying to load with reference h5ad: %s", reference_h5ad)
+            try:
+                ref_adata = anndata.read_h5ad(reference_h5ad)
+                ref_model = SCANVI.load(str(model_path), adata=ref_adata)
+                log.info("  Reference model loaded successfully (with adata)")
+            except Exception as e2:
+                raise ValueError(f"Failed to load scANVI model even with reference adata: {e2}") from e2
+        else:
+            raise ValueError(f"Failed to load scANVI model: {e}") from e
 
     # Prepare query anndata - this reorders genes and pads missing ones
     log.info("  Preparing query anndata (gene matching and padding)...")
@@ -370,6 +385,7 @@ def map_to_dual_reference_model_based(
             hlca_emb, hlca_info = map_query_with_scanvi_model(
                 query_adata,
                 hlca_model_path,
+                reference_h5ad=fallback_hlca_h5ad,
                 batch_size=batch_size,
             )
             results["hlca_embeddings"] = hlca_emb
@@ -399,6 +415,7 @@ def map_to_dual_reference_model_based(
             luca_emb, luca_info = map_query_with_scanvi_model(
                 query_adata,
                 luca_model_path,
+                reference_h5ad=fallback_luca_h5ad,
                 batch_size=batch_size,
             )
             results["luca_embeddings"] = luca_emb
