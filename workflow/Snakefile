@@ -1,0 +1,389 @@
+# =============================================================================
+# StageBridge V1 Publication Pipeline - Snakemake Workflow
+# =============================================================================
+#
+# A complete, reproducible pipeline for Nature Methods submission.
+#
+# Usage:
+#   # Dry run (see what would execute)
+#   snakemake -n --cores 8
+#
+#   # Local execution
+#   snakemake --cores 8
+#
+#   # HPC execution with SLURM
+#   snakemake --profile slurm --jobs 20
+#
+#   # Generate DAG visualization
+#   snakemake --dag | dot -Tpdf > dag.pdf
+#
+# =============================================================================
+
+import os
+from pathlib import Path
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+configfile: "workflow/config.yaml"
+
+# Data paths
+DATA = config.get("data_root", os.environ.get("DATA", "/scratch/chaunzt1/stagebridge"))
+PROCESSED = f"{DATA}/processed/luad_evo"
+REFERENCES = f"{DATA}/references"
+RUNS = f"{DATA}/runs"
+
+# Output directories
+REF_GEOM = f"{PROCESSED}/reference_geometry"
+SPATIAL = f"{RUNS}/spatial_benchmark"
+CANONICAL = f"{PROCESSED}/canonical"
+TRAINING = f"{RUNS}/v1_complete"
+ABLATIONS = f"{RUNS}/ablations"
+FIGURES = f"{RUNS}/publication_figures"
+
+# Spatial backends to run
+SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location"]
+
+# =============================================================================
+# Final Targets (what we want to produce)
+# =============================================================================
+
+rule all:
+    input:
+        # Reference geometry
+        f"{REF_GEOM}/fused_embedding.parquet",
+        # Spatial benchmark
+        f"{SPATIAL}/backend_comparison.json",
+        # Training
+        f"{TRAINING}/checkpoints/final_checkpoint.pt",
+        # Ablations
+        f"{ABLATIONS}/ablation_summary.json",
+        # Publication figures
+        f"{FIGURES}/manifests/figure_manifest.json"
+
+
+# =============================================================================
+# Stage 1: HLCA Reference Mapping
+# =============================================================================
+
+rule hlca_mapping:
+    input:
+        query = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
+        ref = f"{REFERENCES}/hlca/hlca_reference.h5ad"
+    output:
+        latent = f"{REF_GEOM}/hlca_mapping/hlca_latent.h5ad",
+        labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet",
+        report = f"{REF_GEOM}/hlca_mapping/mapping_report.json"
+    params:
+        model_dir = f"{REFERENCES}/hlca/hub_cache"
+    threads: 8
+    resources:
+        mem_mb = 256000,
+        gpu = 1,
+        time = "6:00:00",
+        partition = "gpu"
+    log:
+        f"{RUNS}/logs/hlca_mapping.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_reference \
+            --hpc \
+            --hlca-only \
+            --query-path {input.query} \
+            --output-dir {REF_GEOM} \
+            --hlca-model-dir {params.model_dir} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 2: LuCA Reference Mapping (parallel with HLCA)
+# =============================================================================
+
+rule luca_mapping:
+    input:
+        query = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
+        ref = f"{REFERENCES}/luca/luca_core_atlas.h5ad"
+    output:
+        latent = f"{REF_GEOM}/luca_mapping/luca_latent.h5ad",
+        labels = f"{REF_GEOM}/luca_mapping/luca_labels.parquet",
+        report = f"{REF_GEOM}/luca_mapping/mapping_report.json"
+    params:
+        model_dir = f"{REFERENCES}/luca/retrained_model/scanvi_model"
+    threads: 8
+    resources:
+        mem_mb = 256000,
+        gpu = 1,
+        time = "6:00:00",
+        partition = "gpu"
+    log:
+        f"{RUNS}/logs/luca_mapping.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_reference \
+            --hpc \
+            --luca-only \
+            --query-path {input.query} \
+            --output-dir {REF_GEOM} \
+            --luca-model-dir {params.model_dir} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 2b: Fuse Embeddings (after both HLCA and LuCA)
+# =============================================================================
+
+rule fuse_embeddings:
+    input:
+        hlca = f"{REF_GEOM}/hlca_mapping/hlca_latent.h5ad",
+        luca = f"{REF_GEOM}/luca_mapping/luca_latent.h5ad"
+    output:
+        fused = f"{REF_GEOM}/fused_embedding.parquet",
+        confidence = f"{REF_GEOM}/reference_confidence.parquet"
+    threads: 4
+    resources:
+        mem_mb = 128000,
+        gpu = 1,
+        time = "1:00:00"
+    log:
+        f"{RUNS}/logs/fuse_embeddings.log"
+    script:
+        "scripts/fuse_embeddings.py"
+
+
+# =============================================================================
+# Stage 3: Spatial Backend Benchmark (4 backends in parallel)
+# =============================================================================
+
+rule spatial_backend:
+    input:
+        snrna = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
+        spatial = f"{PROCESSED}/spatial_merged.h5ad",
+        hlca_labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet"  # Need cell types
+    output:
+        metrics = f"{SPATIAL}/{{backend}}/upstream_metrics.json",
+        proportions = f"{SPATIAL}/{{backend}}/cell_type_proportions.parquet"
+    wildcard_constraints:
+        backend = "|".join(SPATIAL_BACKENDS)
+    threads: 8
+    resources:
+        mem_mb = 256000,
+        gpu = 1,
+        time = lambda wc: "12:00:00" if wc.backend == "cell2location" else "6:00:00",
+        partition = "gpu"
+    log:
+        f"{RUNS}/logs/spatial_{{backend}}.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_spatial_benchmark \
+            --backend {wildcards.backend} \
+            --snrna-path {input.snrna} \
+            --spatial-path {input.spatial} \
+            --cell-types-path {input.hlca_labels} \
+            --output-dir {SPATIAL}/{wildcards.backend} \
+            2>&1 | tee {log}
+        """
+
+
+rule spatial_comparison:
+    input:
+        expand(f"{SPATIAL}/{{backend}}/upstream_metrics.json", backend=SPATIAL_BACKENDS)
+    output:
+        comparison = f"{SPATIAL}/backend_comparison.json",
+        canonical = f"{SPATIAL}/canonical_backend.json",
+        figure = f"{SPATIAL}/backend_comparison.png"
+    threads: 2
+    resources:
+        mem_mb = 32000,
+        time = "0:30:00"
+    log:
+        f"{RUNS}/logs/spatial_comparison.log"
+    script:
+        "scripts/compare_spatial_backends.py"
+
+
+# =============================================================================
+# Stage 4: Complete Data Preparation
+# =============================================================================
+
+rule data_preparation:
+    input:
+        fused = f"{REF_GEOM}/fused_embedding.parquet",
+        spatial_comparison = f"{SPATIAL}/backend_comparison.json",
+        snrna = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
+        spatial = f"{PROCESSED}/spatial_merged.h5ad"
+    output:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        splits = f"{CANONICAL}/split_manifest.json",
+        manifest = f"{CANONICAL}/data_manifest.json"
+    threads: 8
+    resources:
+        mem_mb = 256000,
+        gpu = 1,
+        time = "4:00:00"
+    log:
+        f"{RUNS}/logs/data_preparation.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.complete_data_prep \
+            --data-root {DATA} \
+            --output-dir {CANONICAL} \
+            --fused-embedding {input.fused} \
+            --spatial-backend auto \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5: Full Model Training (Multi-GPU DDP)
+# =============================================================================
+
+rule training:
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        splits = f"{CANONICAL}/split_manifest.json"
+    output:
+        checkpoint = f"{TRAINING}/checkpoints/final_checkpoint.pt",
+        best = f"{TRAINING}/checkpoints/best_checkpoint.pt",
+        metrics = f"{TRAINING}/metrics/training_metrics.csv",
+        config = f"{TRAINING}/config.json",
+        results = f"{TRAINING}/results.json"
+    params:
+        n_gpus = 4,
+        ssl_epochs = 100,
+        transition_epochs = 50
+    threads: 32
+    resources:
+        mem_mb = 512000,
+        gpu = 4,
+        time = "24:00:00",
+        partition = "gpu"
+    log:
+        f"{RUNS}/logs/training.log"
+    shell:
+        """
+        torchrun \
+            --nproc_per_node={params.n_gpus} \
+            --master_port=29500 \
+            -m stagebridge.pipelines.run_v1_ddp \
+            --data_dir {CANONICAL} \
+            --output_dir {TRAINING} \
+            --ssl_epochs {params.ssl_epochs} \
+            --transition_epochs {params.transition_epochs} \
+            --batch_size 256 \
+            --checkpoint_every 10 \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 6: Ablation Studies
+# =============================================================================
+
+ABLATIONS_LIST = [
+    "no_niche", "pooled_niche", "no_hierarchy", "no_hlca", "no_luca",
+    "single_reference", "no_attention", "no_flow", "deterministic",
+    "no_genomics", "no_uncertainty", "reduced_latent", "no_ssl", "baseline_mlp"
+]
+
+rule ablation:
+    input:
+        canonical = f"{CANONICAL}/data_manifest.json",
+        full_model = f"{TRAINING}/checkpoints/final_checkpoint.pt"
+    output:
+        results = f"{ABLATIONS}/{{ablation}}/results.json",
+        metrics = f"{ABLATIONS}/{{ablation}}/metrics.csv"
+    wildcard_constraints:
+        ablation = "|".join(ABLATIONS_LIST)
+    threads: 16
+    resources:
+        mem_mb = 256000,
+        gpu = 2,
+        time = "12:00:00",
+        partition = "gpu"
+    log:
+        f"{RUNS}/logs/ablation_{{ablation}}.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_ablation \
+            --ablation {wildcards.ablation} \
+            --data_dir {CANONICAL} \
+            --reference_model {input.full_model} \
+            --output_dir {ABLATIONS}/{wildcards.ablation} \
+            2>&1 | tee {log}
+        """
+
+
+rule ablation_summary:
+    input:
+        expand(f"{ABLATIONS}/{{ablation}}/results.json", ablation=ABLATIONS_LIST)
+    output:
+        summary = f"{ABLATIONS}/ablation_summary.json",
+        table = f"{ABLATIONS}/table3_main_results.csv",
+        latex = f"{ABLATIONS}/table3_main_results.tex"
+    threads: 2
+    resources:
+        mem_mb = 16000,
+        time = "0:30:00"
+    log:
+        f"{RUNS}/logs/ablation_summary.log"
+    script:
+        "scripts/summarize_ablations.py"
+
+
+# =============================================================================
+# Stage 7: Publication Figures
+# =============================================================================
+
+rule publication_figures:
+    input:
+        fused = f"{REF_GEOM}/fused_embedding.parquet",
+        spatial = f"{SPATIAL}/backend_comparison.json",
+        training = f"{TRAINING}/results.json",
+        ablations = f"{ABLATIONS}/ablation_summary.json"
+    output:
+        manifest = f"{FIGURES}/manifests/figure_manifest.json",
+        main_figs = directory(f"{FIGURES}/main"),
+        supp_figs = directory(f"{FIGURES}/supplementary")
+    threads: 8
+    resources:
+        mem_mb = 128000,
+        gpu = 1,
+        time = "4:00:00"
+    log:
+        f"{RUNS}/logs/figures.log"
+    script:
+        "scripts/generate_publication_figures.py"
+
+
+# =============================================================================
+# Utility Rules
+# =============================================================================
+
+rule clean:
+    shell:
+        """
+        echo "This would remove all outputs. Use with caution!"
+        echo "Run: rm -rf {RUNS}/* {REF_GEOM}/* {CANONICAL}/*"
+        """
+
+
+rule dag:
+    output:
+        "workflow/dag.pdf"
+    shell:
+        "snakemake --dag | dot -Tpdf > {output}"
+
+
+# =============================================================================
+# Rule Ordering Hints (for readability, Snakemake handles deps automatically)
+# =============================================================================
+
+# Reference mapping (parallel)
+# hlca_mapping ──┬──→ fuse_embeddings ──→ data_preparation ──→ training ──→ ablations ──→ figures
+# luca_mapping ──┘                    ↗
+# spatial_backend ────────────────────┘
