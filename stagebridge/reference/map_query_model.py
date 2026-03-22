@@ -60,6 +60,12 @@ def map_query_with_scanvi_model(
 
     log.info("Loading scANVI reference model from %s", model_path)
 
+    # First, get the model's expected var_names from model.pt
+    import torch
+    state = torch.load(f"{model_path}/model.pt", map_location='cpu', weights_only=False)
+    model_var_names = list(state['var_names'])
+    log.info("  Model expects %d genes", len(model_var_names))
+
     # Load reference model - try without adata first, then with reference h5ad
     ref_model = None
     try:
@@ -71,8 +77,19 @@ def map_query_with_scanvi_model(
             log.info("  Trying to load with reference h5ad: %s", reference_h5ad)
             try:
                 ref_adata = anndata.read_h5ad(reference_h5ad)
+                # Subset reference to model's expected genes (must have ALL model genes)
+                ref_gene_set = set(ref_adata.var_names)
+                missing_genes = [g for g in model_var_names if g not in ref_gene_set]
+                if missing_genes:
+                    raise ValueError(
+                        f"Reference adata missing {len(missing_genes)} genes expected by model. "
+                        f"First 5 missing: {missing_genes[:5]}"
+                    )
+                log.info("  Subsetting reference adata from %d to %d genes (model's HVGs)",
+                         ref_adata.n_vars, len(model_var_names))
+                ref_adata = ref_adata[:, model_var_names].copy()
                 ref_model = SCANVI.load(str(model_path), adata=ref_adata)
-                log.info("  Reference model loaded successfully (with adata)")
+                log.info("  Reference model loaded successfully (with subsetted adata)")
             except Exception as e2:
                 raise ValueError(f"Failed to load scANVI model even with reference adata: {e2}") from e2
         else:
@@ -88,10 +105,7 @@ def map_query_with_scanvi_model(
     else:
         query_copy = query_adata.copy()
 
-    # Check if model expects ENSG IDs (load model state to check)
-    import torch
-    state = torch.load(f"{model_path}/model.pt", map_location='cpu', weights_only=False)
-    model_var_names = list(state['var_names'])
+    # Check if model expects ENSG IDs (using var_names loaded earlier)
     model_uses_ensg = model_var_names[0].startswith('ENSG') if model_var_names else False
 
     if model_uses_ensg:
