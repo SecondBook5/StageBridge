@@ -35,19 +35,34 @@ def main():
     symbol_to_ensg = {}
 
     # Load LuCA first (more genes, but HLCA takes precedence for conflicts)
+    # Use h5py directly to avoid loading full adata into memory
     if args.luca:
-        print("Loading LuCA reference for gene mapping...")
-        luca = anndata.read_h5ad(args.luca, backed='r')
+        import h5py
+        print("Loading LuCA reference gene mapping (lightweight h5py)...")
+        with h5py.File(args.luca, 'r') as f:
+            # Get var_names (ENSG IDs) - stored as _index
+            if '_index' in f['var']:
+                luca_ensg = f['var']['_index'][:].astype(str)
+            else:
+                print("WARNING: LuCA missing var index, skipping")
+                luca_ensg = None
 
-        # LuCA uses ENSG IDs as var_names, feature_name has symbols
-        if 'feature_name' in luca.var.columns:
-            luca_symbols = luca.var['feature_name'].values
-            luca_ensg = luca.var_names.values
-            luca_mapping = {str(s): str(e) for s, e in zip(luca_symbols, luca_ensg) if s and e}
-            symbol_to_ensg.update(luca_mapping)
-            print(f"LuCA mapping: {len(luca_mapping)} genes (symbol -> ENSG)")
-        else:
-            print("WARNING: LuCA missing 'feature_name' column, skipping")
+            # Get feature_name (gene symbols) - categorical
+            if luca_ensg is not None and 'feature_name' in f['var']:
+                fn = f['var']['feature_name']
+                if 'categories' in fn:
+                    # Categorical encoding
+                    categories = fn['categories'][:].astype(str)
+                    codes = fn['codes'][:]
+                    luca_symbols = categories[codes]
+                else:
+                    luca_symbols = fn[:].astype(str)
+
+                luca_mapping = {str(s): str(e) for s, e in zip(luca_symbols, luca_ensg) if s and e}
+                symbol_to_ensg.update(luca_mapping)
+                print(f"LuCA mapping: {len(luca_mapping)} genes (symbol -> ENSG)")
+            else:
+                print("WARNING: LuCA missing 'feature_name' column, skipping")
 
     # Load HLCA (takes precedence for any conflicts)
     print("Loading HLCA reference for gene mapping...")
