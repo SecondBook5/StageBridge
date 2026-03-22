@@ -49,6 +49,31 @@ from .clinical import (
     generate_clinical_summary,
 )
 
+from .attention_lr_scoring import (
+    LR_PRIORS,
+    LRInteractionScore,
+    NicheEcosystemSummary,
+    compute_attention_weighted_lr_scores,
+    aggregate_lr_scores_by_stage,
+    identify_stage_specific_interactions,
+    compute_il1b_axis_score,
+    generate_niche_ecosystem_summary,
+    create_lr_interaction_report,
+    export_lr_scores_for_visualization,
+)
+
+from .intervention_targets import (
+    DRUGGABILITY_DATABASE,
+    InterventionTarget,
+    NicheRiskScore,
+    InterventionPlan,
+    prioritize_intervention_targets,
+    compute_niche_level_risk,
+    aggregate_niche_risks_by_region,
+    generate_intervention_plan,
+    export_intervention_report,
+)
+
 __all__ = [
     # Signatures
     "GENE_SIGNATURES",
@@ -81,4 +106,25 @@ __all__ = [
     "compute_risk_scores",
     "stratify_by_niche_phenotype",
     "generate_clinical_summary",
+    # Attention-weighted L-R scoring (novel)
+    "LR_PRIORS",
+    "LRInteractionScore",
+    "NicheEcosystemSummary",
+    "compute_attention_weighted_lr_scores",
+    "aggregate_lr_scores_by_stage",
+    "identify_stage_specific_interactions",
+    "compute_il1b_axis_score",
+    "generate_niche_ecosystem_summary",
+    "create_lr_interaction_report",
+    "export_lr_scores_for_visualization",
+    # Intervention targets (novel)
+    "DRUGGABILITY_DATABASE",
+    "InterventionTarget",
+    "NicheRiskScore",
+    "InterventionPlan",
+    "prioritize_intervention_targets",
+    "compute_niche_level_risk",
+    "aggregate_niche_risks_by_region",
+    "generate_intervention_plan",
+    "export_intervention_report",
 ]
