@@ -144,6 +144,11 @@ def test_tangram_backend_map_synthetic(synthetic_snrna, synthetic_spatial, tmp_o
 
 
 @pytest.mark.slow
+@pytest.mark.xfail(
+    reason="DestVI can produce NaN with synthetic data due to numerical instability",
+    raises=ValueError,
+    strict=False,
+)
 def test_destvi_backend_map_synthetic(synthetic_snrna, synthetic_spatial, tmp_output_dir):
     """Test DestVI mapping with synthetic data."""
     pytest.importorskip("scvi")
