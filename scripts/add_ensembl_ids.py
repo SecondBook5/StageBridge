@@ -1,16 +1,19 @@
 #!/usr/bin/env python
-"""Add ENSG IDs to query using HLCA's own mapping (guaranteed correct for model).
+"""Add ENSG IDs to query using HLCA + LuCA mappings for maximum coverage.
 
 Usage:
     python scripts/add_ensembl_ids.py \
         --query $DATA/processed/luad_evo/snrna_qc_normalized.h5ad \
         --hlca $DATA/references/hlca/hlca_reference.h5ad \
+        --luca $DATA/references/luca/luca_core_atlas.h5ad \
         --output $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
 
 This script:
-1. Loads HLCA reference to extract symbol -> ENSG mapping
-2. Adds ensembl_id column to query.var
-3. Saves updated query
+1. Loads HLCA reference to extract symbol -> ENSG mapping (~2000 genes)
+2. Loads LuCA reference to extract symbol -> ENSG mapping (~17000 genes)
+3. Merges mappings (LuCA has more genes, HLCA takes precedence for conflicts)
+4. Adds ensembl_id column to query.var
+5. Saves updated query
 
 The pipeline's model-based mapping will then auto-convert var_names to ENSG IDs.
 """
@@ -21,14 +24,32 @@ import anndata
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Add ENSG IDs to query using HLCA mapping")
+    parser = argparse.ArgumentParser(description="Add ENSG IDs to query using HLCA+LuCA mapping")
     parser.add_argument("--query", required=True, help="Path to query h5ad file")
     parser.add_argument("--hlca", required=True, help="Path to HLCA reference h5ad file")
+    parser.add_argument("--luca", default=None, help="Path to LuCA reference h5ad file (optional but recommended)")
     parser.add_argument("--output", required=True, help="Output path for updated query")
     parser.add_argument("--model-path", default=None, help="Optional: path to scANVI model to check coverage")
     args = parser.parse_args()
 
-    # Load HLCA reference to get its symbol -> ENSG mapping
+    symbol_to_ensg = {}
+
+    # Load LuCA first (more genes, but HLCA takes precedence for conflicts)
+    if args.luca:
+        print("Loading LuCA reference for gene mapping...")
+        luca = anndata.read_h5ad(args.luca, backed='r')
+
+        # LuCA uses ENSG IDs as var_names, feature_name has symbols
+        if 'feature_name' in luca.var.columns:
+            luca_symbols = luca.var['feature_name'].values
+            luca_ensg = luca.var_names.values
+            luca_mapping = {str(s): str(e) for s, e in zip(luca_symbols, luca_ensg) if s and e}
+            symbol_to_ensg.update(luca_mapping)
+            print(f"LuCA mapping: {len(luca_mapping)} genes (symbol -> ENSG)")
+        else:
+            print("WARNING: LuCA missing 'feature_name' column, skipping")
+
+    # Load HLCA (takes precedence for any conflicts)
     print("Loading HLCA reference for gene mapping...")
     hlca = anndata.read_h5ad(args.hlca, backed='r')
 
@@ -36,8 +57,10 @@ def main():
     if 'ensembl_id' not in hlca.var.columns:
         raise ValueError("HLCA reference missing 'ensembl_id' column in var")
 
-    symbol_to_ensg = dict(zip(hlca.var_names, hlca.var['ensembl_id']))
-    print(f"HLCA mapping: {len(symbol_to_ensg)} genes (symbol -> ENSG)")
+    hlca_mapping = dict(zip(hlca.var_names, hlca.var['ensembl_id']))
+    symbol_to_ensg.update(hlca_mapping)  # HLCA overwrites LuCA for conflicts
+    print(f"HLCA mapping: {len(hlca_mapping)} genes (symbol -> ENSG)")
+    print(f"Combined mapping: {len(symbol_to_ensg)} unique symbols")
     print(f"Sample: {list(symbol_to_ensg.items())[:3]}")
 
     # Load query
@@ -46,10 +69,10 @@ def main():
     query_symbols = set(query.var_names)
     print(f"Query has {len(query_symbols)} genes")
 
-    # Check overlap between query symbols and HLCA symbols
-    hlca_symbols = set(hlca.var_names)
-    symbol_overlap = query_symbols & hlca_symbols
-    print(f"Query symbols that match HLCA symbols: {len(symbol_overlap)}/{len(hlca_symbols)}")
+    # Check overlap between query symbols and combined mapping
+    mapping_symbols = set(symbol_to_ensg.keys())
+    symbol_overlap = query_symbols & mapping_symbols
+    print(f"Query symbols with ENSG mapping: {len(symbol_overlap)}/{len(query_symbols)}")
 
     # Optionally check model coverage
     if args.model_path:
@@ -58,16 +81,15 @@ def main():
         model_ensg = set(state['var_names'])
         print(f"Model expects {len(model_ensg)} ENSG IDs")
 
-        # Map query symbols -> ENSG using HLCA mapping, check model coverage
+        # Map query symbols -> ENSG using combined mapping, check model coverage
         query_ensg_mapped = {symbol_to_ensg[s] for s in symbol_overlap if s in symbol_to_ensg}
         model_coverage = query_ensg_mapped & model_ensg
-        print(f"Query genes that map to model's ENSG IDs: {len(model_coverage)}/{len(model_ensg)}")
+        print(f"Query genes that map to model's ENSG IDs: {len(model_coverage)}/{len(model_ensg)} ({100*len(model_coverage)/len(model_ensg):.1f}%)")
 
-        if len(model_coverage) < 1500:
-            print("\nWARNING: Low coverage! Model-based mapping may not work well.")
-            print("Consider using k-NN fallback instead.")
+        if len(model_coverage) < len(model_ensg) * 0.5:
+            print("\nWARNING: Low coverage (<50%)! Model-based mapping may not work well.")
         else:
-            print(f"\nGood coverage ({len(model_coverage)/len(model_ensg):.1%})! Model-based mapping should work.")
+            print(f"\nGood coverage! Model-based mapping should work.")
 
     # Add ensembl_id column to query var
     print("\nAdding ensembl_id column to query...")
