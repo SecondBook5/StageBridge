@@ -32,15 +32,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Stage color palette — ordered Normal→AAH→AIS→MIA→LUAD (color-blind friendly)
-_STAGE_COLORS: dict[str, str] = {
-    "Normal": "#00BA38",  # green (healthy) - colorblind safe
-    "AAH": "#F8766D",  # coral (early precursor)
-    "AIS": "#619CFF",  # blue (intermediate precursor)
-    "MIA": "#E58700",  # orange (late precursor)
-    "LUAD": "#A3A500",  # olive (invasive)
-    "Unknown": "#999999",  # gray
-}
+# Stage color palette — use LungPCA colors for consistency with original paper
+from .lungpca_style import STAGE_COLORS as _STAGE_COLORS
 
 
 def _get_umap_coords(adata: Any) -> np.ndarray:
