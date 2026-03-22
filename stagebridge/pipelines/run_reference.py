@@ -456,6 +456,11 @@ def run_hpc_reference_mapping(
             "inference_chunk_size": 8192,
             "export_probs": True,
             "show_progress": True,
+            # Early stopping on validation ELBO (not train) per MEMORY.md
+            "early_stopping": True,
+            "early_stopping_monitor": "elbo_validation",
+            "early_stopping_patience": 15,
+            "early_stopping_min_delta": 0.5,
         }
 
         try:
