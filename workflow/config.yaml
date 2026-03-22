@@ -2,8 +2,8 @@
 # StageBridge V1 Pipeline Configuration
 # =============================================================================
 
-# Data paths (override with environment variables or command line)
-data_root: "${DATA:-/scratch/chaunzt1/stagebridge}"
+# Data paths (override via: snakemake --config data_root=/your/path)
+data_root: "/scratch/chaunzt1/stagebridge"
 
 # Reference mapping parameters
 hlca:
