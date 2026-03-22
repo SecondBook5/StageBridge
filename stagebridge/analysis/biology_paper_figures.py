@@ -273,7 +273,7 @@ def plot_kac_vs_niche_risk(
 
 
 def plot_fold_change_heatmap(
-    stage_summaries: Dict[str, Any],
+    stage_summaries: dict[str, Any],
     output_path: Path,
     figsize: tuple = (8, 5),
 ) -> None:
@@ -476,7 +476,7 @@ def plot_proinflammatory_enrichment_trajectory(
 
 
 def plot_perturbation_effects(
-    perturbation_results: List[Any],
+    perturbation_results: list[Any],
     output_path: Path,
     figsize: tuple = (8, 5),
 ) -> None:
@@ -527,9 +527,9 @@ def plot_perturbation_effects(
 def generate_all_biology_figures(
     cell_risks: pd.DataFrame,
     niche_risks: pd.DataFrame,
-    stage_summaries: Dict[str, Any],
+    stage_summaries: dict[str, Any],
     output_dir: Path,
-    perturbation_results: Optional[List[Any]] = None,
+    perturbation_results: list[Any] | None = None,
 ) -> None:
     """
     Generate all figures for biology paper.
