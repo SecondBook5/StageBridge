@@ -637,24 +637,21 @@ def train(config: TrainingConfig):
     start_time = datetime.now()
 
     # Load HPO best params if provided
+    # Keys from run_v1_complete.py HPO: lr, hidden_dim, context_dim, dropout, ssl_weight, n_layers
     if config.use_best_hparams and config.hpo_params:
         hpo_path = Path(config.hpo_params)
         if hpo_path.exists():
             with open(hpo_path) as f:
                 hpo_best = json.load(f)
-            # Apply HPO params to config (mutate dataclass)
+            # Apply HPO params to config
             if "hidden_dim" in hpo_best:
-                object.__setattr__(config, "niche_hidden_dim", hpo_best["hidden_dim"])
-            if "latent_dim" in hpo_best:
-                object.__setattr__(config, "latent_dim", hpo_best["latent_dim"])
+                config.niche_hidden_dim = int(hpo_best["hidden_dim"])
+            if "context_dim" in hpo_best:
+                config.context_dim = int(hpo_best["context_dim"])
             if "dropout" in hpo_best:
-                object.__setattr__(config, "dropout", hpo_best["dropout"])
+                config.dropout = float(hpo_best["dropout"])
             if "lr" in hpo_best:
-                object.__setattr__(config, "learning_rate", hpo_best["lr"])
-            if "weight_decay" in hpo_best:
-                object.__setattr__(config, "weight_decay", hpo_best["weight_decay"])
-            if "batch_size" in hpo_best:
-                object.__setattr__(config, "batch_size", hpo_best["batch_size"])
+                config.learning_rate = float(hpo_best["lr"])
             print(f"Loaded HPO params from {hpo_path}: {hpo_best}")
 
     # Setup distributed
