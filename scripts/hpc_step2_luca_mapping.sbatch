@@ -79,29 +79,21 @@ echo "  Output: $OUTPUT"
 echo ""
 
 # =============================================================================
-# SKIP-IF-EXISTS: Check if valid output already exists
+# SKIP-IF-EXISTS: Check if valid LuCA output already exists
+# (Fused embedding created separately after both HLCA and LuCA complete)
 # =============================================================================
 LUCA_LABELS="$OUTPUT/luca_mapping/luca_labels.parquet"
 LUCA_LATENT="$OUTPUT/luca_mapping/luca_latent.h5ad"
-FUSED="$OUTPUT/fused_embedding.parquet"
-CELL_TYPES="$OUTPUT/cell_types.parquet"
 
 check_luca_valid() {
-    [[ -f "$LUCA_LABELS" ]] && [[ -f "$LUCA_LATENT" ]] && [[ -f "$FUSED" ]] && \
+    [[ -f "$LUCA_LABELS" ]] && [[ -f "$LUCA_LATENT" ]] && \
     python3 -c "
 import pandas as pd
 df = pd.read_parquet('$LUCA_LABELS')
 assert 'luca_label' in df.columns, 'Missing luca_label'
 n_valid = (df['luca_label'].notna() & (df['luca_label'] != 'unknown')).sum()
 assert n_valid > 0, 'No valid cell type labels'
-# Check fused has both HLCA and LuCA
-fused = pd.read_parquet('$FUSED')
-hlca_cols = [c for c in fused.columns if c.startswith('hlca_latent_')]
-luca_cols = [c for c in fused.columns if c.startswith('luca_latent_')]
-assert len(hlca_cols) > 0, 'Fused missing HLCA latents'
-assert len(luca_cols) > 0, 'Fused missing LuCA latents'
 print(f'✓ LuCA valid: {len(df)} cells, {n_valid} with cell types')
-print(f'✓ Fused valid: {len(hlca_cols)} HLCA + {len(luca_cols)} LuCA dims')
 " 2>/dev/null
 }
 
@@ -119,11 +111,8 @@ fi
 echo "LuCA mapping needs to run (missing or invalid output)"
 echo ""
 
-# Verify Stage 1 completed
-if [ ! -f "$OUTPUT/hlca_embedding.parquet" ] && [ ! -f "$OUTPUT/hlca_mapping/hlca_latent.h5ad" ]; then
-    echo "ERROR: HLCA mapping not found. Run Stage 1 first."
-    exit 1
-fi
+# Note: HLCA runs in parallel - fused embedding created by separate step
+HLCA_LATENT="$OUTPUT/hlca_mapping/hlca_latent.h5ad"
 
 # Verify inputs
 if [ ! -f "$LUCA_REF" ]; then

@@ -79,18 +79,25 @@ echo "Submitting pipeline stages..."
 echo ""
 
 # =============================================================================
-# Stage 1: HLCA Reference Mapping
+# Stage 1: HLCA Reference Mapping (PARALLEL with LuCA)
 # =============================================================================
 echo "Stage 1: HLCA Reference Mapping"
 JOB_HLCA=$(sbatch --parsable $SCRIPTS_DIR/hpc_step1_hlca_mapping.sbatch)
 echo "  Submitted job: $JOB_HLCA"
 
 # =============================================================================
-# Stage 2: LuCA Reference Mapping (depends on HLCA for fused output)
+# Stage 2: LuCA Reference Mapping (PARALLEL with HLCA)
 # =============================================================================
-echo "Stage 2: LuCA Reference Mapping (after HLCA)"
-JOB_LUCA=$(sbatch --parsable --dependency=afterok:$JOB_HLCA $SCRIPTS_DIR/hpc_step2_luca_mapping.sbatch)
-echo "  Submitted job: $JOB_LUCA (depends on $JOB_HLCA)"
+echo "Stage 2: LuCA Reference Mapping (PARALLEL - no dependency)"
+JOB_LUCA=$(sbatch --parsable $SCRIPTS_DIR/hpc_step2_luca_mapping.sbatch)
+echo "  Submitted job: $JOB_LUCA (parallel with $JOB_HLCA)"
+
+# =============================================================================
+# Stage 2b: Fuse HLCA + LuCA embeddings (depends on BOTH completing)
+# =============================================================================
+echo "Stage 2b: Fuse embeddings (after HLCA AND LuCA)"
+JOB_FUSE=$(sbatch --parsable --dependency=afterok:$JOB_HLCA:$JOB_LUCA $SCRIPTS_DIR/hpc_step2b_fuse.sbatch)
+echo "  Submitted job: $JOB_FUSE (depends on $JOB_HLCA, $JOB_LUCA)"
 
 # =============================================================================
 # Stage 3: Spatial Backend Benchmark (4 backends in PARALLEL)
@@ -121,8 +128,8 @@ fi
 # Stage 4: Complete Data Preparation (depends on ref mapping AND spatial)
 # =============================================================================
 echo "Stage 4: Complete Data Preparation (after ref mapping + spatial)"
-JOB_DATAPREP=$(sbatch --parsable --dependency=afterok:$JOB_LUCA:$JOB_SPATIAL $SCRIPTS_DIR/hpc_step4_complete_data_prep.sbatch)
-echo "  Submitted job: $JOB_DATAPREP (depends on $JOB_LUCA, $JOB_SPATIAL)"
+JOB_DATAPREP=$(sbatch --parsable --dependency=afterok:$JOB_FUSE:$JOB_SPATIAL $SCRIPTS_DIR/hpc_step4_complete_data_prep.sbatch)
+echo "  Submitted job: $JOB_DATAPREP (depends on $JOB_FUSE, $JOB_SPATIAL)"
 
 # =============================================================================
 # Stage 5: Full Model Training (depends on data prep)
