@@ -52,9 +52,16 @@ Query cells were projected onto both HLCA (healthy) and LuCA (cancer) reference 
 
 \paragraph{HLCA Mapping.} The query achieved 86.05\% overlap with the HLCA model's 2,000 highly variable genes. scArches surgery was performed for up to 200 epochs with early stopping (patience=15, monitoring validation ELBO). Training converged at epoch 60--61, producing 30-dimensional latent embeddings for all 787,709 query cells.
 
-\paragraph{LuCA Mapping.} Initial attempts with only HLCA-derived ENSG mappings yielded only 24.7\% overlap with the LuCA model's 6,000 genes, resulting in out-of-memory failures during gene padding. After incorporating LuCA's own symbol$\to$ENSG mapping, overlap improved substantially. scArches surgery was performed with identical hyperparameters, producing 10-dimensional latent embeddings.
+\paragraph{LuCA Mapping.} Initial attempts with only HLCA-derived ENSG mappings yielded only 24.7\% overlap with the LuCA model's 6,000 genes, resulting in out-of-memory failures during gene padding. After incorporating LuCA's own symbol$\to$ENSG mapping, overlap improved to 89.18\%. scArches surgery was performed with identical hyperparameters, with early stopping triggered at epoch 64 (validation ELBO: 1969.0), producing 10-dimensional latent embeddings for all 787,709 query cells.
 
 \paragraph{Embedding Fusion.} Both reference embeddings were L2-normalized before concatenation to prevent scale domination, yielding 40-dimensional fused embeddings. Confidence scores were computed via percentile-rank calibration of $k$-NN distances to ensure comparability between references.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/embedding_overview.pdf}
+\caption{Dual-reference embedding analysis. \textbf{(Top row)} PCA projections of fused (40D), HLCA (30D), and LuCA (10D) embeddings showing complementary structure captured by each reference. \textbf{(Bottom left)} Total variance by reference, with LuCA capturing more variance despite fewer dimensions (10 vs 30), indicating cancer-specific features are more discriminative. \textbf{(Bottom middle)} Per-dimension variance showing contribution of each latent dimension. \textbf{(Bottom right)} HLCA PC1 vs LuCA PC1 correlation ($r = 0.821$), demonstrating that references capture related but non-redundant biological structure.}
+\label{fig:embedding_overview}
+\end{figure}
 
 \begin{table}[h]
 \centering
@@ -64,13 +71,20 @@ Query cells were projected onto both HLCA (healthy) and LuCA (cancer) reference 
 \toprule
 \textbf{Reference} & \textbf{Model Genes} & \textbf{Gene Overlap} & \textbf{Latent Dim} & \textbf{Epochs} \\
 \midrule
-HLCA & 2,000 & 86.05\% & 30 & 60--61 \\
-LuCA & 6,000 & TBD & 10 & TBD \\
+HLCA & 2,000 & 86.05\% & 30 & 58 \\
+LuCA & 6,000 & 89.18\% & 10 & 64 \\
 \midrule
 \textbf{Fused} & -- & -- & 40 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/reference_elbo_curves.pdf}
+\caption{scArches surgery training convergence for dual-reference mapping. \textbf{(Left)} HLCA mapping: Training ELBO converged rapidly from 733 to 668, with early stopping triggered at epoch 58 when validation ELBO (763.4) ceased improving. \textbf{(Right)} LuCA mapping: Training ELBO converged from 2010 to 1920, with early stopping at epoch 64 (best validation ELBO: 1969.0). Both models demonstrate stable convergence without overfitting, validating the scArches surgical fine-tuning approach for projecting query data onto reference latent spaces.}
+\label{fig:reference_elbo}
+\end{figure}
 
 
 \subsection{Spatial Mapping Backend Comparison}
@@ -293,9 +307,26 @@ Temperature scaling & -- & -- & -- (learned) \\
 
 The quality of learned cell representations was assessed through dimensionality reduction visualization and quantitative clustering metrics. UMAP projections were generated to examine whether representations organized by disease stage while preserving cell type identity. Batch integration was evaluated by coloring embeddings by donor to detect patient-specific clustering artifacts. Reference confidence scores were visualized to assess uncertainty distribution across the embedding space.
 
-\textbf{[FIGURE 7: UMAP visualizations]}
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/manifold_comparison.pdf}
+\caption{Dimensionality reduction of fused dual-reference embeddings (40D) using UMAP, t-SNE, and PHATE, colored by histopathological stage. All three methods reveal clear separation of LUAD cells (dark gray) from precursor stages, with Normal (green), AAH (orange), and AIS (red) showing partial overlap consistent with the gradual nature of early progression. PHATE preserves trajectory-like structure suggesting continuous transitions between stages.}
+\label{fig:manifold_comparison}
+\end{figure}
 
-\textit{Figure 7. UMAP projections of learned representations. (A) Colored by disease stage showing progression structure. (B) Colored by cell type showing biological identity preservation. (C) Colored by donor showing batch integration. (D) Colored by reference confidence showing uncertainty distribution.}
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/fused_umap.pdf}
+\caption{UMAP projection of fused dual-reference embeddings colored by disease stage. The embedding captures biologically meaningful structure: Normal tissue (green) and early precursors (AAH, AIS) form interconnected regions, while invasive LUAD (dark gray) segregates into distinct clusters. MIA (purple) occupies intermediate positions consistent with its transitional histopathology.}
+\label{fig:fused_umap}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/fused_phate.pdf}
+\caption{PHATE projection of fused dual-reference embeddings. PHATE's diffusion-based geometry reveals branching trajectories emanating from central cell populations, potentially capturing multiple progression paths from normal tissue to invasive carcinoma. The trajectory structure suggests heterogeneous evolution with multiple transition routes.}
+\label{fig:fused_phate}
+\end{figure}
 
 \textbf{[RESULTS: Describe stage separation, cell type preservation, and batch integration observed in learned embeddings. Quantify mixing using LISI scores.]}
 
@@ -347,8 +378,8 @@ Computational requirements were measured for each stage of the StageBridge pipel
 \midrule
 LuCA scANVI retraining & $\sim$6 hrs & 329 + 34 & 4$\times$ H100 GPU \\
 ENSG gene mapping & $<$5 min & -- & CPU \\
-Reference mapping (HLCA) & $\sim$48 min & 60--61 & 1$\times$ H100 GPU \\
-Reference mapping (LuCA) & TBD & TBD & 1$\times$ H100 GPU \\
+Reference mapping (HLCA) & $\sim$46 min & 58 & 1$\times$ H100 GPU \\
+Reference mapping (LuCA) & $\sim$64 min & 64 & 1$\times$ H100 GPU \\
 SSL pretraining & -- & -- & 4$\times$ H100 GPU \\
 CFM-OT training & -- & -- & 4$\times$ H100 GPU \\
 Inference (per cell) & -- & -- & Single H100 \\
