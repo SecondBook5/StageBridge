@@ -265,42 +265,14 @@ rule semi_synthetic_benchmark:
     output:
         benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
         ground_truth = f"{CANONICAL}/benchmark/ground_truth.json"
-    params:
-        canonical_dir = CANONICAL
     threads: 4
     resources:
         mem_mb = 64000,
         time = "1:00:00"
     log:
         f"{RUNS}/logs/semi_synthetic_benchmark.log"
-    shell:
-        """
-        python -c "
-from stagebridge.benchmarks import generate_benchmark, SmokeTestConfig
-from pathlib import Path
-import torch
-import json
-
-output_dir = Path('{params.canonical_dir}/benchmark')
-output_dir.mkdir(parents=True, exist_ok=True)
-
-# Generate hybrid benchmark with full ground truth
-config = SmokeTestConfig()
-config.n_cells = 10000  # Larger for proper evaluation
-report = generate_benchmark(config=config, mode='hybrid')
-
-# Save tensors
-if 'tensors' in report:
-    torch.save(report['tensors'], output_dir / 'semi_synthetic.pt')
-
-# Save ground truth
-ground_truth = {{k: v for k, v in report.items() if k != 'tensors'}}
-with open(output_dir / 'ground_truth.json', 'w') as f:
-    json.dump(ground_truth, f, indent=2, default=str)
-
-print(f'Generated benchmark with {{len(report.get(\"tensors\", {{}}))} tensors')
-" 2>&1 | tee {log}
-        """
+    script:
+        "scripts/generate_semi_synthetic.py"
 
 
 # =============================================================================
