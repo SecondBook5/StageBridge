@@ -2,7 +2,7 @@
 #SBATCH --job-name=dual_ref_map
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:h100:1
-#SBATCH --mem=128G
+#SBATCH --mem=256G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=4:00:00
 #SBATCH --account=chaunzt1
