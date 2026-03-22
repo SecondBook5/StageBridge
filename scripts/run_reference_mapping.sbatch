@@ -40,6 +40,7 @@ conda activate /scratch/chaunzt1/stagebridge_env
 
 # Data paths
 DATA=/scratch/chaunzt1/stagebridge
+QUERY_RAW=$DATA/processed/luad_evo/snrna_qc_normalized.h5ad
 QUERY=$DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
 OUTPUT=$DATA/processed/luad_evo/reference_geometry
 
@@ -60,7 +61,7 @@ echo "Created symlink: references/luca/luca_scanvi_model -> retrained_model/scan
 # Verify paths exist
 echo ""
 echo "Verifying paths..."
-for path in "$QUERY" "$HLCA_REF" "$LUCA_REF" "$LUCA_MODEL"; do
+for path in "$QUERY_RAW" "$HLCA_REF" "$LUCA_REF" "$LUCA_MODEL"; do
     if [ -e "$path" ]; then
         echo "  [OK] $path"
     else
@@ -75,6 +76,33 @@ if [ -d "$HLCA_MODEL" ]; then
 else
     echo "  [WARN] HLCA HubModel cache not found - will use k-NN fallback for HLCA"
 fi
+
+# =============================================================================
+# Step 1: Add ENSG IDs to query (using HLCA + LuCA for maximum coverage)
+# =============================================================================
+echo ""
+echo "=============================================="
+echo "Step 1: Adding ENSG IDs to query"
+echo "=============================================="
+python scripts/add_ensembl_ids.py \
+    --query "$QUERY_RAW" \
+    --hlca "$HLCA_REF" \
+    --luca "$LUCA_REF" \
+    --output "$QUERY"
+
+if [ ! -f "$QUERY" ]; then
+    echo "ERROR: ENSG mapping failed - output file not created"
+    exit 1
+fi
+echo "  [OK] ENSG IDs added to query"
+
+# =============================================================================
+# Step 2: Run dual-reference mapping
+# =============================================================================
+echo ""
+echo "=============================================="
+echo "Step 2: Dual-Reference Mapping"
+echo "=============================================="
 
 echo ""
 echo "GPU Status:"
