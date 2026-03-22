@@ -317,7 +317,7 @@ rule training:
     resources:
         mem_mb = 512000,
         gpu = 4,
-        time = "10:00:00",  # ~6-8 hours typical, buffer for safety
+        time = "12:00:00",  # ~6-8 hours typical, 12h buffer for safety
         partition = "gpu"
     log:
         f"{RUNS}/logs/training.log"
