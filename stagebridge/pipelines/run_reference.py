@@ -437,30 +437,161 @@ def run_hpc_reference_mapping(
                     print(f"  Found LuCA scANVI model: {luca_model_path}")
                     break
 
-    # Run model-based mapping (primary) or chunked k-NN (fallback)
-    if use_model_based and (hlca_model_path or luca_model_path):
-        print("  Using MODEL-BASED projection (principled)")
-        from stagebridge.reference.map_query_model import map_to_dual_reference_model_based
-        results = map_to_dual_reference_model_based(
-            query_adata,
-            hlca_model_path if use_hlca else None,
-            luca_model_path if use_luca else None,
-            fallback_hlca_h5ad=hlca_path if use_hlca else None,
-            fallback_luca_h5ad=luca_path if use_luca else None,
-            batch_size=10000,
+    # Run model-based mapping using existing hlca_mapper.py (canonical implementation)
+    # This avoids code duplication - hlca_mapper.py has the full, tested implementation
+    results = {
+        "hlca_embeddings": None,
+        "luca_embeddings": None,
+        "hlca_distances": None,
+        "luca_distances": None,
+        "hlca_cell_types": None,
+        "luca_cell_types": None,
+        "fused_embeddings": None,
+        "cell_ids": query_adata.obs_names.astype(str).to_numpy(),
+        "metadata": {},
+    }
+
+    # HLCA mapping using canonical hlca_mapper.py
+    if use_hlca and use_model_based and hlca_model_path:
+        print("  Using HLCA mapping from hlca_mapper.py (canonical implementation)")
+        from stagebridge.reference.hlca_mapper import map_full_snrna_with_hlca
+
+        # Setup output paths for hlca_mapper
+        hlca_output_dir = output_dir / "hlca_mapping"
+        hlca_output_dir.mkdir(parents=True, exist_ok=True)
+
+        hlca_cfg = {
+            "hub_repo_id": "scvi-tools/human-lung-cell-atlas-scanvi",
+            "model_cache_dir": str(hlca_model_path.parent),
+            "query_model_dir": str(hlca_output_dir / "query_model"),
+            "surgery_epochs": 200,
+            "batch_size_infer": 1024,
+            "inference_chunk_size": 8192,
+            "export_probs": True,
+            "show_progress": True,
+        }
+
+        try:
+            hlca_result = map_full_snrna_with_hlca(
+                run_id=f"{run_id}_hlca",
+                snrna_h5ad_path=query_path,
+                output_latent_h5ad_path=hlca_output_dir / "hlca_latent.h5ad",
+                output_labels_parquet_path=hlca_output_dir / "hlca_labels.parquet",
+                mapping_report_path=hlca_output_dir / "mapping_report.json",
+                gene_report_path=hlca_output_dir / "gene_report.json",
+                progress_path=hlca_output_dir / "progress.json",
+                processed_hlca_dir=hlca_model_path.parent,
+                hlca_cfg=hlca_cfg,
+            )
+
+            # Read back the results
+            import anndata
+            hlca_latent_adata = anndata.read_h5ad(hlca_output_dir / "hlca_latent.h5ad")
+            results["hlca_embeddings"] = hlca_latent_adata.X
+            results["hlca_cell_types"] = hlca_latent_adata.obs["hlca_label"].astype(str).to_numpy()
+            results["metadata"]["hlca"] = {
+                "method": "hlca_mapper_canonical",
+                "latent_dim": hlca_latent_adata.X.shape[1],
+                "overlap_percent": hlca_result.overlap_percent,
+            }
+            print(f"  HLCA mapping complete: {hlca_latent_adata.X.shape}, {len(results['hlca_cell_types'])} cell types")
+        except Exception as e:
+            print(f"  ERROR: HLCA mapping failed: {e}")
+            print("  Falling back to k-NN projection...")
+            from stagebridge.reference.map_query_chunked import map_query_chunked
+            hlca_emb, hlca_dist, hlca_info = map_query_chunked(
+                query_adata, hlca_path,
+                latent_key=hlca_latent_key, k_neighbors=k_neighbors, use_faiss=True,
+            )
+            results["hlca_embeddings"] = hlca_emb
+            results["hlca_distances"] = hlca_dist
+            results["metadata"]["hlca"] = {"method": "knn_fallback", "reason": str(e), **hlca_info}
+
+    elif use_hlca:
+        # k-NN fallback when model not available
+        print("  Using k-NN projection for HLCA (model not available)")
+        from stagebridge.reference.map_query_chunked import map_query_chunked
+        hlca_emb, hlca_dist, hlca_info = map_query_chunked(
+            query_adata, hlca_path,
+            latent_key=hlca_latent_key, k_neighbors=k_neighbors, use_faiss=True,
         )
-    else:
-        print("  Using k-NN projection (models not available)")
-        from stagebridge.reference.map_query_chunked import map_to_dual_reference_chunked
-        results = map_to_dual_reference_chunked(
-            query_adata,
-            hlca_path if use_hlca else None,
-            luca_path if use_luca else None,
-            hlca_latent_key=hlca_latent_key,
-            luca_latent_key=luca_latent_key,
-            k_neighbors=k_neighbors,
-            use_faiss=True,
+        results["hlca_embeddings"] = hlca_emb
+        results["hlca_distances"] = hlca_dist
+        results["metadata"]["hlca"] = {"method": "knn_projection", **hlca_info}
+
+    # LuCA mapping using canonical luca_mapper.py
+    if use_luca and use_model_based and luca_model_path:
+        print("  Using LuCA mapping from luca_mapper.py (canonical implementation)")
+        from stagebridge.reference.luca_mapper import map_full_snrna_with_luca
+
+        # Setup output paths for luca_mapper
+        luca_output_dir = output_dir / "luca_mapping"
+        luca_output_dir.mkdir(parents=True, exist_ok=True)
+
+        luca_cfg = {
+            "surgery_epochs": 200,
+            "batch_size_infer": 1024,
+            "export_probs": True,
+            "show_progress": True,
+        }
+
+        try:
+            luca_result = map_full_snrna_with_luca(
+                run_id=f"{run_id}_luca",
+                snrna_h5ad_path=query_path,
+                output_latent_h5ad_path=luca_output_dir / "luca_latent.h5ad",
+                output_labels_parquet_path=luca_output_dir / "luca_labels.parquet",
+                mapping_report_path=luca_output_dir / "mapping_report.json",
+                gene_report_path=luca_output_dir / "gene_report.json",
+                progress_path=luca_output_dir / "progress.json",
+                luca_model_dir=luca_model_path,
+                luca_cfg=luca_cfg,
+            )
+
+            # Read back the results
+            import anndata
+            luca_latent_adata = anndata.read_h5ad(luca_output_dir / "luca_latent.h5ad")
+            results["luca_embeddings"] = luca_latent_adata.X
+            results["luca_cell_types"] = luca_latent_adata.obs["luca_label"].astype(str).to_numpy()
+            results["metadata"]["luca"] = {
+                "method": "luca_mapper_canonical",
+                "latent_dim": luca_latent_adata.X.shape[1],
+                "overlap_percent": luca_result.overlap_percent,
+            }
+            print(f"  LuCA mapping complete: {luca_latent_adata.X.shape}, {len(results['luca_cell_types'])} cell types")
+        except Exception as e:
+            print(f"  ERROR: LuCA mapping failed: {e}")
+            print("  Falling back to k-NN projection...")
+            from stagebridge.reference.map_query_chunked import map_query_chunked
+            luca_emb, luca_dist, luca_info = map_query_chunked(
+                query_adata, luca_path,
+                latent_key=luca_latent_key, k_neighbors=k_neighbors, use_faiss=True,
+            )
+            results["luca_embeddings"] = luca_emb
+            results["luca_distances"] = luca_dist
+            results["metadata"]["luca"] = {"method": "knn_fallback", "reason": str(e), **luca_info}
+
+    elif use_luca:
+        # k-NN fallback when model not available
+        print("  Using k-NN projection for LuCA (model not available)")
+        from stagebridge.reference.map_query_chunked import map_query_chunked
+        luca_emb, luca_dist, luca_info = map_query_chunked(
+            query_adata, luca_path,
+            latent_key=luca_latent_key, k_neighbors=k_neighbors, use_faiss=True,
         )
+        results["luca_embeddings"] = luca_emb
+        results["luca_distances"] = luca_dist
+        results["metadata"]["luca"] = {"method": "knn_projection", **luca_info}
+
+    # Fuse embeddings
+    if results["hlca_embeddings"] is not None and results["luca_embeddings"] is not None:
+        results["fused_embeddings"] = np.concatenate(
+            [results["hlca_embeddings"], results["luca_embeddings"]], axis=1
+        )
+    elif results["hlca_embeddings"] is not None:
+        results["fused_embeddings"] = results["hlca_embeddings"]
+    elif results["luca_embeddings"] is not None:
+        results["fused_embeddings"] = results["luca_embeddings"]
 
     wall_time = time.perf_counter() - t0
 
@@ -509,6 +640,10 @@ def run_hpc_reference_mapping(
         })
         for i in range(hlca_emb_normalized.shape[1]):
             hlca_df[f"hlca_latent_{i}"] = hlca_emb_normalized[:, i]
+        # Add cell type labels from model prediction
+        if results.get("hlca_cell_types") is not None:
+            hlca_df["cell_type"] = results["hlca_cell_types"]
+            print(f"  Added cell_type column from HLCA scANVI prediction")
         hlca_df.to_parquet(output_dir / "hlca_embedding.parquet", index=False)
         print(f"  Saved hlca_embedding.parquet: {hlca_emb_normalized.shape}")
 
@@ -522,6 +657,10 @@ def run_hpc_reference_mapping(
         })
         for i in range(luca_emb_normalized.shape[1]):
             luca_df[f"luca_latent_{i}"] = luca_emb_normalized[:, i]
+        # Add cell type labels from model prediction
+        if results.get("luca_cell_types") is not None:
+            luca_df["luca_cell_type"] = results["luca_cell_types"]
+            print(f"  Added luca_cell_type column from LuCA scANVI prediction")
         luca_df.to_parquet(output_dir / "luca_embedding.parquet", index=False)
         print(f"  Saved luca_embedding.parquet: {luca_emb_normalized.shape}")
 
@@ -649,6 +788,41 @@ def run_hpc_reference_mapping(
     with open(output_dir / "diagnostics_report.json", "w") as f:
         json.dump(diagnostics, f, indent=2, default=str)
     print(f"  Diagnostics saved to: {output_dir / 'diagnostics_report.json'}")
+
+    # Save cell types to separate parquet for easy loading
+    if results.get("hlca_cell_types") is not None:
+        cell_types_df = pd.DataFrame({
+            "cell_id": cell_ids,
+            "cell_type": results["hlca_cell_types"],
+        })
+        if results.get("luca_cell_types") is not None:
+            cell_types_df["luca_cell_type"] = results["luca_cell_types"]
+        cell_types_df.to_parquet(output_dir / "cell_types.parquet", index=False)
+        print(f"  Saved cell_types.parquet with {len(cell_types_df)} cells")
+
+        # Update snRNA h5ad files with cell_type column
+        print("\n  Updating snRNA h5ad files with cell_type column...")
+        import anndata
+        snrna_files = [
+            query_path,
+            query_path.parent / "snrna_merged.h5ad",
+        ]
+        for snrna_path in snrna_files:
+            if snrna_path.exists():
+                try:
+                    print(f"    Loading {snrna_path.name}...")
+                    adata = anndata.read_h5ad(snrna_path)
+                    # Create cell_id to cell_type mapping
+                    cell_type_map = dict(zip(cell_ids, results["hlca_cell_types"]))
+                    adata.obs["cell_type"] = adata.obs.index.map(cell_type_map)
+                    unmapped = adata.obs["cell_type"].isna().sum()
+                    if unmapped > 0:
+                        print(f"    WARNING: {unmapped} cells without cell type mapping")
+                    print(f"    Saving {snrna_path.name} with cell_type column...")
+                    adata.write_h5ad(snrna_path)
+                    print(f"    Done: {adata.n_obs} cells")
+                except Exception as e:
+                    print(f"    WARNING: Failed to update {snrna_path.name}: {e}")
 
     # Cleanup backed file handle
     try:
@@ -1252,7 +1426,45 @@ def run_dual_reference_mapping(
     smoke_mode: bool = False,
     run_id: str | None = None,
 ) -> int:
-    """Run dual-reference mapping pipeline."""
+    """Run dual-reference mapping pipeline.
+
+    NOTE: This function now delegates to run_hpc_reference_mapping() which uses
+    the canonical hlca_mapper.py and luca_mapper.py implementations with full
+    cell type prediction support.
+    """
+    # Delegate to HPC mode which uses canonical mappers
+    # This consolidates code paths and ensures cell types are always predicted
+    return run_hpc_reference_mapping(
+        query_path=query_path,
+        hlca_path=hlca_path,
+        luca_path=luca_path,
+        output_dir=output_dir,
+        mode=mode,
+        k_neighbors=k_neighbors,
+        hlca_latent_key=hlca_latent_key,
+        luca_latent_key=luca_latent_key,
+        smoke_mode=smoke_mode,
+        run_id=run_id,
+        use_model_based=True,  # Always use model-based for cell types
+    )
+
+
+def _run_dual_reference_mapping_legacy(
+    query_path: Path,
+    hlca_path: Path | None,
+    luca_path: Path | None,
+    output_dir: Path,
+    *,
+    mode: Literal["both", "hlca_only", "luca_only"] = "both",
+    mapping_method: str = "knn_projection",
+    fusion_method: str = "concat",
+    k_neighbors: int = 50,
+    hlca_latent_key: str = "X_scanvi_emb",
+    luca_latent_key: str = "X_scVI",
+    smoke_mode: bool = False,
+    run_id: str | None = None,
+) -> int:
+    """LEGACY: k-NN based mapping without cell types. Use run_hpc_reference_mapping instead."""
     from stagebridge.reference.pipeline import (
         ReferenceGeometryConfig,
         run_reference_pipeline,
@@ -1270,7 +1482,8 @@ def run_dual_reference_mapping(
 
     print()
     print("=" * 60)
-    print("Dual-Reference Mapping Pipeline")
+    print("Dual-Reference Mapping Pipeline (LEGACY k-NN mode)")
+    print("WARNING: This mode does not predict cell types!")
     print("=" * 60)
     print(f"  Run ID: {run_id}")
     print(f"  Mode: {mode}")
