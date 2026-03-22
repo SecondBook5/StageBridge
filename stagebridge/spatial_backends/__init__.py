@@ -5,6 +5,7 @@ Provides unified interface for multiple spatial mapping methods:
 - Tangram: Marker-based mapping with gradient-based optimization (scvi-tools)
 - DestVI: VAE-based probabilistic mapping with multi-resolution analysis (scvi-tools)
 - TACCO: Compositional transfer with optimal transport
+- Cell2location: Bayesian deconvolution with negative binomial regression
 
 Two interface modes are available:
 
@@ -37,6 +38,7 @@ from .base import SpatialBackend, BackendMappingResult
 from .tangram_wrapper import TangramBackend
 from .destvi_wrapper import DestVIBackend
 from .tacco_wrapper import TACCOBackend
+from .cell2location_wrapper import Cell2locationBackend
 
 # Adapters wrapping spatial_mapping implementations (for production pipelines)
 from .adapters import (
@@ -105,6 +107,7 @@ __all__ = [
     "TangramBackend",
     "DestVIBackend",
     "TACCOBackend",
+    "Cell2locationBackend",
     # Adapters (wrap spatial_mapping implementations)
     "AdapterConfig",
     "TangramAdapter",
@@ -172,6 +175,7 @@ def get_backend(name: str, use_adapter: bool = False) -> type[SpatialBackend]:
         "tangram": TangramBackend,
         "destvi": DestVIBackend,
         "tacco": TACCOBackend,
+        "cell2location": Cell2locationBackend,
     }
 
     adapter_backends = {
