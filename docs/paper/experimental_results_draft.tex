@@ -36,6 +36,13 @@ Cell Type ASW & \textbf{0.598} & 0.595 & +0.5\% \\
 
 The retrained model achieved comparable or improved performance across all biological preservation metrics (ARI, NMI, cell type purity) while maintaining batch integration quality. The slight decrease in batch ASW is offset by improved batch $k$-NN mixing, indicating the model learned to integrate batches through neighbor mixing rather than forcing global separation. Training was conducted on 4$\times$ NVIDIA H100 GPUs using PyTorch Lightning's \texttt{ddp\_spawn} distributed strategy, completing in approximately 6 hours. The model passed validation (overall scIB score 0.673 vs.\ original 0.669) and is ready for scArches surgery.
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/luca_retraining_panel.pdf}
+\caption{LuCA scANVI model retraining validation. \textbf{(A)} Training convergence showing ELBO for scVI base model (329 epochs with early stopping) and scANVI label-aware fine-tuning (34 epochs). Train and validation curves demonstrate stable convergence without overfitting. \textbf{(B)} scIB benchmark comparison between retrained and original LuCA models. The retrained model matches or exceeds the original on biological preservation metrics (NMI, ARI, cell type purity) while maintaining batch integration quality. \textbf{(C)} UMAP projections of latent embeddings colored by cell type, comparing original model (overall scIB score 0.669) with retrained model (0.673). Both embeddings preserve cell type structure with comparable separation.}
+\label{fig:luca_retraining}
+\end{figure}
+
 
 \subsection{Dual-Reference Mapping}
 
