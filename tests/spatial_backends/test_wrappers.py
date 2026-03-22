@@ -260,6 +260,12 @@ def test_tangram_project_genes(synthetic_snrna, synthetic_spatial):
     pytest.importorskip("scvi")
     pytest.importorskip("mudata")
 
+    # Check scvi.external.Tangram is available (requires scvi-tools[jax])
+    try:
+        from scvi.external import Tangram  # noqa: F401
+    except ImportError:
+        pytest.skip("scvi.external.Tangram not available (install scvi-tools[jax])")
+
     from stagebridge.spatial_backends import TangramBackend
 
     backend = TangramBackend(
