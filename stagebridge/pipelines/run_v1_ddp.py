@@ -82,6 +82,7 @@ class TrainingConfig:
 
     # HPO
     hpo_trials: int = 30
+    hpo_params: str = ""
     use_best_hparams: bool = False
 
     # Other
@@ -635,6 +636,27 @@ def train(config: TrainingConfig):
     """Main training loop."""
     start_time = datetime.now()
 
+    # Load HPO best params if provided
+    if config.use_best_hparams and config.hpo_params:
+        hpo_path = Path(config.hpo_params)
+        if hpo_path.exists():
+            with open(hpo_path) as f:
+                hpo_best = json.load(f)
+            # Apply HPO params to config (mutate dataclass)
+            if "hidden_dim" in hpo_best:
+                object.__setattr__(config, "niche_hidden_dim", hpo_best["hidden_dim"])
+            if "latent_dim" in hpo_best:
+                object.__setattr__(config, "latent_dim", hpo_best["latent_dim"])
+            if "dropout" in hpo_best:
+                object.__setattr__(config, "dropout", hpo_best["dropout"])
+            if "lr" in hpo_best:
+                object.__setattr__(config, "learning_rate", hpo_best["lr"])
+            if "weight_decay" in hpo_best:
+                object.__setattr__(config, "weight_decay", hpo_best["weight_decay"])
+            if "batch_size" in hpo_best:
+                object.__setattr__(config, "batch_size", hpo_best["batch_size"])
+            print(f"Loaded HPO params from {hpo_path}: {hpo_best}")
+
     # Setup distributed
     distributed, local_rank = setup_distributed()
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
@@ -896,6 +918,7 @@ def main():
 
     # HPO
     parser.add_argument("--hpo_trials", type=int, default=30)
+    parser.add_argument("--hpo_params", type=str, default=None, help="Path to HPO best_params.json")
     parser.add_argument("--use_best_hparams", action="store_true")
 
     # Other
@@ -927,6 +950,7 @@ def main():
         n_folds=args.n_folds,
         validation_fold=args.validation_fold,
         hpo_trials=args.hpo_trials,
+        hpo_params=args.hpo_params or "",
         use_best_hparams=args.use_best_hparams,
         seed=args.seed,
         num_workers=args.num_workers,

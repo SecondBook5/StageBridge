@@ -281,7 +281,42 @@ rule semi_synthetic_benchmark:
 
 
 # =============================================================================
-# Stage 5b: Full Model Training (Two-Stage: SSL + Transition)
+# Stage 5b: Hyperparameter Optimization (Optuna)
+# =============================================================================
+
+rule hpo:
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        splits = f"{CANONICAL}/split_manifest.json",
+        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt"
+    output:
+        best_params = f"{TRAINING}/hpo/best_params.json",
+        hpo_history = f"{TRAINING}/hpo/optimization_history.json"
+    params:
+        n_trials = 30,
+        canonical_dir = CANONICAL,
+        hpo_dir = f"{TRAINING}/hpo"
+    threads: 8
+    resources:
+        mem_mb = 256000,
+        runtime = 720,  # 12 hours for HPO
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/hpo.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_hpo \
+            --data_dir {params.canonical_dir} \
+            --output_dir {params.hpo_dir} \
+            --n_trials {params.n_trials} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5c: Full Model Training (Two-Stage: SSL + Transition)
 # =============================================================================
 #
 # Stage 1: SSL Pretraining (~4-6 hours with 4 GPUs)
@@ -298,7 +333,8 @@ rule training:
         cells = f"{CANONICAL}/cells.parquet",
         neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
         splits = f"{CANONICAL}/split_manifest.json",
-        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt"
+        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
+        hpo_params = f"{TRAINING}/hpo/best_params.json"
     output:
         checkpoint = f"{TRAINING}/checkpoints/final_checkpoint.pt",
         best = f"{TRAINING}/checkpoints/best_checkpoint.pt",
@@ -328,6 +364,7 @@ rule training:
         echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
         echo "  Stage 2: Transition Model ({params.transition_epochs} epochs)"
         echo "  GPUs: {params.n_gpus}"
+        echo "  HPO params: {input.hpo_params}"
         echo "=============================================="
 
         torchrun \
@@ -340,6 +377,8 @@ rule training:
             --transition_epochs {params.transition_epochs} \
             --batch_size 256 \
             --checkpoint_every 10 \
+            --hpo_params {input.hpo_params} \
+            --use_best_hparams \
             2>&1 | tee {log}
         """
 
