@@ -386,38 +386,25 @@ def run_hpc_reference_mapping(
 
     # Auto-detect model paths if not explicitly provided
     if use_model_based and use_hlca and hlca_model_path is None:
-        # Check for HLCA scANVI model (HubModel cache or saved model)
+        # For HLCA, we need the hub_cache directory (HubModel handles the rest)
         hlca_dir = hlca_path.parent if hlca_path else None
         if hlca_dir:
-            candidates = [
-                # HubModel cache (downloaded from scvi-hub) - note: model is -scanvi suffix
-                hlca_dir / "hub_cache" / "models--scvi-tools--human-lung-cell-atlas-scanvi" / "snapshots",
-                # Legacy path without hub_cache
-                hlca_dir / "models--scvi-tools--human-lung-cell-atlas-scanvi" / "snapshots",
-                # Direct model directory
-                hlca_dir / "hlca_scanvi_model",
-                hlca_dir / "model",
-            ]
-            for candidate in candidates:
-                if not candidate.exists():
-                    continue
-
-                # For HubModel cache, find the snapshot subdirectory
-                if "snapshots" in str(candidate):
-                    try:
-                        snapshot_dirs = list(candidate.iterdir())
-                        if snapshot_dirs:
-                            model_dir = snapshot_dirs[0]  # Latest snapshot
-                            if (model_dir / "model.pt").exists():
-                                hlca_model_path = model_dir
-                                print(f"  Found HLCA scANVI HubModel: {hlca_model_path.name}")
-                                break
-                    except Exception:
-                        continue
-                elif (candidate / "model.pt").exists():
-                    hlca_model_path = candidate
-                    print(f"  Found HLCA scANVI model: {hlca_model_path}")
-                    break
+            # Look for hub_cache directory
+            hub_cache = hlca_dir / "hub_cache"
+            if hub_cache.exists():
+                # Check if the model repo is cached
+                model_repo_dir = hub_cache / "models--scvi-tools--human-lung-cell-atlas-scanvi"
+                if model_repo_dir.exists():
+                    hlca_model_path = hub_cache  # Pass hub_cache, HubModel handles the rest
+                    print(f"  Found HLCA hub cache: {hub_cache}")
+                else:
+                    print(f"  HLCA hub_cache exists but model repo not found. Will pull from HuggingFace.")
+                    hlca_model_path = hub_cache  # Still use it - HubModel will download
+            else:
+                # No hub_cache, but we can still try - HubModel will download
+                hub_cache.mkdir(parents=True, exist_ok=True)
+                hlca_model_path = hub_cache
+                print(f"  Created HLCA hub cache: {hub_cache} (will download model)")
 
     if use_model_based and use_luca and luca_model_path is None:
         # Check for LuCA scANVI model (extracted from core_atlas_scanvi_model.tar.gz)
@@ -462,7 +449,7 @@ def run_hpc_reference_mapping(
 
         hlca_cfg = {
             "hub_repo_id": "scvi-tools/human-lung-cell-atlas-scanvi",
-            "model_cache_dir": str(hlca_model_path.parent),
+            "model_cache_dir": str(hlca_model_path),  # hub_cache directory
             "query_model_dir": str(hlca_output_dir / "query_model"),
             "surgery_epochs": 200,
             "batch_size_infer": 1024,
@@ -539,6 +526,7 @@ def run_hpc_reference_mapping(
             luca_result = map_full_snrna_with_luca(
                 run_id=f"{run_id}_luca",
                 snrna_h5ad_path=query_path,
+                luca_ref_h5ad_path=luca_path,
                 output_latent_h5ad_path=luca_output_dir / "luca_latent.h5ad",
                 output_labels_parquet_path=luca_output_dir / "luca_labels.parquet",
                 mapping_report_path=luca_output_dir / "mapping_report.json",

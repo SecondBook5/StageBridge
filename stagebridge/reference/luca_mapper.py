@@ -53,6 +53,7 @@ def map_full_snrna_with_luca(
     *,
     run_id: str,
     snrna_h5ad_path: Path,
+    luca_ref_h5ad_path: Path,
     output_latent_h5ad_path: Path,
     output_labels_parquet_path: Path,
     mapping_report_path: Path,
@@ -71,6 +72,8 @@ def map_full_snrna_with_luca(
         Unique identifier for this run
     snrna_h5ad_path : Path
         Path to input snRNA h5ad file
+    luca_ref_h5ad_path : Path
+        Path to LuCA reference h5ad (required for model loading)
     output_latent_h5ad_path : Path
         Path to save latent h5ad
     output_labels_parquet_path : Path
@@ -133,6 +136,14 @@ def map_full_snrna_with_luca(
     stage_done("load_query", t0)
     mark_peak()
 
+    # Load LuCA reference adata (required for model loading)
+    t0 = stage_start()
+    log.info("Loading LuCA reference: %s", luca_ref_h5ad_path)
+    ref_adata = anndata.read_h5ad(luca_ref_h5ad_path)
+    log.info("  Reference: %d cells, %d genes", ref_adata.n_obs, ref_adata.n_vars)
+    stage_done("load_reference", t0)
+    mark_peak()
+
     # Load LuCA model
     t0 = stage_start()
     log.info("Loading LuCA scANVI model from: %s", luca_model_dir)
@@ -145,9 +156,9 @@ def map_full_snrna_with_luca(
     # Check if model uses ENSG IDs
     model_uses_ensg = model_var_names[0].startswith('ENSG') if model_var_names else False
 
-    # Load reference model
+    # Load reference model WITH reference adata (required for scArches surgery)
     try:
-        ref_model = SCANVI.load(str(luca_model_dir), adata=None)
+        ref_model = SCANVI.load(str(luca_model_dir), adata=ref_adata)
         log.info("  LuCA model loaded successfully")
     except Exception as e:
         raise ValueError(f"Failed to load LuCA scANVI model: {e}") from e
