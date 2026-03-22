@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --time=4:00:00
 #SBATCH --account=chaunzt1
-#SBATCH --output=/home/booka/logs/dual_ref_map_%j.log
+#SBATCH --output=/home/booka/StageBridge/logs/dual_ref_map_%j.log
 
 # =============================================================================
 # Dual-Reference Mapping (HLCA + LuCA)
