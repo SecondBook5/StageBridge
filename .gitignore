@@ -95,3 +95,6 @@ notebooks/
 # Archive (working notes)
 archive/
 CLAUDE.md
+
+# Large result files (generated, not for git)
+results/reference_mapping/
