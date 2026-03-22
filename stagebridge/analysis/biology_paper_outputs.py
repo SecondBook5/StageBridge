@@ -45,7 +45,7 @@ try:
     _HAS_SIGNATURES = True
 except ImportError:
     _HAS_SIGNATURES = False
-    warnings.warn("Could not import stagebridge.biology.signatures - using local definitions")
+    warnings.warn("Could not import stagebridge.biology.signatures - using local definitions", stacklevel=2)
 
 
 # =============================================================================
@@ -202,10 +202,10 @@ class StageEcosystemSummary:
     mean_niche_risk: float
     proinflammatory_niche_fraction: float  # Fraction with high IL1B-mac
     caf_enriched_fraction: float
-    dominant_niche_types: List[str]
+    dominant_niche_types: list[str]
     kac_cell_fraction: float
     il1b_pathway_activity: float
-    comparison_to_normal: Dict[str, float]  # Fold changes vs Normal
+    comparison_to_normal: dict[str, float]  # Fold changes vs Normal
 
 
 # =============================================================================
@@ -215,9 +215,9 @@ class StageEcosystemSummary:
 
 def compute_marker_score(
     expression: np.ndarray,
-    gene_names: List[str],
-    positive_markers: List[str],
-    negative_markers: Optional[List[str]] = None,
+    gene_names: list[str],
+    positive_markers: list[str],
+    negative_markers: list[str] | None = None,
     method: str = "mean",
 ) -> np.ndarray:
     """
@@ -238,7 +238,7 @@ def compute_marker_score(
     # Find available positive markers
     pos_indices = [gene_to_idx[g] for g in positive_markers if g in gene_to_idx]
     if not pos_indices:
-        warnings.warn(f"No positive markers found in gene list")
+        warnings.warn("No positive markers found in gene list", stacklevel=2)
         return np.zeros(expression.shape[0])
 
     # Compute positive score
@@ -283,9 +283,9 @@ def normalize_scores(scores: np.ndarray, method: str = "minmax") -> np.ndarray:
 
 def compute_cell_progression_risk(
     embeddings: pd.DataFrame,
-    expression: Optional[np.ndarray] = None,
-    gene_names: Optional[List[str]] = None,
-    metadata: Optional[pd.DataFrame] = None,
+    expression: np.ndarray | None = None,
+    gene_names: list[str] | None = None,
+    metadata: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Compute per-cell progression risk scores.
@@ -402,10 +402,10 @@ def compute_cell_progression_risk(
 
 def compute_niche_risk_scores(
     neighborhoods: pd.DataFrame,
-    cell_expression: Optional[np.ndarray] = None,
-    gene_names: Optional[List[str]] = None,
-    cell_types: Optional[pd.Series] = None,
-    receiver_expression: Optional[np.ndarray] = None,
+    cell_expression: np.ndarray | None = None,
+    gene_names: list[str] | None = None,
+    cell_types: pd.Series | None = None,
+    receiver_expression: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """
     Compute per-neighborhood niche risk scores.
@@ -600,8 +600,8 @@ def identify_proinflammatory_niches(
 
 def score_kac_alveolar_progenitor_state(
     expression: np.ndarray,
-    gene_names: List[str],
-    cell_ids: List[str],
+    gene_names: list[str],
+    cell_ids: list[str],
 ) -> pd.DataFrame:
     """
     Score cells for KAC/alveolar progenitor state.
@@ -666,7 +666,7 @@ def perturbation_analysis(
     batch: Any,
     target_cell_type: str,
     device: str = "cuda",
-) -> List[PerturbationResult]:
+) -> list[PerturbationResult]:
     """
     Counterfactual analysis: what happens if we remove a cell type from the niche?
 
@@ -697,7 +697,7 @@ def perturbation_analysis(
             original_pred = original_output
 
         if original_pred is None:
-            warnings.warn("Model did not return predictions")
+            warnings.warn("Model did not return predictions", stacklevel=2)
             return results
 
         original_pred = original_pred.cpu().numpy()
@@ -780,8 +780,8 @@ def _ablate_cell_type_from_batch(batch: Any, cell_type: str) -> Any:
 def compute_stage_ecosystem_summary(
     cell_risks: pd.DataFrame,
     niche_risks: pd.DataFrame,
-    kac_scores: Optional[pd.DataFrame] = None,
-) -> Dict[str, StageEcosystemSummary]:
+    kac_scores: pd.DataFrame | None = None,
+) -> dict[str, StageEcosystemSummary]:
     """
     Generate stage-specific ecosystem summaries.
 
@@ -914,7 +914,7 @@ def compute_donor_consistency(
     merged = merged[merged["donor_id"].isin(valid_donors)]
 
     if len(valid_donors) == 0:
-        warnings.warn("No donors have sufficient cells for consistency analysis")
+        warnings.warn("No donors have sufficient cells for consistency analysis", stacklevel=2)
         return pd.DataFrame()
 
     results = []
@@ -996,7 +996,7 @@ def run_donor_consistency_tests(
     cell_risks: pd.DataFrame,
     niche_risks: pd.DataFrame,
     min_cells_per_donor: int = 50,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run statistical tests for donor-level consistency.
 
@@ -1113,10 +1113,10 @@ def run_donor_consistency_tests(
 def generate_biology_paper_report(
     cell_risks: pd.DataFrame,
     niche_risks: pd.DataFrame,
-    stage_summaries: Dict[str, StageEcosystemSummary],
+    stage_summaries: dict[str, StageEcosystemSummary],
     output_dir: Path,
-    kac_scores: Optional[pd.DataFrame] = None,
-    perturbation_results: Optional[List[PerturbationResult]] = None,
+    kac_scores: pd.DataFrame | None = None,
+    perturbation_results: list[PerturbationResult] | None = None,
     include_donor_analysis: bool = True,
 ) -> None:
     """
@@ -1153,7 +1153,7 @@ def generate_biology_paper_report(
             with open(output_dir / "statistical_tests.json", "w") as f:
                 json.dump(stat_tests, f, indent=2, default=str)
         except Exception as e:
-            warnings.warn(f"Donor consistency analysis failed: {e}")
+            warnings.warn(f"Donor consistency analysis failed: {e}", stacklevel=2)
 
     # Generate markdown report
     report = []
@@ -1326,10 +1326,10 @@ def generate_biology_paper_report(
         json.dump(summary_dict, f, indent=2)
 
     print(f"Biology paper outputs saved to: {output_dir}")
-    print(f"  - cell_progression_risks.parquet")
-    print(f"  - niche_risk_scores.parquet")
-    print(f"  - stage_ecosystem_summaries.json")
-    print(f"  - biology_paper_report.md")
+    print("  - cell_progression_risks.parquet")
+    print("  - niche_risk_scores.parquet")
+    print("  - stage_ecosystem_summaries.json")
+    print("  - biology_paper_report.md")
 
 
 # =============================================================================
@@ -1341,10 +1341,10 @@ def run_biology_paper_analysis(
     embeddings_path: Path,
     neighborhoods_path: Path,
     output_dir: Path,
-    expression_path: Optional[Path] = None,
-    model: Optional[torch.nn.Module] = None,
-    ablate_cell_type: Optional[str] = "Macrophage",
-) -> Dict[str, Any]:
+    expression_path: Path | None = None,
+    model: torch.nn.Module | None = None,
+    ablate_cell_type: str | None = "Macrophage",
+) -> dict[str, Any]:
     """
     Run complete biology paper analysis pipeline.
 

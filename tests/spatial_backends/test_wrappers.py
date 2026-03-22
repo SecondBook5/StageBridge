@@ -102,8 +102,14 @@ def test_destvi_backend_has_advanced_methods():
 @pytest.mark.slow
 def test_tangram_backend_map_synthetic(synthetic_snrna, synthetic_spatial, tmp_output_dir):
     """Test Tangram mapping with synthetic data."""
-    pytest.importorskip("scvi")
-    pytest.importorskip("mudata")
+    scvi = pytest.importorskip("scvi", reason="scvi-tools not installed")
+    pytest.importorskip("mudata", reason="mudata not installed")
+
+    # Check scvi.external.Tangram is available (requires scvi-tools[jax])
+    try:
+        from scvi.external import Tangram  # noqa: F401
+    except ImportError:
+        pytest.skip("scvi.external.Tangram not available (install scvi-tools[jax])")
 
     from stagebridge.spatial_backends import TangramBackend
 
