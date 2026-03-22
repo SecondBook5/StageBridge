@@ -40,7 +40,7 @@ conda activate /scratch/chaunzt1/stagebridge_env
 
 # Data paths
 DATA=/scratch/chaunzt1/stagebridge
-QUERY=$DATA/processed/luad_evo/snrna_qc_normalized.h5ad
+QUERY=$DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
 OUTPUT=$DATA/processed/luad_evo/reference_geometry
 
 # HLCA reference and model
