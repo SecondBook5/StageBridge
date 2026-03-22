@@ -81,9 +81,9 @@ def plot_macroflow_sankey(
                 go.Sankey(
                     arrangement="snap",
                     node=dict(
-                        pad=10,
-                        thickness=16,
-                        line=dict(color="rgba(60,60,60,0.6)", width=0.5),
+                        pad=12,
+                        thickness=18,
+                        line=dict(color="rgba(60,60,60,0.7)", width=0.8),
                         label=labels,
                         color=["#0E7490"] * n_src + ["#FB923C"] * len(target_labels),
                     ),
@@ -96,21 +96,59 @@ def plot_macroflow_sankey(
                 )
             ]
         )
-        fig.update_layout(title_text=title, font_size=10, width=980, height=620)
-        fig.write_image(str(output_path))
+        fig.update_layout(
+            title_text=title,
+            font_size=12,
+            font_family="DejaVu Sans",
+            width=1000,
+            height=650,
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+        )
+        fig.write_image(str(output_path), width=1000, height=650, scale=2)
+
+        # Also save PDF version
+        if output_path.suffix.lower() == ".png":
+            fig.write_image(str(output_path.with_suffix(".pdf")))
     except Exception:
         import matplotlib.pyplot as plt
 
-        fig, ax = plt.subplots(figsize=(8.2, 6.0))
-        im = ax.imshow(flow, cmap="viridis", interpolation="nearest")
-        ax.set_title(f"{title} (heatmap fallback)")
-        ax.set_xlabel("Predicted macro cluster")
-        ax.set_ylabel("Source macro cluster")
+        # Publication-quality matplotlib fallback
+        fig, ax = plt.subplots(figsize=(10, 8), dpi=150)
+        fig.patch.set_facecolor("white")
+        ax.set_facecolor("#F8F8F8")
+
+        im = ax.imshow(flow, cmap="viridis", interpolation="nearest", aspect="auto")
+
+        ax.set_title(f"{title} (Heatmap Fallback)", fontsize=15, fontweight="bold", pad=15)
+        ax.set_xlabel("Predicted Macro Cluster", fontsize=13, fontweight="bold")
+        ax.set_ylabel("Source Macro Cluster", fontsize=13, fontweight="bold")
+
         ax.set_xticks(np.arange(len(target_labels)))
         ax.set_yticks(np.arange(len(source_labels)))
-        ax.set_xticklabels(target_labels, rotation=45, ha="right", fontsize=8)
-        ax.set_yticklabels(source_labels, fontsize=8)
-        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_xticklabels(target_labels, rotation=45, ha="right", fontsize=11)
+        ax.set_yticklabels(source_labels, fontsize=11)
+
+        # Enhanced colorbar
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label("Flow Proportion", fontsize=12, fontweight="bold")
+        cbar.ax.tick_params(labelsize=10)
+
+        # Add grid for readability
+        ax.set_xticks(np.arange(len(target_labels)) - 0.5, minor=True)
+        ax.set_yticks(np.arange(len(source_labels)) - 0.5, minor=True)
+        ax.grid(which="minor", color="white", linestyle="-", linewidth=2)
+        ax.tick_params(which="minor", size=0)
+
+        # Remove spines
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
         fig.tight_layout()
-        fig.savefig(output_path, dpi=220)
+        fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
+
+        # Also save PDF
+        if output_path.suffix.lower() != ".pdf":
+            fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight")
+
         plt.close(fig)

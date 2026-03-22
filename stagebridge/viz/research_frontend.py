@@ -45,24 +45,60 @@ MODE_COLORS = {
 }
 
 
-def configure_research_style() -> None:
-    """Apply a light, print-friendly notebook style."""
+def configure_research_style(publication: bool = False) -> None:
+    """Apply a light, print-friendly notebook style.
+
+    Parameters
+    ----------
+    publication : bool
+        If True, use pure white backgrounds (#FFFFFF) and publication-quality
+        settings (300 DPI, larger fonts). If False, use notebook-friendly
+        off-white background (#FBF8F1).
+    """
+    bg_color = "#FFFFFF" if publication else "#FBF8F1"
+    font_scale = 1.2 if publication else 1.0
+
     mpl.rcParams.update(
         {
-            "figure.facecolor": "#FBF8F1",
-            "axes.facecolor": "#FBF8F1",
-            "savefig.facecolor": "#FBF8F1",
+            # Background colors
+            "figure.facecolor": bg_color,
+            "axes.facecolor": bg_color,
+            "savefig.facecolor": bg_color,
+            "savefig.dpi": 300,
+            "figure.dpi": 150 if publication else 100,
+            # Fonts
             "font.family": "DejaVu Sans",
+            "font.size": int(10 * font_scale),
+            "axes.titlesize": int(14 * font_scale),
+            "axes.labelsize": int(12 * font_scale),
+            "xtick.labelsize": int(10 * font_scale),
+            "ytick.labelsize": int(10 * font_scale),
+            "legend.fontsize": int(10 * font_scale),
+            "legend.title_fontsize": int(11 * font_scale),
+            # Colors and styling
             "axes.edgecolor": PALETTE["ink"],
             "axes.labelcolor": PALETTE["ink"],
             "axes.titleweight": "bold",
+            "axes.labelweight": "bold",
             "axes.spines.top": False,
             "axes.spines.right": False,
+            "axes.linewidth": 1.5,
             "xtick.color": PALETTE["ink"],
             "ytick.color": PALETTE["ink"],
+            "xtick.major.width": 1.2,
+            "ytick.major.width": 1.2,
             "grid.color": PALETTE["grid"],
             "grid.alpha": 0.35,
+            "grid.linewidth": 0.8,
             "axes.grid": False,
+            # Legend
+            "legend.framealpha": 0.95,
+            "legend.edgecolor": "gray",
+            "legend.fancybox": False,
+            # Saving
+            "savefig.bbox": "tight",
+            "savefig.pad_inches": 0.1,
+            "savefig.transparent": False,
         }
     )
 

@@ -20,13 +20,18 @@ Before implementing anything, answer these questions:
 ## Pipeline Order (Do Not Deviate)
 
 ```
-1. run_data_prep.py          (QC/merge)
-2. download_references.py    (HLCA/LuCA)
-3. run_reference.py          (mapping)
-4. run_spatial_benchmark.py  (Tangram/DestVI/TACCO)
-5. complete_data_prep.py     (canonical format)
-6. run_v1_complete.py        (training)
+1. run_data_prep.py              (QC/merge)
+2. download_references.py        (HLCA/LuCA)
+3. add_ensembl_ids.py            (gene ID prep for model-based mapping)
+4. run_reference.py --hlca-only  (HLCA mapping first)
+5. run_reference.py --luca-only  (LuCA mapping, may need pandas 1.5.x env)
+6. run_spatial_benchmark.py      (Tangram/DestVI/TACCO)
+7. complete_data_prep.py         (canonical format)
+8. run_v1_complete.py            (training)
 ```
+
+Note: Steps 4-5 use model-based scArches surgery. LuCA may require separate
+environment with pandas 1.5.x due to model compatibility issues.
 
 ## Key Principles
 
@@ -47,13 +52,21 @@ Before implementing anything, answer these questions:
 
 ```
 $DATA/
-├── raw/geo/                          # Raw downloads
-├── references/                       # HLCA + LuCA atlases
+├── raw/geo/                                    # Raw downloads
+├── references/                                 # HLCA + LuCA atlases
+│   ├── hlca/hlca_reference.h5ad
+│   ├── hlca/hub_cache/                         # scANVI model from HuggingFace
+│   └── luca/luca_core_atlas.h5ad               # Use CORE, not Extended
 ├── processed/luad_evo/
-│   ├── snrna_qc_normalized.h5ad     # Ready for reference mapping
-│   ├── spatial_merged.h5ad          # Ready for spatial backends
-│   └── canonical/                    # Ready for training
-└── runs/                             # Training outputs
+│   ├── snrna_qc_normalized.h5ad                # After QC
+│   ├── snrna_qc_normalized_with_ensg.h5ad      # With ENSG IDs (for model mapping)
+│   ├── spatial_merged.h5ad                     # Ready for spatial backends
+│   ├── reference_geometry/                     # Dual-reference embeddings
+│   │   ├── hlca_embedding.parquet
+│   │   ├── luca_embedding.parquet
+│   │   └── fused_embedding.parquet
+│   └── canonical/                              # Ready for training
+└── runs/                                       # Training outputs
 ```
 
 ## Common Mistakes to Avoid
@@ -63,3 +76,11 @@ $DATA/
 - Making matrix copies of 600k+ cell data
 - Skipping the research-director agent consultation
 - Implementing without reading existing pipelines first
+
+## HPC Environment Notes
+
+- **PyTorch CUDA**: Use cu124 (CUDA 12.4), not cu130. Even if nvidia-smi shows 13.x
+- **GPU detection**: Always `export CUDA_VISIBLE_DEVICES=0,1,2,3` before running
+- **Verify GPU**: `python -c "import torch; print(torch.cuda.is_available())"`
+- **LuCA pandas**: Model requires pandas 1.5.x (create separate env if needed)
+- **Gene IDs**: HLCA model expects ENSG IDs - run add_ensembl_ids.py first

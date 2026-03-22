@@ -57,6 +57,17 @@ from .advanced_plots import (
     plot_3d_embedding,
     plot_ridge_distributions,
 )
+from .publication_theme import (
+    configure_publication_style,
+    save_publication_figure,
+    get_stage_color,
+    apply_clean_spines,
+    add_clean_legend,
+    create_figure,
+    create_subplots,
+    setup_publication_plotting,
+    PUBLICATION_PALETTE,
+)
 
 __all__ = [
     # curves
@@ -101,4 +112,20 @@ __all__ = [
     "make_panel_c_context_sensitivity",
     "make_panel_d_gene_context_heatmap",
     "make_full_poster",
+    # publication theme
+    "configure_publication_style",
+    "save_publication_figure",
+    "get_stage_color",
+    "apply_clean_spines",
+    "add_clean_legend",
+    "create_figure",
+    "create_subplots",
+    "setup_publication_plotting",
+    "PUBLICATION_PALETTE",
+    # advanced plots
+    "plot_radar_chart",
+    "plot_parallel_coordinates",
+    "plot_correlation_matrix",
+    "plot_3d_embedding",
+    "plot_ridge_distributions",
 ]

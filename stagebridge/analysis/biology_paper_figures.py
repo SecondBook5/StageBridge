@@ -336,13 +336,22 @@ def plot_proinflammatory_enrichment_trajectory(
     niche_risks: pd.DataFrame,
     output_path: Path,
     figsize: tuple = (7, 5),
+    show_statistics: bool = True,
 ) -> None:
     """
     Line plot showing proinflammatory niche enrichment across disease progression.
 
     Key visualization for Peng/Kadara hypothesis: proinflammatory niches should
     be more common in precursors (AAH, AIS) than in LUAD.
+
+    Args:
+        niche_risks: DataFrame with niche risk scores
+        output_path: Path to save figure
+        figsize: Figure size
+        show_statistics: Whether to add statistical test annotations
     """
+    from scipy import stats as scipy_stats
+
     setup_publication_style()
 
     df = niche_risks[niche_risks["stage"].isin(STAGE_ORDER)].copy()
@@ -355,6 +364,7 @@ def plot_proinflammatory_enrichment_trajectory(
     proinflam_errs = []
     caf_fracs = []
     combined_fracs = []
+    stage_proinflam_values = {}  # For statistical tests
 
     for stage in STAGE_ORDER:
         stage_data = df[df["stage"] == stage]
@@ -364,8 +374,10 @@ def plot_proinflammatory_enrichment_trajectory(
             # Proinflammatory fraction
             if "is_proinflammatory_niche" in stage_data.columns:
                 pf = stage_data["is_proinflammatory_niche"].mean()
+                stage_proinflam_values[stage] = stage_data["is_proinflammatory_niche"].values.astype(float)
             else:
                 pf = (stage_data["proinflammatory_score"] >= 0.3).mean()
+                stage_proinflam_values[stage] = (stage_data["proinflammatory_score"] >= 0.3).values.astype(float)
             proinflam_fracs.append(pf)
 
             # Bootstrap CI
@@ -412,6 +424,48 @@ def plot_proinflammatory_enrichment_trajectory(
     ax.axvspan(-0.5, 3.5, alpha=0.1, color='orange', label='Precursor Window')
     ax.text(1.5, ax.get_ylim()[1] * 0.95, "Interception\nWindow",
             ha='center', va='top', fontsize=9, style='italic', alpha=0.7)
+
+    # Add statistical annotations
+    if show_statistics:
+        # Test: Precursors (AAH + AIS + MIA) vs LUAD
+        precursor_stages = [s for s in ["AAH", "AIS", "MIA"] if s in stage_proinflam_values]
+        if precursor_stages and "LUAD" in stage_proinflam_values:
+            precursor_vals = np.concatenate([stage_proinflam_values[s] for s in precursor_stages])
+            luad_vals = stage_proinflam_values["LUAD"]
+
+            if len(precursor_vals) >= 10 and len(luad_vals) >= 10:
+                # Mann-Whitney U test (one-sided: precursor > LUAD)
+                mw_stat, mw_pval = scipy_stats.mannwhitneyu(
+                    precursor_vals, luad_vals, alternative="greater"
+                )
+
+                # Format p-value
+                if mw_pval < 0.001:
+                    pval_str = "p < 0.001"
+                elif mw_pval < 0.01:
+                    pval_str = f"p = {mw_pval:.3f}"
+                else:
+                    pval_str = f"p = {mw_pval:.2f}"
+
+                # Add significance annotation
+                max_y = max(proinflam_fracs) + max(proinflam_errs) + 0.05
+                precursor_x = np.mean([stages.index(s) for s in precursor_stages if s in stages])
+                luad_x = stages.index("LUAD") if "LUAD" in stages else len(stages) - 1
+
+                # Draw bracket
+                bracket_y = max_y + 0.02
+                ax.plot([precursor_x, precursor_x, luad_x, luad_x],
+                       [max_y, bracket_y, bracket_y, max_y],
+                       color='black', linewidth=1)
+
+                # Add p-value text
+                significance = "***" if mw_pval < 0.001 else "**" if mw_pval < 0.01 else "*" if mw_pval < 0.05 else "ns"
+                ax.text((precursor_x + luad_x) / 2, bracket_y + 0.01,
+                       f"{significance}\n({pval_str})",
+                       ha='center', va='bottom', fontsize=8)
+
+                # Adjust y-axis to accommodate annotation
+                ax.set_ylim(0, bracket_y + 0.08)
 
     ax.set_ylim(0, None)
 
