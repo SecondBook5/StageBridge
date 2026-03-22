@@ -1,34 +1,7 @@
 # Snakemake SLURM Profile for StageBridge
 # Usage: snakemake --profile workflow/slurm
 
-# Cluster submission command (single line for compatibility)
 cluster: "mkdir -p logs/{rule} && sbatch --account=chaunzt1 --partition={resources.partition} --gres=gpu:{resources.gpu} --mem={resources.mem_mb}M --cpus-per-task={threads} --time={resources.time} --job-name=sb_{rule} --output=logs/{rule}/%j.out --error=logs/{rule}/%j.err --parsable"
-
-# Default resources (can be overridden per rule)
-default-resources:
-  - partition=gpu
-  - mem_mb=64000
-  - gpu=0
-  - time="2:00:00"
-
-# Job status command
-cluster-status: "python workflow/slurm/status.py"
-
-# Cancel jobs on error
-cluster-cancel: "scancel"
-cluster-cancel-nargs: 1
-
-# Maximum jobs to submit at once
 jobs: 20
-
-# Wait time between status checks (seconds)
 latency-wait: 60
-
-# Rerun incomplete jobs
-rerun-incomplete: true
-
-# Keep going on errors (process independent rules)
-keep-going: true
-
-# Print shell commands
-printshellcmds: true
+default-resources: [partition=gpu, mem_mb=64000, gpu=0, time="2:00:00"]
