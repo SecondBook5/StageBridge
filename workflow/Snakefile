@@ -204,7 +204,7 @@ rule spatial_backend:
 
 rule spatial_comparison:
     input:
-        expand(f"{SPATIAL}/{{backend}}/upstream_metrics.json", backend=SPATIAL_BACKENDS)
+        expand(SPATIAL + "/{backend}/upstream_metrics.json", backend=SPATIAL_BACKENDS)
     output:
         comparison = f"{SPATIAL}/backend_comparison.json",
         canonical = f"{SPATIAL}/canonical_backend.json",
@@ -408,7 +408,7 @@ rule ablation:
 
 rule ablation_summary:
     input:
-        expand(f"{ABLATIONS}/{{ablation}}/results.json", ablation=ABLATIONS_LIST)
+        expand(ABLATIONS + "/{ablation}/results.json", ablation=ABLATIONS_LIST)
     output:
         summary = f"{ABLATIONS}/ablation_summary.json",
         table = f"{ABLATIONS}/table3_main_results.csv",
