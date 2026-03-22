@@ -315,6 +315,8 @@ def run_hpc_reference_mapping(
     smoke_mode: bool = False,
     run_id: str | None = None,
     use_model_based: bool = True,
+    hlca_model_path: Path | None = None,
+    luca_model_path: Path | None = None,
 ) -> int:
     """HPC mode: Model-based reference projection (primary) or chunked k-NN (fallback)."""
     import anndata
@@ -371,10 +373,19 @@ def run_hpc_reference_mapping(
         print(f"  Smoke mode: subsampled to {query_adata.n_obs} cells")
 
     # Determine model paths (for model-based mapping)
-    hlca_model_path = None
-    luca_model_path = None
+    # Use explicit paths if provided, otherwise auto-detect
+    if hlca_model_path and hlca_model_path.exists() and (hlca_model_path / "model.pt").exists():
+        print(f"  Using explicit HLCA model path: {hlca_model_path}")
+    else:
+        hlca_model_path = None  # Reset to trigger auto-detection
 
-    if use_model_based and use_hlca:
+    if luca_model_path and luca_model_path.exists() and (luca_model_path / "model.pt").exists():
+        print(f"  Using explicit LuCA model path: {luca_model_path}")
+    else:
+        luca_model_path = None  # Reset to trigger auto-detection
+
+    # Auto-detect model paths if not explicitly provided
+    if use_model_based and use_hlca and hlca_model_path is None:
         # Check for HLCA scANVI model (HubModel cache or saved model)
         hlca_dir = hlca_path.parent if hlca_path else None
         if hlca_dir:
@@ -408,7 +419,7 @@ def run_hpc_reference_mapping(
                     print(f"  Found HLCA scANVI model: {hlca_model_path}")
                     break
 
-    if use_model_based and use_luca:
+    if use_model_based and use_luca and luca_model_path is None:
         # Check for LuCA scANVI model (extracted from core_atlas_scanvi_model.tar.gz)
         # Use passed data_root, or try to infer from luca_path
         luca_data_root = data_root or (luca_path.parent.parent.parent if luca_path else None)
@@ -1366,6 +1377,18 @@ def main():
         help="Path to LuCA reference h5ad (auto-detected if not specified)",
     )
     parser.add_argument(
+        "--hlca-model",
+        type=str,
+        default=None,
+        help="Path to HLCA scANVI model directory (for model-based mapping)",
+    )
+    parser.add_argument(
+        "--luca-model",
+        type=str,
+        default=None,
+        help="Path to LuCA scANVI model directory (for model-based mapping)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -1533,6 +1556,9 @@ def main():
         reindex_reference_to_symbols(luca_path)
 
     # Use HPC mode (chunked, memory-efficient) or standard mode
+    hlca_model_path = Path(args.hlca_model) if args.hlca_model else None
+    luca_model_path = Path(args.luca_model) if args.luca_model else None
+
     if args.hpc:
         return run_hpc_reference_mapping(
             query_path=snrna_path,
@@ -1548,6 +1574,8 @@ def main():
             smoke_mode=args.smoke,
             run_id=args.run_id,
             use_model_based=args.use_model_based,
+            hlca_model_path=hlca_model_path,
+            luca_model_path=luca_model_path,
         )
     else:
         return run_dual_reference_mapping(

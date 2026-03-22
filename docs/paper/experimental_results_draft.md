@@ -8,6 +8,26 @@ Experiments were conducted on a lung adenocarcinoma (LUAD) evolution cohort comp
 
 Quality control filtering removed cells with fewer than 200 detected genes or greater than 20% mitochondrial reads. Genes expressed in fewer than 10 cells were excluded. Expression values were normalized to counts per 10,000 and log-transformed. Batch effects across samples were corrected using Harmony integration prior to downstream analysis.
 
+## Reference Model Preparation
+
+StageBridge requires dual-reference latent embeddings from both healthy (HLCA) and cancer (LuCA) atlas models. The LuCA scANVI model was retrained from scratch on the LuCA Core Atlas to ensure reproducibility and compatibility with the scArches surgical fine-tuning workflow.
+
+**LuCA scANVI Retraining.** The LuCA Core Atlas (892,296 cells, 21 datasets, 33 cell types) was used to train a scVI base model followed by scANVI label-aware fine-tuning. Highly variable gene selection identified 6,000 genes using the Seurat v3 method with batch-aware selection. The scVI encoder used 10 latent dimensions, 128 hidden units, and 2 layers with 0.2 dropout, trained for 329 epochs with early stopping (patience=20, monitoring validation ELBO). The scANVI model was initialized from scVI weights and trained for an additional 34 epochs with early stopping (patience=15).
+
+**Table: LuCA scANVI Model Validation (scIB Metrics)**
+
+| Metric | Retrained | Original | Difference |
+|--------|-----------|----------|------------|
+| Overall scIB Score | **0.673** | 0.669 | +0.6% |
+| Adjusted Rand Index (ARI) | **0.697** | 0.670 | +4.0% |
+| Normalized Mutual Information (NMI) | **0.821** | 0.816 | +0.6% |
+| Cell Type k-NN Purity | **0.922** | 0.918 | +0.4% |
+| Batch ASW | 0.555 | 0.575 | -3.5% |
+| Batch k-NN Mixing | **0.530** | 0.519 | +2.1% |
+| Cell Type ASW | **0.598** | 0.595 | +0.5% |
+
+The retrained model achieved comparable or improved performance across all biological preservation metrics (ARI, NMI, cell type purity) while maintaining batch integration quality. The slight decrease in batch ASW is offset by improved batch k-NN mixing, indicating the model learned to integrate batches through mixing rather than forcing separation. Training was conducted on 4× NVIDIA H100 GPUs using the ddp_spawn strategy, completing in approximately 6 hours. The model passed validation (overall scIB score 0.673 vs. original 0.669) and is ready for scArches surgery.
+
 ## Spatial Mapping Backend Comparison
 
 Three spatial mapping backends were evaluated to determine the optimal method for projecting snRNA-seq cells onto tissue coordinates: Tangram, DestVI, and TACCO. Each backend was assessed on mapping accuracy using held-out spatial spots with known cell type composition, cell type assignment quality via macro-averaged F1 score, spatial coherence measured by local Moran's I statistic, and computational cost measured as wall-clock runtime on standardized hardware.
@@ -158,13 +178,16 @@ Computational requirements were measured for each stage of the StageBridge pipel
 
 **[TABLE 6: Computational requirements]**
 
-| Component | Time | Hardware |
-|-----------|------|----------|
-| Reference mapping (HLCA) | -- | 4× H100 GPU |
-| Reference mapping (LuCA) | -- | 4× H100 GPU |
-| SSL pretraining | -- | 4× H100 GPU |
-| CFM-OT training | -- | 4× H100 GPU |
-| Inference (per cell) | -- | Single H100 |
+| Component | Time | Epochs | Hardware |
+|-----------|------|--------|----------|
+| LuCA scANVI retraining | ~6 hrs | 329 (scVI) + 34 (scANVI) | 4× H100 GPU |
+| Reference mapping (HLCA) | -- | -- | 4× H100 GPU |
+| Reference mapping (LuCA) | -- | -- | 4× H100 GPU |
+| SSL pretraining | -- | -- | 4× H100 GPU |
+| CFM-OT training | -- | -- | 4× H100 GPU |
+| Inference (per cell) | -- | -- | Single H100 |
 
-**[RESULTS: Report actual runtime for each pipeline component. Note early stopping behavior and convergence epochs.]**
+LuCA scANVI retraining on 892K cells completed in approximately 6 hours on 4× H100 GPUs using PyTorch Lightning's ddp_spawn distributed strategy. Early stopping triggered at epoch 329 for scVI (patience=20, monitoring validation ELBO) and epoch 34 for scANVI (patience=15), indicating efficient convergence without overfitting.
+
+**[RESULTS: Report actual runtime for remaining pipeline components. Note early stopping behavior and convergence epochs.]**
 

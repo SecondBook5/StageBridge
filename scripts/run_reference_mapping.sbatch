@@ -84,9 +84,18 @@ echo ""
 # Set environment for GPU
 export CUDA_VISIBLE_DEVICES=0
 
+# Find HLCA model in HubModel cache
+HLCA_MODEL_DIR=$(find $DATA/references/hlca/hub_cache -name "model.pt" -type f 2>/dev/null | head -1 | xargs dirname)
+if [ -n "$HLCA_MODEL_DIR" ]; then
+    echo "  [OK] Found HLCA model: $HLCA_MODEL_DIR"
+else
+    echo "  [WARN] HLCA model not found in hub_cache"
+fi
+
 # Run dual-reference mapping with model-based projection
 # --hpc: memory-efficient chunked processing
 # --use-model-based: use scArches surgery (not k-NN)
+# --hlca-model / --luca-model: explicit model paths
 python -m stagebridge.pipelines.run_reference \
     --data-root "$DATA" \
     --snrna "$QUERY" \
@@ -95,6 +104,8 @@ python -m stagebridge.pipelines.run_reference \
     --output-dir "$OUTPUT" \
     --hpc \
     --use-model-based \
+    --hlca-model "$HLCA_MODEL_DIR" \
+    --luca-model "$LUCA_MODEL" \
     --luca-latent-key "X_scANVI" \
     --k-neighbors 50
 
