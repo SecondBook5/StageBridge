@@ -34,7 +34,7 @@ echo "Node: $(hostname)"
 echo "=============================================="
 
 # Environment setup
-cd /home/booka/projects/StageBridge
+cd /home/booka/StageBridge || cd $HOME/StageBridge || echo "Warning: Could not cd to StageBridge"
 source /admin/software/miniforge3/etc/profile.d/conda.sh
 conda activate /scratch/chaunzt1/stagebridge_env
 
