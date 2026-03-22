@@ -156,9 +156,26 @@ def map_full_snrna_with_luca(
     # Check if model uses ENSG IDs
     model_uses_ensg = model_var_names[0].startswith('ENSG') if model_var_names else False
 
-    # Load reference model WITH reference adata (required for scArches surgery)
+    # Subset reference adata to model's expected genes
+    ref_genes = set(ref_adata.var_names.astype(str))
+    model_genes_set = set(model_var_names)
+    common_genes = ref_genes & model_genes_set
+    log.info("  Reference has %d genes, model expects %d, overlap: %d",
+             len(ref_genes), len(model_genes_set), len(common_genes))
+
+    if len(common_genes) < len(model_var_names):
+        # Subset reference to model genes (in model's order)
+        genes_to_keep = [g for g in model_var_names if g in ref_genes]
+        ref_adata_subset = ref_adata[:, genes_to_keep].copy()
+        log.info("  Subset reference to %d model genes", ref_adata_subset.n_vars)
+    else:
+        # Reorder to match model
+        ref_adata_subset = ref_adata[:, model_var_names].copy()
+        log.info("  Reordered reference to match model gene order")
+
+    # Load reference model WITH subset reference adata (required for scArches surgery)
     try:
-        ref_model = SCANVI.load(str(luca_model_dir), adata=ref_adata)
+        ref_model = SCANVI.load(str(luca_model_dir), adata=ref_adata_subset)
         log.info("  LuCA model loaded successfully")
     except Exception as e:
         raise ValueError(f"Failed to load LuCA scANVI model: {e}") from e
