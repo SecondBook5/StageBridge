@@ -1,13 +1,16 @@
 """Query-to-reference mapping for dual-reference embedding construction.
 
-This module provides the core functionality for mapping query cells to
-reference atlases (HLCA and LuCa), producing latent embeddings with
-associated quality metrics.
+FALLBACK MODULE: This provides k-NN based mapping when scANVI models are unavailable.
+For production use with cell type prediction, use:
+- hlca_mapper.py: HLCA model-based mapping with cell types
+- luca_mapper.py: LuCA model-based mapping with cell types
+
+This module provides simple k-NN and PCA projection methods that work
+without trained models but do NOT provide cell type predictions.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -16,83 +19,9 @@ import pandas as pd
 
 from stagebridge.logging_utils import get_logger
 from stagebridge.geometry import EuclideanBackend, GeometryBackend
+from stagebridge.reference.schema import MappingResult, ReferenceNeighborhood
 
 log = get_logger(__name__)
-
-
-@dataclass
-class MappingResult:
-    """Result of mapping query cells to a reference atlas.
-
-    Contains the latent embeddings and associated metadata for downstream
-    fusion and confidence scoring.
-    """
-
-    # Core embeddings
-    embeddings: np.ndarray  # Shape: (n_cells, latent_dim)
-    latent_dim: int
-
-    # Cell metadata
-    cell_ids: np.ndarray  # Shape: (n_cells,)
-    donor_ids: np.ndarray  # Shape: (n_cells,)
-    sample_ids: np.ndarray  # Shape: (n_cells,)
-    stage_ids: np.ndarray  # Shape: (n_cells,)
-
-    # Mapping quality
-    reconstruction_errors: np.ndarray | None = None  # Per-cell errors
-    neighbor_distances: np.ndarray | None = None  # Mean distance to k nearest ref cells
-
-    # Reference info
-    reference_name: str = ""
-    reference_latent_key: str = ""
-    n_reference_cells: int = 0
-
-    # Mapping parameters
-    mapping_method: str = ""
-    mapping_params: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def n_cells(self) -> int:
-        """Number of mapped cells."""
-        return self.embeddings.shape[0]
-
-    def to_dataframe(self, prefix: str = "") -> pd.DataFrame:
-        """Convert to DataFrame with standardized column names.
-
-        Parameters
-        ----------
-        prefix : str
-            Prefix for latent columns (e.g., 'hlca_' or 'luca_')
-
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with cell metadata and latent coordinates
-        """
-        df = pd.DataFrame(
-            {
-                "cell_id": self.cell_ids,
-                "donor_id": self.donor_ids,
-                "sample_id": self.sample_ids,
-                "stage_id": self.stage_ids,
-            }
-        )
-
-        # Add latent coordinates
-        for i in range(self.latent_dim):
-            df[f"{prefix}latent_{i}"] = self.embeddings[:, i]
-
-        return df
-
-
-@dataclass
-class ReferenceNeighborhood:
-    """Summary of reference neighborhood for each query cell."""
-
-    k_neighbors: int
-    neighbor_indices: np.ndarray  # Shape: (n_cells, k)
-    neighbor_distances: np.ndarray  # Shape: (n_cells, k)
-    neighbor_labels: np.ndarray | None = None  # Shape: (n_cells, k)
 
 
 def _validate_no_donor_leakage(

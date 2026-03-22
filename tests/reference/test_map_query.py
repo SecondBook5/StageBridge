@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from stagebridge.reference.schema import MappingResult
 from stagebridge.reference.map_query import (
-    MappingResult,
     map_to_hlca,
     map_to_luca,
     _validate_no_donor_leakage,

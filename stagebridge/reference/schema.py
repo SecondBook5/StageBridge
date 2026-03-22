@@ -5,6 +5,8 @@ provides utilities for exporting and loading outputs in a standardized format.
 
 All outputs are consumable by downstream models through standardized schemas.
 No custom per-backend hacks.
+
+Also contains shared data classes used across reference modules.
 """
 
 from __future__ import annotations
@@ -21,6 +23,86 @@ import pandas as pd
 from stagebridge.logging_utils import get_logger
 
 log = get_logger(__name__)
+
+
+# ============================================================================
+# Shared Data Classes (moved from map_query.py)
+# ============================================================================
+
+@dataclass
+class MappingResult:
+    """Result of mapping query cells to a reference atlas.
+
+    Contains the latent embeddings and associated metadata for downstream
+    fusion and confidence scoring.
+    """
+
+    # Core embeddings
+    embeddings: np.ndarray  # Shape: (n_cells, latent_dim)
+    latent_dim: int
+
+    # Cell metadata
+    cell_ids: np.ndarray  # Shape: (n_cells,)
+    donor_ids: np.ndarray  # Shape: (n_cells,)
+    sample_ids: np.ndarray  # Shape: (n_cells,)
+    stage_ids: np.ndarray  # Shape: (n_cells,)
+
+    # Mapping quality
+    reconstruction_errors: np.ndarray | None = None  # Per-cell errors
+    neighbor_distances: np.ndarray | None = None  # Mean distance to k nearest ref cells
+
+    # Reference info
+    reference_name: str = ""
+    reference_latent_key: str = ""
+    n_reference_cells: int = 0
+
+    # Mapping parameters
+    mapping_method: str = ""
+    mapping_params: dict[str, Any] = field(default_factory=dict)
+
+    # Cell type labels (from model prediction)
+    cell_type_labels: np.ndarray | None = None
+
+    @property
+    def n_cells(self) -> int:
+        """Number of mapped cells."""
+        return self.embeddings.shape[0]
+
+    def to_dataframe(self, prefix: str = "") -> pd.DataFrame:
+        """Convert to DataFrame with standardized column names."""
+        df = pd.DataFrame(
+            {
+                "cell_id": self.cell_ids,
+                "donor_id": self.donor_ids,
+                "sample_id": self.sample_ids,
+                "stage_id": self.stage_ids,
+            }
+        )
+
+        # Add latent coordinates
+        for i in range(self.latent_dim):
+            df[f"{prefix}latent_{i}"] = self.embeddings[:, i]
+
+        # Add cell type labels if available
+        if self.cell_type_labels is not None:
+            df["cell_type"] = self.cell_type_labels
+
+        return df
+
+
+@dataclass
+class ReferenceNeighborhood:
+    """Summary of reference neighborhood for each query cell."""
+
+    k_neighbors: int
+    neighbor_indices: np.ndarray  # Shape: (n_cells, k)
+    neighbor_distances: np.ndarray  # Shape: (n_cells, k)
+    neighbor_labels: np.ndarray | None = None  # Shape: (n_cells, k)
+
+
+# ============================================================================
+# Schema Definitions
+# ============================================================================
 
 
 @dataclass

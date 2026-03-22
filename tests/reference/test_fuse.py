@@ -11,7 +11,7 @@ from stagebridge.reference.fuse import (
     fuse_dual_reference,
     fuse_single_reference,
 )
-from stagebridge.reference.map_query import MappingResult
+from stagebridge.reference.schema import MappingResult
 
 
 def _create_mock_mapping_result(

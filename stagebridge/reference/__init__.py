@@ -49,9 +49,8 @@ from stagebridge.reference.loaders import (
     validate_reference,
     compute_feature_overlap,
 )
+# k-NN fallback mapping (use hlca_mapper/luca_mapper for model-based)
 from stagebridge.reference.map_query import (
-    MappingResult,
-    ReferenceNeighborhood,
     map_to_hlca,
     map_to_luca,
 )
@@ -77,6 +76,8 @@ from stagebridge.reference.confidence import (
     detect_nan_embeddings,
 )
 from stagebridge.reference.schema import (
+    MappingResult,
+    ReferenceNeighborhood,
     ReferenceEmbeddingSchema,
     ReferenceManifest,
     SCHEMA,

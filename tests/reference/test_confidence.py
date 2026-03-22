@@ -13,7 +13,7 @@ from stagebridge.reference.confidence import (
     detect_mapping_collapse,
     detect_nan_embeddings,
 )
-from stagebridge.reference.map_query import MappingResult
+from stagebridge.reference.schema import MappingResult
 
 
 def _create_mock_mapping_result(

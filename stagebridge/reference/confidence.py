@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 from stagebridge.logging_utils import get_logger
-from stagebridge.reference.map_query import MappingResult, ReferenceNeighborhood
+from stagebridge.reference.schema import MappingResult, ReferenceNeighborhood
 
 log = get_logger(__name__)
 

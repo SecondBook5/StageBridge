@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from stagebridge.logging_utils import get_logger
-from stagebridge.reference.map_query import MappingResult
+from stagebridge.reference.schema import MappingResult
 
 log = get_logger(__name__)
 
