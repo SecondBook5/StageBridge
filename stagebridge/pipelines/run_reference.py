@@ -398,7 +398,7 @@ def run_hpc_reference_mapping(
                     hlca_model_path = hub_cache  # Pass hub_cache, HubModel handles the rest
                     print(f"  Found HLCA hub cache: {hub_cache}")
                 else:
-                    print(f"  HLCA hub_cache exists but model repo not found. Will pull from HuggingFace.")
+                    print("  HLCA hub_cache exists but model repo not found. Will pull from HuggingFace.")
                     hlca_model_path = hub_cache  # Still use it - HubModel will download
             else:
                 # No hub_cache, but we can still try - HubModel will download

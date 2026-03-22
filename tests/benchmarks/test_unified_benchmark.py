@@ -1,9 +1,6 @@
 """Tests for unified benchmark generator."""
 
 import numpy as np
-import pandas as pd
-import pytest
-from pathlib import Path
 
 from stagebridge.benchmarks.unified.config import (
     UnifiedBenchmarkConfig,
@@ -11,8 +8,6 @@ from stagebridge.benchmarks.unified.config import (
     FullBenchmarkConfig,
     InteractionRule,
     NicheInfluenceSpec,
-    CellGroupSpec,
-    DynamicsConfig,
 )
 from stagebridge.benchmarks.unified.ground_truth import (
     GroundTruth,

@@ -8,7 +8,6 @@ redundant computation when generating multiple plots from same data.
 import hashlib
 import numpy as np
 from functools import lru_cache
-from typing import Tuple
 
 
 def hash_array(arr: np.ndarray) -> str:

@@ -6,7 +6,6 @@ including spatial patterns, cell-type-specific analysis, and gamma space explora
 """
 
 from pathlib import Path
-from typing import Any
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -32,7 +31,6 @@ def plot_proportions_spatial(
         figsize_per_plot: Size of each subplot
         save_path: If provided, saves figure
     """
-    import scanpy as sc
 
     nrows = int(np.ceil(len(cell_types) / ncols))
     fig, axes = plt.subplots(

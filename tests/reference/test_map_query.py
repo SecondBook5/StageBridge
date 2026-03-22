@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import anndata as ad
 import numpy as np
@@ -15,7 +14,6 @@ from stagebridge.reference.map_query import (
     map_to_luca,
     _validate_no_donor_leakage,
 )
-from stagebridge.reference.loaders import LoadedReference, ReferenceInfo
 
 
 def _create_mock_reference_adata(

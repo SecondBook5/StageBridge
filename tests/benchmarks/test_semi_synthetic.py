@@ -3,16 +3,13 @@
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
 
 from stagebridge.benchmarks.semi_synthetic.configs import (
     BenchmarkConfig,
     SmokeConfig,
     InteractionRule,
-    CellGroupSpec,
 )
 from stagebridge.benchmarks.semi_synthetic.data_sources import (
-    DataSourceLoader,
     create_fallback_data,
 )
 from stagebridge.benchmarks.semi_synthetic.feature_harmonization import (
@@ -33,7 +30,6 @@ from stagebridge.benchmarks.semi_synthetic.benchmark_generator import (
 from stagebridge.benchmarks.semi_synthetic.metrics import (
     evaluate_receiver_state_recovery,
     evaluate_sender_attribution,
-    BenchmarkMetrics,
 )
 
 

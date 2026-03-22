@@ -6,10 +6,8 @@ User can assemble them into figures as needed.
 """
 
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Optional
 import warnings
 
 warnings.filterwarnings("ignore")

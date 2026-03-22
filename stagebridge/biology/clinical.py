@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import logging
 
-from .signatures import score_all_signatures, GENE_SIGNATURES
+from .signatures import score_all_signatures
 
 log = logging.getLogger(__name__)
 

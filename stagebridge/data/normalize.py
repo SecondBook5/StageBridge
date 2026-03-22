@@ -24,8 +24,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-import numpy as np
-import pandas as pd
 
 from stagebridge.logging_utils import get_logger
 

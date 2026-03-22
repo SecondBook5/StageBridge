@@ -6,7 +6,6 @@ Reference: https://github.com/simonwm/tacco
 """
 
 from pathlib import Path
-from typing import Optional, Dict
 import numpy as np
 import pandas as pd
 import anndata as ad

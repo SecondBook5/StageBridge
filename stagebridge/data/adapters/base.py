@@ -23,7 +23,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from stagebridge.logging_utils import get_logger
 
@@ -375,7 +375,6 @@ class DatasetAdapter(ABC):
         DataFrame
             DataFrame with renamed columns.
         """
-        import pandas as pd
 
         obs = obs.copy()
         rename_map = {}
@@ -472,6 +471,5 @@ def apply_stage_mapping(
     Series
         Mapped stage labels.
     """
-    import pandas as pd
 
     return stage_column.astype(str).map(lambda x: mapping.get(x, default))

@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 from stagebridge.reference.schema import (
-    ReferenceEmbeddingSchema,
     ReferenceManifest,
     SCHEMA,
     export_reference_outputs,

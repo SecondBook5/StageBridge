@@ -10,11 +10,9 @@ https://cell2location.readthedocs.io/
 """
 
 from pathlib import Path
-from typing import Any
 import numpy as np
 import pandas as pd
 import anndata as ad
-import scanpy as sc
 
 from .base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy, compute_sparsity
 

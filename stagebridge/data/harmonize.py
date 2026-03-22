@@ -7,7 +7,6 @@ processed by StageBridge.
 
 import logging
 from typing import Any
-from pathlib import Path
 
 import pandas as pd
 import anndata as ad

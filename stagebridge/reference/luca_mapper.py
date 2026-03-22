@@ -21,7 +21,6 @@ import anndata
 import numpy as np
 import pandas as pd
 import psutil
-import scipy.sparse as sp
 
 from stagebridge.logging_utils import get_logger
 

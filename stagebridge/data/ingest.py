@@ -21,7 +21,6 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
-import os
 import shutil
 import tarfile
 import zipfile

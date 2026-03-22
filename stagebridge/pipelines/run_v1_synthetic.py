@@ -24,7 +24,6 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from typing import Dict
 
 # StageBridge imports
 from stagebridge.data.synthetic import generate_synthetic_dataset

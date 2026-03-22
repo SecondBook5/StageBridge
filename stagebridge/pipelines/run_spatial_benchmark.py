@@ -22,7 +22,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import anndata as ad
-from typing import Dict, List
 import time
 
 from stagebridge.spatial_backends import (

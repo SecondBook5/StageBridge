@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import gzip
 import tarfile
-import tempfile
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from stagebridge.data.ingest import (
-    DiscoveredFile,
     IngestResult,
     ProvenanceRecord,
     compute_checksum,

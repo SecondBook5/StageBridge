@@ -6,8 +6,6 @@ Tests the direct AnnData interfaces with synthetic data.
 
 import pytest
 import numpy as np
-import pandas as pd
-from pathlib import Path
 
 
 def test_tangram_backend_imports():
@@ -295,11 +293,6 @@ def test_visualization_utils_imports():
     from stagebridge.spatial_backends import (
         plot_proportions_spatial,
         plot_gamma_pca_spatial,
-        plot_projected_genes_spatial,
-        plot_proportion_distribution,
-        plot_proportion_heatmap,
-        plot_entropy_vs_sparsity,
-        plot_spatial_autocorrelation,
         create_comprehensive_report,
     )
 

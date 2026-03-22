@@ -19,10 +19,8 @@ from pathlib import Path
 from typing import Literal
 
 import anndata
-import numpy as np
 import pandas as pd
 import torch
-from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 

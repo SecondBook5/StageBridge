@@ -6,7 +6,6 @@ These are smoke tests to verify visualizations can be generated without errors.
 
 import numpy as np
 import pandas as pd
-import pytest
 import matplotlib
 
 matplotlib.use("Agg")  # Non-interactive backend for testing

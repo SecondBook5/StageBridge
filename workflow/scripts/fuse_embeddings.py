@@ -7,7 +7,6 @@ Snakemake script - uses snakemake.input and snakemake.output.
 import numpy as np
 import pandas as pd
 import anndata
-from pathlib import Path
 
 # Snakemake provides these
 hlca_path = snakemake.input.hlca

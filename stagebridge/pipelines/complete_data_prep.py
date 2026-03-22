@@ -19,7 +19,6 @@ import numpy as np
 import anndata as ad
 import json
 import yaml
-from typing import Dict, List
 from tqdm import tqdm
 from stagebridge.utils.data_cache import get_data_cache
 

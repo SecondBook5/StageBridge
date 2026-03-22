@@ -9,7 +9,6 @@ Implements all metrics from evaluation_protocol.md:
 """
 
 import numpy as np
-from typing import Dict, Optional
 from scipy.stats import wasserstein_distance
 from scipy.spatial.distance import cdist
 

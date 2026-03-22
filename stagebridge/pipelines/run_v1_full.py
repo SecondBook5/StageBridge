@@ -20,7 +20,6 @@ from pathlib import Path
 import json
 import numpy as np
 from tqdm import tqdm
-from typing import Dict
 import yaml
 
 # StageBridge imports

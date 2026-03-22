@@ -4,15 +4,11 @@ Tests for spatial backend benchmark pipeline.
 These tests focus on the pipeline infrastructure, not actual backend execution.
 """
 
-import json
-import numpy as np
-import pandas as pd
 import pytest
 
 from stagebridge.spatial_backends.pipeline import (
     SpatialBenchmarkConfig,
     BenchmarkProgress,
-    run_spatial_benchmark,
     run_smoke_benchmark,
     load_benchmark_results,
     get_canonical_backend_result,

@@ -19,7 +19,6 @@ For V1 real data: Will use reference mapping (scanvi, scVI, etc.)
 
 import torch
 import torch.nn as nn
-from typing import Optional, Tuple
 
 
 class DualReferenceMapper(nn.Module):

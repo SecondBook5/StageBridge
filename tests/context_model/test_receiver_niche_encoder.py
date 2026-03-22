@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import pytest
 import torch
-import torch.nn.functional as F
 
 from stagebridge.context_model.receiver_niche_encoder import (
     ReceiverCenteredNicheEncoder,
@@ -22,7 +21,6 @@ from stagebridge.context_model.receiver_niche_encoder import (
     DistanceEncoder,
     DistanceEncoding,
     SparsityType,
-    ReceiverNicheOutput,
     _compute_attention_entropy,
     _sparsemax,
     _rbf_distance_encoding,

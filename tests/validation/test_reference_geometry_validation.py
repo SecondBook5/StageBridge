@@ -24,12 +24,9 @@ from stagebridge.validation.reference_geometry import (
     ReferenceGeometryValidationReport,
     validate_reference_geometry,
     validate_reference_geometry_quick,
-    EXPECTED_FILES,
     EXPECTED_HLCA_DIM,
     EXPECTED_LUCA_DIM,
     EXPECTED_FUSED_DIM,
-    METADATA_COLS,
-    CONFIDENCE_REQUIRED_COLS,
 )
 
 

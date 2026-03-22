@@ -2,9 +2,7 @@
 Tests for spatial backend comparison module.
 """
 
-import numpy as np
 import pandas as pd
-import pytest
 
 from stagebridge.spatial_backends.comparison import (
     BackendRunResult,

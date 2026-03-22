@@ -7,7 +7,6 @@ including gene symbol harmonization and expression matrix subsetting.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -178,7 +177,6 @@ def prepare_reference_for_mapping(
         - Harmonized reference AnnData (same gene order as reference)
         - Preparation report
     """
-    import anndata
 
     # Handle LoadedReference wrapper
     if hasattr(reference, "adata"):

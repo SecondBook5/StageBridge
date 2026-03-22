@@ -26,7 +26,6 @@ from stagebridge.transition_model.relational_pretraining import (
     RelationalPretrainingConfig,
     RelationalPretrainingHeads,
     compute_relational_auxiliary_losses,
-    pretrain_relational_transformer,
 )
 from stagebridge.utils.types import StageBatch, StageBridgeConfig
 

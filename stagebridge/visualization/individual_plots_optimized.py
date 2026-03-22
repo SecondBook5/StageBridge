@@ -13,7 +13,6 @@ import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Optional
 
 from .plot_cache import get_cache
 

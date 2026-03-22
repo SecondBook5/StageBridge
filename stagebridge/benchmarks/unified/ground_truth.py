@@ -20,7 +20,6 @@ import pandas as pd
 
 from stagebridge.benchmarks.unified.config import (
     UnifiedBenchmarkConfig,
-    InteractionRule,
 )
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import re
 
 
 def test_stagebridge_notebook_is_only_active_top_level_notebook() -> None:

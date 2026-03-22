@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 import numpy as np
 import pandas as pd
-from scipy import stats
-from scipy.spatial.distance import cdist
 from sklearn.neighbors import NearestNeighbors
 
 from .base import BackendMappingResult, compute_cell_type_entropy, compute_sparsity

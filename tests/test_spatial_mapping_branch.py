@@ -7,6 +7,10 @@ from pathlib import Path
 import anndata as ad
 import numpy as np
 import pandas as pd
+import pytest
+
+# Skip entire module if scvi is not available (optional dependency)
+scvi = pytest.importorskip("scvi", reason="scvi required for spatial mapping tests")
 
 from stagebridge.pipelines.run_spatial_mapping import run_spatial_mapping
 from stagebridge.spatial_mapping.destvi_mapper import run_destvi

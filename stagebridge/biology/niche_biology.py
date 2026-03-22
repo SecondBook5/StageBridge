@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import logging
 
-from .signatures import GENE_SIGNATURES, score_all_signatures
 from .pathway_analysis import compute_pathway_activity
 
 log = logging.getLogger(__name__)

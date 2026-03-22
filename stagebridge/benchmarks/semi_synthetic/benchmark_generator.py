@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -34,7 +34,6 @@ from stagebridge.benchmarks.semi_synthetic.feature_harmonization import (
     HarmonizationReport,
 )
 from stagebridge.benchmarks.semi_synthetic.world_generator import (
-    WorldGenerator,
     SyntheticWorld,
     generate_multiple_worlds,
 )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from stagebridge.context_model.lesion_set_transformer import EAMISTModel, NicheTransitionScoreHead
+from stagebridge.context_model.lesion_set_transformer import EAMISTModel
 from stagebridge.context_model.losses import ordinal_stage_loss, transition_consistency_loss
 from stagebridge.utils.types import LesionBagBatch
 

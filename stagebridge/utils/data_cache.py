@@ -18,7 +18,7 @@ Usage:
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Optional, Any
 
 
 class DataCache:

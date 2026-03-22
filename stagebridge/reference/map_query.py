@@ -11,11 +11,9 @@ without trained models but do NOT provide cell type predictions.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-import pandas as pd
 
 from stagebridge.logging_utils import get_logger
 from stagebridge.geometry import EuclideanBackend, GeometryBackend

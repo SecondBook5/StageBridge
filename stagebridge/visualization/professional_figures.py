@@ -5,12 +5,9 @@ NO placeholder figures. NO text boxes. ONLY real data-driven visualizations.
 """
 
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from matplotlib import patches
 from pathlib import Path
-from typing import Optional, Tuple, Dict
 import warnings
 
 warnings.filterwarnings("ignore")

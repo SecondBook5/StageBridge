@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from stagebridge.reference.confidence import (
     ConfidenceScores,
     compute_hlca_confidence,
-    compute_luca_confidence,
     compute_dual_confidence,
     detect_mapping_collapse,
     detect_nan_embeddings,

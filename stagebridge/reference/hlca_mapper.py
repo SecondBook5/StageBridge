@@ -1331,7 +1331,7 @@ def map_full_snrna_with_hlca(
         train_size=float(hlca_cfg.get("train_size", 0.9)),
         check_val_every_n_epoch=int(hlca_cfg.get("check_val_every_n_epoch", 1)),
         early_stopping=bool(hlca_cfg.get("early_stopping", True)),
-        early_stopping_monitor=str(hlca_cfg.get("early_stopping_monitor", "elbo_train")),
+        early_stopping_monitor=str(hlca_cfg.get("early_stopping_monitor", "elbo_validation")),
         early_stopping_patience=int(hlca_cfg.get("early_stopping_patience", 10)),
         early_stopping_min_delta=float(hlca_cfg.get("early_stopping_min_delta", 0.001)),
         plan_kwargs={"weight_decay": float(hlca_cfg.get("weight_decay", 0.0)), "lr": float(hlca_cfg.get("lr", 2e-4))},

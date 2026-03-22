@@ -7,10 +7,8 @@ from pathlib import Path
 import anndata as ad
 import numpy as np
 import pandas as pd
-import pytest
 
 from stagebridge.reference.loaders import (
-    LoadedReference,
     FeatureOverlapReport,
     compute_feature_overlap,
     validate_reference,

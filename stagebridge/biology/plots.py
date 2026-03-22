@@ -27,7 +27,6 @@ STAGE_ORDER = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
 
 def _setup_style():
     """Set up publication-quality plot style."""
-    import matplotlib.pyplot as plt
     import matplotlib as mpl
 
     mpl.rcParams.update({

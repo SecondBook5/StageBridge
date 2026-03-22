@@ -8,19 +8,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 import json
-import time
 import numpy as np
-import pandas as pd
 import anndata as ad
 
-from .base import SpatialBackend, BackendMappingResult
+from .base import SpatialBackend
 from .tangram_wrapper import TangramBackend
 from .destvi_wrapper import DestVIBackend
 from .tacco_wrapper import TACCOBackend
 from .comparison import (
     ComparisonResult,
     run_backend_comparison,
-    run_donor_comparison,
 )
 from .selection import (
     BackendSelection,
@@ -32,7 +29,6 @@ from .visualize import (
     plot_spatial_maps_comparison,
     plot_metrics_comparison,
     plot_confidence_distributions,
-    plot_donor_robustness,
     create_comparison_summary_figure,
 )
 from .standardize import StandardizedOutput

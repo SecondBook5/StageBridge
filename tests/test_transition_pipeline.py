@@ -5,6 +5,9 @@ from functools import lru_cache
 import pandas as pd
 import pytest
 
+# Skip entire module if scvi is not available (transitive dependency via run_spatial_mapping)
+pytest.importorskip("scvi", reason="scvi required for transition pipeline tests")
+
 from stagebridge.data.luad_evo.metadata import resolve_luad_evo_paths
 from stagebridge.notebook_api import compose_config
 from stagebridge.pipelines.run_evaluation import run_evaluation

@@ -228,7 +228,6 @@ def generate_ablation_visualizations(
         plot_radar_chart,
         plot_parallel_coordinates,
         plot_ridge_distributions,
-        plot_correlation_matrix,
     )
 
     output_dir = Path(output_dir)

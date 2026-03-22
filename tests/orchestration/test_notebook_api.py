@@ -17,7 +17,6 @@ from stagebridge.orchestration.notebook_api import (
     run_full_model,
     run_publication_figures,
     run_reference_mapping,
-    run_smoke_pipeline,
     run_spatial_backend_benchmark,
     summarize_run,
     validate_stage,

@@ -3,7 +3,11 @@ from __future__ import annotations
 import matplotlib
 import optuna
 import pandas as pd
+import pytest
 from omegaconf import OmegaConf
+
+# Skip entire module if scvi is not available (transitive dependency)
+pytest.importorskip("scvi", reason="scvi required for transformer tuning tests")
 
 from stagebridge.evaluation.transformer_tuning import (
     TrialMetrics,

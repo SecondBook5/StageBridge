@@ -18,11 +18,7 @@ from stagebridge.viz import (
     configure_lungpca_style,
     STAGE_COLORS,
     STAGE_ORDER,
-    save_lungpca_figure,
     plot_heatmap,
-    plot_boxplot_jitter,
-    plot_stacked_bar,
-    get_stage_colors_list,
 )
 
 # Snakemake provides these

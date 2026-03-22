@@ -19,7 +19,6 @@ from typing import Any
 import logging
 import json
 
-import numpy as np
 import pandas as pd
 
 from .signatures import score_all_signatures, GENE_SIGNATURES

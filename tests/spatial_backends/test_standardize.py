@@ -4,7 +4,6 @@ Tests for spatial backend output standardization module.
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from stagebridge.spatial_backends.standardize import (
     StandardizedOutput,

@@ -3,9 +3,6 @@
 Tests the canonical implementation in hlca_mapper.py.
 """
 
-import pytest
-from pathlib import Path
-from unittest.mock import Mock
 import numpy as np
 
 

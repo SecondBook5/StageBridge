@@ -20,7 +20,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +31,6 @@ from .lungpca_style import (
     MP_COLORS,
     MAJOR_CELLTYPE_COLORS,
     configure_lungpca_style,
-    create_lungpca_figure,
     save_lungpca_figure,
     plot_sankey_diagram,
     plot_violin_boxplot,
@@ -40,7 +38,6 @@ from .lungpca_style import (
     plot_stacked_bar,
     plot_heatmap,
     plot_alluvial,
-    get_magma_white,
 )
 
 from stagebridge.logging_utils import get_logger
@@ -104,7 +101,7 @@ def figure_1b_sankey(
         title="Cell Type Composition by Stage",
     )
 
-    log.info(f"Generated Figure 1B-style Sankey diagram")
+    log.info("Generated Figure 1B-style Sankey diagram")
     return fig
 
 
@@ -139,7 +136,6 @@ def figure_1c_umap(
     fig : Figure
         Matplotlib figure
     """
-    import scanpy as sc
 
     configure_lungpca_style()
 
@@ -438,7 +434,7 @@ def figure_4b_correlation(
     if isinstance(data, pd.DataFrame):
         corr = data.corr(method=method)
     else:
-        from scipy.stats import spearmanr, pearsonr
+        from scipy.stats import spearmanr
         if method == "spearman":
             corr, _ = spearmanr(data, axis=0)
         else:

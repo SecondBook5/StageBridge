@@ -53,10 +53,11 @@ def test_configure_publication_style():
 
 def test_get_stage_color():
     """Test stage color retrieval."""
-    assert get_stage_color("Normal") == "#00BA38"
-    assert get_stage_color("AAH") == "#F8766D"
-    assert get_stage_color("LUAD") == "#A3A500"
-    assert get_stage_color("InvalidStage") == "#999999"  # Unknown fallback
+    # Colors now match LungPCA paper palette
+    assert get_stage_color("Normal") == "#33a02c"
+    assert get_stage_color("AAH") == "#b2df8a"
+    assert get_stage_color("LUAD") == "#ff7f00"
+    assert get_stage_color("InvalidStage") == "#d9d9d9"  # Unknown fallback (LungPCA gray)
 
 
 def test_apply_clean_spines():

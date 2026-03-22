@@ -5,11 +5,10 @@ Computes pathway-level activity scores and identifies stage-specific pathways.
 """
 
 from typing import Any
-import numpy as np
 import pandas as pd
 import logging
 
-from .signatures import GENE_SIGNATURES, score_signature, score_all_signatures
+from .signatures import GENE_SIGNATURES, score_all_signatures
 
 log = logging.getLogger(__name__)
 

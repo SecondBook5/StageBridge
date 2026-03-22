@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from datetime import datetime
 
-from .registry import AblationRegistry, AblationConfig, AblationTier
+from .registry import AblationRegistry, AblationTier
 
 log = logging.getLogger(__name__)
 

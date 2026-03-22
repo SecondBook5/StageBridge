@@ -8,7 +8,6 @@ Supports both full runs and smoke mode for fast validation.
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -19,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from stagebridge.logging_utils import get_logger
-from stagebridge.geometry import EuclideanBackend, get_geometry_backend
+from stagebridge.geometry import get_geometry_backend
 
 log = get_logger(__name__)
 

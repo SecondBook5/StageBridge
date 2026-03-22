@@ -7,7 +7,7 @@ Defines standardized interface and output format for all spatial mapping methods
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 import pandas as pd
 import anndata as ad
 import numpy as np

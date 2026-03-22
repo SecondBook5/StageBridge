@@ -25,7 +25,6 @@ from stagebridge.benchmarks.unified.config import (
     CellGroupSpec,
 )
 from stagebridge.benchmarks.unified.ground_truth import (
-    GroundTruth,
     build_ground_truth_from_config,
 )
 
