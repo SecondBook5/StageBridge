@@ -240,17 +240,72 @@ rule data_preparation:
 
 
 # =============================================================================
-# Stage 5: Full Model Training (Multi-GPU DDP)
+# Stage 5a: Generate Semi-Synthetic Benchmark (with ground truth)
 # =============================================================================
+
+rule semi_synthetic_benchmark:
+    output:
+        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
+        ground_truth = f"{CANONICAL}/benchmark/ground_truth.json"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        time = "1:00:00"
+    log:
+        f"{RUNS}/logs/semi_synthetic_benchmark.log"
+    shell:
+        """
+        python -c "
+from stagebridge.benchmarks import generate_benchmark, SmokeTestConfig
+from pathlib import Path
+import torch
+import json
+
+output_dir = Path('{CANONICAL}/benchmark')
+output_dir.mkdir(parents=True, exist_ok=True)
+
+# Generate hybrid benchmark with full ground truth
+config = SmokeTestConfig()
+config.n_cells = 10000  # Larger for proper evaluation
+report = generate_benchmark(config=config, mode='hybrid')
+
+# Save tensors
+if 'tensors' in report:
+    torch.save(report['tensors'], output_dir / 'semi_synthetic.pt')
+
+# Save ground truth
+ground_truth = {{k: v for k, v in report.items() if k != 'tensors'}}
+with open(output_dir / 'ground_truth.json', 'w') as f:
+    json.dump(ground_truth, f, indent=2, default=str)
+
+print(f'Generated benchmark with {{len(report.get(\"tensors\", {{}}))} tensors')
+" 2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5b: Full Model Training (Two-Stage: SSL + Transition)
+# =============================================================================
+#
+# Stage 1: SSL Pretraining (~4-6 hours with 4 GPUs)
+#   - Objective: Masked receiver reconstruction from niche context
+#   - Learn niche-aware representations
+#
+# Stage 2: Transition Model (~2-3 hours with 4 GPUs)
+#   - Objective: Predict state transitions (flow field)
+#   - Fine-tune on stage transition dynamics
+#
 
 rule training:
     input:
         cells = f"{CANONICAL}/cells.parquet",
         neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json"
+        splits = f"{CANONICAL}/split_manifest.json",
+        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt"
     output:
         checkpoint = f"{TRAINING}/checkpoints/final_checkpoint.pt",
         best = f"{TRAINING}/checkpoints/best_checkpoint.pt",
+        ssl_checkpoint = f"{TRAINING}/checkpoints/ssl_pretrained.pt",
         metrics = f"{TRAINING}/metrics/training_metrics.csv",
         config = f"{TRAINING}/config.json",
         results = f"{TRAINING}/results.json"
@@ -262,12 +317,19 @@ rule training:
     resources:
         mem_mb = 512000,
         gpu = 4,
-        time = "24:00:00",
+        time = "10:00:00",  # ~6-8 hours typical, buffer for safety
         partition = "gpu"
     log:
         f"{RUNS}/logs/training.log"
     shell:
         """
+        echo "=============================================="
+        echo "StageBridge V1 Training"
+        echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
+        echo "  Stage 2: Transition Model ({params.transition_epochs} epochs)"
+        echo "  GPUs: {params.n_gpus}"
+        echo "=============================================="
+
         torchrun \
             --nproc_per_node={params.n_gpus} \
             --master_port=29500 \

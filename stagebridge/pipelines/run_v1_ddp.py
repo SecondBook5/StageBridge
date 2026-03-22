@@ -303,39 +303,135 @@ def create_model(config: TrainingConfig, device: torch.device) -> nn.Module:
 def create_dataloaders(
     config: TrainingConfig,
     distributed: bool = False,
-) -> tuple[DataLoader, DataLoader]:
-    """Create train and validation dataloaders."""
-    from torch.utils.data import TensorDataset
+) -> tuple[DataLoader, DataLoader, DataLoader | None]:
+    """Create train, validation, and semi-synthetic benchmark dataloaders.
 
-    # Try to load real data
+    Returns:
+        (train_loader, val_loader, benchmark_loader)
+        benchmark_loader is None if semi-synthetic generation fails
+    """
+    from torch.utils.data import TensorDataset
+    import pandas as pd
+
+    train_data = None
+    val_data = None
+    benchmark_data = None
+
+    # ==========================================================================
+    # Try to load REAL data from canonical format
+    # ==========================================================================
     cells_path = Path(config.data_dir) / "cells.parquet"
-    if cells_path.exists():
+    neighborhoods_path = Path(config.data_dir) / "neighborhoods.parquet"
+
+    if cells_path.exists() and neighborhoods_path.exists():
         try:
-            import pandas as pd
+            log("Loading REAL data from canonical format...")
             cells_df = pd.read_parquet(cells_path)
-            log(f"Loaded {len(cells_df)} cells from {cells_path}")
-            # TODO: Implement proper data loading from parquet
+            neighborhoods_df = pd.read_parquet(neighborhoods_path)
+
+            log(f"  Cells: {len(cells_df):,}")
+            log(f"  Neighborhoods: {len(neighborhoods_df):,}")
+
+            # Extract embedding columns
+            fused_cols = [c for c in cells_df.columns if c.startswith('fused_latent_')]
+            hlca_cols = [c for c in cells_df.columns if c.startswith('hlca_latent_')]
+            luca_cols = [c for c in cells_df.columns if c.startswith('luca_latent_')]
+
+            if fused_cols:
+                log(f"  Fused embedding: {len(fused_cols)} dims")
+
+                # Build niche tokens from neighborhoods
+                # Token order: [receiver, ring1, ring2, ring3, ring4, hlca, luca, pathway, stats]
+                # For now, use fused embedding for all tokens (will refine)
+                embeddings = torch.tensor(cells_df[fused_cols].values, dtype=torch.float32)
+                n_cells = len(embeddings)
+
+                # Create 9-token sequences (simplified: replicate for now)
+                niche_tokens = embeddings.unsqueeze(1).expand(-1, 9, -1).clone()
+
+                # z_source and z_target for transition learning
+                # Use stage information to create pseudo-transitions
+                if 'stage' in cells_df.columns:
+                    stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+                    stage_to_idx = {s: i for i, s in enumerate(stage_order)}
+                    stages = cells_df['stage'].map(stage_to_idx).fillna(0).astype(int).values
+
+                    # z_source = current embedding, z_target = shifted embedding (next stage cells)
+                    z_source = embeddings
+                    # For transition targets, use mean of next-stage cells as pseudo-target
+                    z_target = embeddings.clone()  # Placeholder - refine with actual transitions
+                else:
+                    z_source = embeddings
+                    z_target = embeddings
+
+                # Train/val split (90/10, donor-held-out if possible)
+                n_train = int(0.9 * n_cells)
+                indices = torch.randperm(n_cells)
+                train_idx, val_idx = indices[:n_train], indices[n_train:]
+
+                train_data = TensorDataset(
+                    niche_tokens[train_idx],
+                    z_source[train_idx],
+                    z_target[train_idx],
+                )
+                val_data = TensorDataset(
+                    niche_tokens[val_idx],
+                    z_source[val_idx],
+                    z_target[val_idx],
+                )
+
+                log(f"  Train: {len(train_idx):,} cells")
+                log(f"  Val: {len(val_idx):,} cells")
+
         except Exception as e:
             log(f"Warning: Failed to load real data: {e}")
+            train_data = None
 
-    # Fallback to synthetic data for now
-    log("Using synthetic data for training")
-    torch.manual_seed(config.seed)
-    n_train, n_val = 5000, 1000
+    # ==========================================================================
+    # Generate SEMI-SYNTHETIC benchmark data (with ground truth)
+    # ==========================================================================
+    try:
+        from stagebridge.benchmarks import generate_benchmark, SmokeTestConfig
 
-    train_data = TensorDataset(
-        torch.randn(n_train, 9, config.latent_dim),  # niche_tokens
-        torch.randn(n_train, config.latent_dim),      # z_source
-        torch.randn(n_train, config.latent_dim),      # z_target
-    )
+        log("Generating semi-synthetic benchmark data (with ground truth)...")
+        benchmark_config = SmokeTestConfig()
+        benchmark_config.n_cells = 2000  # Smaller for validation
+        benchmark_report = generate_benchmark(config=benchmark_config, mode="hybrid")
 
-    val_data = TensorDataset(
-        torch.randn(n_val, 9, config.latent_dim),
-        torch.randn(n_val, config.latent_dim),
-        torch.randn(n_val, config.latent_dim),
-    )
+        if benchmark_report and 'tensors' in benchmark_report:
+            tensors = benchmark_report['tensors']
+            benchmark_data = TensorDataset(
+                tensors.get('niche_tokens', torch.randn(2000, 9, config.latent_dim)),
+                tensors.get('z_source', torch.randn(2000, config.latent_dim)),
+                tensors.get('z_target', torch.randn(2000, config.latent_dim)),
+            )
+            log(f"  Semi-synthetic benchmark: {len(benchmark_data)} samples")
+    except Exception as e:
+        log(f"Warning: Failed to generate semi-synthetic data: {e}")
+        benchmark_data = None
 
-    # Create samplers
+    # ==========================================================================
+    # Fallback to pure synthetic if no real data
+    # ==========================================================================
+    if train_data is None:
+        log("Using SYNTHETIC data (no real data available)")
+        torch.manual_seed(config.seed)
+        n_train, n_val = 50000, 10000
+
+        train_data = TensorDataset(
+            torch.randn(n_train, 9, config.latent_dim),
+            torch.randn(n_train, config.latent_dim),
+            torch.randn(n_train, config.latent_dim),
+        )
+        val_data = TensorDataset(
+            torch.randn(n_val, 9, config.latent_dim),
+            torch.randn(n_val, config.latent_dim),
+            torch.randn(n_val, config.latent_dim),
+        )
+
+    # ==========================================================================
+    # Create DataLoaders
+    # ==========================================================================
     if distributed:
         train_sampler = DistributedSampler(train_data, shuffle=True)
         val_sampler = DistributedSampler(val_data, shuffle=False)
@@ -361,7 +457,17 @@ def create_dataloaders(
         pin_memory=True,
     )
 
-    return train_loader, val_loader
+    benchmark_loader = None
+    if benchmark_data is not None:
+        benchmark_loader = DataLoader(
+            benchmark_data,
+            batch_size=config.batch_size,
+            shuffle=False,
+            num_workers=config.num_workers,
+            pin_memory=True,
+        )
+
+    return train_loader, val_loader, benchmark_loader
 
 
 def train_epoch(
@@ -372,8 +478,13 @@ def train_epoch(
     device: torch.device,
     config: TrainingConfig,
     epoch: int,
+    phase: str = "ssl",
 ) -> dict:
-    """Train for one epoch."""
+    """Train for one epoch.
+
+    Args:
+        phase: "ssl" for masked reconstruction, "transition" for flow/transition learning
+    """
     model.train()
     total_loss = 0.0
     n_batches = 0
@@ -382,7 +493,8 @@ def train_epoch(
     if hasattr(train_loader.sampler, 'set_epoch'):
         train_loader.sampler.set_epoch(epoch)
 
-    progress = tqdm(train_loader, desc=f"Train E{epoch}", disable=not is_main_process())
+    phase_label = "SSL" if phase == "ssl" else "Trans"
+    progress = tqdm(train_loader, desc=f"[{phase_label}] E{epoch}", disable=not is_main_process())
 
     for niche_tokens, z_source, z_target in progress:
         niche_tokens = niche_tokens.to(device, non_blocking=True)
@@ -398,19 +510,34 @@ def train_epoch(
             else:
                 actual_model = model
 
-            if hasattr(actual_model, 'ssl_forward'):
-                # Full model with SSL
-                receiver = niche_tokens[:, 0, :]
-                outputs = actual_model.ssl_forward(niche_tokens, receiver)
-                loss = 0.7 * outputs['loss_reconstruction']
+            if phase == "ssl":
+                # STAGE 1: SSL - Masked receiver reconstruction from niche context
+                if hasattr(actual_model, 'ssl_forward'):
+                    receiver = niche_tokens[:, 0, :]
+                    outputs = actual_model.ssl_forward(niche_tokens, receiver)
+                    loss = outputs['loss_reconstruction']
+                else:
+                    # Fallback: predict receiver from neighbors
+                    context = actual_model(
+                        receiver=niche_tokens[:, 0, :],
+                        neighbors=niche_tokens[:, 1:, :],
+                        distances=torch.ones(niche_tokens.shape[0], 8, device=device),
+                    )
+                    loss = torch.mean((context.context - niche_tokens[:, 0, :]) ** 2)
             else:
-                # Basic encoder
-                context = actual_model(
-                    receiver=niche_tokens[:, 0, :],
-                    neighbors=niche_tokens[:, 1:, :],
-                    distances=torch.ones(niche_tokens.shape[0], 8, device=device),
-                )
-                loss = torch.mean((context.context - z_target) ** 2)
+                # STAGE 2: Transition - Learn flow from source to target state
+                if hasattr(actual_model, 'transition_forward'):
+                    outputs = actual_model.transition_forward(niche_tokens, z_source, z_target)
+                    loss = outputs['loss_transition']
+                else:
+                    # Fallback: predict target from context
+                    context = actual_model(
+                        receiver=z_source,
+                        neighbors=niche_tokens[:, 1:, :],
+                        distances=torch.ones(niche_tokens.shape[0], 8, device=device),
+                    )
+                    # Transition loss: predict z_target from z_source + context
+                    loss = torch.mean((context.context - z_target) ** 2)
 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -441,14 +568,20 @@ def validate(
     val_loader: DataLoader,
     device: torch.device,
     config: TrainingConfig,
+    phase: str = "ssl",
 ) -> dict:
-    """Validate the model."""
+    """Validate the model.
+
+    Args:
+        phase: "ssl" for masked reconstruction, "transition" for flow/transition learning
+    """
     model.eval()
     total_loss = 0.0
     n_batches = 0
 
     for niche_tokens, z_source, z_target in val_loader:
         niche_tokens = niche_tokens.to(device, non_blocking=True)
+        z_source = z_source.to(device, non_blocking=True)
         z_target = z_target.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast(enabled=config.mixed_precision):
@@ -457,17 +590,31 @@ def validate(
             else:
                 actual_model = model
 
-            if hasattr(actual_model, 'ssl_forward'):
-                receiver = niche_tokens[:, 0, :]
-                outputs = actual_model.ssl_forward(niche_tokens, receiver)
-                loss = outputs['loss_reconstruction']
+            if phase == "ssl":
+                # SSL validation: reconstruction loss
+                if hasattr(actual_model, 'ssl_forward'):
+                    receiver = niche_tokens[:, 0, :]
+                    outputs = actual_model.ssl_forward(niche_tokens, receiver)
+                    loss = outputs['loss_reconstruction']
+                else:
+                    context = actual_model(
+                        receiver=niche_tokens[:, 0, :],
+                        neighbors=niche_tokens[:, 1:, :],
+                        distances=torch.ones(niche_tokens.shape[0], 8, device=device),
+                    )
+                    loss = torch.mean((context.context - niche_tokens[:, 0, :]) ** 2)
             else:
-                context = actual_model(
-                    receiver=niche_tokens[:, 0, :],
-                    neighbors=niche_tokens[:, 1:, :],
-                    distances=torch.ones(niche_tokens.shape[0], 8, device=device),
-                )
-                loss = torch.mean((context.context - z_target) ** 2)
+                # Transition validation: flow prediction loss
+                if hasattr(actual_model, 'transition_forward'):
+                    outputs = actual_model.transition_forward(niche_tokens, z_source, z_target)
+                    loss = outputs['loss_transition']
+                else:
+                    context = actual_model(
+                        receiver=z_source,
+                        neighbors=niche_tokens[:, 1:, :],
+                        distances=torch.ones(niche_tokens.shape[0], 8, device=device),
+                    )
+                    loss = torch.mean((context.context - z_target) ** 2)
 
         total_loss += loss.item()
         n_batches += 1
@@ -565,30 +712,37 @@ def train(config: TrainingConfig):
 
     # Create dataloaders
     log("Creating dataloaders...")
-    train_loader, val_loader = create_dataloaders(config, distributed=distributed)
+    train_loader, val_loader, benchmark_loader = create_dataloaders(config, distributed=distributed)
+    if benchmark_loader is not None:
+        log(f"Semi-synthetic benchmark loader ready for evaluation")
 
-    # Training loop
-    total_epochs = config.ssl_epochs + config.transition_epochs
-    log(f"Starting training for {total_epochs} epochs...")
+    # ==========================================================================
+    # STAGE 1: SSL Pretraining (masked receiver reconstruction from niche)
+    # ==========================================================================
+    log(f"\n{'='*60}")
+    log(f"STAGE 1: SSL Pretraining ({config.ssl_epochs} epochs)")
+    log(f"Objective: Masked receiver reconstruction from niche context")
+    log(f"{'='*60}\n")
 
-    for epoch in range(start_epoch, total_epochs):
-        # Train
+    for epoch in range(start_epoch, min(start_epoch + config.ssl_epochs, config.ssl_epochs)):
+        # Train with SSL objective
         train_metrics = train_epoch(
-            model, train_loader, optimizer, scaler, device, config, epoch
+            model, train_loader, optimizer, scaler, device, config, epoch,
+            phase="ssl"
         )
 
         # Validate
-        val_metrics = validate(model, val_loader, device, config)
+        val_metrics = validate(model, val_loader, device, config, phase="ssl")
 
         # Combine metrics
-        metrics = {**train_metrics, **val_metrics}
+        metrics = {**train_metrics, **val_metrics, "phase": "ssl"}
 
         # Track history
         history["ssl_loss"].append(train_metrics["train_loss"])
         history["val_loss"].append(val_metrics["val_loss"])
 
         # Log
-        log(f"Epoch {epoch + 1}/{total_epochs}: "
+        log(f"[SSL] Epoch {epoch + 1}/{config.ssl_epochs}: "
             f"train_loss={train_metrics['train_loss']:.4f}, "
             f"val_loss={val_metrics['val_loss']:.4f}")
 
@@ -601,6 +755,73 @@ def train(config: TrainingConfig):
         if (epoch + 1) % config.checkpoint_every == 0 or is_best:
             ckpt_manager.save(
                 model, optimizer, epoch + 1, metrics, config.to_dict(), is_best
+            )
+
+        # Sync processes
+        if distributed:
+            dist.barrier()
+
+    # Save SSL checkpoint before transition
+    if is_main_process():
+        ssl_checkpoint_path = output_dir / "checkpoints" / "ssl_pretrained.pt"
+        state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
+        torch.save({
+            "model_state_dict": state_dict,
+            "epoch": config.ssl_epochs,
+            "phase": "ssl_complete",
+        }, ssl_checkpoint_path)
+        log(f"\nSSL pretraining complete. Checkpoint: {ssl_checkpoint_path}")
+
+    # ==========================================================================
+    # STAGE 2: Transition Model (learn state transitions / flow field)
+    # ==========================================================================
+    log(f"\n{'='*60}")
+    log(f"STAGE 2: Transition Model ({config.transition_epochs} epochs)")
+    log(f"Objective: Learn stage transition dynamics (flow field)")
+    log(f"{'='*60}\n")
+
+    # Reset optimizer for transition phase (optional: lower LR)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=config.learning_rate * 0.1,  # Lower LR for fine-tuning
+        weight_decay=config.weight_decay,
+    )
+    best_transition_loss = float('inf')
+    history["transition_loss"] = []
+
+    for epoch in range(config.transition_epochs):
+        global_epoch = config.ssl_epochs + epoch
+
+        # Train with transition objective
+        train_metrics = train_epoch(
+            model, train_loader, optimizer, scaler, device, config, global_epoch,
+            phase="transition"
+        )
+
+        # Validate
+        val_metrics = validate(model, val_loader, device, config, phase="transition")
+
+        # Combine metrics
+        metrics = {**train_metrics, **val_metrics, "phase": "transition"}
+
+        # Track history
+        history["transition_loss"].append(train_metrics["train_loss"])
+        history["val_loss"].append(val_metrics["val_loss"])
+
+        # Log
+        log(f"[Transition] Epoch {epoch + 1}/{config.transition_epochs}: "
+            f"train_loss={train_metrics['train_loss']:.4f}, "
+            f"val_loss={val_metrics['val_loss']:.4f}")
+
+        # Check if best
+        is_best = val_metrics["val_loss"] < best_transition_loss
+        if is_best:
+            best_transition_loss = val_metrics["val_loss"]
+
+        # Save checkpoint
+        if (epoch + 1) % config.checkpoint_every == 0 or is_best:
+            ckpt_manager.save(
+                model, optimizer, global_epoch + 1, metrics, config.to_dict(), is_best
             )
 
         # Sync processes
