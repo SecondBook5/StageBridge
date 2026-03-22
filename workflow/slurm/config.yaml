@@ -1,22 +1,17 @@
 # Snakemake 8+ SLURM Profile for StageBridge
 # Usage: snakemake --profile workflow/slurm
 
-# Use SLURM executor (requires: pip install snakemake-executor-plugin-slurm)
 executor: slurm
 
-# SLURM settings
 default-resources:
   slurm_account: chaunzt1
   slurm_partition: gpu
   mem_mb: 64000
-  runtime: 120  # minutes
+  runtime: 360  # 6 hours default (in minutes)
 
-# Job settings
 jobs: 20
-latency-wait: 60
+latency-wait: 120
 keep-going: true
 printshellcmds: true
 rerun-incomplete: true
-
-# Local rules (don't submit to cluster)
 local-cores: 1

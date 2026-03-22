@@ -83,7 +83,7 @@ rule hlca_mapping:
     resources:
         mem_mb = 256000,
         gpu = 1,
-        time = "6:00:00",
+        runtime = 360,
         partition = "gpu"
     log:
         f"{RUNS}/logs/hlca_mapping.log"
@@ -122,7 +122,7 @@ rule luca_mapping:
     resources:
         mem_mb = 256000,
         gpu = 1,
-        time = "6:00:00",
+        runtime = 360,
         partition = "gpu"
     log:
         f"{RUNS}/logs/luca_mapping.log"
@@ -156,7 +156,7 @@ rule fuse_embeddings:
     resources:
         mem_mb = 128000,
         gpu = 1,
-        time = "1:00:00"
+        runtime = 60
     log:
         f"{RUNS}/logs/fuse_embeddings.log"
     script:
@@ -183,7 +183,7 @@ rule spatial_backend:
     resources:
         mem_mb = 256000,
         gpu = 1,
-        time = lambda wc: "12:00:00" if wc.backend == "cell2location" else "6:00:00",
+        runtime = lambda wc: 720 if wc.backend == "cell2location" else 360,
         partition = "gpu"
     params:
         spatial_dir = SPATIAL
@@ -212,7 +212,7 @@ rule spatial_comparison:
     threads: 2
     resources:
         mem_mb = 32000,
-        time = "0:30:00"
+        runtime = 30
     log:
         f"{RUNS}/logs/spatial_comparison.log"
     script:
@@ -242,7 +242,7 @@ rule data_preparation:
     resources:
         mem_mb = 256000,
         gpu = 1,
-        time = "4:00:00"
+        runtime = 240
     log:
         f"{RUNS}/logs/data_preparation.log"
     shell:
@@ -262,13 +262,16 @@ rule data_preparation:
 # =============================================================================
 
 rule semi_synthetic_benchmark:
+    input:
+        # Run after data_preparation completes
+        manifest = f"{CANONICAL}/data_manifest.json"
     output:
         benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
         ground_truth = f"{CANONICAL}/benchmark/ground_truth.json"
     threads: 4
     resources:
         mem_mb = 64000,
-        time = "1:00:00"
+        runtime = 60  # minutes
     log:
         f"{RUNS}/logs/semi_synthetic_benchmark.log"
     script:
@@ -311,7 +314,7 @@ rule training:
     resources:
         mem_mb = 512000,
         gpu = 4,
-        time = "12:00:00",  # ~6-8 hours typical, 12h buffer for safety
+        runtime = 720,  # ~6-8 hours typical, 12h buffer for safety
         partition = "gpu"
     log:
         f"{RUNS}/logs/training.log"
@@ -364,7 +367,7 @@ rule ablation:
     resources:
         mem_mb = 256000,
         gpu = 2,
-        time = "12:00:00",
+        runtime = 720,
         partition = "gpu"
     log:
         f"{RUNS}/logs/ablation_{{ablation}}.log"
@@ -388,7 +391,7 @@ rule ablation_summary:
     threads: 2
     resources:
         mem_mb = 16000,
-        time = "0:30:00"
+        runtime = 30
     log:
         f"{RUNS}/logs/ablation_summary.log"
     script:
@@ -413,7 +416,7 @@ rule publication_figures:
     resources:
         mem_mb = 128000,
         gpu = 1,
-        time = "4:00:00"
+        runtime = 240
     log:
         f"{RUNS}/logs/figures.log"
     script:
