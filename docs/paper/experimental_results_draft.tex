@@ -75,7 +75,7 @@ LuCA & 6,000 & TBD & 10 & TBD \\
 
 \subsection{Spatial Mapping Backend Comparison}
 
-Three spatial mapping backends were evaluated to determine the optimal method for projecting snRNA-seq cells onto tissue coordinates: Tangram \cite{Biancalani2021-bt}, DestVI \cite{Lopez2022-ps}, and TACCO. Each backend was assessed on mapping accuracy using held-out spatial spots with known cell type composition, cell type assignment quality via macro-averaged F1 score, spatial coherence measured by local Moran's I statistic, and computational cost measured as wall-clock runtime on standardized hardware.
+Four spatial mapping backends were evaluated to determine the optimal method for projecting snRNA-seq cells onto tissue coordinates: Tangram \cite{Biancalani2021-bt}, DestVI \cite{Lopez2022-ps}, TACCO, and Cell2location \cite{Kleshchevnikov2022-cell2location}. Each backend was assessed on mapping accuracy using held-out spatial spots with known cell type composition, cell type assignment quality via macro-averaged F1 score, spatial coherence measured by local Moran's I statistic, and computational cost measured as wall-clock runtime on standardized hardware.
 
 \begin{table}[h]
 \centering
@@ -88,6 +88,7 @@ Three spatial mapping backends were evaluated to determine the optimal method fo
 Tangram & -- & -- & -- & -- \\
 DestVI & -- & -- & -- & -- \\
 TACCO & -- & -- & -- & -- \\
+Cell2location & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
