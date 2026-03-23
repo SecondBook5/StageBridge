@@ -23,7 +23,8 @@ import os
 from pathlib import Path
 
 # Activate conda environment for all shell commands
-shell.prefix("module load miniforge3 && eval \"$(conda shell.bash hook)\" && conda activate /scratch/chaunzt1/stagebridge_env && ")
+# MKL_INTERFACE_LAYER=ILP64 needed for TACCO with large matrices (>2B elements)
+shell.prefix("module load miniforge3 && eval \"$(conda shell.bash hook)\" && conda activate /scratch/chaunzt1/stagebridge_env && export MKL_INTERFACE_LAYER=ILP64 && ")
 
 # =============================================================================
 # Configuration
