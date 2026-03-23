@@ -95,18 +95,28 @@ class DestVIBackend(SpatialBackend):
         DestVI.setup_anndata(spatial)
 
         # Train conditional scVI on snRNA (without reweighting)
-        print(f"  Training CondSCVI for {self.n_epochs_condsc} epochs...")
+        print(f"  Training CondSCVI for {self.n_epochs_condsc} epochs (early stopping enabled)...")
         sc_model = CondSCVI(snrna, n_latent=self.n_latent, weight_obs=False)
-        sc_model.train(max_epochs=self.n_epochs_condsc, lr=self.lr)
+        sc_model.train(
+            max_epochs=self.n_epochs_condsc,
+            lr=self.lr,
+            early_stopping=True,
+            early_stopping_patience=15,
+        )
 
         # Train DestVI on spatial with VAMP prior for gamma regularization
-        print(f"  Training DestVI for {self.n_epochs_destvi} epochs...")
+        print(f"  Training DestVI for {self.n_epochs_destvi} epochs (early stopping enabled)...")
         spatial_model = DestVI.from_rna_model(
             spatial,
             sc_model,
             vamp_prior_p=self.vamp_prior_p,
         )
-        spatial_model.train(max_epochs=self.n_epochs_destvi, lr=self.lr)
+        spatial_model.train(
+            max_epochs=self.n_epochs_destvi,
+            lr=self.lr,
+            early_stopping=True,
+            early_stopping_patience=15,
+        )
 
         # Store models and data for advanced queries
         self.sc_model = sc_model

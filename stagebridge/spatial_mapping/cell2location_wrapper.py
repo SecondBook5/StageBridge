@@ -122,6 +122,8 @@ class Cell2locationBackend(SpatialBackend):
             train_size=1,
             lr=0.002,
             use_gpu=self.use_gpu,
+            early_stopping=True,
+            early_stopping_patience=15,
         )
 
         # Export estimated cell type signatures
@@ -164,6 +166,8 @@ class Cell2locationBackend(SpatialBackend):
             batch_size=None,  # Use full batch for spatial
             train_size=1,
             use_gpu=self.use_gpu,
+            early_stopping=True,
+            early_stopping_patience=15,
         )
 
         # Export posterior estimates

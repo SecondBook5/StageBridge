@@ -127,14 +127,19 @@ class TangramBackend(SpatialBackend):
         )
 
         # Create and train model
-        print(f"  Training Tangram model ({self.n_epochs} epochs)...")
+        print(f"  Training Tangram model ({self.n_epochs} epochs, early stopping enabled)...")
         model = Tangram(
             mdata,
             constrained=self.constrained,
             target_count=self.target_count,
         )
 
-        model.train(max_epochs=self.n_epochs)
+        model.train(
+            max_epochs=self.n_epochs,
+            early_stopping=True,
+            early_stopping_patience=15,
+            early_stopping_monitor="elbo_validation",
+        )
 
         # Get mapper matrix
         mapper = model.get_mapper_matrix()
