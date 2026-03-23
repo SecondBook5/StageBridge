@@ -94,7 +94,7 @@ rule hlca_mapping:
         mem_mb = 256000,
         runtime = 360,  # 6 hours (scArches surgery ~2-4h)
         slurm_partition = "gpu",
-        slurm_extra = "'--gres=gpu:h100:1'"
+        gpu = 1
     log:
         f"{RUNS}/logs/hlca_mapping.log"
     shell:
@@ -133,7 +133,7 @@ rule luca_mapping:
         mem_mb = 256000,
         runtime = 360,  # 6 hours (scArches surgery ~2-4h)
         slurm_partition = "gpu",
-        slurm_extra = "'--gres=gpu:h100:1'"
+        gpu = 1
     log:
         f"{RUNS}/logs/luca_mapping.log"
     shell:
@@ -244,7 +244,7 @@ rule spatial_backend:
         mem_mb = lambda wc: 512000 if wc.backend == "tacco" else 256000,  # 512GB for TACCO, 256GB others
         runtime = lambda wc: 480 if wc.backend in ["cell2location", "tacco"] else 240,  # 8h for heavy, 4h others
         slurm_partition = "gpu",
-        slurm_extra = "'--gres=gpu:h100:1'"
+        gpu = 1
     params:
         spatial_dir = SPATIAL
     log:
@@ -301,7 +301,7 @@ rule data_preparation:
         mem_mb = 256000,
         runtime = 120,  # 2 hours
         slurm_partition = "gpu",
-        slurm_extra = "'--gres=gpu:h100:1'"
+        gpu = 1
     log:
         f"{RUNS}/logs/data_preparation.log"
     shell:
@@ -386,7 +386,7 @@ rule hpo:
         mem_mb = 128000,
         runtime = 480,  # 8 hours for 30 trials
         slurm_partition = "gpu",
-        slurm_extra = "'--gres=gpu:h100:1'"
+        gpu = 1
     log:
         f"{RUNS}/logs/hpo.log"
     shell:
@@ -548,7 +548,7 @@ rule baseline:
         mem_mb = 128000,
         runtime = 180,  # 3 hours (baselines train faster)
         slurm_partition = "gpu",
-        slurm_extra = "'--gres=gpu:h100:1'"
+        gpu = 1
     log:
         f"{RUNS}/logs/baseline_{{baseline}}_fold{{fold}}_seed{{seed}}.log"
     shell:
@@ -622,7 +622,7 @@ rule ablation:
         mem_mb = 128000,
         runtime = 360,  # 6 hours per ablation
         slurm_partition = "gpu",
-        slurm_extra = "'--gres=gpu:h100:1'"
+        gpu = 1
     log:
         f"{RUNS}/logs/ablation_{{ablation}}.log"
     shell:
@@ -671,7 +671,7 @@ rule publication_figures:
         mem_mb = 64000,
         runtime = 120,  # 2 hours
         slurm_partition = "gpu",
-        slurm_extra = "'--gres=gpu:h100:1'"
+        gpu = 1
     log:
         f"{RUNS}/logs/figures.log"
     script:
