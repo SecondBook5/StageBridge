@@ -32,6 +32,8 @@ JOB_TG=$(sbatch --parsable \
     --output="${LOGS}/smoke_tangram_%j.log" \
     --error="${LOGS}/smoke_tangram_%j.err" \
     --wrap="
+module load miniforge3
+eval \"\$(conda shell.bash hook)\"
 conda activate ${ENV}
 cd /home/booka/StageBridge
 python -m stagebridge.pipelines.run_spatial_benchmark \
@@ -55,6 +57,8 @@ JOB_DV=$(sbatch --parsable \
     --output="${LOGS}/smoke_destvi_%j.log" \
     --error="${LOGS}/smoke_destvi_%j.err" \
     --wrap="
+module load miniforge3
+eval \"\$(conda shell.bash hook)\"
 conda activate ${ENV}
 cd /home/booka/StageBridge
 python -m stagebridge.pipelines.run_spatial_benchmark \
@@ -78,6 +82,8 @@ JOB_C2L=$(sbatch --parsable \
     --output="${LOGS}/smoke_cell2loc_%j.log" \
     --error="${LOGS}/smoke_cell2loc_%j.err" \
     --wrap="
+module load miniforge3
+eval \"\$(conda shell.bash hook)\"
 conda activate ${ENV}
 cd /home/booka/StageBridge
 python -m stagebridge.pipelines.run_spatial_benchmark \
@@ -100,6 +106,8 @@ JOB_TC=$(sbatch --parsable \
     --output="${LOGS}/smoke_tacco_%j.log" \
     --error="${LOGS}/smoke_tacco_%j.err" \
     --wrap="
+module load miniforge3
+eval \"\$(conda shell.bash hook)\"
 conda activate ${ENV}
 cd /home/booka/StageBridge
 python -m stagebridge.pipelines.run_spatial_benchmark \
