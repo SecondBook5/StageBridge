@@ -108,3 +108,9 @@ data/
 # SLURM output files
 slurm-*.out
 *.err
+
+# Reference PDFs (download separately)
+docs/architecture/*.pdf
+docs/*.pdf
+docs/luca-master.zip
+docs/luca_code/

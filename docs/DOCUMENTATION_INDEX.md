@@ -10,12 +10,14 @@
 
 | Document Category | Purpose | Files |
 |-------------------|---------|-------|
-| ** Start Here** | Overview and getting started | README.md, AGENTS.md |
-| ** Methods** | Technical specification | methods/v1_methods_overview.md, data_model_specification.md, evaluation_protocol.md |
-| ** Publication** | Paper planning and figures | publication/paper_outline.md, figure_table_specifications.md, evidence_matrix.md |
-| ** Architecture** | Layer-by-layer design | architecture/*.md |
-| ** Biology** | Biological context and hypotheses | biology/*.md |
-| ** Implementation** | Status and infrastructure | implementation_roadmap.md, system_architecture.md |
+| **Start Here** | Overview and getting started | README.md, AGENTS.md |
+| **Specs** | Core doctrine and specifications | specs/*.md |
+| **Methods** | Technical specification | methods/v1_methods_overview.md, data_model_specification.md, evaluation_protocol.md |
+| **Paper** | Paper drafts and figures | paper/*.md, paper/*.tex |
+| **Architecture** | Layer-by-layer design | architecture/*.md |
+| **Biology** | Biological context and hypotheses | biology/*.md |
+| **HPC** | High-performance computing guide | hpc/README.md |
+| **Implementation** | Status and infrastructure | implementation_roadmap.md, system_architecture.md |
 
 ---
 
@@ -37,7 +39,7 @@
    - Training and evaluation protocols
    - Implementation status
 
-3. **docs/publication/paper_outline.md** (20 min read)
+3. **docs/paper/paper_outline.md** (20 min read)
    - Paper structure
    - Key claims and evidence
    - Timeline for writing
@@ -55,9 +57,9 @@
 
 **Your toolkit:**
 
-1. **docs/publication/paper_outline.md** - Complete paper structure
-2. **docs/publication/figure_table_specifications.md** - All figures and tables
-3. **docs/publication/evidence_matrix.md** - Claims mapped to evidence
+1. **docs/paper/paper_outline.md** - Complete paper structure
+2. **docs/paper/figure_table_specifications.md** - All figures and tables
+3. **docs/paper/evidence_matrix.md** - Claims mapped to evidence
 4. **docs/methods/evaluation_protocol.md** - Metrics and statistics
 
 ---
@@ -66,34 +68,47 @@
 
 ```
 docs/
- DOCUMENTATION_INDEX.md           ← You are here
- implementation_roadmap.md        ← Status tracking
- system_architecture.md           ← Technical infrastructure
-
- methods/                         ← Technical specification
-    v1_methods_overview.md       ← **PRIMARY METHODS DOC**
-    data_model_specification.md  ← Data schemas
-    evaluation_protocol.md       ← Evaluation framework
-
- publication/                     ← Paper planning
-    paper_outline.md             ← **PRIMARY PAPER DOC**
-    figure_table_specifications.md
-    evidence_matrix.md
-
- architecture/                    ← Layer designs
-    reference_latent_mapping.md  ← Layer A
-    typed_niche_context_model.md ← Layer B
-    eamist_block_diagram.md      ← Layer C
-    stochastic_transition_model.md ← Layer D
-    spatial_mapping_layer.md     ← Spatial backends
-    rescue_ablation_design.md    ← Ablations
-    tissue_level_interpretation.md
-
- biology/                         ← Biological context
-     luad_initiation_problem.md
-     niche_gating_hypothesis.md
-     tissue_dynamics_outputs.md
-     wes_regularization_rationale.md
+├── DOCUMENTATION_INDEX.md        ← You are here
+├── implementation_roadmap.md     ← Status tracking
+├── system_architecture.md        ← Technical infrastructure
+├── PERFORMANCE_GUIDE.md          ← Performance optimization
+├── TRANSFORMER_EDUCATIONAL_CELLS.md ← Educational content
+├── V2_IDEAS.md                   ← Future planning
+│
+├── specs/                        ← Core doctrine
+│   ├── PROJECT_DOCTRINE.md       ← Non-negotiable principles
+│   ├── REPRESENTATION_LEARNING_RULES.md
+│   ├── NICHE_ENCODER_SPEC.md
+│   └── V1_SCOPE.md
+│
+├── methods/                      ← Technical specification
+│   ├── v1_methods_overview.md    ← **PRIMARY METHODS DOC**
+│   ├── data_model_specification.md
+│   └── evaluation_protocol.md
+│
+├── paper/                        ← Paper drafts and planning
+│   ├── paper_outline.md          ← **PRIMARY PAPER DOC**
+│   ├── figure_table_specifications.md
+│   ├── evidence_matrix.md
+│   ├── drafts/ (*.md, *.tex)
+│   └── figures/
+│
+├── architecture/                 ← Layer designs
+│   ├── reference_latent_mapping.md  ← Layer A
+│   ├── typed_niche_context_model.md ← Layer B
+│   ├── eamist_block_diagram.md      ← Layer C
+│   ├── stochastic_transition_model.md ← Layer D
+│   └── ...
+│
+├── biology/                      ← Biological context
+│   ├── luad_initiation_problem.md
+│   ├── niche_gating_hypothesis.md
+│   └── ...
+│
+├── hpc/                          ← HPC execution guide
+│   └── README.md                 ← Consolidated HPC docs
+│
+└── figures/                      ← Publication figures
 ```
 
 ---
