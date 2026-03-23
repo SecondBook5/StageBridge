@@ -31,10 +31,12 @@ from stagebridge.transition_model.disease_edges import (
     resolve_disease_edge,
 )
 from stagebridge.transition_model.stochastic_dynamics import EdgeWiseStochasticDynamics
-from stagebridge.transition_model.relational_pretraining import RelationalPretrainingConfig
+from stagebridge.transition_model.relational_pretraining import (
+    RelationalPretrainingConfig,
+    pretrain_relational_transformer,
+)
 from stagebridge.transition_model.train import (
     build_stagewise_edge_split,
-    pretrain_relational_transformer,
     train_edgewise_transition_model,
     train_edgewise_transition_model_with_context_encoder,
 )
