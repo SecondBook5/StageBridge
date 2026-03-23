@@ -46,10 +46,16 @@ class BackendMappingResult:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Save main outputs
-        self.cell_type_proportions.to_parquet(output_dir / "cell_type_proportions.parquet")
-        self.confidence.to_frame("confidence").to_parquet(
-            output_dir / "mapping_confidence.parquet"
-        )
+        if hasattr(self.cell_type_proportions, 'to_parquet'):
+            self.cell_type_proportions.to_parquet(output_dir / "cell_type_proportions.parquet")
+        else:
+            pd.DataFrame(self.cell_type_proportions).to_parquet(output_dir / "cell_type_proportions.parquet")
+
+        # Handle confidence as Series or numpy array
+        if hasattr(self.confidence, 'to_frame'):
+            self.confidence.to_frame("confidence").to_parquet(output_dir / "mapping_confidence.parquet")
+        else:
+            pd.DataFrame({"confidence": self.confidence}).to_parquet(output_dir / "mapping_confidence.parquet")
 
         # Save metrics as JSON
         import json
