@@ -276,6 +276,46 @@ class Cell2locationBackend(SpatialBackend):
                 )
         return None
 
+    def compute_upstream_metrics(
+        self,
+        snrna: ad.AnnData,
+        spatial: ad.AnnData,
+        result: BackendMappingResult | None,
+    ) -> dict[str, float]:
+        """Compute upstream quality metrics for Cell2location mapping."""
+        metrics = {}
+
+        if result is not None and result.cell_type_proportions is not None:
+            props = result.cell_type_proportions
+            # Cell type entropy (diversity)
+            metrics["mean_entropy"] = float(compute_cell_type_entropy(props).mean())
+            # Sparsity
+            metrics["sparsity"] = float(compute_sparsity(props))
+            # Coverage (spots with confident mapping)
+            if result.confidence is not None:
+                conf = (
+                    result.confidence.values
+                    if isinstance(result.confidence, pd.Series)
+                    else result.confidence
+                )
+                metrics["coverage_0.5"] = float((conf > 0.5).mean())
+                metrics["mean_confidence"] = float(np.mean(conf))
+
+        return metrics
+
+    def estimate_confidence(
+        self,
+        snrna: ad.AnnData,
+        spatial: ad.AnnData,
+        result: BackendMappingResult | None,
+    ) -> pd.Series:
+        """Return confidence scores (already computed in map())."""
+        if result is not None and result.confidence is not None:
+            if isinstance(result.confidence, pd.Series):
+                return result.confidence
+            return pd.Series(result.confidence, index=spatial.obs_names)
+        return pd.Series(np.zeros(spatial.n_obs), index=spatial.obs_names)
+
     def plot_spatial_abundances(
         self,
         spatial: ad.AnnData,
