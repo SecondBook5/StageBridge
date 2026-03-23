@@ -99,7 +99,15 @@ class TACCOBackend(SpatialBackend):
             )
             snrna = snrna[subsample_idx].copy()
 
-        # Filter out zero-sum spots (TACCO fails on these with divide-by-zero)
+        # Subset to common genes FIRST, then filter zero-sum spots
+        # (spots may become zero-sum after gene filtering)
+        common_genes = list(set(snrna.var_names) & set(spatial.var_names))
+        print(f"TACCO: {len(common_genes)} common genes between snRNA and spatial")
+
+        snrna = snrna[:, common_genes].copy()
+        spatial = spatial[:, common_genes].copy()
+
+        # Now filter zero-sum spots (after gene subsetting)
         if hasattr(spatial.X, "toarray"):
             row_sums = np.array(spatial.X.sum(axis=1)).flatten()
         else:
@@ -108,11 +116,23 @@ class TACCOBackend(SpatialBackend):
         nonzero_mask = row_sums > 0
         n_zero = (~nonzero_mask).sum()
         if n_zero > 0:
-            print(f"TACCO: Filtering out {n_zero} spots with zero counts")
+            print(f"TACCO: Filtering out {n_zero} spots with zero counts (after gene filtering)")
             spatial = spatial[nonzero_mask].copy()
 
         if len(spatial) == 0:
             raise ValueError("No spots remaining after filtering zero-count spots")
+
+        # Also filter zero-sum cells in snRNA
+        if hasattr(snrna.X, "toarray"):
+            cell_sums = np.array(snrna.X.sum(axis=1)).flatten()
+        else:
+            cell_sums = np.array(snrna.X.sum(axis=1)).flatten()
+
+        nonzero_cells = cell_sums > 0
+        n_zero_cells = (~nonzero_cells).sum()
+        if n_zero_cells > 0:
+            print(f"TACCO: Filtering out {n_zero_cells} cells with zero counts")
+            snrna = snrna[nonzero_cells].copy()
 
         print(f"Running TACCO with method={self.method}, {len(snrna)} cells, {len(spatial)} spots...")
 
