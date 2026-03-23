@@ -105,12 +105,13 @@ class DestVIBackend(SpatialBackend):
             early_stopping_patience=15,
         )
 
-        # Train DestVI on spatial with VAMP prior for gamma regularization
+        # Train DestVI on spatial
+        # Note: VAMP prior disabled - causes 'prior' key errors in some scvi-tools versions
         print(f"  Training DestVI for {self.n_epochs_destvi} epochs (early stopping enabled)...")
         spatial_model = DestVI.from_rna_model(
             spatial,
             sc_model,
-            vamp_prior_p=self.vamp_prior_p,
+            # vamp_prior_p disabled due to compatibility issues
         )
         spatial_model.train(
             max_epochs=self.n_epochs_destvi,

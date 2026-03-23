@@ -71,13 +71,19 @@ class TangramBackend(SpatialBackend):
         output_dir: Path | None = None,
     ) -> BackendMappingResult:
         """Run Tangram mapping using standalone tangram-sc."""
+        print("Tangram: Starting map()...")
+        print(f"  snRNA shape: {snrna.shape}, spatial shape: {spatial.shape}")
+
         # Validate and preprocess
         self.validate_inputs(snrna, spatial)
         snrna, spatial = self.preprocess(snrna, spatial)
+        print(f"  After preprocess: snRNA {snrna.shape}, spatial {spatial.shape}")
 
         # Import tangram
+        print("  Importing tangram-sc...")
         try:
             import tangram as tg
+            print(f"  tangram imported successfully (version: {getattr(tg, '__version__', 'unknown')})")
         except ImportError as e:
             raise ImportError(
                 "tangram-sc not installed. Install with: pip install tangram-sc"

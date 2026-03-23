@@ -139,6 +139,16 @@ class Cell2locationBackend(SpatialBackend):
         else:
             raise RuntimeError("Reference model did not produce signatures")
 
+        # Free GPU memory from reference model before Stage 2
+        import torch
+        del self.ref_model
+        self.ref_model = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            import gc
+            gc.collect()
+            print("  Cleared GPU memory after Stage 1")
+
         # =====================================================================
         # Stage 2: Train spatial deconvolution model
         # =====================================================================
