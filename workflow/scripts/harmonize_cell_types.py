@@ -115,6 +115,7 @@ def harmonize_labels(
         luca_conf = luca_conf / luca_conf.max()
 
     # Determine dominant reference for each cell
+    # ALWAYS pick ONE label (highest confidence wins) - no compound labels
     results = []
     for i in range(len(common_cells)):
         h_conf = hlca_conf[i]
@@ -122,41 +123,39 @@ def harmonize_labels(
         h_type = hlca_type[i]
         l_type = luca_type[i]
 
-        # Check if confidences are similar (ambiguous/transitional)
+        # Check if confidences are similar (ambiguous)
         conf_diff = abs(h_conf - l_conf)
+        is_ambiguous = (conf_diff < ambiguity_threshold and
+                        h_conf > confidence_threshold and
+                        l_conf > confidence_threshold and
+                        h_type != l_type)
 
-        if conf_diff < ambiguity_threshold and h_conf > confidence_threshold and l_conf > confidence_threshold:
-            # Both references confident - potentially transitional
-            if h_type == l_type:
-                # Same label from both - high confidence
-                cell_type = h_type
-                source = "consensus"
-                is_transitional = False
-            else:
-                # Different labels - transitional state
-                cell_type = f"{h_type}|{l_type}"
-                source = "transitional"
-                is_transitional = True
-        elif h_conf > l_conf and h_conf > confidence_threshold:
-            # HLCA dominates - likely normal cell
+        # Always pick the label with higher confidence
+        if h_conf >= l_conf and h_conf > confidence_threshold:
+            # HLCA wins or tie goes to HLCA (healthy reference)
             cell_type = h_type
             source = "hlca"
-            is_transitional = False
         elif l_conf > h_conf and l_conf > confidence_threshold:
-            # LuCA dominates - likely cancer-associated
+            # LuCA wins
             cell_type = l_type
             source = "luca"
-            is_transitional = False
+        elif h_conf > l_conf:
+            # HLCA higher but below threshold - use it anyway
+            cell_type = h_type
+            source = "hlca_low_conf"
+        elif l_conf > h_conf:
+            # LuCA higher but below threshold
+            cell_type = l_type
+            source = "luca_low_conf"
         else:
-            # Low confidence in both - unknown
-            cell_type = "Unknown"
-            source = "low_confidence"
-            is_transitional = False
+            # Equal and both low - default to HLCA
+            cell_type = h_type
+            source = "hlca_low_conf"
 
         results.append({
             "cell_type": cell_type,
             "source": source,
-            "is_transitional": is_transitional,
+            "is_ambiguous": is_ambiguous,
             "hlca_confidence": h_conf,
             "luca_confidence": l_conf,
             "hlca_label": h_type,
@@ -170,7 +169,7 @@ def harmonize_labels(
     print(f"Total cells: {len(result_df)}")
     print(f"\nSource distribution:")
     print(result_df['source'].value_counts())
-    print(f"\nTransitional cells: {result_df['is_transitional'].sum()} ({100*result_df['is_transitional'].mean():.1f}%)")
+    print(f"\nAmbiguous cells (similar confidence, different labels): {result_df['is_ambiguous'].sum()} ({100*result_df['is_ambiguous'].mean():.1f}%)")
     print(f"\nTop 20 cell types:")
     print(result_df['cell_type'].value_counts().head(20))
 
@@ -219,7 +218,7 @@ def main():
     # Add harmonized columns to obs
     adata.obs["cell_type"] = harmonized.loc[adata.obs_names, "cell_type"]
     adata.obs["cell_type_source"] = harmonized.loc[adata.obs_names, "source"]
-    adata.obs["is_transitional"] = harmonized.loc[adata.obs_names, "is_transitional"]
+    adata.obs["is_ambiguous"] = harmonized.loc[adata.obs_names, "is_ambiguous"]
     adata.obs["hlca_confidence"] = harmonized.loc[adata.obs_names, "hlca_confidence"]
     adata.obs["luca_confidence"] = harmonized.loc[adata.obs_names, "luca_confidence"]
     adata.obs["hlca_label"] = harmonized.loc[adata.obs_names, "hlca_label"]
