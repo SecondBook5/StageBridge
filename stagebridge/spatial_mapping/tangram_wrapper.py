@@ -95,7 +95,13 @@ class TangramBackend(SpatialBackend):
 
         # Select marker genes if needed
         if self.marker_genes == "auto":
+            print("  Selecting marker genes (this may take 10-30 min with large references)...")
+            import scanpy as sc
+            old_verbosity = sc.settings.verbosity
+            sc.settings.verbosity = 2  # Show progress info
             marker_genes = self._select_marker_genes(snrna)
+            sc.settings.verbosity = old_verbosity
+            print(f"  Selected {len(marker_genes)} marker genes")
         else:
             marker_genes = list(self.marker_genes)
 
