@@ -93,7 +93,7 @@ echo "Cell2location submitted: ${JOB_C2L}"
 # TACCO (CPU only)
 JOB_TC=$(sbatch --parsable \
     --job-name=smoke_tacco \
-    --partition=defq \
+    --partition=cpu \
     --time=2:00:00 \
     --mem=128G \
     --cpus-per-task=16 \
