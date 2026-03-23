@@ -1,5 +1,9 @@
 """
-Tangram spatial mapping backend wrapper using standalone tangram-sc.
+Tangram spatial mapping backend wrapper.
+
+Supports two implementations:
+1. Standalone tangram-sc (default, PyTorch-based)
+2. scvi-tools Tangram (fallback, JAX-based)
 
 Tangram: Deep learning-based spatial mapping of single-cell transcriptomes
 to spatial transcriptomics data.
@@ -26,7 +30,10 @@ from .backend_base import (
 
 class TangramBackend(SpatialBackend):
     """
-    Tangram spatial mapping wrapper using standalone tangram-sc.
+    Tangram spatial mapping wrapper with fallback support.
+
+    Tries standalone tangram-sc first (PyTorch), falls back to scvi-tools
+    Tangram (JAX) if standalone fails.
 
     Configuration options:
     - mode: 'clusters' (cell type level) or 'cells' (single cell level)
@@ -34,6 +41,7 @@ class TangramBackend(SpatialBackend):
     - n_epochs: Training epochs (default 1000)
     - density_prior: 'uniform' or 'rna_count_based'
     - device: 'cuda:0' or 'cpu'
+    - prefer_scvi: If True, try scvi-tools first (default False)
     """
 
     def __init__(
@@ -43,6 +51,7 @@ class TangramBackend(SpatialBackend):
         n_epochs: int = 1000,
         density_prior: str = "uniform",
         device: str | None = None,
+        prefer_scvi: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -51,6 +60,7 @@ class TangramBackend(SpatialBackend):
         self.marker_genes = marker_genes
         self.n_epochs = n_epochs
         self.density_prior = density_prior
+        self.prefer_scvi = prefer_scvi
 
         # Auto-detect device
         if device is None:
@@ -63,6 +73,7 @@ class TangramBackend(SpatialBackend):
         self._spatial_ref = None
         self._mapper = None
         self._ad_map = None
+        self._backend_used = None  # Track which implementation was used
 
     def map(
         self,
@@ -70,7 +81,10 @@ class TangramBackend(SpatialBackend):
         spatial: ad.AnnData,
         output_dir: Path | None = None,
     ) -> BackendMappingResult:
-        """Run Tangram mapping using standalone tangram-sc."""
+        """Run Tangram mapping with fallback support.
+
+        Tries standalone tangram-sc first, falls back to scvi-tools Tangram if needed.
+        """
         print("Tangram: Starting map()...")
         print(f"  snRNA shape: {snrna.shape}, spatial shape: {spatial.shape}")
 
@@ -78,16 +92,6 @@ class TangramBackend(SpatialBackend):
         self.validate_inputs(snrna, spatial)
         snrna, spatial = self.preprocess(snrna, spatial)
         print(f"  After preprocess: snRNA {snrna.shape}, spatial {spatial.shape}")
-
-        # Import tangram
-        print("  Importing tangram-sc...")
-        try:
-            import tangram as tg
-            print(f"  tangram imported successfully (version: {getattr(tg, '__version__', 'unknown')})")
-        except ImportError as e:
-            raise ImportError(
-                "tangram-sc not installed. Install with: pip install tangram-sc"
-            ) from e
 
         # Select marker genes if needed
         if self.marker_genes == "auto":
@@ -102,57 +106,33 @@ class TangramBackend(SpatialBackend):
 
         print(f"Tangram: Using {len(common_genes)} marker genes, device={self.device}")
 
-        # Make copies to avoid modifying originals
-        snrna_pp = snrna.copy()
-        spatial_pp = spatial.copy()
-
-        # Preprocess for Tangram
-        tg.pp_adatas(snrna_pp, spatial_pp, genes=common_genes)
-
-        # Get cell type key
-        if "cell_type" in snrna_pp.obs.columns:
-            cell_type_key = "cell_type"
-        elif "celltype" in snrna_pp.obs.columns:
-            cell_type_key = "celltype"
+        # Determine order based on preference
+        if self.prefer_scvi:
+            methods = [("scvi-tools", self._map_scvi), ("standalone", self._map_standalone)]
         else:
-            raise ValueError("No cell_type column found in snRNA obs")
+            methods = [("standalone", self._map_standalone), ("scvi-tools", self._map_scvi)]
 
-        # Run mapping
-        print(f"  Training Tangram model ({self.n_epochs} epochs, mode={self.mode})...")
-        ad_map = tg.map_cells_to_space(
-            snrna_pp,
-            spatial_pp,
-            mode=self.mode,
-            cluster_label=cell_type_key,
-            density_prior=self.density_prior,
-            num_epochs=self.n_epochs,
-            device=self.device,
-        )
-
-        # Store results
-        self._snrna_ref = snrna
-        self._spatial_ref = spatial
-        self._ad_map = ad_map
-        self._mapper = ad_map.X  # (n_cells, n_spots)
-
-        # Project cell type annotations
-        tg.project_cell_annotations(ad_map, spatial_pp, annotation=cell_type_key)
-
-        # Extract cell type proportions from spatial_pp.obsm['tangram_ct_pred']
-        if "tangram_ct_pred" in spatial_pp.obsm:
-            ct_pred = spatial_pp.obsm["tangram_ct_pred"]
-            if isinstance(ct_pred, pd.DataFrame):
-                cell_type_proportions = ct_pred
-            else:
-                # It's a numpy array, need to get column names
-                cell_types = snrna_pp.obs[cell_type_key].cat.categories.tolist()
-                cell_type_proportions = pd.DataFrame(
-                    ct_pred,
-                    index=spatial_pp.obs_names,
-                    columns=cell_types,
-                )
+        last_error = None
+        for method_name, method_func in methods:
+            try:
+                print(f"  Trying {method_name} Tangram...")
+                cell_type_proportions = method_func(snrna, spatial, common_genes)
+                self._backend_used = method_name
+                print(f"  Success with {method_name} Tangram")
+                break
+            except ImportError as e:
+                print(f"  {method_name} Tangram not available: {e}")
+                last_error = e
+                continue
+            except Exception as e:
+                print(f"  {method_name} Tangram failed: {e}")
+                last_error = e
+                continue
         else:
-            raise RuntimeError("Tangram did not produce cell type predictions")
+            # Both methods failed
+            raise RuntimeError(
+                f"Both Tangram implementations failed. Last error: {last_error}"
+            ) from last_error
 
         # Ensure index matches original spatial
         cell_type_proportions.index = spatial.obs_names
@@ -176,8 +156,9 @@ class TangramBackend(SpatialBackend):
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save mapper matrix (sparse to save space)
-            np.save(output_dir / "tangram_mapper.npy", self._mapper)
+            # Save mapper matrix if available
+            if self._mapper is not None:
+                np.save(output_dir / "tangram_mapper.npy", self._mapper)
 
             # Save cell type predictions
             cell_type_proportions.to_csv(output_dir / "tangram_cell_type_props.csv")
@@ -197,6 +178,7 @@ class TangramBackend(SpatialBackend):
             upstream_metrics=upstream_metrics,
             metadata={
                 "backend": "tangram",
+                "implementation": self._backend_used,
                 "mode": self.mode,
                 "n_marker_genes": len(common_genes),
                 "n_epochs": self.n_epochs,
@@ -206,6 +188,107 @@ class TangramBackend(SpatialBackend):
         )
 
         return result
+
+    def _map_standalone(
+        self,
+        snrna: ad.AnnData,
+        spatial: ad.AnnData,
+        common_genes: list[str],
+    ) -> pd.DataFrame:
+        """Run mapping using standalone tangram-sc (PyTorch)."""
+        import tangram as tg
+        print(f"    tangram-sc version: {getattr(tg, '__version__', 'unknown')}")
+
+        # Make copies to avoid modifying originals
+        snrna_pp = snrna.copy()
+        spatial_pp = spatial.copy()
+
+        # Preprocess for Tangram
+        tg.pp_adatas(snrna_pp, spatial_pp, genes=common_genes)
+
+        # Get cell type key
+        cell_type_key = self._get_cell_type_key(snrna_pp)
+
+        # Run mapping
+        print(f"    Training ({self.n_epochs} epochs, mode={self.mode})...")
+        ad_map = tg.map_cells_to_space(
+            snrna_pp,
+            spatial_pp,
+            mode=self.mode,
+            cluster_label=cell_type_key,
+            density_prior=self.density_prior,
+            num_epochs=self.n_epochs,
+            device=self.device,
+        )
+
+        # Store results
+        self._snrna_ref = snrna
+        self._spatial_ref = spatial
+        self._ad_map = ad_map
+        self._mapper = ad_map.X  # (n_cells, n_spots)
+
+        # Project cell type annotations
+        tg.project_cell_annotations(ad_map, spatial_pp, annotation=cell_type_key)
+
+        # Extract cell type proportions
+        if "tangram_ct_pred" not in spatial_pp.obsm:
+            raise RuntimeError("Tangram did not produce cell type predictions")
+
+        ct_pred = spatial_pp.obsm["tangram_ct_pred"]
+        if isinstance(ct_pred, pd.DataFrame):
+            return ct_pred
+        else:
+            cell_types = snrna_pp.obs[cell_type_key].cat.categories.tolist()
+            return pd.DataFrame(ct_pred, index=spatial_pp.obs_names, columns=cell_types)
+
+    def _map_scvi(
+        self,
+        snrna: ad.AnnData,
+        spatial: ad.AnnData,
+        common_genes: list[str],
+    ) -> pd.DataFrame:
+        """Run mapping using scvi-tools Tangram (JAX)."""
+        from scvi.external import Tangram
+        print("    Using scvi-tools Tangram (JAX backend)")
+
+        # Make copies and subset to common genes
+        snrna_pp = snrna[:, common_genes].copy()
+        spatial_pp = spatial[:, common_genes].copy()
+
+        # Get cell type key
+        cell_type_key = self._get_cell_type_key(snrna_pp)
+
+        # Setup anndata
+        Tangram.setup_anndata(snrna_pp, labels_key=cell_type_key)
+        Tangram.setup_anndata(spatial_pp)
+
+        # Create and train model
+        # scvi-tools Tangram uses 'constrained' mode (similar to 'clusters')
+        model = Tangram(snrna_pp, spatial_pp)
+
+        print(f"    Training ({self.n_epochs} epochs)...")
+        model.train(max_epochs=self.n_epochs)
+
+        # Store references
+        self._snrna_ref = snrna
+        self._spatial_ref = spatial
+        self._mapper = None  # scvi-tools doesn't expose raw mapper easily
+
+        # Get cell type proportions
+        # scvi-tools Tangram stores predictions differently
+        proportions = model.get_spatial_mapping()
+
+        cell_types = snrna_pp.obs[cell_type_key].cat.categories.tolist()
+        return pd.DataFrame(proportions, index=spatial_pp.obs_names, columns=cell_types)
+
+    def _get_cell_type_key(self, adata: ad.AnnData) -> str:
+        """Get the cell type column name from obs."""
+        if "cell_type" in adata.obs.columns:
+            return "cell_type"
+        elif "celltype" in adata.obs.columns:
+            return "celltype"
+        else:
+            raise ValueError("No cell_type column found in obs")
 
     def _compute_mapping_confidence(
         self,
