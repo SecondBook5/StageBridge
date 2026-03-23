@@ -43,6 +43,7 @@ class TACCOBackend(SpatialBackend):
         epsilon: float = 5e-3,
         lamb: float = 0.1,
         max_cells: int | None = 150000,  # Safe for ~11k spots per sample
+        min_cells_per_type: int = 5,  # Filter rare cell types to avoid stratification errors
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -51,6 +52,7 @@ class TACCOBackend(SpatialBackend):
         self.epsilon = epsilon
         self.lamb = lamb
         self.max_cells = max_cells
+        self.min_cells_per_type = min_cells_per_type
 
     def map(
         self,
@@ -68,6 +70,19 @@ class TACCOBackend(SpatialBackend):
             import tacco as tc
         except ImportError:
             raise ImportError("TACCO not installed. Install with: pip install tacco") from None
+
+        # Filter rare cell types to avoid stratified sampling errors
+        # (sklearn requires at least 2 samples per class for stratification)
+        if self.min_cells_per_type > 0:
+            cell_type_counts = snrna.obs["cell_type"].value_counts()
+            rare_types = cell_type_counts[cell_type_counts < self.min_cells_per_type].index.tolist()
+            if rare_types:
+                print(f"TACCO: Filtering {len(rare_types)} rare cell types with < {self.min_cells_per_type} cells")
+                mask = ~snrna.obs["cell_type"].isin(rare_types)
+                snrna = snrna[mask].copy()
+                # Update categories to remove filtered types
+                snrna.obs["cell_type"] = snrna.obs["cell_type"].cat.remove_unused_categories()
+                print(f"TACCO: {len(snrna)} cells remaining with {snrna.obs['cell_type'].nunique()} cell types")
 
         # Subsample reference if needed to avoid MKL 32-bit integer overflow
         # With per-sample spatial (~11k spots), 150k cells is safe (150k * 11k = 1.65B < 2^31)
