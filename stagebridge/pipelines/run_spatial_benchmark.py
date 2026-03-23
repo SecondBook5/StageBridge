@@ -46,6 +46,8 @@ def run_backend_comparison(
     quick: bool = False,
     sample: str | None = None,
     sample_col: str = "sample_id",
+    label_source: str = "hlca",
+    labels_parquet: Path | None = None,
 ) -> dict:
     """
     Run comparison of all spatial backends.
@@ -58,6 +60,8 @@ def run_backend_comparison(
         quick: Use reduced epochs for faster testing
         sample: If provided, filter spatial data to this sample only
         sample_col: Column name for sample IDs in spatial.obs
+        label_source: Which reference to use for cell type labels ('hlca' or 'luca')
+        labels_parquet: Path to cell_types.parquet (needed if label_source='luca')
 
     Returns:
         Dictionary with comparison results
@@ -69,6 +73,38 @@ def run_backend_comparison(
     log.info("Loading data...")
     snrna = ad.read_h5ad(snrna_path)
     spatial = ad.read_h5ad(spatial_path)
+
+    # Handle label source selection
+    if label_source == "luca":
+        if "luca_cell_type" in snrna.obs.columns:
+            # Already have LuCA labels in the h5ad
+            log.info("Using LuCA cell type labels from snrna.obs['luca_cell_type']")
+            snrna.obs["cell_type"] = snrna.obs["luca_cell_type"]
+        elif labels_parquet is not None:
+            # Load from parquet
+            log.info("Loading LuCA labels from %s", labels_parquet)
+            labels_df = pd.read_parquet(labels_parquet)
+            if "luca_cell_type" not in labels_df.columns:
+                raise ValueError(f"'luca_cell_type' column not found in {labels_parquet}")
+            # Create mapping and apply
+            label_map = dict(zip(labels_df["cell_id"], labels_df["luca_cell_type"]))
+            snrna.obs["cell_type"] = snrna.obs.index.map(label_map)
+            unmapped = snrna.obs["cell_type"].isna().sum()
+            if unmapped > 0:
+                log.warning("%d cells without LuCA label mapping", unmapped)
+                snrna.obs["cell_type"] = snrna.obs["cell_type"].fillna("Unknown")
+        else:
+            raise ValueError(
+                "label_source='luca' but no luca_cell_type in snrna.obs and no labels_parquet provided"
+            )
+    else:
+        # Default: use existing cell_type column (HLCA)
+        if "cell_type" not in snrna.obs.columns:
+            raise ValueError("No 'cell_type' column in snrna.obs")
+        log.info("Using HLCA cell type labels from snrna.obs['cell_type']")
+
+    # Ensure cell_type is categorical
+    snrna.obs["cell_type"] = snrna.obs["cell_type"].astype("category")
 
     # Filter to single sample if specified
     if sample is not None:
@@ -149,11 +185,21 @@ def run_backend_comparison(
 
     comparison = compare_backends(results, output_dir)
 
+    # Add metadata about label source
+    comparison["metadata"] = {
+        "label_source": label_source,
+        "n_cells": snrna.n_obs,
+        "n_spots": spatial.n_obs,
+        "n_cell_types": snrna.obs["cell_type"].nunique(),
+        "sample": sample,
+    }
+
     # Save comparison
     with open(output_dir / "backend_comparison.json", "w") as f:
         json.dump(comparison, f, indent=2)
 
     log.info("Benchmark complete. Results saved to %s", output_dir)
+    log.info("Label source: %s (%d cell types)", label_source.upper(), snrna.obs["cell_type"].nunique())
 
     return comparison
 
@@ -462,6 +508,19 @@ def main():
     parser.add_argument(
         "--sample-col", type=str, default="sample_id", help="Column name for sample IDs"
     )
+    parser.add_argument(
+        "--label-source",
+        type=str,
+        default="hlca",
+        choices=["hlca", "luca"],
+        help="Reference atlas for cell type labels (default: hlca)",
+    )
+    parser.add_argument(
+        "--labels-parquet",
+        type=str,
+        default=None,
+        help="Path to cell_types.parquet (needed if --label-source=luca and luca_cell_type not in h5ad)",
+    )
     args = parser.parse_args()
 
     comparison = run_backend_comparison(
@@ -472,6 +531,8 @@ def main():
         quick=args.quick,
         sample=args.sample,
         sample_col=getattr(args, "sample_col", "sample_id"),
+        label_source=args.label_source,
+        labels_parquet=Path(args.labels_parquet) if args.labels_parquet else None,
     )
 
     # Print recommendation

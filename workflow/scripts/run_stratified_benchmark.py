@@ -11,8 +11,13 @@ Runs all 4 backends on a stratified sample selection:
 
 Total: 9 samples x 4 backends = 36 runs
 
+Supports label source ablation (HLCA vs LuCA):
+- --label-source hlca: Use HLCA cell type labels (default)
+- --label-source luca: Use LuCA cell type labels
+- --label-source both: Run both and compare
+
 Usage:
-    python run_stratified_benchmark.py --output-dir /path/to/output [--quick]
+    python run_stratified_benchmark.py --output-dir /path/to/output [--label-source hlca|luca|both]
 """
 
 import argparse
@@ -45,9 +50,10 @@ STRATIFIED_SAMPLES = {
     ],
 }
 
-# Default data paths
-DEFAULT_SNRNA = "/home/booka/data/stagebridge/processed/luad_evo/snrna_merged.h5ad"
-DEFAULT_SPATIAL = "/home/booka/data/stagebridge/processed/luad_evo/spatial_merged.h5ad"
+# Default data paths (HPC paths)
+DEFAULT_SNRNA = "/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad"
+DEFAULT_SPATIAL = "/scratch/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad"
+DEFAULT_LABELS = "/scratch/chaunzt1/stagebridge/processed/luad_evo/reference_geometry/cell_types.parquet"
 
 BACKENDS = ["tangram", "destvi", "tacco", "cell2location"]
 
@@ -69,6 +75,8 @@ def run_benchmark_for_sample(
     output_dir: Path,
     backends: list[str],
     quick: bool = False,
+    label_source: str = "hlca",
+    labels_parquet: Path | None = None,
 ) -> dict:
     """Run benchmark for a single sample."""
     sample_output = output_dir / f"{stage}_{sample_id}"
@@ -82,7 +90,11 @@ def run_benchmark_for_sample(
         "--sample", sample_id,
         "--sample-col", "sample_id",
         "--backends", *backends,
+        "--label-source", label_source,
     ]
+
+    if label_source == "luca" and labels_parquet:
+        cmd.extend(["--labels-parquet", str(labels_parquet)])
 
     if quick:
         cmd.append("--quick")
@@ -173,6 +185,10 @@ def main():
         help="Path to spatial h5ad"
     )
     parser.add_argument(
+        "--labels-parquet", type=str, default=DEFAULT_LABELS,
+        help="Path to cell_types.parquet (for LuCA labels)"
+    )
+    parser.add_argument(
         "--backends", type=str, nargs="+", default=BACKENDS,
         help="Backends to benchmark"
     )
@@ -184,10 +200,18 @@ def main():
         "--stages", type=str, nargs="+", default=None,
         help="Only run specific stages (e.g., --stages Normal AAH)"
     )
+    parser.add_argument(
+        "--label-source", type=str, default="hlca",
+        choices=["hlca", "luca", "both"],
+        help="Cell type label source: hlca (default), luca, or both for ablation"
+    )
     args = parser.parse_args()
 
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Determine label sources to run
+    if args.label_source == "both":
+        label_sources = ["hlca", "luca"]
+    else:
+        label_sources = [args.label_source]
 
     # Get samples to run
     all_samples = get_all_samples()
@@ -198,8 +222,8 @@ def main():
     print(f"====================================")
     print(f"Samples: {len(all_samples)}")
     print(f"Backends: {args.backends}")
+    print(f"Label sources: {label_sources}")
     print(f"Quick mode: {args.quick}")
-    print(f"Output: {output_dir}")
     print()
 
     # Show sample selection
@@ -209,50 +233,100 @@ def main():
             print(f"  {stage}: {samples}")
     print()
 
-    # Run benchmarks
-    run_results = []
-    for stage, sample_id in all_samples:
-        result = run_benchmark_for_sample(
-            sample_id=sample_id,
-            stage=stage,
-            snrna_path=Path(args.snrna),
-            spatial_path=Path(args.spatial),
-            output_dir=output_dir,
-            backends=args.backends,
-            quick=args.quick,
-        )
-        run_results.append(result)
+    # Run benchmarks for each label source
+    all_results = {}
+    for label_source in label_sources:
+        output_dir = Path(args.output_dir) / label_source
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save intermediate progress
-        with open(output_dir / "run_progress.json", "w") as f:
-            json.dump(run_results, f, indent=2)
+        print(f"\n{'#'*80}")
+        print(f"# RUNNING WITH {label_source.upper()} LABELS")
+        print(f"# Output: {output_dir}")
+        print(f"{'#'*80}")
 
-    # Aggregate results
+        run_results = []
+        for stage, sample_id in all_samples:
+            result = run_benchmark_for_sample(
+                sample_id=sample_id,
+                stage=stage,
+                snrna_path=Path(args.snrna),
+                spatial_path=Path(args.spatial),
+                output_dir=output_dir,
+                backends=args.backends,
+                quick=args.quick,
+                label_source=label_source,
+                labels_parquet=Path(args.labels_parquet) if args.labels_parquet else None,
+            )
+            run_results.append(result)
+
+            # Save intermediate progress
+            with open(output_dir / "run_progress.json", "w") as f:
+                json.dump(run_results, f, indent=2)
+
+        all_results[label_source] = run_results
+
+    # Aggregate results for each label source
     print(f"\n{'='*80}")
     print("AGGREGATING RESULTS")
     print(f"{'='*80}")
 
-    aggregate = aggregate_results(output_dir)
+    combined_results = {"label_sources": {}}
 
-    # Save aggregate
-    with open(output_dir / "stratified_benchmark_results.json", "w") as f:
-        json.dump(aggregate, f, indent=2)
+    for label_source in label_sources:
+        output_dir = Path(args.output_dir) / label_source
+        aggregate = aggregate_results(output_dir)
+        aggregate["label_source"] = label_source
+        combined_results["label_sources"][label_source] = aggregate
 
-    # Print summary
-    print(f"\nBenchmark Summary")
-    print(f"-----------------")
-    print(f"Samples processed: {len(aggregate['samples'])}")
-    print()
-    print("Backend Rankings:")
-    for i, backend in enumerate(aggregate.get("ranking", []), 1):
-        scores = aggregate["aggregate_scores"][backend]
-        print(f"  {i}. {backend.upper()}: mean={scores['mean']:.3f}, "
-              f"failures={scores['n_failures']}/{scores['n_samples']}")
+        # Save per-source aggregate
+        with open(output_dir / "stratified_benchmark_results.json", "w") as f:
+            json.dump(aggregate, f, indent=2)
 
-    if "recommended_backend" in aggregate:
-        print(f"\nRECOMMENDED BACKEND: {aggregate['recommended_backend'].upper()}")
+        # Print summary
+        print(f"\n{label_source.upper()} Labels Summary")
+        print(f"-" * 40)
+        print(f"Samples processed: {len(aggregate.get('samples', []))}")
+        print()
+        print("Backend Rankings:")
+        for i, backend in enumerate(aggregate.get("ranking", []), 1):
+            if backend in aggregate.get("aggregate_scores", {}):
+                scores = aggregate["aggregate_scores"][backend]
+                print(f"  {i}. {backend.upper()}: mean={scores['mean']:.3f}, "
+                      f"failures={scores['n_failures']}/{scores['n_samples']}")
 
-    print(f"\nFull results saved to: {output_dir / 'stratified_benchmark_results.json'}")
+        if "recommended_backend" in aggregate:
+            print(f"\nRecommended: {aggregate['recommended_backend'].upper()}")
+
+    # Compare label sources if both were run
+    if len(label_sources) > 1:
+        print(f"\n{'='*80}")
+        print("LABEL SOURCE COMPARISON")
+        print(f"{'='*80}")
+
+        for backend in BACKENDS:
+            hlca_scores = combined_results["label_sources"].get("hlca", {}).get("aggregate_scores", {}).get(backend, {})
+            luca_scores = combined_results["label_sources"].get("luca", {}).get("aggregate_scores", {}).get(backend, {})
+
+            if hlca_scores and luca_scores:
+                hlca_mean = hlca_scores.get("mean", 0)
+                luca_mean = luca_scores.get("mean", 0)
+                winner = "HLCA" if hlca_mean >= luca_mean else "LuCA"
+                diff = abs(hlca_mean - luca_mean)
+                print(f"{backend.upper()}: HLCA={hlca_mean:.3f}, LuCA={luca_mean:.3f} -> {winner} (+{diff:.3f})")
+
+        # Overall recommendation
+        hlca_rec = combined_results["label_sources"].get("hlca", {}).get("recommended_backend", "")
+        luca_rec = combined_results["label_sources"].get("luca", {}).get("recommended_backend", "")
+        print(f"\nHLCA recommends: {hlca_rec.upper() if hlca_rec else 'N/A'}")
+        print(f"LuCA recommends: {luca_rec.upper() if luca_rec else 'N/A'}")
+
+        # Save combined results
+        combined_output = Path(args.output_dir) / "combined_ablation_results.json"
+        with open(combined_output, "w") as f:
+            json.dump(combined_results, f, indent=2)
+        print(f"\nCombined results saved to: {combined_output}")
+
+    print(f"\nAll results saved to: {args.output_dir}")
 
 
 if __name__ == "__main__":
