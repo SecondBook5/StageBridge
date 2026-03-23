@@ -177,7 +177,7 @@ rule fuse_embeddings:
 # Stage 2c: Merge Cell Types into snRNA (clean Snakemake dependency)
 # =============================================================================
 
-rule harmonize_cell_types:
+rule add_cell_type_labels:
     """
     Add dual-reference cell type labels to snRNA data.
 
@@ -198,10 +198,10 @@ rule harmonize_cell_types:
         mem_mb = 180000,
         runtime = 60
     log:
-        f"{RUNS}/logs/harmonize_cell_types.log"
+        f"{RUNS}/logs/add_cell_type_labels.log"
     shell:
         """
-        python workflow/scripts/harmonize_cell_types.py \
+        python workflow/scripts/add_cell_type_labels.py \
             --snrna {input.snrna} \
             --hlca-labels {input.hlca_labels} \
             --luca-labels {input.luca_labels} \
