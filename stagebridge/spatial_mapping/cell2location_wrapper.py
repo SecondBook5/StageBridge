@@ -46,6 +46,7 @@ class Cell2locationBackend(SpatialBackend):
         max_epochs_spatial: int = 2500,  # Reduced from 30k (no early stopping available)
         batch_size: int = 2500,
         accelerator: str = "auto",
+        batch_key: str | None = "sample_id",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -56,6 +57,7 @@ class Cell2locationBackend(SpatialBackend):
         self.max_epochs_spatial = max_epochs_spatial
         self.batch_size = batch_size
         self.accelerator = accelerator
+        self.batch_key = batch_key
 
         # Store trained models
         self.ref_model = None
@@ -107,10 +109,15 @@ class Cell2locationBackend(SpatialBackend):
         # =====================================================================
         print("Cell2location Stage 1: Training reference signature model...")
 
-        # Setup reference model
+        # Setup reference model with batch correction if available
+        snrna_batch = self.batch_key if self.batch_key and self.batch_key in snrna_sub.obs.columns else None
+        if snrna_batch:
+            print(f"  Using batch_key='{snrna_batch}' for reference ({snrna_sub.obs[snrna_batch].nunique()} batches)")
+
         cell2location.models.RegressionModel.setup_anndata(
             adata=snrna_sub,
             labels_key="cell_type",
+            batch_key=snrna_batch,
         )
 
         self.ref_model = RegressionModel(snrna_sub)
@@ -155,10 +162,14 @@ class Cell2locationBackend(SpatialBackend):
         # =====================================================================
         print("Cell2location Stage 2: Training spatial deconvolution model...")
 
-        # Setup spatial model
+        # Setup spatial model with batch correction if available
+        spatial_batch = self.batch_key if self.batch_key and self.batch_key in spatial_sub.obs.columns else None
+        if spatial_batch:
+            print(f"  Using batch_key='{spatial_batch}' ({spatial_sub.obs[spatial_batch].nunique()} batches)")
+
         cell2location.models.Cell2location.setup_anndata(
             adata=spatial_sub,
-            batch_key=None,
+            batch_key=spatial_batch,
         )
 
         self.spatial_model = cell2location.models.Cell2location(
@@ -233,7 +244,9 @@ class Cell2locationBackend(SpatialBackend):
             "n_celltypes": proportions.shape[1],
             "n_genes_used": len(common_genes),
             "mean_entropy": float(compute_cell_type_entropy(proportions).mean()),
+            "std_entropy": float(compute_cell_type_entropy(proportions).std()),
             "sparsity": float(compute_sparsity(proportions)),
+            "coverage": float((confidence > 0.5).mean()),  # Required for benchmark comparison
             "mean_total_abundance": float(total_abundance.mean()),
             "ref_model_epochs": self.max_epochs_ref,
             "spatial_model_epochs": self.max_epochs_spatial,

@@ -6,6 +6,10 @@ Supports intra-cell-type variation via gamma latent space and cell-type-specific
 gene expression imputation.
 
 Reference: https://docs.scvi-tools.org/en/stable/tutorials/notebooks/spatial/DestVI_tutorial.html
+
+Known issues (fixed):
+- scvi-tools >= 1.0 had 'prior' KeyError due to internal API changes
+- Fix: Always use vamp_prior_p=0 which bypasses the problematic code path
 """
 
 from pathlib import Path
@@ -22,6 +26,18 @@ from .backend_base import (
 )
 
 
+def _check_scvi_version():
+    """Check and log scvi-tools version."""
+    try:
+        import scvi
+        version = getattr(scvi, "__version__", "unknown")
+        print(f"  scvi-tools version: {version}")
+        return version
+    except Exception as e:
+        print(f"  Warning: Could not check scvi-tools version: {e}")
+        return "unknown"
+
+
 class DestVIBackend(SpatialBackend):
     """
     DestVI spatial mapping wrapper using scvi-tools.
@@ -36,7 +52,11 @@ class DestVIBackend(SpatialBackend):
     - n_epochs_condsc: Training epochs for conditional scVI (default 200)
     - n_epochs_destvi: Training epochs for DestVI (default 2500)
     - lr: Learning rate (default 0.01)
-    - vamp_prior_p: Number of VAMP prior components for gamma regularization (default 50)
+    - batch_key: Column name for batch correction (default 'sample_id')
+
+    Note: VAMP prior is disabled (vamp_prior_p=0) to avoid 'prior' KeyError
+    in scvi-tools >= 1.0. This is a known compatibility issue where
+    DestVI.from_rna_model expects 'prior' in CondSCVI's module_kwargs.
     """
 
     def __init__(
@@ -45,7 +65,7 @@ class DestVIBackend(SpatialBackend):
         n_epochs_condsc: int = 200,
         n_epochs_destvi: int = 2500,
         lr: float = 0.01,
-        vamp_prior_p: int = 50,
+        batch_key: str | None = "sample_id",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -54,7 +74,7 @@ class DestVIBackend(SpatialBackend):
         self.n_epochs_condsc = n_epochs_condsc
         self.n_epochs_destvi = n_epochs_destvi
         self.lr = lr
-        self.vamp_prior_p = vamp_prior_p
+        self.batch_key = batch_key
 
         # Store trained models for advanced queries
         self.sc_model = None
@@ -90,9 +110,18 @@ class DestVIBackend(SpatialBackend):
 
         print(f"Running DestVI with {len(snrna)} cells, {len(spatial)} spots...")
 
-        # Setup anndata for scvi
-        CondSCVI.setup_anndata(snrna, labels_key="cell_type")
-        DestVI.setup_anndata(spatial)
+        # Determine batch keys (only use if column exists)
+        snrna_batch = self.batch_key if self.batch_key and self.batch_key in snrna.obs.columns else None
+        spatial_batch = self.batch_key if self.batch_key and self.batch_key in spatial.obs.columns else None
+
+        if snrna_batch:
+            print(f"  Using batch_key='{snrna_batch}' for snRNA ({snrna.obs[snrna_batch].nunique()} batches)")
+        if spatial_batch:
+            print(f"  Using batch_key='{spatial_batch}' for spatial ({spatial.obs[spatial_batch].nunique()} batches)")
+
+        # Setup anndata for scvi with batch correction
+        CondSCVI.setup_anndata(snrna, labels_key="cell_type", batch_key=snrna_batch)
+        DestVI.setup_anndata(spatial, batch_key=spatial_batch)
 
         # Train conditional scVI on snRNA (without reweighting)
         print(f"  Training CondSCVI for {self.n_epochs_condsc} epochs (early stopping enabled)...")
@@ -106,13 +135,12 @@ class DestVIBackend(SpatialBackend):
         )
 
         # Train DestVI on spatial
-        # Note: VAMP prior disabled - causes 'prior' key errors in some scvi-tools versions
+        # IMPORTANT: vamp_prior_p=0 is required to avoid 'prior' KeyError in scvi-tools >= 1.0
+        # The error occurs because DestVI.from_rna_model checks for 'prior' in CondSCVI's
+        # module_kwargs, but CondSCVI doesn't set this key by default. Setting vamp_prior_p=0
+        # disables VAMP prior entirely, bypassing the problematic code path.
         print(f"  Training DestVI for {self.n_epochs_destvi} epochs (early stopping enabled)...")
-        spatial_model = DestVI.from_rna_model(
-            spatial,
-            sc_model,
-            # vamp_prior_p disabled due to compatibility issues
-        )
+        spatial_model = DestVI.from_rna_model(spatial, sc_model, vamp_prior_p=0)
         spatial_model.train(
             max_epochs=self.n_epochs_destvi,
             lr=self.lr,
@@ -179,7 +207,7 @@ class DestVIBackend(SpatialBackend):
                 "n_epochs_condsc": self.n_epochs_condsc,
                 "n_epochs_destvi": self.n_epochs_destvi,
                 "lr": self.lr,
-                "vamp_prior_p": self.vamp_prior_p,
+                "vamp_prior_p": 0,  # Fixed at 0 to avoid scvi-tools compatibility issues
                 "n_cell_types": len(cell_types),
             },
         )

@@ -341,7 +341,7 @@ class TangramBackend(SpatialBackend):
                     if isinstance(result.confidence, np.ndarray)
                     else result.confidence.values
                 )
-                metrics["coverage_0.5"] = float((conf > 0.5).mean())
+                metrics["coverage"] = float((conf > 0.5).mean())  # Required key for benchmark
                 metrics["mean_confidence"] = float(conf.mean())
 
         return metrics
