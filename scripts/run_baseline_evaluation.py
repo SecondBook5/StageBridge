@@ -50,7 +50,7 @@ def main():
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    log.info(f"Running baseline evaluation")
+    log.info("Running baseline evaluation")
     log.info(f"  Benchmark: {args.benchmark_dir}")
     log.info(f"  Output: {args.output_dir}")
     log.info(f"  Device: {device}")

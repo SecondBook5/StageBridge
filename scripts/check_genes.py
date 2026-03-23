@@ -1,5 +1,6 @@
 import anndata
 import numpy as np
+import torch
 from scvi.model import SCANVI
 
 model_path = "/scratch/chaunzt1/stagebridge/references/hlca/hub_cache/models--scvi-tools--human-lung-cell-atlas-scanvi/snapshots/6978d287b08ac777ca7c015e5220f2feec29ad0a"
@@ -21,7 +22,6 @@ if hasattr(model.module, 'var_names'):
     print(f"module.var_names: {model.module.var_names[:5]}")
 
 # Check the model file directly for var_names
-import torch
 state = torch.load(f"{model_path}/model.pt", map_location='cpu', weights_only=False)
 print(f"\nModel state keys: {list(state.keys())}")
 if 'var_names' in state:

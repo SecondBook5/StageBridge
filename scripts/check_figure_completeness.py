@@ -53,7 +53,7 @@ REQUIRED_SUPP_FIGURES = [
 REQUIRED_FORMATS = ["png", "pdf", "svg"]
 
 
-def check_figure_exists(base_path: Path) -> Tuple[bool, List[str]]:
+def check_figure_exists(base_path: Path) -> tuple[bool, list[str]]:
     """Check if figure exists in all required formats.
 
     Returns:
@@ -66,7 +66,7 @@ def check_figure_exists(base_path: Path) -> Tuple[bool, List[str]]:
     return len(missing) == 0, missing
 
 
-def check_source_data(data_root: Path) -> Dict[str, bool]:
+def check_source_data(data_root: Path) -> dict[str, bool]:
     """Check if required source data exists."""
     checks = {
         "Reference geometry": (data_root / "processed/luad_evo/reference_geometry/fused_embedding.parquet").exists(),
@@ -253,14 +253,14 @@ def main():
     if total_missing > 0 or total_partial > 0:
         print(f"{BLUE}Recommendations:{RESET}")
         if not all_sources_ok:
-            print(f"  1. Run prerequisite pipeline stages to generate missing source data")
+            print("  1. Run prerequisite pipeline stages to generate missing source data")
         if total_missing > 0:
-            print(f"  2. Run figure generation: sbatch scripts/hpc_step7_figures.sbatch")
+            print("  2. Run figure generation: sbatch scripts/hpc_step7_figures.sbatch")
         if total_partial > 0:
-            print(f"  3. For partial figures, delete all formats and regenerate:")
-            print(f"     rm $DATA/runs/publication_figures/main/<figure_id>.*")
+            print("  3. For partial figures, delete all formats and regenerate:")
+            print("     rm $DATA/runs/publication_figures/main/<figure_id>.*")
         if not manifest_exists or args.fix_manifest:
-            print(f"  4. Update manifest: python scripts/check_figure_completeness.py --fix-manifest")
+            print("  4. Update manifest: python scripts/check_figure_completeness.py --fix-manifest")
         print()
     else:
         print(f"{GREEN}✓ All required figures are complete!{RESET}\n")

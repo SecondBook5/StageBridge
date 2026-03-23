@@ -4,6 +4,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from pathlib import Path
 from sklearn.manifold import TSNE
 import umap
@@ -90,7 +91,6 @@ for ax, emb, title in zip(axes, [umap_emb, tsne_emb, phate_emb], ['UMAP', 't-SNE
     ax.set_yticks([])
 
 # Add legend
-from matplotlib.patches import Patch
 legend_elements = [Patch(facecolor=stage_colors[s], label=s) for s in stage_order if s in unique_stages]
 fig.legend(handles=legend_elements, loc='center right', fontsize=11, title='Stage',
            title_fontsize=12, bbox_to_anchor=(0.99, 0.5))
@@ -139,6 +139,6 @@ if donor_sub is not None:
 
     plt.tight_layout()
     plt.savefig(results_dir / "fused_umap_by_donor.png", dpi=200, bbox_inches='tight')
-    print(f"  Saved: fused_umap_by_donor.png")
+    print("  Saved: fused_umap_by_donor.png")
 
 print("\nDone!")

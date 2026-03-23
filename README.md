@@ -232,6 +232,103 @@ docs/                       # Documentation
 
 ---
 
+## HPC Deployment (Snakemake)
+
+StageBridge uses **Snakemake** for HPC orchestration. Do NOT use raw sbatch scripts.
+
+### Quick Start
+
+```bash
+# Dry run (see what would execute)
+snakemake -n --profile workflow/slurm
+
+# Full run on HPC with SLURM
+snakemake --profile workflow/slurm --jobs 20
+
+# Generate DAG visualization
+snakemake --dag | dot -Tpdf > dag.pdf
+```
+
+### Configuration
+
+Edit `workflow/config.yaml` or override via command line:
+
+```bash
+snakemake --profile workflow/slurm --config data_root=/your/data/path
+```
+
+Default paths (configured for HPC):
+```yaml
+data_root: "/scratch/chaunzt1/stagebridge"
+```
+
+### Required Input Files
+
+```
+$DATA/
+├── processed/luad_evo/
+│   ├── snrna_qc_normalized_with_ensg.h5ad   # snRNA with ENSG IDs
+│   ├── spatial_merged.h5ad                   # Merged Visium data
+│   └── wes_features.parquet                  # WES features
+└── references/
+    ├── hlca/
+    │   ├── hlca_reference.h5ad
+    │   └── hub_cache/                        # scANVI model from HuggingFace
+    └── luca/
+        ├── luca_core_atlas.h5ad              # Use CORE, not Extended
+        └── retrained_model/scanvi_model/
+```
+
+### Pipeline DAG
+
+```
+hlca_mapping ──┬──→ merge_cell_types ──→ validate_markers ──→ spatial_backend (4x)
+               │                                                       │
+               └──→ fuse_embeddings ←── luca_mapping                   │
+                           │                                           │
+                           └─────────────────────┬──────────────────────┘
+                                                 ▼
+                                        data_preparation
+                                                 │
+                                     ┌───────────┴───────────┐
+                                     ▼                       ▼
+                             semi_synthetic            validate_splits
+                                     │                       │
+                                     └───────────┬───────────┘
+                                                 ▼
+                                               hpo
+                                                 │
+                         ┌───────────────────────┼───────────────────────┐
+                         ▼                       ▼                       ▼
+             training (5×3=15)          baseline (4×5×3=60)          (wait)
+                         │                       │                       │
+                         ▼                       ▼                       │
+                aggregate_cv_results      aggregate_baselines            │
+                         │                       │                       │
+                         └───────────┬───────────┴───────────────────────┘
+                                     ▼
+                         ┌───────────┴───────────┐
+                         ▼                       ▼
+                ablation (14x)         publication_figures
+```
+
+### Monitoring
+
+```bash
+# Check job status
+squeue -u $USER
+
+# Watch progress
+watch -n 30 'squeue -u $USER'
+
+# Check logs
+tail -f $DATA/runs/logs/*.log
+```
+
+See `workflow/README.md` for detailed documentation.
+
+---
+
 ## Testing
 
 ```bash

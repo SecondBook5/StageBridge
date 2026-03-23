@@ -41,6 +41,11 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 
+from stagebridge.transition_model.losses import (
+    build_sinkhorn_coupling,
+    sample_coupling_pairs,
+)
+
 try:
     import optuna
     from optuna.trial import Trial
@@ -183,12 +188,31 @@ class StageBridgeV1Complete(nn.Module):
         n_token_types: int = 9,
         dropout: float = 0.1,
         use_doctrine_encoder: bool = True,
+        wes_feature_dim: int = 3,  # tmb, smoking_signature, uv_signature
+        wes_hidden_dim: int = 16,
+        # OT-CFM parameters
+        ot_epsilon: float = 0.05,
+        sinkhorn_iters: int = 50,
+        num_ot_pairs: int = 256,
     ):
         super().__init__()
 
         self.latent_dim = latent_dim
         self.context_dim = context_dim
+        self.wes_hidden_dim = wes_hidden_dim
         self.use_doctrine_encoder = use_doctrine_encoder and DOCTRINE_ENCODER_AVAILABLE
+
+        # OT-CFM parameters
+        self.ot_epsilon = ot_epsilon
+        self.sinkhorn_iters = sinkhorn_iters
+        self.num_ot_pairs = num_ot_pairs
+
+        # WES feature projection for evolutionary constraints
+        self.wes_proj = nn.Sequential(
+            nn.Linear(wes_feature_dim, wes_hidden_dim),
+            nn.GELU(),
+            nn.LayerNorm(wes_hidden_dim),
+        )
 
         if self.use_doctrine_encoder:
             # Use doctrine-compliant ReceiverCenteredNicheEncoder
@@ -246,8 +270,10 @@ class StageBridgeV1Complete(nn.Module):
             nn.Linear(64, 64),
         )
 
+        # Drift input: latent + context + time_embed + wes_hidden
+        drift_input_dim = latent_dim + context_dim + 64 + wes_hidden_dim
         self.drift_network = nn.Sequential(
-            nn.Linear(latent_dim + context_dim + 64, 256),
+            nn.Linear(drift_input_dim, 256),
             nn.GELU(),
             nn.LayerNorm(256),
             nn.Dropout(dropout),
@@ -325,20 +351,79 @@ class StageBridgeV1Complete(nn.Module):
         z_target: torch.Tensor,
         context: torch.Tensor,
         t: torch.Tensor | None = None,
+        wes_features: torch.Tensor | None = None,
+        use_ot: bool = True,
     ) -> dict:
-        """Transition model forward pass (flow matching)."""
+        """Transition model forward pass with OT-CFM (Optimal Transport Flow Matching).
+
+        Uses Sinkhorn coupling to find optimal source-target pairs before
+        computing flow matching loss. This replaces random pairing with
+        transport-optimal pairing.
+
+        Args:
+            z_source: [B, D] source latent batch
+            z_target: [B, D] target latent batch
+            context: [B, context_dim] niche context (will be indexed by OT pairs)
+            t: [N] or [N, 1] time values (sampled if None), N = num_ot_pairs
+            wes_features: [B, wes_dim] evolutionary constraint features (optional)
+            use_ot: If True, use Sinkhorn OT coupling; if False, random pairs
+
+        Returns:
+            dict with loss_transition, drift_pred, drift_true, z_t, ot_cost
+        """
+        device = z_source.device
         batch_size = z_source.shape[0]
 
+        # Build OT coupling and sample pairs
+        if use_ot and batch_size >= 4:
+            # Sinkhorn coupling for optimal pairing
+            coupling = build_sinkhorn_coupling(
+                x_src=z_source.detach(),
+                x_tgt=z_target.detach(),
+                epsilon=self.ot_epsilon,
+                n_iters=self.sinkhorn_iters,
+            )
+            num_pairs = min(self.num_ot_pairs, batch_size * batch_size)
+            src_idx, tgt_idx = sample_coupling_pairs(coupling, num_pairs)
+
+            # Compute OT cost for diagnostics
+            cost_matrix = torch.cdist(z_source, z_target, p=2).pow(2)
+            ot_cost = (coupling * cost_matrix).sum().item()
+        else:
+            # Random pairing fallback (for small batches or ablation)
+            num_pairs = min(self.num_ot_pairs, batch_size)
+            src_idx = torch.randint(0, batch_size, (num_pairs,), device=device)
+            tgt_idx = torch.randint(0, batch_size, (num_pairs,), device=device)
+            ot_cost = float("nan")
+
+        # Get OT-paired samples
+        z_src_paired = z_source[src_idx]
+        z_tgt_paired = z_target[tgt_idx]
+        context_paired = context[src_idx]  # Context from source cells
+
+        # Sample time if not provided
         if t is None:
-            t = torch.rand(batch_size, 1, device=z_source.device)
+            t = torch.rand(num_pairs, 1, device=device)
         elif t.dim() == 1:
             t = t.unsqueeze(1)
+        if t.shape[0] != num_pairs:
+            t = torch.rand(num_pairs, 1, device=device)
 
-        z_t = t * z_target + (1 - t) * z_source
+        # Project WES features (indexed by source)
+        if wes_features is not None:
+            wes_paired = wes_features[src_idx]
+            wes_h = self.wes_proj(wes_paired)
+        else:
+            wes_h = torch.zeros(num_pairs, self.wes_hidden_dim, device=device)
+
+        # Flow matching: interpolate and predict velocity
+        z_t = (1.0 - t) * z_src_paired + t * z_tgt_paired
         t_embed = self.time_embedding(t)
-        drift_input = torch.cat([z_t, context, t_embed], dim=-1)
+        drift_input = torch.cat([z_t, context_paired, t_embed, wes_h], dim=-1)
         drift_pred = self.drift_network(drift_input)
-        drift_true = z_target - z_source
+
+        # Target velocity: direction from source to target
+        drift_true = z_tgt_paired - z_src_paired
         loss_transition = torch.mean((drift_pred - drift_true) ** 2)
 
         return {
@@ -346,20 +431,42 @@ class StageBridgeV1Complete(nn.Module):
             "drift_pred": drift_pred,
             "drift_true": drift_true,
             "z_t": z_t,
+            "ot_cost": ot_cost,
+            "num_pairs": num_pairs,
         }
 
     def sample_trajectory(
-        self, z_source: torch.Tensor, context: torch.Tensor, n_steps: int = 100
+        self,
+        z_source: torch.Tensor,
+        context: torch.Tensor,
+        n_steps: int = 100,
+        wes_features: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Sample trajectory via ODE integration."""
+        """Sample trajectory via ODE integration.
+
+        Args:
+            z_source: [B, D] starting latent
+            context: [B, context_dim] niche context
+            n_steps: number of integration steps
+            wes_features: [B, wes_dim] evolutionary constraints (optional)
+        """
+        batch_size = z_source.shape[0]
+        device = z_source.device
+
+        # Project WES features once (constant during trajectory)
+        if wes_features is not None:
+            wes_h = self.wes_proj(wes_features)
+        else:
+            wes_h = torch.zeros(batch_size, self.wes_hidden_dim, device=device)
+
         trajectory = [z_source]
         z_t = z_source
         dt = 1.0 / n_steps
 
         for step in range(n_steps):
-            t = torch.full((z_source.shape[0], 1), step * dt, device=z_source.device)
+            t = torch.full((batch_size, 1), step * dt, device=device)
             t_embed = self.time_embedding(t)
-            drift_input = torch.cat([z_t, context, t_embed], dim=-1)
+            drift_input = torch.cat([z_t, context, t_embed, wes_h], dim=-1)
             drift = self.drift_network(drift_input)
             z_t = z_t + drift * dt
             trajectory.append(z_t)
@@ -683,7 +790,14 @@ def create_real_data_loaders(
 
 
 def _get_batch_tensors(batch, device):
-    """Extract tensors from batch, handling both dict and StageBridgeBatch formats."""
+    """Extract tensors from batch, handling both dict and StageBridgeBatch formats.
+
+    Returns:
+        (niche_tokens, receiver, z_source, z_target, wes_features)
+        wes_features may be None if not available.
+    """
+    wes_features = None
+
     # Handle StageBridgeBatch (real data) vs dict (synthetic data)
     if hasattr(batch, "niche_tokens"):
         # StageBridgeBatch object
@@ -692,6 +806,9 @@ def _get_batch_tensors(batch, device):
         z_target = batch.z_target.to(device)
         # Receiver is token 0 of niche (doctrine: receiver-centered)
         receiver = niche_tokens[:, 0, :]
+        # WES features if available
+        if hasattr(batch, "wes_features") and batch.wes_features is not None:
+            wes_features = batch.wes_features.to(device)
     else:
         # Dict-like batch (synthetic)
         niche_tokens = batch["niche_tokens"].to(device)
@@ -700,8 +817,11 @@ def _get_batch_tensors(batch, device):
         receiver = batch.get("receiver", niche_tokens[:, 0, :])
         if isinstance(receiver, torch.Tensor):
             receiver = receiver.to(device)
+        # WES features if available
+        if "wes_features" in batch and batch["wes_features"] is not None:
+            wes_features = batch["wes_features"].to(device)
 
-    return niche_tokens, receiver, z_source, z_target
+    return niche_tokens, receiver, z_source, z_target, wes_features
 
 
 def train_ssl_epoch(model, dataloader, optimizer, device, config):
@@ -709,7 +829,7 @@ def train_ssl_epoch(model, dataloader, optimizer, device, config):
     total_loss, total_recon, n_batches = 0.0, 0.0, 0
 
     for batch in tqdm(dataloader, desc="SSL", leave=False):
-        niche_tokens, receiver, _, _ = _get_batch_tensors(batch, device)
+        niche_tokens, receiver, _, _, _ = _get_batch_tensors(batch, device)
 
         optimizer.zero_grad()
         outputs = model.ssl_forward(niche_tokens, receiver)
@@ -733,11 +853,11 @@ def train_transition_epoch(model, dataloader, optimizer, device):
     total_loss, n_batches = 0.0, 0
 
     for batch in tqdm(dataloader, desc="Transition", leave=False):
-        niche_tokens, _, z_source, z_target = _get_batch_tensors(batch, device)
+        niche_tokens, _, z_source, z_target, wes_features = _get_batch_tensors(batch, device)
 
         optimizer.zero_grad()
         context = model.encode_niche(niche_tokens)
-        outputs = model.transition_forward(z_source, z_target, context)
+        outputs = model.transition_forward(z_source, z_target, context, wes_features=wes_features)
         loss = outputs["loss_transition"]
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -756,10 +876,10 @@ def evaluate_model(model, dataloader, device):
     all_drifts, all_targets = [], []
 
     for batch in dataloader:
-        niche_tokens, _, z_source, z_target = _get_batch_tensors(batch, device)
+        niche_tokens, _, z_source, z_target, wes_features = _get_batch_tensors(batch, device)
 
         context = model.encode_niche(niche_tokens)
-        outputs = model.transition_forward(z_source, z_target, context)
+        outputs = model.transition_forward(z_source, z_target, context, wes_features=wes_features)
 
         total_loss += outputs["loss_transition"].item()
         all_drifts.append(outputs["drift_pred"].cpu())
@@ -815,7 +935,7 @@ def run_ablation_studies(model, dataloader, device, output_dir, n_epochs=10):
         for _ in range(n_epochs):
             baseline.train()
             for batch in dataloader:
-                niche_tokens, receiver, _, _ = _get_batch_tensors(batch, device)
+                niche_tokens, receiver, _, _, _ = _get_batch_tensors(batch, device)
                 x = niche_tokens.mean(dim=1)
                 optimizer.zero_grad()
                 pred = baseline(x)
@@ -827,7 +947,7 @@ def run_ablation_studies(model, dataloader, device, output_dir, n_epochs=10):
         with torch.no_grad():
             total_loss = 0
             for batch in dataloader:
-                niche_tokens, receiver, _, _ = _get_batch_tensors(batch, device)
+                niche_tokens, receiver, _, _, _ = _get_batch_tensors(batch, device)
                 x = niche_tokens.mean(dim=1)
                 pred = baseline(x)
                 total_loss += torch.mean((pred - receiver) ** 2).item()

@@ -104,7 +104,7 @@ def main():
         if len(model_coverage) < len(model_ensg) * 0.5:
             print("\nWARNING: Low coverage (<50%)! Model-based mapping may not work well.")
         else:
-            print(f"\nGood coverage! Model-based mapping should work.")
+            print("\nGood coverage! Model-based mapping should work.")
 
     # Add ensembl_id column to query var
     print("\nAdding ensembl_id column to query...")

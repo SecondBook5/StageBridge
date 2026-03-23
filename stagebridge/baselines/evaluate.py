@@ -309,3 +309,76 @@ def run_baseline_comparison(
     log.info(f"\nResults saved to: {results_path}")
 
     return results_df
+
+
+def main():
+    """CLI entry point for baseline evaluation."""
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Evaluate baselines on benchmark")
+    parser.add_argument("--data_dir", type=Path, required=True, help="Canonical data directory")
+    parser.add_argument("--output_dir", type=Path, required=True, help="Output directory")
+    parser.add_argument("--baseline", type=str, required=True,
+                        choices=["pooling_mlp", "deep_sets", "set_transformer", "graph_sage"],
+                        help="Baseline to evaluate")
+    parser.add_argument("--validation_fold", type=int, default=0, help="Validation fold")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    args = parser.parse_args()
+
+    # Set seed
+    torch.manual_seed(args.seed)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log.info(f"Using device: {device}")
+    log.info(f"Baseline: {args.baseline}")
+    log.info(f"Fold: {args.validation_fold}, Seed: {args.seed}")
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load benchmark from canonical directory
+    benchmark_dir = args.data_dir / "benchmark"
+    if not benchmark_dir.exists():
+        log.error(f"Benchmark directory not found: {benchmark_dir}")
+        raise FileNotFoundError(f"Run semi_synthetic_benchmark rule first: {benchmark_dir}")
+
+    # Run comparison (simplified for single baseline)
+    results_df = run_baseline_comparison(
+        benchmark_dir=benchmark_dir,
+        output_dir=args.output_dir,
+        device=device,
+    )
+
+    # Filter to requested baseline
+    baseline_map = {
+        "pooling_mlp": "PoolingMLP",
+        "deep_sets": "DeepSets",
+        "set_transformer": "SetTransformer",
+        "graph_sage": "GraphSAGE",
+    }
+    baseline_name = baseline_map[args.baseline]
+    baseline_results = results_df[results_df["baseline"] == baseline_name]
+
+    # Save results JSON
+    test_row = baseline_results[baseline_results["split"] == "test"].iloc[0]
+    results = {
+        "baseline": args.baseline,
+        "fold": args.validation_fold,
+        "seed": args.seed,
+        "accuracy": float(test_row["accuracy"]),
+        "balanced_accuracy": float(test_row["balanced_accuracy"]),
+        "f1_macro": float(test_row["f1_macro"]),
+    }
+
+    results_path = args.output_dir / "results.json"
+    with open(results_path, "w") as f:
+        json.dump(results, f, indent=2)
+
+    # Save metrics CSV
+    baseline_results.to_csv(args.output_dir / "metrics.csv", index=False)
+
+    log.info(f"Results saved to {args.output_dir}")
+
+
+if __name__ == "__main__":
+    main()

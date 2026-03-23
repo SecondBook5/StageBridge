@@ -136,7 +136,7 @@ def audit_backend_structure():
     print("\n3. Visualization Utilities (viz_utils.py):")
     viz_utils_path = base_dir / "viz_utils.py"
     if viz_utils_path.exists():
-        print(f"   ✓ viz_utils.py exists")
+        print("   ✓ viz_utils.py exists")
         with open(viz_utils_path) as f:
             content = f.read()
             viz_functions = [
@@ -155,7 +155,7 @@ def audit_backend_structure():
                 else:
                     print(f"     ✗ {func} MISSING")
     else:
-        print(f"   ✗ viz_utils.py MISSING")
+        print("   ✗ viz_utils.py MISSING")
 
     # 4. Check __init__.py exports
     print("\n4. Package Exports (__init__.py):")
@@ -207,13 +207,13 @@ def audit_backend_structure():
     # Check for specific test file
     wrapper_test = test_dir / "test_wrappers.py"
     if wrapper_test.exists():
-        print(f"\n   ✓ test_wrappers.py exists")
+        print("\n   ✓ test_wrappers.py exists")
         with open(wrapper_test) as f:
             content = f.read()
             test_functions = content.count("def test_")
             print(f"     Contains {test_functions} test functions")
     else:
-        print(f"\n   ✗ test_wrappers.py MISSING")
+        print("\n   ✗ test_wrappers.py MISSING")
 
     # 7. Check for circular imports
     print("\n7. Import Structure:")
