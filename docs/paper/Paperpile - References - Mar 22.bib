@@ -1,0 +1,2277 @@
+@ARTICLE{Luecken2022-at,
+  title     = "Benchmarking atlas-level data integration in single-cell genomics",
+  author    = "Luecken, Malte D and Büttner, M and Chaichoompu, K and Danese, A
+               and Interlandi, M and Mueller, M F and Strobl, D C and Zappia, L
+               and Dugas, M and Colomé-Tatché, M and Theis, Fabian J",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  19,
+  number    =  1,
+  pages     = "41--50",
+  abstract  = "Single-cell atlases often include samples that span locations,
+               laboratories and conditions, leading to complex, nested batch
+               effects in data. Thus, joint analysis of atlas datasets requires
+               reliable data integration. To guide integration method choice, we
+               benchmarked 68 method and preprocessing combinations on 85
+               batches of gene expression, chromatin accessibility and
+               simulation data from 23 publications, altogether representing
+               >1.2 million cells distributed in 13 atlas-level integration
+               tasks. We evaluated methods according to scalability, usability
+               and their ability to remove batch effects while retaining
+               biological variation using 14 evaluation metrics. We show that
+               highly variable gene selection improves the performance of data
+               integration methods, whereas scaling pushes methods to prioritize
+               batch removal over conservation of biological variation. Overall,
+               scANVI, Scanorama, scVI and scGen perform well, particularly on
+               complex integration tasks, while single-cell ATAC-sequencing
+               integration performance is strongly affected by choice of feature
+               space. Our freely available Python module and benchmarking
+               pipeline can identify optimal data integration methods for new
+               data, benchmark new methods and improve method development.",
+  month     =  jan,
+  year      =  2022,
+  language  = "en"
+}
+
+@ARTICLE{Xu2021-cc,
+  title     = "Probabilistic harmonization and annotation of single-cell
+               transcriptomics data with deep generative models",
+  author    = "Xu, Chenling and Lopez, Romain and Mehlman, Edouard and Regier,
+               Jeffrey and Jordan, Michael I and Yosef, Nir",
+  journal   = "Mol. Syst. Biol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  17,
+  number    =  1,
+  pages     = "e9620",
+  abstract  = "As the number of single-cell transcriptomics datasets grows, the
+               natural next step is to integrate the accumulating data to
+               achieve a common ontology of cell types and states. However, it
+               is not straightforward to compare gene expression levels across
+               datasets and to automatically assign cell type labels in a new
+               dataset based on existing annotations. In this manuscript, we
+               demonstrate that our previously developed method, scVI, provides
+               an effective and fully probabilistic approach for joint
+               representation and analysis of scRNA-seq data, while accounting
+               for uncertainty caused by biological and measurement noise. We
+               also introduce single-cell ANnotation using Variational Inference
+               (scANVI), a semi-supervised variant of scVI designed to leverage
+               existing cell state annotations. We demonstrate that scVI and
+               scANVI compare favorably to state-of-the-art methods for data
+               integration and cell state annotation in terms of accuracy,
+               scalability, and adaptability to challenging settings. In
+               contrast to existing methods, scVI and scANVI integrate multiple
+               datasets with a single generative model that can be directly used
+               for downstream tasks, such as differential expression. Both
+               methods are easily accessible through scvi-tools.",
+  month     =  jan,
+  year      =  2021,
+  keywords  = "annotation; differential expression; harmonization; scRNA-seq;
+               variational inference",
+  language  = "en"
+}
+
+@ARTICLE{Dibaeinia2026-ab,
+  title       = "Virtual Cells need context, not just scale",
+  author      = "Dibaeinia, Payam and Babu, Sudarshan and Knudson, Mei and
+                 ElSheikh, Ali and Wen, Yibo and Liu, Han and Perera, Jason and
+                 Khan, Aly A",
+  journal     = "bioRxivorg",
+  institution = "bioRxiv",
+  pages       = "2026.02.04.703804",
+  abstract    = "The intersection of AI and biology has entered a phase of
+                 explosive growth, driven by the ambition to build ``Virtual
+                 Cells'' or computational models capable of predicting cellular
+                 responses to any perturbation. Following the success of
+                 structural biology (e.g., AlphaFold) and large language models,
+                 the field has converged on training massive, high-capacity
+                 models on large-scale single-cell data. This position paper
+                 argues that scaling model capacity is insufficient to solve the
+                 Virtual Cell problem because the primary failure mode is a lack
+                 of adequate coverage over diverse biological contexts, not
+                 insufficient model expressivity. We support this claim by
+                 reviewing recent studies showing that simple baselines perform
+                 on par with sophisticated architectures within a given
+                 biological context, and current models fail to consistently
+                 generalize across contexts. We connect this finding to the
+                 causal inference literature on transportability and contrast it
+                 with domains where scaling has succeeded. We substantiate our
+                 argument through analysis of a state-of-the-art model on a
+                 22-million-cell immunology dataset. We conclude that the
+                 community faces a causal transport problem that cannot be
+                 solved by accumulating more data from the same distributions.
+                 Instead, we argue that contextual diversity and causal
+                 representation learning deserve increased emphasis,
+                 complementing ongoing scaling of model capacity and data
+                 volume.",
+  month       =  feb,
+  year        =  2026,
+  language    = "en"
+}
+
+@ARTICLE{Somer2026-ma,
+  title     = "Temporal tissue dynamics from a spatial snapshot",
+  author    = "Somer, Jonathan and Mannor, Shie and Alon, Uri",
+  journal   = "Nature",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  650,
+  number    =  8101,
+  pages     = "490--499",
+  abstract  = "Physiological and pathological processes such as inflammation and
+               cancer emerge from interactions between cells over time1.
+               However, methods to follow cell populations over time within the
+               native context of a human tissue are lacking because a biopsy
+               offers only a single snapshot. Here we present one-shot tissue
+               dynamics reconstruction (OSDR), an approach to estimate a
+               dynamical model of cell populations based on a single tissue
+               sample. OSDR uses spatial proteomics to learn how the composition
+               of cellular neighbourhoods influences division rate, providing a
+               dynamical model of cell population change over time. We apply
+               OSDR to human breast cancer data2-4, and reconstruct two fixed
+               points of fibroblasts and macrophage interactions5,6. These fixed
+               points correspond to hot and cold fibrosis7, in agreement with
+               co-culture experiments that measured these dynamics directly8. We
+               then use OSDR to discover a pulse-generating excitable circuit of
+               T and B cells in the tumour microenvironment, suggesting temporal
+               flares of anticancer immune responses. Finally, we study
+               longitudinal biopsies from a triple-negative breast cancer
+               clinical trial3, in which OSDR predicts the collapse of the
+               tumour cell population in responders but not in non-responders,
+               based on early-treatment biopsies. OSDR can be applied to a wide
+               range of spatial proteomics assays to enable analysis of tissue
+               dynamics based on patient biopsies.",
+  month     =  feb,
+  year      =  2026,
+  language  = "en"
+}
+
+@ARTICLE{Lin2025-mm,
+  title       = "{CONCERT} predicts niche-aware perturbation responses in
+                 spatial transcriptomics",
+  author      = "Lin, Xiang and Kong, Zhenglun and Ghosh, Soumya and Kellis,
+                 Manolis and Zitnik, Marinka",
+  journal     = "bioRxivorg",
+  institution = "bioRxiv",
+  pages       = "2025.11.08.686890",
+  abstract    = "Spatial perturbation transcriptomics measures how genetic or
+                 chemical edits alter gene expression while preserving tissue
+                 context. Perturbation outcomes depend on a cell's intrinsic
+                 state and also on how effects propagate across cellular
+                 microenvironments. We present CONCERT, a niche-aware generative
+                 model that embeds perturbation context and learns spatial
+                 kernels with a Gaussian process variational autoencoder to
+                 predict perturbation effects across tissue. We formalize three
+                 tasks: patch, border, and niche, predicting responses in nearby
+                 unperturbed regions, at tissue interfaces, and as a function of
+                 surrounding microenvironments. We evaluate CONCERT on
+                 Perturb-map lung datasets. CONCERT outperforms state-of-the-art
+                 models (dissociated counterfactuals, spatialized perturbation
+                 models, and kNN), reducing E-distance by up to 33.77\% (patch),
+                 26.05\% (border), and 33.74\% (niche) versus the next best,
+                 with mean absolute error down by up to 23.28\% and Pearson
+                 correlation up by up to 9.10\%. Two case studies go beyond
+                 benchmarking. In dextran sodium sulfate-induced colitis,
+                 CONCERT reconstructs spatial gene expression at unmeasured time
+                 points, produces longitudinal comparisons across unpaired mice,
+                 resolves inter-mouse heterogeneity, and recovers consistent
+                 temporal declines of inflammation-associated genes across
+                 regions. In ischemic stroke, CONCERT predicts responses under
+                 variable lesion sizes and in a 3D formulation across brain
+                 sections, capturing lesion-core and peri-lesion patterns.
+                 CONCERT performs niche-aware counterfactual prediction,
+                 reconstructs missing spatial data, and models perturbation
+                 responses across tissues.",
+  month       =  nov,
+  year        =  2025,
+  language    = "en"
+}
+
+@ARTICLE{Bunne2022-tl,
+  title        = "The Schrödinger Bridge between Gaussian Measures has a Closed
+                  Form",
+  author       = "Bunne, Charlotte and Hsieh, Ya-Ping and Cuturi, Marco and
+                  Krause, Andreas",
+  journal      = "arXiv [cs.LG]",
+  abstract     = "The static optimal transport $(\mathrm{OT})$ problem between
+                  Gaussians seeks to recover an optimal map, or more generally a
+                  coupling, to morph a Gaussian into another. It has been well
+                  studied and applied to a wide variety of tasks. Here we focus
+                  on the dynamic formulation of OT, also known as the
+                  Schrödinger bridge (SB) problem, which has recently seen a
+                  surge of interest in machine learning due to its connections
+                  with diffusion-based generative models. In contrast to the
+                  static setting, much less is known about the dynamic setting,
+                  even for Gaussian distributions. In this paper, we provide
+                  closed-form expressions for SBs between Gaussian measures. In
+                  contrast to the static Gaussian OT problem, which can be
+                  simply reduced to studying convex programs, our framework for
+                  solving SBs requires significantly more involved tools such as
+                  Riemannian geometry and generator theory. Notably, we
+                  establish that the solutions of SBs between Gaussian measures
+                  are themselves Gaussian processes with explicit mean and
+                  covariance kernels, and thus are readily amenable for many
+                  downstream applications such as generative modeling or
+                  interpolation. To demonstrate the utility, we devise a new
+                  method for modeling the evolution of single-cell genomics data
+                  and report significantly improved numerical stability compared
+                  to existing SB-based approaches.",
+  month        =  feb,
+  year         =  2022,
+  primaryClass = "cs.LG"
+}
+
+@ARTICLE{Weiler2026-th,
+  title     = "{CellRank}: consistent and data view agnostic fate mapping for
+               single-cell genomics",
+  author    = "Weiler, Philipp and Theis, Fabian J",
+  journal   = "Nat. Protoc.",
+  publisher = "Nature Publishing Group",
+  pages     = "1--28",
+  abstract  = "Single-cell RNA sequencing quantifies biological samples at an
+               unprecedented scale, allowing us to decipher biological
+               differentiation dynamics such as normal development or disease
+               progression. As conventional single-cell RNA sequencing
+               experiments are destructive by nature, reconstructing cellular
+               trajectories computationally is an essential aspect of analysis
+               pipelines. To infer trajectories in a consistent and scalable
+               manner, we have developed CellRank. In its first iteration,
+               CellRank quantitatively recovered trajectories from RNA velocity
+               estimates and transcriptomic similarity. Given these data views,
+               CellRank constructed a cell-cell transition matrix, inducing a
+               Markov chain to automatically infer terminal states and describe
+               their lineage formation. However, CellRank did not enable
+               incorporating complementary data views such as experimental time
+               points, pseudotime or stemness potential. To facilitate these and
+               future views, CellRank 2 generalizes CellRank's trajectory
+               inference framework to multiview single-cell data, leading to a
+               general and scalable framework for cellular fate mapping.
+               Overall, the CellRank framework enables the consistent
+               quantification of cellular fate, combining complementary views
+               and analyzing lineage priming consistently. Here we provide
+               detailed protocols on how to run exemplary CellRank analyses at
+               scale and across different data views. Using CellRank requires
+               basic apprehension and knowledge of single-cell omics data and
+               the Python programming language.",
+  month     =  jan,
+  year      =  2026,
+  language  = "en"
+}
+
+@ARTICLE{Zhu2022-hz,
+  title     = "Delineating the dynamic evolution from preneoplasia to invasive
+               lung adenocarcinoma by integrating single-cell {RNA} sequencing
+               and spatial transcriptomics",
+  author    = "Zhu, Jianfei and Fan, Yue and Xiong, Yanlu and Wang, Wenchen and
+               Chen, Jiakuan and Xia, Yanmin and Lei, Jie and Gong, Li and Sun,
+               Shiquan and Jiang, Tao",
+  journal   = "Exp. Mol. Med.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  54,
+  number    =  11,
+  pages     = "2060--2076",
+  abstract  = "The cell ecology and spatial niche implicated in the dynamic and
+               sequential process of lung adenocarcinoma (LUAD) from
+               adenocarcinoma in situ (AIS) to minimally invasive adenocarcinoma
+               (MIA) and subsequent invasive adenocarcinoma (IAC) have not yet
+               been elucidated. Here, we performed an integrative analysis of
+               single-cell RNA sequencing (scRNA-seq) and spatial
+               transcriptomics (ST) to characterize the cell atlas of the
+               invasion trajectory of LUAD. We found that the UBE2C + cancer
+               cell subpopulation constantly increased during the invasive
+               process of LUAD with remarkable elevation in IAC, and its spatial
+               distribution was in the peripheral cancer region of the IAC,
+               representing a more malignant phenotype. Furthermore, analysis of
+               the TME cell type subpopulation showed a constant decrease in
+               mast cells, monocytes, and lymphatic endothelial cells, which
+               were implicated in the whole process of invasive LUAD,
+               accompanied by an increase in NK cells and MALT B cells from AIS
+               to MIA and an increase in Tregs and secretory B cells from MIA to
+               IAC. Notably, for AIS, cancer cells, NK cells, and mast cells
+               were colocalized in the cancer region; however, for IAC, Tregs
+               colocalized with cancer cells. Finally, communication and
+               interaction between cancer cells and TME cell-induced
+               constitutive activation of TGF-β signaling were involved in the
+               invasion of IAC. Therefore, our results reveal the specific
+               cellular information and spatial architecture of cancer cells and
+               TME subpopulations, as well as the cellular interaction between
+               them, which will facilitate the identification and development of
+               precision medicine in the invasive process of LUAD from AIS to
+               IAC.",
+  month     =  nov,
+  year      =  2022,
+  language  = "en"
+}
+
+@ARTICLE{Zweig2025-su,
+  title         = "Towards identifiability of interventional stochastic
+                   differential equations",
+  author        = "Zweig, Aaron and Lin, Zaikang and Azizi, Elham and Knowles,
+                   David",
+  journal       = "arXiv [cs.LG]",
+  abstract      = "We study identifiability of stochastic differential equations
+                   (SDE) under multiple interventions. Our results give the
+                   first provable bounds for unique recovery of SDE parameters
+                   given samples from their stationary distributions. We give
+                   tight bounds on the number of necessary interventions for
+                   linear SDEs, and upper bounds for nonlinear SDEs in the small
+                   noise regime. We experimentally validate the recovery of true
+                   parameters in synthetic data, and motivated by our
+                   theoretical results, demonstrate the advantage of
+                   parameterizations with learnable activation functions in
+                   application to gene regulatory dynamics.",
+  month         =  nov,
+  year          =  2025,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG"
+}
+
+@ARTICLE{Zaheer2017-gu,
+  title         = "Deep Sets",
+  author        = "Zaheer, Manzil and Kottur, Satwik and Ravanbakhsh, Siamak and
+                   Poczos, Barnabas and Salakhutdinov, Ruslan and Smola,
+                   Alexander",
+  journal       = "arXiv [cs.LG]",
+  abstract      = "We study the problem of designing models for machine learning
+                   tasks defined on \emph{sets}. In contrast to traditional
+                   approach of operating on fixed dimensional vectors, we
+                   consider objective functions defined on sets that are
+                   invariant to permutations. Such problems are widespread,
+                   ranging from estimation of population statistics
+                   \cite{poczos13aistats}, to anomaly detection in piezometer
+                   data of embankment dams \cite{Jung15Exploration}, to
+                   cosmology \cite{Ntampaka16Dynamical,Ravanbakhsh16ICML1}. Our
+                   main theorem characterizes the permutation invariant
+                   functions and provides a family of functions to which any
+                   permutation invariant objective function must belong. This
+                   family of functions has a special structure which enables us
+                   to design a deep network architecture that can operate on
+                   sets and which can be deployed on a variety of scenarios
+                   including both unsupervised and supervised learning tasks. We
+                   also derive the necessary and sufficient conditions for
+                   permutation equivariance in deep models. We demonstrate the
+                   applicability of our method on population statistic
+                   estimation, point cloud classification, set expansion, and
+                   outlier detection.",
+  month         =  mar,
+  year          =  2017,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG"
+}
+
+@ARTICLE{Weinreb2018-jq,
+  title     = "Fundamental limits on dynamic inference from single-cell
+               snapshots",
+  author    = "Weinreb, Caleb and Wolock, Samuel and Tusi, Betsabeh K and
+               Socolovsky, Merav and Klein, Allon M",
+  journal   = "Proc. Natl. Acad. Sci. U. S. A.",
+  publisher = "Proceedings of the National Academy of Sciences",
+  volume    =  115,
+  number    =  10,
+  pages     = "E2467--E2476",
+  abstract  = "Single-cell expression profiling reveals the molecular states of
+               individual cells with unprecedented detail. Because these methods
+               destroy cells in the process of analysis, they cannot measure how
+               gene expression changes over time. However, some information on
+               dynamics is present in the data: the continuum of molecular
+               states in the population can reflect the trajectory of a typical
+               cell. Many methods for extracting single-cell dynamics from
+               population data have been proposed. However, all such attempts
+               face a common limitation: for any measured distribution of cell
+               states, there are multiple dynamics that could give rise to it,
+               and by extension, multiple possibilities for underlying
+               mechanisms of gene regulation. Here, we describe the aspects of
+               gene expression dynamics that cannot be inferred from a static
+               snapshot alone and identify assumptions necessary to constrain a
+               unique solution for cell dynamics from static snapshots. We
+               translate these constraints into a practical algorithmic
+               approach, population balance analysis (PBA), which makes use of a
+               method from spectral graph theory to solve a class of
+               high-dimensional differential equations. We use simulations to
+               show the strengths and limitations of PBA, and then apply it to
+               single-cell profiles of hematopoietic progenitor cells (HPCs).
+               Cell state predictions from this analysis agree with HPC fate
+               assays reported in several papers over the past two decades. By
+               highlighting the fundamental limits on dynamic inference faced by
+               any method, our framework provides a rigorous basis for dynamic
+               interpretation of a gene expression continuum and clarifies best
+               experimental designs for trajectory reconstruction from static
+               snapshot measurements.",
+  month     =  mar,
+  year      =  2018,
+  keywords  = "dynamic inference; hematopoiesis; pseudotime; single cell;
+               spectral graph theory",
+  language  = "en"
+}
+
+@ARTICLE{Gorin2023-rf,
+  title     = "Studying stochastic systems biology of the cell with single-cell
+               genomics data",
+  author    = "Gorin, Gennady and Vastola, John J and Pachter, Lior",
+  journal   = "Cell Syst.",
+  publisher = "Elsevier BV",
+  volume    =  14,
+  number    =  10,
+  pages     = "822--843.e22",
+  abstract  = "Recent experimental developments in genome-wide RNA
+               quantification hold considerable promise for systems biology.
+               However, rigorously probing the biology of living cells requires
+               a unified mathematical framework that accounts for
+               single-molecule biological stochasticity in the context of
+               technical variation associated with genomics assays. We review
+               models for a variety of RNA transcription processes, as well as
+               the encapsulation and library construction steps of
+               microfluidics-based single-cell RNA sequencing, and present a
+               framework to integrate these phenomena by the manipulation of
+               generating functions. Finally, we use simulated scenarios and
+               biological data to illustrate the implications and applications
+               of the approach.",
+  month     =  oct,
+  year      =  2023,
+  keywords  = "Fokker-Planck equations; Markov chains; bioinformatics; chemical
+               master equations; genomics; single-cell RNA sequencing;
+               single-cell genomics; single-cell transcriptomics; stochastic
+               differential equations; stochastic processes; transcriptomics",
+  language  = "en"
+}
+
+@ARTICLE{Cable2022-tb,
+  title     = "Robust decomposition of cell type mixtures in spatial
+               transcriptomics",
+  author    = "Cable, Dylan M and Murray, Evan and Zou, Luli S and Goeva,
+               Aleksandrina and Macosko, Evan Z and Chen, Fei and Irizarry,
+               Rafael A",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  40,
+  number    =  4,
+  pages     = "517--526",
+  abstract  = "A limitation of spatial transcriptomics technologies is that
+               individual measurements may contain contributions from multiple
+               cells, hindering the discovery of cell-type-specific spatial
+               patterns of localization and expression. Here, we develop robust
+               cell type decomposition (RCTD), a computational method that
+               leverages cell type profiles learned from single-cell RNA-seq to
+               decompose cell type mixtures while correcting for differences
+               across sequencing technologies. We demonstrate the ability of
+               RCTD to detect mixtures and identify cell types on simulated
+               datasets. Furthermore, RCTD accurately reproduces known cell type
+               and subtype localization patterns in Slide-seq and Visium
+               datasets of the mouse brain. Finally, we show how RCTD's recovery
+               of cell type localization enables the discovery of genes within a
+               cell type whose expression depends on spatial environment.
+               Spatial mapping of cell types with RCTD enables the spatial
+               components of cellular identity to be defined, uncovering new
+               principles of cellular organization in biological tissue. RCTD is
+               publicly available as an open-source R package at
+               https://github.com/dmcable/RCTD .",
+  month     =  apr,
+  year      =  2022,
+  language  = "en"
+}
+
+@ARTICLE{Mages2023-wj,
+  title     = "{TACCO} unifies annotation transfer and decomposition of cell
+               identities for single-cell and spatial omics",
+  author    = "Mages, Simon and Moriel, Noa and Avraham-Davidi, Inbal and
+               Murray, Evan and Watter, Jan and Chen, Fei and Rozenblatt-Rosen,
+               Orit and Klughammer, Johanna and Regev, Aviv and Nitzan, Mor",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  41,
+  number    =  10,
+  pages     = "1465--1473",
+  abstract  = "Transferring annotations of single-cell-, spatial- and
+               multi-omics data is often challenging owing both to technical
+               limitations, such as low spatial resolution or high dropout
+               fraction, and to biological variations, such as continuous
+               spectra of cell states. Based on the concept that these data are
+               often best described as continuous mixtures of cells or
+               molecules, we present a computational framework for the transfer
+               of annotations to cells and their combinations (TACCO), which
+               consists of an optimal transport model extended with different
+               wrappers to annotate a wide variety of data. We apply TACCO to
+               identify cell types and states, decipher spatiomolecular tissue
+               structure at the cell and molecular level and resolve
+               differentiation trajectories using synthetic and biological
+               datasets. While matching or exceeding the accuracy of specialized
+               tools for the individual tasks, TACCO reduces the computational
+               requirements by up to an order of magnitude and scales to larger
+               datasets (for example, considering the runtime of annotation
+               transfer for 1 M simulated dropout observations).",
+  month     =  oct,
+  year      =  2023,
+  language  = "en"
+}
+
+@ARTICLE{Hamilton2017-ne,
+  title        = "Inductive representation learning on large graphs",
+  author       = "Hamilton, William L and Ying, Rex and Leskovec, Jure",
+  journal      = "arXiv [cs.SI]",
+  abstract     = "Low-dimensional embeddings of nodes in large graphs have
+                  proved extremely useful in a variety of prediction tasks, from
+                  content recommendation to identifying protein functions.
+                  However, most existing approaches require that all nodes in
+                  the graph are present during training of the embeddings; these
+                  previous approaches are inherently transductive and do not
+                  naturally generalize to unseen nodes. Here we present
+                  GraphSAGE, a general, inductive framework that leverages node
+                  feature information (e.g., text attributes) to efficiently
+                  generate node embeddings for previously unseen data. Instead
+                  of training individual embeddings for each node, we learn a
+                  function that generates embeddings by sampling and aggregating
+                  features from a node's local neighborhood. Our algorithm
+                  outperforms strong baselines on three inductive
+                  node-classification benchmarks: we classify the category of
+                  unseen nodes in evolving information graphs based on citation
+                  and Reddit post data, and we show that our algorithm
+                  generalizes to completely unseen graphs using a multi-graph
+                  dataset of protein-protein interactions.",
+  month        =  jun,
+  year         =  2017,
+  primaryClass = "cs.SI"
+}
+
+@ARTICLE{Buttner2019-gh,
+  title     = "A test metric for assessing single-cell {RNA}-seq batch
+               correction",
+  author    = "Büttner, Maren and Miao, Zhichao and Wolf, F Alexander and
+               Teichmann, Sarah A and Theis, Fabian J",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  16,
+  number    =  1,
+  pages     = "43--49",
+  abstract  = "Single-cell transcriptomics is a versatile tool for exploring
+               heterogeneous cell populations, but as with all genomics
+               experiments, batch effects can hamper data integration and
+               interpretation. The success of batch-effect correction is often
+               evaluated by visual inspection of low-dimensional embeddings,
+               which are inherently imprecise. Here we present a user-friendly,
+               robust and sensitive k-nearest-neighbor batch-effect test (kBET;
+               https://github.com/theislab/kBET ) for quantification of batch
+               effects. We used kBET to assess commonly used batch-regression
+               and normalization approaches, and to quantify the extent to which
+               they remove batch effects while preserving biological
+               variability. We also demonstrate the application of kBET to data
+               from peripheral blood mononuclear cells (PBMCs) from healthy
+               donors to distinguish cell-type-specific inter-individual
+               variability from changes in relative proportions of cell
+               populations. This has important implications for future
+               data-integration efforts, central to projects such as the Human
+               Cell Atlas.",
+  month     =  jan,
+  year      =  2019,
+  language  = "en"
+}
+
+@ARTICLE{Schubert2018-ph,
+  title     = "Perturbation-response genes reveal signaling footprints in cancer
+               gene expression",
+  author    = "Schubert, Michael and Klinger, Bertram and Klünemann, Martina and
+               Sieber, Anja and Uhlitz, Florian and Sauer, Sascha and Garnett,
+               Mathew J and Blüthgen, Nils and Saez-Rodriguez, Julio",
+  journal   = "Nat. Commun.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  9,
+  number    =  1,
+  pages     =  20,
+  abstract  = "Aberrant cell signaling can cause cancer and other diseases and
+               is a focal point of drug research. A common approach is to infer
+               signaling activity of pathways from gene expression. However,
+               mapping gene expression to pathway components disregards the
+               effect of post-translational modifications, and downstream
+               signatures represent very specific experimental conditions. Here
+               we present PROGENy, a method that overcomes both limitations by
+               leveraging a large compendium of publicly available perturbation
+               experiments to yield a common core of Pathway RespOnsive GENes.
+               Unlike pathway mapping methods, PROGENy can (i) recover the
+               effect of known driver mutations, (ii) provide or improve strong
+               markers for drug indications, and (iii) distinguish between
+               oncogenic and tumor suppressor pathways for patient survival.
+               Collectively, these results show that PROGENy accurately infers
+               pathway activity from gene expression in a wide range of
+               conditions.",
+  month     =  jan,
+  year      =  2018,
+  language  = "en"
+}
+
+@ARTICLE{Korsunsky2019-sy,
+  title     = "Fast, sensitive and accurate integration of single-cell data with
+               Harmony",
+  author    = "Korsunsky, Ilya and Millard, Nghia and Fan, Jean and Slowikowski,
+               Kamil and Zhang, Fan and Wei, Kevin and Baglaenko, Yuriy and
+               Brenner, Michael and Loh, Po-Ru and Raychaudhuri, Soumya",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  16,
+  number    =  12,
+  pages     = "1289--1296",
+  abstract  = "The emerging diversity of single-cell RNA-seq datasets allows for
+               the full transcriptional characterization of cell types across a
+               wide variety of biological and clinical conditions. However, it
+               is challenging to analyze them together, particularly when
+               datasets are assayed with different technologies, because
+               biological and technical differences are interspersed. We present
+               Harmony (https://github.com/immunogenomics/harmony), an algorithm
+               that projects cells into a shared embedding in which cells group
+               by cell type rather than dataset-specific conditions. Harmony
+               simultaneously accounts for multiple experimental and biological
+               factors. In six analyses, we demonstrate the superior performance
+               of Harmony to previously published algorithms while requiring
+               fewer computational resources. Harmony enables the integration of
+               ~106 cells on a personal computer. We apply Harmony to peripheral
+               blood mononuclear cells from datasets with large experimental
+               differences, five studies of pancreatic islet cells, mouse
+               embryogenesis datasets and the integration of scRNA-seq with
+               spatial transcriptomics data.",
+  month     =  dec,
+  year      =  2019,
+  language  = "en"
+}
+
+@ARTICLE{Lotfollahi2022-fc,
+  title     = "Mapping single-cell data to reference atlases by transfer
+               learning",
+  author    = "Lotfollahi, Mohammad and Naghipourfar, Mohsen and Luecken, Malte
+               D and Khajavi, Matin and Büttner, Maren and Wagenstetter, Marco
+               and Avsec, Žiga and Gayoso, Adam and Yosef, Nir and Interlandi,
+               Marta and Rybakov, Sergei and Misharin, Alexander V and Theis,
+               Fabian J",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  40,
+  number    =  1,
+  pages     = "121--130",
+  abstract  = "Large single-cell atlases are now routinely generated to serve as
+               references for analysis of smaller-scale studies. Yet learning
+               from reference data is complicated by batch effects between
+               datasets, limited availability of computational resources and
+               sharing restrictions on raw data. Here we introduce a deep
+               learning strategy for mapping query datasets on top of a
+               reference called single-cell architectural surgery (scArches).
+               scArches uses transfer learning and parameter optimization to
+               enable efficient, decentralized, iterative reference building and
+               contextualization of new datasets with existing references
+               without sharing raw data. Using examples from mouse brain,
+               pancreas, immune and whole-organism atlases, we show that
+               scArches preserves biological state information while removing
+               batch effects, despite using four orders of magnitude fewer
+               parameters than de novo integration. scArches generalizes to
+               multimodal reference mapping, allowing imputation of missing
+               modalities. Finally, scArches retains coronavirus disease 2019
+               (COVID-19) disease variation when mapping to a healthy reference,
+               enabling the discovery of disease-specific cell states. scArches
+               will facilitate collaborative projects by enabling iterative
+               construction, updating, sharing and efficient use of reference
+               atlases.",
+  month     =  jan,
+  year      =  2022,
+  language  = "en"
+}
+
+@ARTICLE{Virshup2023-tt,
+  title     = "The scverse project provides a computational ecosystem for
+               single-cell omics data analysis",
+  author    = "Virshup, Isaac and Bredikhin, Danila and Heumos, Lukas and Palla,
+               Giovanni and Sturm, Gregor and Gayoso, Adam and Kats, Ilia and
+               Koutrouli, Mikaela and {Scverse Community} and Berger, Bonnie and
+               Pe'er, Dana and Regev, Aviv and Teichmann, Sarah A and Finotello,
+               Francesca and Wolf, F Alexander and Yosef, Nir and Stegle, Oliver
+               and Theis, Fabian J",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  41,
+  number    =  5,
+  pages     = "604--606",
+  month     =  may,
+  year      =  2023,
+  language  = "en"
+}
+
+@ARTICLE{Gayoso2022-xc,
+  title     = "A Python library for probabilistic analysis of single-cell omics
+               data",
+  author    = "Gayoso, Adam and Lopez, Romain and Xing, Galen and Boyeau, Pierre
+               and Valiollah Pour Amiri, Valeh and Hong, Justin and Wu,
+               Katherine and Jayasuriya, Michael and Mehlman, Edouard and
+               Langevin, Maxime and Liu, Yining and Samaran, Jules and Misrachi,
+               Gabriel and Nazaret, Achille and Clivio, Oscar and Xu, Chenling
+               and Ashuach, Tal and Gabitto, Mariano and Lotfollahi, Mohammad
+               and Svensson, Valentine and da Veiga Beltrame, Eduardo and
+               Kleshchevnikov, Vitalii and Talavera-López, Carlos and Pachter,
+               Lior and Theis, Fabian J and Streets, Aaron and Jordan, Michael I
+               and Regier, Jeffrey and Yosef, Nir",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  40,
+  number    =  2,
+  pages     = "163--166",
+  month     =  feb,
+  year      =  2022,
+  language  = "en"
+}
+
+@ARTICLE{Lynch2023-xn,
+  title     = "Multi-batch single-cell comparative atlas construction by deep
+               learning disentanglement",
+  author    = "Lynch, Allen W and Brown, Myles and Meyer, Clifford A",
+  journal   = "Nat. Commun.",
+  publisher = "Nature Publishing Group",
+  volume    =  14,
+  number    =  1,
+  pages     =  4126,
+  abstract  = "Cell state atlases constructed through single-cell RNA-seq and
+               ATAC-seq analysis are powerful tools for analyzing the effects of
+               genetic and drug treatment-induced perturbations on complex cell
+               systems. Comparative analysis of such atlases can yield new
+               insights into cell state and trajectory alterations. Perturbation
+               experiments often require that single-cell assays be carried out
+               in multiple batches, which can introduce technical distortions
+               that confound the comparison of biological quantities between
+               different batches. Here we propose CODAL, a variational
+               autoencoder-based statistical model which uses a mutual
+               information regularization technique to explicitly disentangle
+               factors related to technical and biological effects. We
+               demonstrate CODAL's capacity for batch-confounded cell type
+               discovery when applied to simulated datasets and embryonic
+               development atlases with gene knockouts. CODAL improves the
+               representation of RNA-seq and ATAC-seq modalities, yields
+               interpretable modules of biological variation, and enables the
+               generalization of other count-based generative models to
+               multi-batched data.",
+  month     =  jul,
+  year      =  2023,
+  language  = "en"
+}
+
+@ARTICLE{Gaspard-Boulinc2025-la,
+  title     = "Cell-type deconvolution methods for spatial transcriptomics",
+  author    = "Gaspard-Boulinc, Lucie C and Gortana, Luca and Walter, Thomas and
+               Barillot, Emmanuel and Cavalli, Florence M G",
+  journal   = "Nat. Rev. Genet.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  26,
+  number    =  12,
+  pages     = "828--846",
+  abstract  = "Spatial transcriptomics is a powerful method for studying the
+               spatial organization of cells, which is a critical feature in the
+               development, function and evolution of multicellular life.
+               However, sequencing-based spatial transcriptomics has not yet
+               achieved cellular-level resolution, so advanced deconvolution
+               methods are needed to infer cell-type contributions at each
+               location in the data. Recent progress has led to diverse tools
+               for cell-type deconvolution that are helping to describe tissue
+               architectures in health and disease. In this Review, we describe
+               the varied types of cell-type deconvolution methods for spatial
+               transcriptomics, contrast their capabilities and summarize them
+               in a web-based, interactive table to enable more efficient method
+               selection.",
+  month     =  dec,
+  year      =  2025,
+  language  = "en"
+}
+
+@ARTICLE{Nonchev2024-mj,
+  title    = "Representation learning for multi-modal spatially resolved
+              transcriptomics data",
+  author   = "Nonchev, Kalin and Andani, Sonali and Ficek-Pascual, Joanna and
+              Nowak, Marta and Sobottka, Bettina and Koelzer, Viktor Hendrik and
+              Raetsch, Gunnar and {Tumor Profiler Consortium}",
+  journal  = "medRxiv",
+  abstract = "Spatial transcriptomics enables in-depth molecular
+              characterization of samples on a morphology and RNA level while
+              preserving spatial location. Integrating the resulting multi-modal
+              data is an unsolved problem, and developing new solutions in
+              precision medicine depends on improved methodologies. Here, we
+              introduce AESTETIK, a convolutional deep learning model that
+              jointly integrates spatial, transcriptomics, and morphology
+              information to learn accurate spot representations. AESTETIK
+              yielded substantially improved cluster assignments on widely
+              adopted technology platforms (e.g., 10x Genomics™, NanoString™)
+              across multiple datasets. We achieved performance enhancement on
+              structured tissues (e.g., brain) with a 21\% increase in median
+              ARI over previous state-of-the-art methods. Notably, AESTETIK also
+              demonstrated superior performance on cancer tissues with
+              heterogeneous cell populations, showing a two-fold increase in
+              breast cancer, 79\% in melanoma, and 21\% in liver cancer. We
+              expect that these advances will enable a multi-modal understanding
+              of key biological processes.",
+  month    =  jun,
+  year     =  2024
+}
+
+@ARTICLE{Hoebel2026-tq,
+  title     = "Graph neural network modeling of spatial tumor-immune
+               interactions identifies prognostic cellular niches in non‑small
+               cell lung cancer",
+  author    = "Hoebel, Katharina V and Lindsay, James R and Altreuter, Jennifer
+               and Alessi, Joao V and Weirather, Jason L and Dryg, Ian and
+               Giobbie-Hurder, Anita and Li, Zhirou and Yu, Kun-Hsing and Awad,
+               Mark M and Rodig, Scott J and Lotter, William",
+  journal   = "NPJ Precis. Oncol.",
+  publisher = "Springer Science and Business Media LLC",
+  abstract  = "The spatial organization of immune and tumor cells within the
+               tumor microenvironment (TME) has a critical influence on
+               antitumor immunity and patient survival. However, hand-engineered
+               metrics such as cell densities or pairwise proximity scores fail
+               to capture the complexity of local cell-cell interactions.
+               Understanding these higher-order spatial patterns and their
+               relation to patient outcomes is especially important for
+               non-small cell lung cancer (NSCLC), the deadliest cancer
+               worldwide. Here, we elucidate the NSCLC TME using a graph neural
+               network (GNN)-based framework to model spatially localized
+               cellular neighborhoods in multiplex immunofluorescence data from
+               a clinical cohort of 506 patients. The GNN predicted patient
+               survival with high accuracy (concordance index: 0.82) and
+               remained a significant prognostic factor when adjusted for
+               clinical covariates. Interpretability analyses revealed that
+               specific combinations of cell types, particularly involving CD8+
+               T cells, PD-L1+ immune cells, and FOXP3+ regulatory T cells,
+               modulated predictions depending on their spatial context.
+               In-silico manipulation experiments applied to the trained GNN,
+               used here as an interpretable surrogate model, suggested that the
+               impact of CD8+ cells on survival were estimated as favorable when
+               in direct tumor contact and less favorable when adjacent to
+               immunosuppressive cells. Latent-space clustering identified
+               distinct TME states predictive of outcome, reflecting varying
+               balances of immune activation and evasion. Our approach
+               underscores the prognostic significance of spatially resolved
+               immune-tumor interactions, providing a blueprint for developing
+               next-generation spatial biomarkers to guide precision treatment
+               strategies in NSCLC.",
+  month     =  mar,
+  year      =  2026,
+  language  = "en"
+}
+
+@ARTICLE{Nazaret2025-jf,
+  title     = "Joint representation and visualization of derailed cell states
+               with Decipher",
+  author    = "Nazaret, Achille and Fan, Joy Linyue and Lavallée,
+               Vincent-Philippe and Burdziak, Cassandra and Cornish, Andrew E
+               and Kiseliovas, Vaidotas and Bowman, Robert L and Masilionis,
+               Ignas and Chun, Jaeyoung and Eisman, Shira E and Wang, James and
+               Hong, Justin and Shi, Lingting and Levine, Ross L and Mazutis,
+               Linas and Blei, David and Pe'er, Dana and Azizi, Elham",
+  journal   = "Genome Biol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  26,
+  number    =  1,
+  pages     =  219,
+  abstract  = "Biological insights often depend on comparing conditions such as
+               disease and health. Yet, we lack effective computational tools
+               for integrating single-cell genomics data across conditions or
+               characterizing transitions from normal to deviant cell states.
+               Here, we present Decipher, a deep generative model that
+               characterizes derailed cell-state trajectories. Decipher jointly
+               models and visualizes gene expression and cell state from normal
+               and perturbed single-cell RNA-seq data, revealing shared and
+               disrupted dynamics. We demonstrate its superior performance
+               across diverse contexts, including in pancreatitis with oncogene
+               mutation, acute myeloid leukemia, and gastric cancer.",
+  month     =  jul,
+  year      =  2025,
+  keywords  = "Acute myeloid leukemia; Cell-state trajectories; Deep generative
+               model; Dimensionality reduction",
+  language  = "en"
+}
+
+@ARTICLE{Kang2025-zt,
+  title     = "Benchmarking computational methods for detecting spatial domains
+               and domain-specific spatially variable genes from spatial
+               transcriptomics data",
+  author    = "Kang, Liping and Zhang, Qinglong and Qian, Fan and Liang, Junyao
+               and Wu, Xiaohui",
+  journal   = "Nucleic Acids Res.",
+  publisher = "Oxford University Press (OUP)",
+  volume    =  53,
+  number    =  7,
+  abstract  = "Advances in spatially resolved transcriptomics (SRT) have led to
+               the emergence of numerous computational methods for identifying
+               spatial domains and spatially variable genes (SVGs); however, a
+               comprehensive assessment of existing methods is lacking. We
+               comprehensively benchmarked 19 methods for detecting spatial
+               domains and domain-specific SVGs from SRT data, using 30
+               real-world datasets covering six SRT technologies and 27
+               synthetic datasets. We first evaluated the performance of these
+               methods on spatial domain identification in terms of accuracy,
+               stability, generalizability, and scalability. Results reveal that
+               there is no single method that works best for all datasets, and
+               the optimal method depends on the data, especially the SRT
+               platform. Further, we proposed a quantitative strategy to
+               evaluate domain-specific SVG recognition results and assessed the
+               impact of spatial domains on SVG detection. We found that SVG
+               detection based on spatial domains identified by different GNN
+               methods have high accuracy but low concordance. Generally, the
+               more accurate the recognized spatial domains, the higher the
+               number and accuracy of domain-specific SVGs detected. Moreover,
+               integrating spatial clustering results from different methods can
+               lead to more robust and better clustering and SVG results.
+               Practical guidelines were provided for choosing appropriate
+               methods for spatial domain and domain-specific SVG
+               identification.",
+  month     =  apr,
+  year      =  2025,
+  language  = "en"
+}
+
+@ARTICLE{Richter2026-ib,
+  title     = "Generative models of cell dynamics: from Neural {ODEs} to flow
+               matching",
+  author    = "Richter, Till and Wang, Weixu and Palma, Alessandro and Theis,
+               Fabian J",
+  journal   = "Commun. Biol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  9,
+  number    =  1,
+  abstract  = "Neural Ordinary Differential Equations (Neural ODEs) have emerged
+               as a prominent framework for modeling complex dynamical systems.
+               Their ability to describe a system's underlying dynamical law has
+               attracted attention to applications in life sciences. Single-cell
+               data presents challenges due to noise, sparsity, and the
+               inability to explicitly profile single cells across time.
+               However, pioneering works have demonstrated how Neural ODE-based
+               models can overcome these hurdles, aid mechanistic modeling of
+               cellular development, and approximate population dynamics through
+               the lens of Flow Matching. This article studies why Neural ODEs
+               are suited for modeling the dynamic processes in single-cell data
+               and broader computational health fields, from standard
+               time-series parameterizations to generative models based on
+               optimal transport. We first explore the mathematical properties
+               of Neural ODEs and their application to modeling cellular
+               dynamics. Successively, we zoom into how recent innovations in
+               generative modeling enable efficient and expressive cell state
+               transition modeling through the simulation-free Flow Matching
+               approach. Finally, we present challenges in modeling single-cell
+               dynamics that drive ongoing research in single-cell biology. This
+               work shows that Neural ODEs, as a machine learning framework, are
+               appropriate for modeling dynamic processes in cellular data and
+               promises to advance our understanding of the dynamics in cellular
+               systems.",
+  month     =  feb,
+  year      =  2026,
+  language  = "en"
+}
+
+@ARTICLE{Dann2023-fg,
+  title     = "Precise identification of cell states altered in disease using
+               healthy single-cell references",
+  author    = "Dann, Emma and Cujba, Ana-Maria and Oliver, Amanda J and Meyer,
+               Kerstin B and Teichmann, Sarah A and Marioni, John C",
+  journal   = "Nat. Genet.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  55,
+  number    =  11,
+  pages     = "1998--2008",
+  abstract  = "Joint analysis of single-cell genomics data from diseased tissues
+               and a healthy reference can reveal altered cell states. We
+               investigate whether integrated collections of data from healthy
+               individuals (cell atlases) are suitable references for
+               disease-state identification and whether matched control samples
+               are needed to minimize false discoveries. We demonstrate that
+               using a reference atlas for latent space learning followed by
+               differential analysis against matched controls leads to improved
+               identification of disease-associated cells, especially with
+               multiple perturbed cell types. Additionally, when an atlas is
+               available, reducing control sample numbers does not increase
+               false discovery rates. Jointly analyzing data from a COVID-19
+               cohort and a blood cell atlas, we improve detection of
+               infection-related cell states linked to distinct clinical
+               severities. Similarly, we studied disease states in pulmonary
+               fibrosis using a healthy lung atlas, characterizing two distinct
+               aberrant basal states. Our analysis provides guidelines for
+               designing disease cohort studies and optimizing cell atlas use.",
+  month     =  nov,
+  year      =  2023,
+  language  = "en"
+}
+
+@ARTICLE{Xiao2025-fy,
+  title     = "Inferring spatial single-cell-level interactions through
+               interpreting cell state and niche correlations learned by
+               self-supervised graph transformer",
+  author    = "Xiao, Xiao and Zhang, Le and Zhao, Hongyu and Wang, Zuoheng",
+  journal   = "Nat. Mach. Intell.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  8,
+  number    =  1,
+  pages     = "42--58",
+  abstract  = "Cell–cell interactions (CCI), driven by distance-dependent
+               signalling, are important for tissue development and organ
+               function. While imaging-based spatial transcriptomics offers
+               unprecedented opportunities to unravel CCI at single-cell
+               resolution, current analyses face challenges such as limited
+               ligand–receptor pairs measured, insufficient spatial encoding and
+               low interpretability. We present GITIII (graph inductive bias
+               transformer for intercellular interaction investigation), a
+               lightweight, interpretable, self-supervised graph
+               transformer-based model that conceptualizes cells as words and
+               their surrounding cellular neighbourhood as context that shapes
+               the meaning or state of the central cell. GITIII infers CCI by
+               examining the correlation between a cell’s state and its niche,
+               enabling us to understand how sender cells influence the gene
+               expression of receiver cells, visualize spatial CCI patterns,
+               perform CCI-informed cell clustering and construct CCI networks.
+               Applied to four spatial transcriptomics datasets across multiple
+               species, organs and platforms, GITIII effectively identified and
+               statistically interpreted CCI patterns in the brain and tumour
+               microenvironments. Xiao et al. present GITIII, a lightweight and
+               interpretable graph transformer for inferring spatial
+               single-cell-level interactions and quantifying the influence of
+               neighbouring cells on the gene expression of receiver cells in
+               spatial transcriptomics.",
+  month     =  dec,
+  year      =  2025,
+  language  = "en"
+}
+
+@ARTICLE{Hong2025-jm,
+  title    = "{AMICI}: Attention mechanism interpretation of cell-cell
+              interactions",
+  author   = "Hong, Justin and Desai, Khushi and Nguyen, Tu Duyen and Nazaret,
+              Achille and Levy, Nathan and Ergen, Can and Plitas, George and
+              Azizi, Elham",
+  journal  = "bioRxivorg",
+  pages    = "2025.09.22.677860",
+  abstract = "Spatial transcriptomic data enable study of cell-cell
+              communication, yet current analysis tools often fail to provide
+              dynamic, interpretable estimates of interactions and their spatial
+              range across tissue. We present AMICI, an interpretable attention
+              framework that jointly estimates interaction length scales,
+              adaptively resolves sender-receiver subpopulations, and links
+              communication to downstream gene programs. AMICI recovers
+              ground-truth interactions in semi-synthetic data, uncovers gene
+              programs linked to cell communication in the mouse cortex, and
+              reveals length-scale-dependent tumor-immune signaling that
+              reinforces estrogen receptor (ER) programs in breast cancer.",
+  month    =  sep,
+  year     =  2025,
+  language = "en"
+}
+
+@ARTICLE{Fishman2026-rs,
+  title         = "Count Bridges enable modeling and deconvolving transcriptomic
+                   data",
+  author        = "Fishman, Nic and Gowri, Gokul and Kumar, Tanush and Lu, Jiaqi
+                   and de Bortoli, Valentin and Gootenberg, Jonathan S and
+                   Abudayyeh, Omar",
+  journal       = "arXiv [cs.LG]",
+  abstract      = "Many modern biological assays, including RNA sequencing,
+                   yield integer-valued counts that reflect the number of
+                   molecules detected. These measurements are often not at the
+                   desired resolution: while the unit of interest is typically a
+                   single cell, many measurement technologies produce counts
+                   aggregated over sets of cells. Although recent generative
+                   frameworks such as diffusion and flow matching have been
+                   extended to non-Euclidean and discrete settings, it remains
+                   unclear how best to model integer-valued data or how to
+                   systematically deconvolve aggregated observations. We
+                   introduce Count Bridges, a stochastic bridge process on the
+                   integers that provides an exact, tractable analogue of
+                   diffusion-style models for count data, with closed-form
+                   conditionals for efficient training and sampling. We extend
+                   this framework to enable direct training from aggregated
+                   measurements via an Expectation-Maximization-style approach
+                   that treats unit-level counts as latent variables. We
+                   demonstrate state-of-the-art performance on integer
+                   distribution matching benchmarks, comparing against flow
+                   matching and discrete flow matching baselines across various
+                   metrics. We then apply Count Bridges to two large-scale
+                   problems in biology: modeling single-cell gene expression
+                   data at the nucleotide resolution, with applications to
+                   deconvolving bulk RNA-seq, and resolving multicellular
+                   spatial transcriptomic spots into single-cell count profiles.
+                   Our methods offer a principled foundation for generative
+                   modeling and deconvolution of biological count data across
+                   scales and modalities.",
+  month         =  mar,
+  year          =  2026,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG"
+}
+
+@ARTICLE{Heitz2025-fx,
+  title     = "Spatial transcriptomics brings new challenges and opportunities
+               for trajectory inference",
+  author    = "Heitz, Matthieu and Ma, Yujia and Kubal, Sharvaj and Schiebinger,
+               Geoffrey",
+  journal   = "Annu. Rev. Biomed. Data Sci.",
+  publisher = "Annual Reviews",
+  volume    =  8,
+  number    =  1,
+  pages     = "1--19",
+  abstract  = "Spatial transcriptomics (ST) brings new dimensions to the
+               analysis of single-cell data. While some methods for data
+               analysis can be ported over without major modifications, they are
+               the exception rather than the rule. Trajectory inference (TI)
+               methods in particular can suffer from significant challenges due
+               to spatial batch effects in ST data. These can add independent
+               sources of noise to each time point. Pioneering methods for TI on
+               ST data have focused primarily on addressing the batch effects in
+               physical arrangement, i.e., where tissues are deformed in
+               different ways at different time points. However, other
+               challenges arise due to the measurement granularity of ST
+               technologies, as well as a bias from slicing. In this review, we
+               examine the sources of these challenges, and we explore how they
+               are addressed with current state-of-the-art STTI methods. We
+               conclude by highlighting some opportunities for future method
+               development.",
+  month     =  aug,
+  year      =  2025,
+  keywords  = "batch effects; common coordinate framework; spatial
+               transcriptomics; spatiotemporal analysis; trajectory inference",
+  language  = "en"
+}
+
+@ARTICLE{Gunawan2023-uo,
+  title     = "An introduction to representation learning for single-cell data
+               analysis",
+  author    = "Gunawan, Ihuan and Vafaee, Fatemeh and Meijering, Erik and Lock,
+               John George",
+  journal   = "Cell Rep. Methods",
+  publisher = "Elsevier BV",
+  volume    =  3,
+  number    =  8,
+  pages     =  100547,
+  abstract  = "Single-cell-resolved systems biology methods, including omics-
+               and imaging-based measurement modalities, generate a wealth of
+               high-dimensional data characterizing the heterogeneity of cell
+               populations. Representation learning methods are routinely used
+               to analyze these complex, high-dimensional data by projecting
+               them into lower-dimensional embeddings. This facilitates the
+               interpretation and interrogation of the structures, dynamics, and
+               regulation of cell heterogeneity. Reflecting their central role
+               in analyzing diverse single-cell data types, a myriad of
+               representation learning methods exist, with new approaches
+               continually emerging. Here, we contrast general features of
+               representation learning methods spanning statistical, manifold
+               learning, and neural network approaches. We consider key steps
+               involved in representation learning with single-cell data,
+               including data pre-processing, hyperparameter optimization,
+               downstream analysis, and biological validation. Interdependencies
+               and contingencies linking these steps are also highlighted. This
+               overview is intended to guide researchers in the selection,
+               application, and optimization of representation learning
+               strategies for current and future single-cell research
+               applications.",
+  month     =  aug,
+  year      =  2023,
+  keywords  = "deep learning; dimension reduction; hyperparameter; manifold
+               learning; omics; systems microscopy",
+  language  = "en"
+}
+
+@ARTICLE{Kimura2024-nr,
+  title        = "On permutation-invariant neural networks",
+  author       = "Kimura, Masanari and Shimizu, Ryotaro and Hirakawa, Yuki and
+                  Goto, Ryosuke and Saito, Yuki",
+  journal      = "arXiv [cs.LG]",
+  abstract     = "Conventional machine learning algorithms have traditionally
+                  been designed under the assumption that input data follows a
+                  vector-based format, with an emphasis on vector-centric
+                  paradigms. However, as the demand for tasks involving
+                  set-based inputs has grown, there has been a paradigm shift in
+                  the research community towards addressing these challenges. In
+                  recent years, the emergence of neural network architectures
+                  such as Deep Sets and Transformers has presented a significant
+                  advancement in the treatment of set-based data. These
+                  architectures are specifically engineered to naturally
+                  accommodate sets as input, enabling more effective
+                  representation and processing of set structures. Consequently,
+                  there has been a surge of research endeavors dedicated to
+                  exploring and harnessing the capabilities of these
+                  architectures for various tasks involving the approximation of
+                  set functions. This comprehensive survey aims to provide an
+                  overview of the diverse problem settings and ongoing research
+                  efforts pertaining to neural networks that approximate set
+                  functions. By delving into the intricacies of these approaches
+                  and elucidating the associated challenges, the survey aims to
+                  equip readers with a comprehensive understanding of the field.
+                  Through this comprehensive perspective, we hope that
+                  researchers can gain valuable insights into the potential
+                  applications, inherent limitations, and future directions of
+                  set-based neural networks. Indeed, from this survey we gain
+                  two insights: i) Deep Sets and its variants can be generalized
+                  by differences in the aggregation function, and ii) the
+                  behavior of Deep Sets is sensitive to the choice of the
+                  aggregation function. From these observations, we show that
+                  Deep Sets, one of the well-known permutation-invariant neural
+                  networks, can be generalized in the sense of a
+                  quasi-arithmetic mean.",
+  month        =  mar,
+  year         =  2024,
+  primaryClass = "cs.LG"
+}
+
+@ARTICLE{Salcher2022-pu,
+  title     = "High-resolution single-cell atlas reveals diversity and
+               plasticity of tissue-resident neutrophils in non-small cell lung
+               cancer",
+  author    = "Salcher, Stefan and Sturm, Gregor and Horvath, Lena and
+               Untergasser, Gerold and Kuempers, Christiane and Fotakis,
+               Georgios and Panizzolo, Elisa and Martowicz, Agnieszka and Trebo,
+               Manuel and Pall, Georg and Gamerith, Gabriele and Sykora, Martina
+               and Augustin, Florian and Schmitz, Katja and Finotello, Francesca
+               and Rieder, Dietmar and Perner, Sven and Sopper, Sieghart and
+               Wolf, Dominik and Pircher, Andreas and Trajanoski, Zlatko",
+  journal   = "Cancer Cell",
+  publisher = "Elsevier BV",
+  volume    =  40,
+  number    =  12,
+  pages     = "1503--1520.e8",
+  abstract  = "Non-small cell lung cancer (NSCLC) is characterized by molecular
+               heterogeneity with diverse immune cell infiltration patterns,
+               which has been linked to therapy sensitivity and resistance.
+               However, full understanding of how immune cell phenotypes vary
+               across different patient subgroups is lacking. Here, we dissect
+               the NSCLC tumor microenvironment at high resolution by
+               integrating 1,283,972 single cells from 556 samples and 318
+               patients across 29 datasets, including our dataset capturing
+               cells with low mRNA content. We stratify patients into
+               immune-deserted, B cell, T cell, and myeloid cell subtypes. Using
+               bulk samples with genomic and clinical information, we identify
+               cellular components associated with tumor histology and
+               genotypes. We then focus on the analysis of tissue-resident
+               neutrophils (TRNs) and uncover distinct subpopulations that
+               acquire new functional properties in the tissue microenvironment,
+               providing evidence for the plasticity of TRNs. Finally, we show
+               that a TRN-derived gene signature is associated with
+               anti-programmed cell death ligand 1 (PD-L1) treatment failure.",
+  month     =  dec,
+  year      =  2022,
+  keywords  = "cell-cell communication; patient stratification; single-cell
+               sequencing; therapy response; tissue-resident neutrophils",
+  language  = "en"
+}
+
+@ARTICLE{Gier2025-br,
+  title     = "Clonal cell states link gastroesophageal junction tissues with
+               metaplasia and cancer",
+  author    = "Gier, Rodrigo A and Bracht, Sydney A and Rong, Jiazhen and Reyes
+               Hueros, Raúl A and Wahlsten, Madison L and Cote, Christopher and
+               DeMarshall, Maureen and Karakasheva, Tatiana A and Strauss
+               Starling, Alexandra and Muir, Amanda B and Falk, Gary W and
+               Zhang, Nancy R and Shaffer, Sydney M",
+  journal   = "Nat. Commun.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  16,
+  number    =  1,
+  pages     =  10952,
+  abstract  = "Barrett's esophagus is a common type of metaplasia and a
+               precursor of esophageal adenocarcinoma. However, the cell states
+               and lineage connections underlying the origin, maintenance, and
+               progression of Barrett's esophagus have not been resolved in
+               humans. Here, we perform single-cell lineage tracing and
+               transcriptional profiling of patient cells isolated from
+               metaplastic and healthy tissue. Our analysis unexpectedly reveals
+               evidence for lineages spanning squamous esophagus, gastric
+               cardia, and transitional basal cells at the tissue junction. We
+               also identify lineages connecting Barrett's esophagus to both
+               esophageal and gastric tissues. Barrett's esophagus biopsies
+               consist of multiple distinct clones, with lineages that contain
+               all progenitor and differentiated cell types. We discover
+               Barrett's esophagus cell types, including tuft, ciliated, and
+               BEST4+ cells, which we validate through both lineage
+               relationships and spatial transcriptomics. In contrast, the
+               precancerous dysplastic lesions show expansion from a single
+               molecularly aberrant Barrett's esophagus clone. Together, these
+               findings provide a single-cell view of the cell dynamics of
+               Barrett's esophagus, linking cell states along the disease
+               trajectory, from its origin to cancer.",
+  month     =  dec,
+  year      =  2025,
+  language  = "en"
+}
+
+@ARTICLE{Adduri2025-nt,
+  title    = "Predicting cellular responses to perturbation across diverse
+              contexts with State",
+  author   = "Adduri, Abhinav K and Gautam, Dhruv and Bevilacqua, Beatrice and
+              Imran, Alishba and Shah, Rohan and Naghipourfar, Mohsen and
+              Teyssier, Noam and Ilango, Rajesh and Nagaraj, Sanjay and Dong,
+              Mingze and Ricci-Tam, Chiara and Carpenter, Christopher and
+              Subramanyam, Vishvak and Winters, Aidan and Tirukkovular, Sravya
+              and Sullivan, Jeremy and Plosky, Brian S and Eraslan, Basak and
+              Youngblut, Nicholas D and Leskovec, Jure and Gilbert, Luke A and
+              Konermann, Silvana and Hsu, Patrick D and Dobin, Alexander and
+              Burke, Dave P and Goodarzi, Hani and Roohani, Yusuf H",
+  journal  = "bioRxiv",
+  pages    = "2025.06.26.661135",
+  abstract = "Abstract Cellular responses to perturbations are a cornerstone for
+              understanding biological mechanisms and selecting drug targets.
+              While machine learning models offer tremendous potential for
+              predicting perturbation effects, they currently struggle to
+              generalize to unobserved cellular contexts. Here, we introduce
+              State, a transformer model that predicts perturbation effects
+              while accounting for cellular heterogeneity within and across
+              experiments. State predicts perturbation effects across sets of
+              cells and is trained using gene expression data from over 100
+              million perturbed cells. State improved discrimination of effects
+              on large datasets by more than 30\% and identified differentially
+              expressed genes across genetic, signaling and chemical
+              perturbations with significantly improved accuracy. Using its cell
+              embedding trained on observational data from 167 million cells,
+              State identified strong perturbations in novel cellular contexts
+              where no perturbations were observed during training. We further
+              introduce Cell-Eval, a comprehensive evaluation framework that
+              highlights State’s ability to detect cell type-specific
+              perturbation responses, such as cell survival. Overall, the
+              performance and flexibility of State sets the stage for scaling
+              the development of virtual cell models.",
+  month    =  jun,
+  year     =  2025,
+  language = "en"
+}
+
+@ARTICLE{Vaswani2017-rb,
+  title         = "Attention is all you need",
+  author        = "Vaswani, Ashish and Shazeer, Noam and Parmar, Niki and
+                   Uszkoreit, Jakob and Jones, Llion and N. Gomez, Aidan and
+                   Kaiser, Lukasz and Polosukhin, Illia",
+  journal       = "arXiv [cs.CL]",
+  abstract      = "The dominant sequence transduction models are based on
+                   complex recurrent or convolutional neural networks in an
+                   encoder-decoder configuration. The best performing models
+                   also connect the encoder and decoder through an attention
+                   mechanism. We propose a new simple network architecture, the
+                   Transformer, based solely on attention mechanisms, dispensing
+                   with recurrence and convolutions entirely. Experiments on two
+                   machine translation tasks show these models to be superior in
+                   quality while being more parallelizable and requiring
+                   significantly less time to train. Our model achieves 28.4
+                   BLEU on the WMT 2014 English-to-German translation task,
+                   improving over the existing best results, including ensembles
+                   by over 2 BLEU. On the WMT 2014 English-to-French translation
+                   task, our model establishes a new single-model
+                   state-of-the-art BLEU score of 41.8 after training for 3.5
+                   days on eight GPUs, a small fraction of the training costs of
+                   the best models from the literature. We show that the
+                   Transformer generalizes well to other tasks by applying it
+                   successfully to English constituency parsing both with large
+                   and limited training data.",
+  month         =  aug,
+  year          =  2017,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.CL"
+}
+
+@ARTICLE{Roohani2025-yb,
+  title     = "Virtual Cell Challenge: Toward a Turing test for the virtual cell",
+  author    = "Roohani, Yusuf H and Hua, Tony J and Tung, Po-Yuan and Bounds,
+               Lexi R and Yu, Feiqiao B and Dobin, Alexander and Teyssier, Noam
+               and Adduri, Abhinav and Woodrow, Alden and Plosky, Brian S and
+               Mehta, Reshma and Hsu, Benjamin and Sullivan, Jeremy and
+               Ricci-Tam, Chiara and Li, Nianzhen and Kazaks, Julia and Gilbert,
+               Luke A and Konermann, Silvana and Hsu, Patrick D and Goodarzi,
+               Hani and Burke, Dave P",
+  journal   = "Cell",
+  publisher = "Elsevier BV",
+  volume    =  188,
+  number    =  13,
+  pages     = "3370--3374",
+  abstract  = "Virtual cells are an emerging frontier at the intersection of
+               artificial intelligence and biology. A key goal of these cell
+               state models is predicting cellular responses to perturbations.
+               The Virtual Cell Challenge is being established to catalyze
+               progress toward this goal. This recurring and open benchmark
+               competition from the Arc Institute will provide an evaluation
+               framework, purpose-built datasets, and a venue for accelerating
+               model development.",
+  month     =  jun,
+  year      =  2025,
+  language  = "en"
+}
+
+@ARTICLE{Klein2025-sr,
+  title    = "{CellFlow} enables generative single-cell phenotype modeling with
+              flow matching",
+  author   = "Klein, Dominik and Fleck, Jonas Simon and Bobrovskiy, Daniil and
+              Zimmermann, Lea and Becker, Sören and Palma, Alessandro and Dony,
+              Leander and Tejada-Lapuerta, Alejandro and Huguet, Guillaume and
+              Lin, Hsiu-Chuan and Azbukina, Nadezhda and Sanchís-Calleja, Fátima
+              and Uscidda, Theo and Szalata, Artur and Gander, Manuel and Regev,
+              Aviv and Treutlein, Barbara and Camp, J Gray and Theis, Fabian J",
+  journal  = "bioRxiv",
+  pages    = "2025.04.11.648220",
+  abstract = "AbstractHigh-content phenotypic screens provide a powerful
+              strategy for studying biological systems, but the scale of
+              possible perturbations and cell states makes exhaustive
+              experiments unfeasible. Computational models that are trained on
+              existing data and extrapolate to correctly predict outcomes in
+              unseen contexts have the potential to accelerate biological
+              discovery. Here, we present CellFlow, a flexible framework based
+              on flow matching that can model single cell phenotypes induced by
+              complex perturbations. We apply CellFlow to various phenotypic
+              screens, accurately predicting expression responses to a wide
+              range of perturbations, including cytokine stimulation, drug
+              treatments and gene knockouts. CellFlow successfully modeled
+              developmental perturbations at the whole-embryo scale and guided
+              cell fate and organoid engineering by predicting heterogeneous
+              cell populations arising from combinatorial morphogen treatments
+              and by performing a virtual organoid protocol screen. Taken
+              together, CellFlow has the potential to accelerate discovery from
+              phenotypic screens by learning from existing data and generating
+              phenotypes induced by unseen conditions.",
+  month    =  apr,
+  year     =  2025,
+  language = "en"
+}
+
+@ARTICLE{Lopez2022-ps,
+  title     = "{DestVI} identifies continuums of cell types in spatial
+               transcriptomics data",
+  author    = "Lopez, Romain and Li, Baoguo and Keren-Shaul, Hadas and Boyeau,
+               Pierre and Kedmi, Merav and Pilzer, David and Jelinski, Adam and
+               Yofe, Ido and David, Eyal and Wagner, Allon and Ergen, Can and
+               Addadi, Yoseph and Golani, Ofra and Ronchese, Franca and Jordan,
+               Michael I and Amit, Ido and Yosef, Nir",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  40,
+  number    =  9,
+  pages     = "1360--1369",
+  abstract  = "Most spatial transcriptomics technologies are limited by their
+               resolution, with spot sizes larger than that of a single cell.
+               Although joint analysis with single-cell RNA sequencing can
+               alleviate this problem, current methods are limited to assessing
+               discrete cell types, revealing the proportion of cell types
+               inside each spot. To identify continuous variation of the
+               transcriptome within cells of the same type, we developed
+               Deconvolution of Spatial Transcriptomics profiles using
+               Variational Inference (DestVI). Using simulations, we demonstrate
+               that DestVI outperforms existing methods for estimating gene
+               expression for every cell type inside every spot. Applied to a
+               study of infected lymph nodes and of a mouse tumor model, DestVI
+               provides high-resolution, accurate spatial characterization of
+               the cellular organization of these tissues and identifies
+               cell-type-specific changes in gene expression between different
+               tissue regions or between conditions. DestVI is available as part
+               of the open-source software package scvi-tools (
+               https://scvi-tools.org ).",
+  month     =  sep,
+  year      =  2022,
+  language  = "en"
+}
+
+@ARTICLE{Montierth2025-ap,
+  title       = "Deconvolution of sparse-count {RNA} sequencing data for tumor
+                 cells using embedded negative binomial distributions",
+  author      = "Montierth, Matthew D and Yan, Hao and Xie, Liyang and Nemeth,
+                 Kinga and Pan, Xiaoxi and Li, Ruonan and Ercan, Caner and Yang,
+                 Peng and Sinjab, Ansam and Zhou, Tieling and Peng, Fuduan and
+                 Singh, Manisha and Wang, Linghua and Kopetz, Scott and Kadara,
+                 Humam and Yuan, Yinyin and Calin, George A and Wang, Wenyi",
+  journal     = "bioRxivorg",
+  institution = "bioRxiv",
+  pages       = "2025.11.21.689822",
+  abstract    = "Estimating tumor-specific transcript proportions from mixed
+                 bulk samples has potential to inform novel biology. However,
+                 estimation accuracy using existing methods in sparse-count data
+                 such as microRNA-seq and spatial transcriptomics has yet to be
+                 established. We generated a mixed small RNA benchmark dataset
+                 to demonstrate analytical challenges. To resolve them, we
+                 developed DeMixNB, a semi-reference-based deconvolution model
+                 assuming a sum of negative binomial distributions. Applications
+                 to miRNA-seq from 856 patients with breast cancer and 3,755
+                 spatial spots from lung cancer generated either clinical or
+                 mechanistic insights into tumor cell plasticity. This supports
+                 the important utility of DeMixNB to investigate cancer RNomes.",
+  month       =  nov,
+  year        =  2025,
+  language    = "en"
+}
+
+@ARTICLE{Haviv2025-kd,
+  title     = "The covariance environment defines cellular niches for spatial
+               inference",
+  author    = "Haviv, Doron and Remšík, Ján and Gatie, Mohamed and Snopkowski,
+               Catherine and Takizawa, Meril and Pereira, Nathan and Bashkin,
+               John and Jovanovich, Stevan and Nawy, Tal and Chaligne, Ronan and
+               Boire, Adrienne and Hadjantonakis, Anna-Katerina and Pe'er, Dana",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  43,
+  number    =  2,
+  pages     = "269--280",
+  abstract  = "A key challenge of analyzing data from high-resolution spatial
+               profiling technologies is to suitably represent the features of
+               cellular neighborhoods or niches. Here we introduce the
+               covariance environment (COVET), a representation that leverages
+               the gene-gene covariate structure across cells in the niche to
+               capture the multivariate nature of cellular interactions within
+               it. We define a principled optimal transport-based distance
+               metric between COVET niches that scales to millions of cells.
+               Using COVET to encode spatial context, we developed environmental
+               variational inference (ENVI), a conditional variational
+               autoencoder that jointly embeds spatial and single-cell RNA
+               sequencing data into a latent space. ENVI includes two decoders:
+               one to impute gene expression across the spatial modality and a
+               second to project spatial information onto single-cell data. ENVI
+               can confer spatial context to genomics data from single
+               dissociated cells and outperforms alternatives for imputing gene
+               expression on diverse spatial datasets.",
+  month     =  feb,
+  year      =  2025,
+  language  = "en"
+}
+
+@ARTICLE{Haviv2024-qe,
+  title         = "Wasserstein Flow Matching: Generative modeling over families
+                   of distributions",
+  author        = "Haviv, Doron and Pooladian, Aram-Alexandre and Pe'er, Dana
+                   and Amos, Brandon",
+  journal       = "arXiv [cs.LG]",
+  abstract      = "Generative modeling typically concerns transporting a single
+                   source distribution to a target distribution via simple
+                   probability flows. However, in fields like computer graphics
+                   and single-cell genomics, samples themselves can be viewed as
+                   distributions, where standard flow matching ignores their
+                   inherent geometry. We propose Wasserstein flow matching
+                   (WFM), which lifts flow matching onto families of
+                   distributions using the Wasserstein geometry. Notably, WFM is
+                   the first algorithm capable of generating distributions in
+                   high dimensions, whether represented analytically (as
+                   Gaussians) or empirically (as point-clouds). Our theoretical
+                   analysis establishes that Wasserstein geodesics constitute
+                   proper conditional flows over the space of distributions,
+                   making for a valid FM objective. Our algorithm leverages
+                   optimal transport theory and the attention mechanism,
+                   demonstrating versatility across computational regimes:
+                   exploiting closed-form optimal transport paths for Gaussian
+                   families, while using entropic estimates on point-clouds for
+                   general distributions. WFM successfully generates both 2D \&
+                   3D shapes and high-dimensional cellular microenvironments
+                   from spatial transcriptomics data. Code is available at
+                   https://github.com/DoronHav/WassersteinFlowMatching .",
+  month         =  nov,
+  year          =  2024,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG"
+}
+
+@ARTICLE{Palma2025-uk,
+  title         = "Enforcing latent Euclidean geometry in single-cell {VAEs} for
+                   manifold interpolation",
+  author        = "Palma, Alessandro and Rybakov, Sergei and Hetzel, Leon and
+                   Günnemann, Stephan and Theis, Fabian J",
+  journal       = "arXiv [cs.LG]",
+  abstract      = "Latent space interpolations are a powerful tool for
+                   navigating deep generative models in applied settings. An
+                   example is single-cell RNA sequencing, where existing methods
+                   model cellular state transitions as latent space
+                   interpolations with variational autoencoders, often assuming
+                   linear shifts and Euclidean geometry. However, unless
+                   explicitly enforced, linear interpolations in the latent
+                   space may not correspond to geodesic paths on the data
+                   manifold, limiting methods that assume Euclidean geometry in
+                   the data representations. We introduce FlatVI, a novel
+                   training framework that regularises the latent manifold of
+                   discrete-likelihood variational autoencoders towards
+                   Euclidean geometry, specifically tailored for modelling
+                   single-cell count data. By encouraging straight lines in the
+                   latent space to approximate geodesic interpolations on the
+                   decoded single-cell manifold, FlatVI enhances compatibility
+                   with downstream approaches that assume Euclidean latent
+                   geometry. Experiments on synthetic data support the
+                   theoretical soundness of our approach, while applications to
+                   time-resolved single-cell RNA sequencing data demonstrate
+                   improved trajectory reconstruction and manifold
+                   interpolation.",
+  month         =  jul,
+  year          =  2025,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG"
+}
+
+@ARTICLE{Haviv2024-uz,
+  title    = "Wasserstein Wormhole: Scalable optimal transport distance with
+              transformers",
+  author   = "Haviv, Doron and Kunes, Russell Zhang and Dougherty, Thomas and
+              Burdziak, Cassandra and Nawy, Tal and Gilbert, Anna and Pe'er,
+              Dana",
+  journal  = "ArXiv",
+  pages    = "arXiv:2404.09411v4",
+  abstract = "Optimal transport (OT) and the related Wasserstein metric ( W )
+              are powerful and ubiquitous tools for comparing distributions.
+              However, computing pairwise Wasserstein distances rapidly becomes
+              intractable as cohort size grows. An attractive alternative would
+              be to find an embedding space in which pairwise Euclidean
+              distances map to OT distances, akin to standard multidimensional
+              scaling (MDS). We present Wasserstein Wormhole, a
+              transformer-based autoencoder that embeds empirical distributions
+              into a latent space wherein Euclidean distances approximate OT
+              distances. Extending MDS theory, we show that our objective
+              function implies a bound on the error incurred when embedding
+              non-Euclidean distances. Empirically, distances between Wormhole
+              embeddings closely match Wasserstein distances, enabling linear
+              time computation of OT distances. Along with an encoder that maps
+              distributions to embeddings, Wasserstein Wormhole includes a
+              decoder that maps embeddings back to distributions, allowing for
+              operations in the embedding space to generalize to OT spaces, such
+              as Wasserstein barycenter estimation and OT interpolation. By
+              lending scalability and interpretability to OT approaches,
+              Wasserstein Wormhole unlocks new avenues for data analysis in the
+              fields of computational geometry and single-cell biology. Software
+              is available at
+              http://wassersteinwormhole.readthedocs.io/en/latest/.",
+  month    =  jun,
+  year     =  2024,
+  language = "en"
+}
+
+@ARTICLE{Cultrera-di-Montesano2026-vq,
+  title     = "Improving atlas-scale single-cell annotation models with
+               hierarchical cross-entropy loss",
+  author    = "Cultrera di Montesano, Sebastiano and D'Ascenzo, Davide and
+               Raghavan, Srivatsan and Amini, Ava P and Winter, Peter S and
+               Crawford, Lorin",
+  journal   = "Nat. Comput. Sci.",
+  publisher = "Springer Science and Business Media LLC",
+  pages     = "1--7",
+  abstract  = "Abstract Accurately annotating cell types is essential for
+               extracting biological insight from single-cell RNA sequencing
+               data. Although cell types are naturally organized into
+               hierarchical ontologies, most computational models do not
+               explicitly incorporate this structure into their training
+               objectives. Here, we introduce a hierarchical cross-entropy loss
+               that aligns model objectives with biological structure. Applied
+               to architectures ranging from linear models to transformers, this
+               simple modification improves out-of-distribution performance by
+               12−15\% without added computational cost. Critically, we
+               underscore the need to focus on new data generation that improves
+               the connectivity among annotated cell types. Our work suggests
+               that this is likely to yield more generalizable algorithms than
+               would solely increasing model complexity.",
+  month     =  jan,
+  year      =  2026,
+  language  = "en"
+}
+
+@ARTICLE{Li2022-uy,
+  title     = "Benchmarking spatial and single-cell transcriptomics integration
+               methods for transcript distribution prediction and cell type
+               deconvolution",
+  author    = "Li, Bin and Zhang, Wen and Guo, Chuang and Xu, Hao and Li,
+               Longfei and Fang, Minghao and Hu, Yinlei and Zhang, Xinye and
+               Yao, Xinfeng and Tang, Meifang and Liu, Ke and Zhao, Xuetong and
+               Lin, Jun and Cheng, Linzhao and Chen, Falai and Xue, Tian and Qu,
+               Kun",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  19,
+  number    =  6,
+  pages     = "662--670",
+  abstract  = "Spatial transcriptomics approaches have substantially advanced
+               our capacity to detect the spatial distribution of RNA
+               transcripts in tissues, yet it remains challenging to
+               characterize whole-transcriptome-level data for single cells in
+               space. Addressing this need, researchers have developed
+               integration methods to combine spatial transcriptomic data with
+               single-cell RNA-seq data to predict the spatial distribution of
+               undetected transcripts and/or perform cell type deconvolution of
+               spots in histological sections. However, to date, no independent
+               studies have comparatively analyzed these integration methods to
+               benchmark their performance. Here we present benchmarking of 16
+               integration methods using 45 paired datasets (comprising both
+               spatial transcriptomics and scRNA-seq data) and 32 simulated
+               datasets. We found that Tangram, gimVI, and SpaGE outperformed
+               other integration methods for predicting the spatial distribution
+               of RNA transcripts, whereas Cell2location, SpatialDWLS, and RCTD
+               are the top-performing methods for the cell type deconvolution of
+               spots. We provide a benchmark pipeline to help researchers select
+               optimal integration methods to process their datasets.",
+  month     =  jun,
+  year      =  2022,
+  language  = "en"
+}
+
+@ARTICLE{Kleshchevnikov2022-ki,
+  title     = "{Cell2location} maps fine-grained cell types in spatial
+               transcriptomics",
+  author    = "Kleshchevnikov, Vitalii and Shmatko, Artem and Dann, Emma and
+               Aivazidis, Alexander and King, Hamish W and Li, Tong and
+               Elmentaite, Rasa and Lomakin, Artem and Kedlian, Veronika and
+               Gayoso, Adam and Jain, Mika Sarkin and Park, Jun Sung and Ramona,
+               Lauma and Tuck, Elizabeth and Arutyunyan, Anna and Vento-Tormo,
+               Roser and Gerstung, Moritz and James, Louisa and Stegle, Oliver
+               and Bayraktar, Omer Ali",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  40,
+  number    =  5,
+  pages     = "661--671",
+  abstract  = "Spatial transcriptomic technologies promise to resolve cellular
+               wiring diagrams of tissues in health and disease, but
+               comprehensive mapping of cell types in situ remains a challenge.
+               Here we present сell2location, a Bayesian model that can resolve
+               fine-grained cell types in spatial transcriptomic data and create
+               comprehensive cellular maps of diverse tissues. Cell2location
+               accounts for technical sources of variation and borrows
+               statistical strength across locations, thereby enabling the
+               integration of single-cell and spatial transcriptomics with
+               higher sensitivity and resolution than existing tools. We
+               assessed cell2location in three different tissues and show
+               improved mapping of fine-grained cell types. In the mouse brain,
+               we discovered fine regional astrocyte subtypes across the
+               thalamus and hypothalamus. In the human lymph node, we spatially
+               mapped a rare pre-germinal center B cell population. In the human
+               gut, we resolved fine immune cell populations in lymphoid
+               follicles. Collectively, our results present сell2location as a
+               versatile analysis tool for mapping tissue architectures in a
+               comprehensive manner.",
+  month     =  may,
+  year      =  2022,
+  language  = "en"
+}
+
+@ARTICLE{Szalata2024-jl,
+  title     = "Transformers in single-cell omics: a review and new perspectives",
+  author    = "Szałata, Artur and Hrovatin, Karin and Becker, Sören and
+               Tejada-Lapuerta, Alejandro and Cui, Haotian and Wang, Bo and
+               Theis, Fabian J",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  21,
+  number    =  8,
+  pages     = "1430--1443",
+  abstract  = "Recent efforts to construct reference maps of cellular phenotypes
+               have expanded the volume and diversity of single-cell omics data,
+               providing an unprecedented resource for studying cell properties.
+               Despite the availability of rich datasets and their continued
+               growth, current single-cell models are unable to fully capitalize
+               on the information they contain. Transformers have become the
+               architecture of choice for foundation models in other domains
+               owing to their ability to generalize to heterogeneous,
+               large-scale datasets. Thus, the question arises of whether
+               transformers could set off a similar shift in the field of
+               single-cell modeling. Here we first describe the transformer
+               architecture and its single-cell adaptations and then present a
+               comprehensive review of the existing applications of transformers
+               in single-cell analysis and critically discuss their future
+               potential for single-cell biology. By studying limitations and
+               technical challenges, we aim to provide a structured outlook for
+               future research directions at the intersection of machine
+               learning and single-cell biology.",
+  month     =  aug,
+  year      =  2024,
+  language  = "en"
+}
+
+@ARTICLE{Piran2024-ca,
+  title     = "Disentanglement of single-cell data with biolord",
+  author    = "Piran, Zoe and Cohen, Niv and Hoshen, Yedid and Nitzan, Mor",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  42,
+  number    =  11,
+  pages     = "1678--1683",
+  abstract  = "Biolord is a deep generative method for disentangling single-cell
+               multi-omic data to known and unknown attributes, including
+               spatial, temporal and disease states, used to reveal the
+               decoupled biological signatures over diverse single-cell
+               modalities and biological systems. By virtually shifting cells
+               across states, biolord generates experimentally inaccessible
+               samples, outperforming state-of-the-art methods in predictions of
+               cellular response to unseen drugs and genetic perturbations.
+               Biolord is available at https://github.com/nitzanlab/biolord .",
+  month     =  nov,
+  year      =  2024,
+  language  = "en"
+}
+
+@ARTICLE{Moriel2021-wu,
+  title     = "{NovoSpaRc}: flexible spatial reconstruction of single-cell gene
+               expression with optimal transport",
+  author    = "Moriel, Noa and Senel, Enes and Friedman, Nir and Rajewsky,
+               Nikolaus and Karaiskos, Nikos and Nitzan, Mor",
+  journal   = "Nat. Protoc.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  16,
+  number    =  9,
+  pages     = "4177--4200",
+  abstract  = "Single-cell RNA-sequencing (scRNA-seq) technologies have
+               revolutionized modern biomedical sciences. A fundamental
+               challenge is to incorporate spatial information to study tissue
+               organization and spatial gene expression patterns. Here, we
+               describe a detailed protocol for using novoSpaRc, a computational
+               framework that probabilistically assigns cells to tissue
+               locations. At the core of this framework lies a structural
+               correspondence hypothesis, that cells in physical proximity share
+               similar gene expression profiles. Given scRNA-seq data, novoSpaRc
+               spatially reconstructs tissues based on this hypothesis, and
+               optionally, by including a reference atlas of marker genes to
+               improve reconstruction. We describe the novoSpaRc algorithm, and
+               its implementation in an open-source Python package (
+               https://pypi.org/project/novosparc ). NovoSpaRc maps a scRNA-seq
+               dataset of 10,000 cells onto 1,000 locations in <5 min. We
+               describe results obtained using novoSpaRc to reconstruct the
+               mouse organ of Corti de novo based on the structural
+               correspondence assumption and human osteosarcoma cultured cells
+               based on marker gene information, and provide a step-by-step
+               guide to Drosophila embryo reconstruction in the Procedure to
+               demonstrate how these two strategies can be combined.",
+  month     =  sep,
+  year      =  2021,
+  language  = "en"
+}
+
+@ARTICLE{Lopez2018-ns,
+  title     = "Deep generative modeling for single-cell transcriptomics",
+  author    = "Lopez, Romain and Regier, Jeffrey and Cole, Michael B and Jordan,
+               Michael I and Yosef, Nir",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  15,
+  number    =  12,
+  pages     = "1053--1058",
+  abstract  = "Single-cell transcriptome measurements can reveal unexplored
+               biological diversity, but they suffer from technical noise and
+               bias that must be modeled to account for the resulting
+               uncertainty in downstream analyses. Here we introduce single-cell
+               variational inference (scVI), a ready-to-use scalable framework
+               for the probabilistic representation and analysis of gene
+               expression in single cells ( https://github.com/YosefLab/scVI ).
+               scVI uses stochastic optimization and deep neural networks to
+               aggregate information across similar cells and genes and to
+               approximate the distributions that underlie observed expression
+               values, while accounting for batch effects and limited
+               sensitivity. We used scVI for a range of fundamental analysis
+               tasks including batch correction, visualization, clustering, and
+               differential expression, and achieved high accuracy for each
+               task.",
+  month     =  dec,
+  year      =  2018,
+  language  = "en"
+}
+
+@ARTICLE{Cuturi2013-li,
+  title   = "Sinkhorn Distances: Lightspeed Computation of Optimal Transport",
+  author  = "Cuturi, Marco",
+  journal = "Advances in Neural Information Processing Systems",
+  volume  =  26,
+  year    =  2013
+}
+
+@ARTICLE{Lee2018-ya,
+  title         = "Set Transformer: A framework for attention-based
+                   permutation-invariant neural networks",
+  author        = "Lee, Juho and Lee, Yoonho and Kim, Jungtaek and Kosiorek,
+                   Adam R and Choi, Seungjin and Teh, Yee Whye",
+  journal       = "arXiv [cs.LG]",
+  abstract      = "Many machine learning tasks such as multiple instance
+                   learning, 3D shape recognition, and few-shot image
+                   classification are defined on sets of instances. Since
+                   solutions to such problems do not depend on the order of
+                   elements of the set, models used to address them should be
+                   permutation invariant. We present an attention-based neural
+                   network module, the Set Transformer, specifically designed to
+                   model interactions among elements in the input set. The model
+                   consists of an encoder and a decoder, both of which rely on
+                   attention mechanisms. In an effort to reduce computational
+                   complexity, we introduce an attention scheme inspired by
+                   inducing point methods from sparse Gaussian process
+                   literature. It reduces the computation time of self-attention
+                   from quadratic to linear in the number of elements in the
+                   set. We show that our model is theoretically attractive and
+                   we evaluate it on a range of tasks, demonstrating the
+                   state-of-the-art performance compared to recent methods for
+                   set-structured data.",
+  month         =  oct,
+  year          =  2018,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG"
+}
+
+@ARTICLE{Biancalani2021-bt,
+  title     = "Deep learning and alignment of spatially resolved single-cell
+               transcriptomes with Tangram",
+  author    = "Biancalani, Tommaso and Scalia, Gabriele and Buffoni, Lorenzo and
+               Avasthi, Raghav and Lu, Ziqing and Sanger, Aman and Tokcan,
+               Neriman and Vanderburg, Charles R and Segerstolpe, Åsa and Zhang,
+               Meng and Avraham-Davidi, Inbal and Vickovic, Sanja and Nitzan,
+               Mor and Ma, Sai and Subramanian, Ayshwarya and Lipinski, Michal
+               and Buenrostro, Jason and Brown, Nik Bear and Fanelli, Duccio and
+               Zhuang, Xiaowei and Macosko, Evan Z and Regev, Aviv",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  18,
+  number    =  11,
+  pages     = "1352--1362",
+  abstract  = "Charting an organs' biological atlas requires us to spatially
+               resolve the entire single-cell transcriptome, and to relate such
+               cellular features to the anatomical scale. Single-cell and
+               single-nucleus RNA-seq (sc/snRNA-seq) can profile cells
+               comprehensively, but lose spatial information. Spatial
+               transcriptomics allows for spatial measurements, but at lower
+               resolution and with limited sensitivity. Targeted in situ
+               technologies solve both issues, but are limited in gene
+               throughput. To overcome these limitations we present Tangram, a
+               method that aligns sc/snRNA-seq data to various forms of spatial
+               data collected from the same region, including MERFISH, STARmap,
+               smFISH, Spatial Transcriptomics (Visium) and histological images.
+               Tangram can map any type of sc/snRNA-seq data, including
+               multimodal data such as those from SHARE-seq, which we used to
+               reveal spatial patterns of chromatin accessibility. We
+               demonstrate Tangram on healthy mouse brain tissue, by
+               reconstructing a genome-wide anatomically integrated spatial map
+               at single-cell resolution of the visual and somatomotor areas.",
+  month     =  nov,
+  year      =  2021,
+  language  = "en"
+}
+
+@ARTICLE{Dong2026-fb,
+  title       = "Stack: In-context learning of single-cell biology",
+  author      = "Dong, Mingze and Adduri, Abhinav and Gautam, Dhruv and
+                 Carpenter, Christopher and Shah, Rohan and Ricci-Tam, Chiara
+                 and Kluger, Yuval and Burke, Dave P and Roohani, Yusuf H",
+  journal     = "bioRxivorg",
+  institution = "bioRxiv",
+  abstract    = "Single-cell transcriptomics offers the promise of measuring the
+                 diversity of cellular phenotypes across species, diseases, and
+                 other biological conditions. Recently, foundation models have
+                 emerged to identify this variation, yet most methods represent
+                 each cell independently, despite technical limitations that
+                 reduce measurement precision at the single-cell level. Here, we
+                 present Stack, a foundation model trained on 149 million
+                 uniformly preprocessed human single cells that leverages
+                 tabular attention to generate representations for each cell
+                 informed by the cells in its context. Stack offers substantial
+                 improvements for downstream tasks in the zero-shot setting
+                 compared to baselines, whether they are zero-shot, fine-tuned,
+                 or trained from scratch on the target dataset. Stack can
+                 perform in-context learning from unlabeled cells representing
+                 arbitrary conditions, such as a chemical perturbation or a
+                 different donor, and predict the effect of those conditions on
+                 a target cell population without requiring data-specific
+                 fine-tuning. We apply Stack to generate Perturb Sapiens, the
+                 first human whole-organism atlas of perturbed cells, spanning
+                 28 tissues, 40 cell classes, and 201 perturbations. We
+                 validated subsets of Perturb Sapiens using in vitro stimulation
+                 profiles. Overall, Stack presents a new modeling framework
+                 where cells themselves act as guiding examples at inference
+                 time, unlocking general-purpose in-context learning
+                 capabilities for single-cell biology.",
+  month       =  jan,
+  year        =  2026,
+  language    = "en"
+}
+
+@ARTICLE{Bunne2023-bm,
+  title     = "Learning single-cell perturbation responses using neural optimal
+               transport",
+  author    = "Bunne, Charlotte and Stark, Stefan G and Gut, Gabriele and Del
+               Castillo, Jacobo Sarabia and Levesque, Mitch and Lehmann,
+               Kjong-Van and Pelkmans, Lucas and Krause, Andreas and Rätsch,
+               Gunnar",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  20,
+  number    =  11,
+  pages     = "1759--1768",
+  abstract  = "Understanding and predicting molecular responses in single cells
+               upon chemical, genetic or mechanical perturbations is a core
+               question in biology. Obtaining single-cell measurements typically
+               requires the cells to be destroyed. This makes learning
+               heterogeneous perturbation responses challenging as we only
+               observe unpaired distributions of perturbed or non-perturbed
+               cells. Here we leverage the theory of optimal transport and the
+               recent advent of input convex neural architectures to present
+               CellOT, a framework for learning the response of individual cells
+               to a given perturbation by mapping these unpaired distributions.
+               CellOT outperforms current methods at predicting single-cell drug
+               responses, as profiled by scRNA-seq and a multiplexed
+               protein-imaging technology. Further, we illustrate that CellOT
+               generalizes well on unseen settings by (1) predicting the
+               scRNA-seq responses of holdout patients with lupus exposed to
+               interferon-β and patients with glioblastoma to panobinostat; (2)
+               inferring lipopolysaccharide responses across different species;
+               and (3) modeling the hematopoietic developmental trajectories of
+               different subpopulations.",
+  month     =  nov,
+  year      =  2023,
+  language  = "en"
+}
+
+@ARTICLE{Lipman2022-ns,
+  title         = "Flow Matching for generative modeling",
+  author        = "Lipman, Yaron and Chen, Ricky T Q and Ben-Hamu, Heli and
+                   Nickel, Maximilian and Le, Matt",
+  journal       = "arXiv [cs.LG]",
+  abstract      = "We introduce a new paradigm for generative modeling built on
+                   Continuous Normalizing Flows (CNFs), allowing us to train
+                   CNFs at unprecedented scale. Specifically, we present the
+                   notion of Flow Matching (FM), a simulation-free approach for
+                   training CNFs based on regressing vector fields of fixed
+                   conditional probability paths. Flow Matching is compatible
+                   with a general family of Gaussian probability paths for
+                   transforming between noise and data samples -- which subsumes
+                   existing diffusion paths as specific instances.
+                   Interestingly, we find that employing FM with diffusion paths
+                   results in a more robust and stable alternative for training
+                   diffusion models. Furthermore, Flow Matching opens the door
+                   to training CNFs with other, non-diffusion probability paths.
+                   An instance of particular interest is using Optimal Transport
+                   (OT) displacement interpolation to define the conditional
+                   probability paths. These paths are more efficient than
+                   diffusion paths, provide faster training and sampling, and
+                   result in better generalization. Training CNFs using Flow
+                   Matching on ImageNet leads to consistently better performance
+                   than alternative diffusion-based methods in terms of both
+                   likelihood and sample quality, and allows fast and reliable
+                   sample generation using off-the-shelf numerical ODE solvers.",
+  month         =  oct,
+  year          =  2022,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG"
+}
+
+@ARTICLE{Peng2025-xu,
+  title     = "Multimodal spatial-omics reveal co-evolution of alveolar
+               progenitors and proinflammatory niches in progression of lung
+               precursor lesions",
+  author    = "Peng, Fuduan and Sinjab, Ansam and Dai, Yibo and
+               Treekitkarnmongkol, Warapen and Yang, Sujuan and Gomez Bolanos,
+               Lorena I and Zhou, Tieling and Chen, Minyue and Serrano,
+               Alejandra G and Krishna, Avantika and Karimi, Nastaran and
+               Sharma, Manvi and Basi, Akshay and Pei, Guangsheng and Liao,
+               Jianlong and Liu, Yunhe and Feng, Jiping and Rahal, Zahraa and
+               Liu, Yang and Jiang, Jiahui and Yu, Kai and Noun, Tala and Liu,
+               Yuejiang and Khan, Khaja and Cho, Kyung Serk and Chen, Jichao and
+               Solis, Luisa M and Mazzilli, Sarah and Dubinett, Steven and
+               Cascone, Tina and Spira, Avrum E and Swisher, Stephen and Jimbo,
+               Naoe and Hayashi, Takuo and Kishikawa, Satsuki and Takamochi,
+               Kazuya and Itoh, Tomoo and Yao, Takashi and Suzuki, Kenji and
+               Kalhor, Neda and Wistuba, Ignacio I and Li, Mingyao and
+               Moghaddam, Seyed Javad and Fujimoto, Junya and Burks, Jared and
+               Myers, Jeffrey and Akdemir, Kadir and Wang, Linghua and Kadara,
+               Humam",
+  journal   = "Cancer Cell",
+  publisher = "Elsevier BV",
+  volume    =  0,
+  number    =  0,
+  abstract  = "SummaryThe co-evolution of different cell subsets in the
+               progression of precursor lesions to lung adenocarcinoma (LUAD) is
+               incompletely understood. We generated spatial transcriptomic maps
+               of 56 human precursor lesions and LUADs from 25 patients and of
+               an independent cohort of 36 lesions from 19 patients, analyzing a
+               total of 486,519 spots and 5.4 million cells. We identify
+               region-specific programs that distinguish precursors from LUADs.
+               Spatially resolved clonal architectures reveal patient-specific
+               heterogeneity in evolution of precursors to LUADs. We find
+               epithelial alveolar progenitors expressing tumor-associated
+               meta-programs and residing in niches enriched with
+               proinflammatory subsets including IL1B high macrophages.
+               Epithelial-proinflammatory niches are prevalent in precursor
+               lesions but become less frequent in LUADs. These niches are
+               conserved in mice and promote alveolar progenitor growth.
+               Targeting inflammation alone or in combination with immune
+               checkpoint blockade in precancerous phase reduces alveolar
+               progenitors. Epithelial-inflammatory niches are stage-specific,
+               shape early LUAD development and represent promising targets for
+               interception.",
+  month     =  nov,
+  year      =  2025,
+  keywords  = "lung adenocarcinoma; lung precursor lesions; spatial
+               transcriptomics; Xenium in situ; alveolar progenitors; reactive
+               type II pneumocytes; proinflammatory pathways; IL-1β;
+               epithelial-immune niche; LUAD interception",
+  language  = "en"
+}
+
+@ARTICLE{Tejada-Lapuerta2025-wz,
+  title     = "Nicheformer: a foundation model for single-cell and spatial omics",
+  author    = "Tejada-Lapuerta, Alejandro and Schaar, Anna C and Gutgesell,
+               Robert and Palla, Giovanni and Halle, Lennard and Minaeva, Mariia
+               and Vornholz, Larsen and Dony, Leander and Drummer, Francesca and
+               Richter, Till and Bahrami, Mojtaba and Theis, Fabian J",
+  journal   = "Nat. Methods",
+  publisher = "Springer Science and Business Media LLC",
+  pages     = "1--14",
+  abstract  = "Tissue makeup depends on the local cellular microenvironment.
+               Spatial single-cell genomics enables scalable and unbiased
+               interrogation of these interactions. Here we introduce
+               Nicheformer, a transformer-based foundation model trained on both
+               human and mouse dissociated single-cell and targeted spatial
+               transcriptomics data. Pretrained on SpatialCorpus-110M, a curated
+               collection of over 57 million dissociated and 53 million
+               spatially resolved cells across 73 tissues on cellular
+               reconstruction, Nicheformer learns cell representations that
+               capture spatial context. It excels in linear-probing and
+               fine-tuning scenarios for a newly designed set of downstream
+               tasks, in particular spatial composition prediction and spatial
+               label prediction. Critically, we show that models trained only on
+               dissociated data fail to recover the complexity of spatial
+               microenvironments, underscoring the need for multiscale
+               integration. Nicheformer enables the prediction of the spatial
+               context of dissociated cells, allowing the transfer of rich
+               spatial information to scRNA-seq datasets. Overall, Nicheformer
+               sets the stage for the next generation of machine-learning models
+               in spatial single-cell analysis.",
+  month     =  oct,
+  year      =  2025,
+  language  = "en"
+}
+
+@ARTICLE{Karin2023-sa,
+  title     = "{scPrisma} infers, filters and enhances topological signals in
+               single-cell data using spectral template matching",
+  author    = "Karin, Jonathan and Bornfeld, Yonathan and Nitzan, Mor",
+  journal   = "Nat. Biotechnol.",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  41,
+  number    =  11,
+  pages     = "1645--1654",
+  abstract  = "Single-cell RNA sequencing has been instrumental in uncovering
+               cellular spatiotemporal context. This task is challenging as
+               cells simultaneously encode multiple, potentially
+               cross-interfering, biological signals. Here we propose scPrisma,
+               a spectral computational method that uses topological priors to
+               decouple, enhance and filter different classes of biological
+               processes in single-cell data, such as periodic and linear
+               signals. We apply scPrisma to the analysis of the cell cycle in
+               HeLa cells, circadian rhythm and spatial zonation in liver
+               lobules, diurnal cycle in Chlamydomonas and circadian rhythm in
+               the suprachiasmatic nucleus in the brain. scPrisma can be used to
+               distinguish mixed cellular populations by specific
+               characteristics such as cell type and uncover regulatory networks
+               and cell-cell interactions specific to predefined biological
+               signals, such as the circadian rhythm. We show scPrisma's
+               flexibility in incorporating prior knowledge, inference of
+               topologically informative genes and generalization to additional
+               diverse templates and systems. scPrisma can be used as a
+               stand-alone workflow for signal analysis and as a prior step for
+               downstream single-cell analysis.",
+  month     =  nov,
+  year      =  2023,
+  language  = "en"
+}
+
+@ARTICLE{Bunne2024-pl,
+  title     = "Optimal transport for single-cell and spatial omics",
+  author    = "Bunne, Charlotte and Schiebinger, Geoffrey and Krause, Andreas
+               and Regev, Aviv and Cuturi, Marco",
+  journal   = "Nat. Rev. Methods Primers",
+  publisher = "Springer Science and Business Media LLC",
+  volume    =  4,
+  number    =  1,
+  month     =  aug,
+  year      =  2024,
+  language  = "en"
+}
+
+@ARTICLE{Sikkema2023-dr,
+  title     = "An integrated cell atlas of the lung in health and disease",
+  author    = "Sikkema, Lisa and Ramírez-Suástegui, Ciro and Strobl, Daniel C
+               and Gillett, Tessa E and Zappia, Luke and Madissoon, Elo and
+               Markov, Nikolay S and Zaragosi, Laure-Emmanuelle and Ji, Yuge and
+               Ansari, Meshal and Arguel, Marie-Jeanne and Apperloo, Leonie and
+               Banchero, Martin and Bécavin, Christophe and Berg, Marijn and
+               Chichelnitskiy, Evgeny and Chung, Mei-I and Collin, Antoine and
+               Gay, Aurore C A and Gote-Schniering, Janine and Hooshiar Kashani,
+               Baharak and Inecik, Kemal and Jain, Manu and Kapellos, Theodore S
+               and Kole, Tessa M and Leroy, Sylvie and Mayr, Christoph H and
+               Oliver, Amanda J and von Papen, Michael and Peter, Lance and
+               Taylor, Chase J and Walzthoeni, Thomas and Xu, Chuan and Bui,
+               Linh T and De Donno, Carlo and Dony, Leander and Faiz, Alen and
+               Guo, Minzhe and Gutierrez, Austin J and Heumos, Lukas and Huang,
+               Ni and Ibarra, Ignacio L and Jackson, Nathan D and Kadur
+               Lakshminarasimha Murthy, Preetish and Lotfollahi, Mohammad and
+               Tabib, Tracy and Talavera-López, Carlos and Travaglini, Kyle J
+               and Wilbrey-Clark, Anna and Worlock, Kaylee B and Yoshida,
+               Masahiro and van den Berge, Maarten and Bossé, Yohan and Desai,
+               Tushar J and Eickelberg, Oliver and Kaminski, Naftali and
+               Krasnow, Mark A and Lafyatis, Robert and Nikolic, Marko Z and
+               Powell, Joseph E and Rajagopal, Jayaraj and Rojas, Mauricio and
+               Rozenblatt-Rosen, Orit and Seibold, Max A and Sheppard, Dean and
+               Shepherd, Douglas P and Sin, Don D and Timens, Wim and Tsankov,
+               Alexander M and Whitsett, Jeffrey and Xu, Yan and Banovich,
+               Nicholas E and Barbry, Pascal and Duong, Thu Elizabeth and Falk,
+               Christine S and Meyer, Kerstin B and Kropski, Jonathan A and
+               Pe'er, Dana and Schiller, Herbert B and Tata, Purushothama Rao
+               and Schultze, Joachim L and Teichmann, Sara A and Misharin,
+               Alexander V and Nawijn, Martijn C and Luecken, Malte D and Theis,
+               Fabian J",
+  journal   = "Nat. Med.",
+  publisher = "Nature Publishing Group US",
+  address   = "New York",
+  volume    =  29,
+  number    =  6,
+  pages     = "1563--1577",
+  abstract  = "Single-cell technologies have transformed our understanding of
+               human tissues. Yet, studies typically capture only a limited
+               number of donors and disagree on cell type definitions.
+               Integrating many single-cell datasets can address these
+               limitations of individual studies and capture the variability
+               present in the population. Here we present the integrated Human
+               Lung Cell Atlas (HLCA), combining 49 datasets of the human
+               respiratory system into a single atlas spanning over 2.4 million
+               cells from 486 individuals. The HLCA presents a consensus cell
+               type re-annotation with matching marker genes, including
+               annotations of rare and previously undescribed cell types.
+               Leveraging the number and diversity of individuals in the HLCA,
+               we identify gene modules that are associated with demographic
+               covariates such as age, sex and body mass index, as well as gene
+               modules changing expression along the proximal-to-distal axis of
+               the bronchial tree. Mapping new data to the HLCA enables rapid
+               data annotation and interpretation. Using the HLCA as a reference
+               for the study of disease, we identify shared cell states across
+               multiple lung diseases, including SPP1 + profibrotic
+               monocyte-derived macrophages in COVID-19, pulmonary fibrosis and
+               lung carcinoma. Overall, the HLCA serves as an example for the
+               development and use of large-scale, cross-dataset organ atlases
+               within the Human Cell Atlas. A single-cell atlas of the human
+               lungs, integrating data from 2.4 million cells from 486
+               individuals and including samples from healthy and diseased
+               lungs, provides a roadmap for the generation of organ-scale cell
+               atlases.",
+  year      =  2023
+}
+
+@ARTICLE{Travaglini2020-jq,
+  title     = "A molecular cell atlas of the human lung from single-cell {RNA}
+               sequencing",
+  author    = "Travaglini, Kyle J and Nabhan, Ahmad N and Penland, Lolita and
+               Sinha, Rahul and Gillich, Astrid and Sit, Rene V and Chang,
+               Stephen and Conley, Stephanie D and Mori, Yasuo and Seita, Jun
+               and Berry, Gerald J and Shrager, Joseph B and Metzger, Ross J and
+               Kuo, Christin S and Neff, Norma and Weissman, Irving L and Quake,
+               Stephen R and Krasnow, Mark A",
+  journal   = "Nature",
+  publisher = "Nature Publishing Group UK",
+  address   = "London",
+  volume    =  587,
+  number    =  7835,
+  pages     = "619--625",
+  abstract  = "Although single-cell RNA sequencing studies have begun to provide
+               compendia of cell expression profiles 1 , 2 , 3 , 4 , 5 , 6 , 7 ,
+               8 – 9 , it has been difficult to systematically identify and
+               localize all molecular cell types in individual organs to create
+               a full molecular cell atlas. Here, using droplet- and plate-based
+               single-cell RNA sequencing of approximately 75,000 human cells
+               across all lung tissue compartments and circulating blood,
+               combined with a multi-pronged cell annotation approach, we create
+               an extensive cell atlas of the human lung. We define the gene
+               expression profiles and anatomical locations of 58 cell
+               populations in the human lung, including 41 out of 45 previously
+               known cell types and 14 previously unknown ones. This
+               comprehensive molecular atlas identifies the biochemical
+               functions of lung cells and the transcription factors and markers
+               for making and monitoring them; defines the cell targets of
+               circulating hormones and predicts local signalling interactions
+               and immune cell homing; and identifies cell types that are
+               directly affected by lung disease genes and respiratory viruses.
+               By comparing human and mouse data, we identified 17 molecular
+               cell types that have been gained or lost during lung evolution
+               and others with substantially altered expression profiles,
+               revealing extensive plasticity of cell types and
+               cell-type-specific gene expression during organ evolution
+               including expression switches between cell types. This atlas
+               provides the molecular foundation for investigating how lung cell
+               identities, functions and interactions are achieved in
+               development and tissue engineering and altered in disease and
+               evolution. Expression profiling on 75,000 single cells creates a
+               comprehensive cell atlas of the human lung that includes 41 out
+               of 45 previously known cell types and 14 new ones.",
+  year      =  2020
+}

@@ -1,6 +1,6 @@
 {
-  "n_cells": 500,
-  "n_donors": 5,
+  "n_cells": 100,
+  "n_donors": 2,
   "n_stages": 4,
   "stages": [
     "Normal",
@@ -8,7 +8,7 @@
     "Invasive",
     "Advanced"
   ],
-  "latent_dim": 32,
+  "latent_dim": 2,
   "n_celltypes": 8,
   "seed": 42
 }
