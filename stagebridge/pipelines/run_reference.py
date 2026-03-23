@@ -506,6 +506,25 @@ def run_hpc_reference_mapping(
             print(
                 f"  HLCA mapping complete: {hlca_latent_adata.X.shape}, {len(results['hlca_cell_types'])} cell types"
             )
+
+            # Validate HLCA cell type diversity - fail early if broken
+            hlca_type_counts = pd.Series(results["hlca_cell_types"]).value_counts()
+            hlca_n_unique = len(hlca_type_counts)
+            hlca_top_count = hlca_type_counts.iloc[0]
+            hlca_top_label = hlca_type_counts.index[0]
+            hlca_top_fraction = hlca_top_count / len(results["hlca_cell_types"])
+
+            print(f"  HLCA cell type distribution (top 10 of {hlca_n_unique} types):")
+            for label, count in hlca_type_counts.head(10).items():
+                pct = 100 * count / len(results["hlca_cell_types"])
+                print(f"    {label}: {count:,} ({pct:.1f}%)")
+
+            if hlca_top_fraction > 0.95:
+                raise RuntimeError(
+                    f"HLCA CELL TYPE PREDICTION FAILED: '{hlca_top_label}' has {hlca_top_fraction*100:.1f}% of all cells. "
+                    f"This indicates the scArches surgery failed or stale intermediate files were used. "
+                    f"Delete the hlca_mapping/ directory and rerun."
+                )
         except Exception as e:
             print(f"  ERROR: HLCA mapping failed: {e}")
             print("  Falling back to k-NN projection...")
@@ -582,6 +601,25 @@ def run_hpc_reference_mapping(
             print(
                 f"  LuCA mapping complete: {luca_latent_adata.X.shape}, {len(results['luca_cell_types'])} cell types"
             )
+
+            # Validate LuCA cell type diversity
+            luca_type_counts = pd.Series(results["luca_cell_types"]).value_counts()
+            luca_n_unique = len(luca_type_counts)
+            luca_top_count = luca_type_counts.iloc[0]
+            luca_top_label = luca_type_counts.index[0]
+            luca_top_fraction = luca_top_count / len(results["luca_cell_types"])
+
+            print(f"  LuCA cell type distribution (top 10 of {luca_n_unique} types):")
+            for label, count in luca_type_counts.head(10).items():
+                pct = 100 * count / len(results["luca_cell_types"])
+                print(f"    {label}: {count:,} ({pct:.1f}%)")
+
+            if luca_top_fraction > 0.95:
+                raise RuntimeError(
+                    f"LUCA CELL TYPE PREDICTION FAILED: '{luca_top_label}' has {luca_top_fraction*100:.1f}% of all cells. "
+                    f"This indicates the scArches surgery failed or stale intermediate files were used. "
+                    f"Delete the luca_mapping/ directory and rerun."
+                )
         except Exception as e:
             print(f"  ERROR: LuCA mapping failed: {e}")
             print("  Falling back to k-NN projection...")
@@ -855,13 +893,22 @@ def run_hpc_reference_mapping(
         cell_types_df.to_parquet(output_dir / "cell_types.parquet", index=False)
         print(f"  Saved cell_types.parquet with {len(cell_types_df)} cells")
 
+        # Cell type diversity already validated right after mapping - just cleanup and update files
+
+        # Cleanup backed file handle BEFORE updating files (prevents file lock)
+        try:
+            if hasattr(query_adata, "file") and query_adata.file is not None:
+                query_adata.file.close()
+        except Exception:
+            pass  # Ignore cleanup errors
+
         # Update snRNA h5ad files with cell_type column
+        # Skip query_path if it's the same as a file we just closed from backed mode
         print("\n  Updating snRNA h5ad files with cell_type column...")
         import anndata
 
         snrna_files = [
-            query_path,
-            query_path.parent / "snrna_merged.h5ad",
+            query_path.parent / "snrna_merged.h5ad",  # Update merged file only
         ]
         for snrna_path in snrna_files:
             if snrna_path.exists():
@@ -879,13 +926,13 @@ def run_hpc_reference_mapping(
                     print(f"    Done: {adata.n_obs} cells")
                 except Exception as e:
                     print(f"    WARNING: Failed to update {snrna_path.name}: {e}")
-
-    # Cleanup backed file handle
-    try:
-        if hasattr(query_adata, "file") and query_adata.file is not None:
-            query_adata.file.close()
-    except Exception:
-        pass  # Ignore cleanup errors
+    else:
+        # Cleanup backed file handle if no cell types
+        try:
+            if hasattr(query_adata, "file") and query_adata.file is not None:
+                query_adata.file.close()
+        except Exception:
+            pass  # Ignore cleanup errors
 
     print()
     print(f"Outputs saved to: {output_dir}")
