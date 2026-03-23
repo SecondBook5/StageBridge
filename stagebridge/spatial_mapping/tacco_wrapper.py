@@ -110,6 +110,7 @@ class TACCOBackend(SpatialBackend):
             method=self.method,
             epsilon=self.epsilon if self.method == "OT" else None,
             lamb=self.lamb if self.method == "NMFreg" else None,
+            remove_zero_cells=True,  # Handle zero-sum observations after gene filtering
         )
 
         # Extract cell type proportions
