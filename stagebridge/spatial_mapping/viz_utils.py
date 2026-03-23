@@ -327,7 +327,7 @@ def plot_entropy_vs_sparsity(
         figsize: Figure size
         save_path: If provided, saves figure
     """
-    from ..spatial_backends.base import compute_cell_type_entropy
+    from .backend_base import compute_cell_type_entropy
 
     # Compute metrics per spot
     entropy = compute_cell_type_entropy(proportions)

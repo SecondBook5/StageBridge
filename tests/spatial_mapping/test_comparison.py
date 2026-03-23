@@ -4,13 +4,13 @@ Tests for spatial backend comparison module.
 
 import pandas as pd
 
-from stagebridge.spatial_backends.comparison import (
+from stagebridge.spatial_mapping.comparison import (
     BackendRunResult,
     ComparisonResult,
     build_comparison_table,
     rank_backends,
 )
-from stagebridge.spatial_backends.metrics import MetricsReport
+from stagebridge.spatial_mapping.metrics import MetricsReport
 
 
 class TestBackendRunResult:

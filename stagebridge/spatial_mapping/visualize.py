@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.colors import LinearSegmentedColormap
 
-from .base import BackendMappingResult
+from .backend_base import BackendMappingResult
 from .comparison import ComparisonResult
 from .standardize import StandardizedOutput
 
@@ -392,7 +392,7 @@ def plot_entropy_comparison(
     Returns:
         Matplotlib Figure
     """
-    from .base import compute_cell_type_entropy
+    from .backend_base import compute_cell_type_entropy
 
     backends = list(results.keys())
     n_backends = len(backends)

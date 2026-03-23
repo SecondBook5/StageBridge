@@ -55,7 +55,7 @@ def synthetic_spatial():
 @pytest.fixture
 def synthetic_mapping_result(synthetic_spatial, synthetic_snrna):
     """Create synthetic BackendMappingResult for testing."""
-    from stagebridge.spatial_backends.base import BackendMappingResult
+    from stagebridge.spatial_mapping.backend_base import BackendMappingResult
 
     n_spots = len(synthetic_spatial)
     cell_types = synthetic_snrna.obs["cell_type"].cat.categories.tolist()
@@ -95,7 +95,7 @@ def synthetic_mapping_result(synthetic_spatial, synthetic_snrna):
 @pytest.fixture
 def synthetic_standardized_output(synthetic_mapping_result):
     """Create synthetic StandardizedOutput for testing."""
-    from stagebridge.spatial_backends.standardize import standardize_backend_output
+    from stagebridge.spatial_mapping.standardize import standardize_backend_output
 
     return standardize_backend_output(
         synthetic_mapping_result,

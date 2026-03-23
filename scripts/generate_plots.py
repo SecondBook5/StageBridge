@@ -43,7 +43,7 @@ warnings.filterwarnings('ignore')
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from stagebridge.visualization.individual_plots import (
+from stagebridge.viz.individual_plots import (
     plot_pca_with_variance,
     plot_tsne,
     plot_umap,
@@ -56,7 +56,7 @@ from stagebridge.visualization.individual_plots import (
     plot_confusion_matrix,
     plot_attention_heatmap,
 )
-from stagebridge.visualization.professional_figures import (
+from stagebridge.viz.professional_figures import (
     generate_figure2_dimensionality_reduction,
     generate_figure4_model_performance,
     generate_figure5_attention_heatmap,

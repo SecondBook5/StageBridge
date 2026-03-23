@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
-from .base import BackendMappingResult, compute_cell_type_entropy, compute_sparsity
+from .backend_base import BackendMappingResult, compute_cell_type_entropy, compute_sparsity
 
 
 @dataclass

@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from stagebridge.visualization.professional_figures import (
+from stagebridge.viz.professional_figures import (
     generate_figure2_dimensionality_reduction,
     generate_figure4_model_performance,
     generate_figure5_attention_heatmap,

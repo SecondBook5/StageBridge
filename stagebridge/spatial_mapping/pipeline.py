@@ -17,7 +17,7 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-from .base import SpatialBackend
+from .backend_base import SpatialBackend
 from .tangram_wrapper import TangramBackend
 from .destvi_wrapper import DestVIBackend
 from .tacco_wrapper import TACCOBackend

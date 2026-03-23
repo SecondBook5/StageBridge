@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from stagebridge.visualization.individual_plots import *
+from stagebridge.viz.individual_plots import *
 
 
 def generate_realistic_data_for_demo():

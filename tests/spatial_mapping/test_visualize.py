@@ -11,7 +11,7 @@ import matplotlib
 matplotlib.use("Agg")  # Non-interactive backend for testing
 import matplotlib.pyplot as plt
 
-from stagebridge.spatial_backends.visualize import (
+from stagebridge.spatial_mapping.visualize import (
     plot_spatial_maps_comparison,
     plot_metrics_comparison,
     plot_confidence_distributions,
@@ -19,7 +19,7 @@ from stagebridge.spatial_backends.visualize import (
     plot_entropy_comparison,
     create_comparison_summary_figure,
 )
-from stagebridge.spatial_backends.comparison import ComparisonResult
+from stagebridge.spatial_mapping.comparison import ComparisonResult
 
 
 class TestPlotSpatialMapsComparison:

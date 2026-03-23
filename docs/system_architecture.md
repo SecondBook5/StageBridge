@@ -1023,11 +1023,12 @@ stagebridge/
 │   ├── run_data_prep.py       # Step 0
 │   ├── run_training.py        # Full training
 │   └── run_evaluation.py      # Full evaluation
-├── spatial_backends/
+├── spatial_mapping/
 │   ├── __init__.py
 │   ├── tangram_wrapper.py
 │   ├── destvi_wrapper.py
-│   └── tacco_wrapper.py
+│   ├── tacco_wrapper.py
+│   └── cell2location_wrapper.py
 ├── utils/
 │   ├── __init__.py
 │   ├── logging_utils.py

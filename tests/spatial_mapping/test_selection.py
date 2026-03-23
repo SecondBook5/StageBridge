@@ -5,14 +5,14 @@ Tests for spatial backend selection module.
 import json
 import pytest
 
-from stagebridge.spatial_backends.selection import (
+from stagebridge.spatial_mapping.selection import (
     BackendSelection,
     select_canonical_backend,
     generate_selection_report,
     save_canonical_decision,
     load_canonical_decision,
 )
-from stagebridge.spatial_backends.comparison import ComparisonResult
+from stagebridge.spatial_mapping.comparison import ComparisonResult
 
 
 class TestBackendSelection:

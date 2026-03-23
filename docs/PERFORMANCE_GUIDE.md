@@ -111,7 +111,7 @@ With cache (subsequent runs):
 
 **Usage:**
 ```python
-from stagebridge.visualization.plot_cache import get_cache
+from stagebridge.viz.plot_cache import get_cache
 
 cache = get_cache()
 X_tsne = cache.get_or_compute_tsne(embeddings)

@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 
-from stagebridge.spatial_backends import (
+from stagebridge.spatial_mapping import (
     TangramBackend,
     DestVIBackend,
     create_comprehensive_report,

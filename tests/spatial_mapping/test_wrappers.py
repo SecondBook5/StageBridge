@@ -10,28 +10,28 @@ import numpy as np
 
 def test_tangram_backend_imports():
     """Test that Tangram backend can be imported."""
-    from stagebridge.spatial_backends import TangramBackend
+    from stagebridge.spatial_mapping import TangramBackend
 
     assert TangramBackend is not None
 
 
 def test_destvi_backend_imports():
     """Test that DestVI backend can be imported."""
-    from stagebridge.spatial_backends import DestVIBackend
+    from stagebridge.spatial_mapping import DestVIBackend
 
     assert DestVIBackend is not None
 
 
 def test_tacco_backend_imports():
     """Test that TACCO backend can be imported."""
-    from stagebridge.spatial_backends import TACCOBackend
+    from stagebridge.spatial_mapping import TACCOBackend
 
     assert TACCOBackend is not None
 
 
 def test_tangram_backend_initialization():
     """Test Tangram backend initialization."""
-    from stagebridge.spatial_backends import TangramBackend
+    from stagebridge.spatial_mapping import TangramBackend
 
     backend = TangramBackend(
         constrained=True,
@@ -47,7 +47,7 @@ def test_tangram_backend_initialization():
 
 def test_destvi_backend_initialization():
     """Test DestVI backend initialization."""
-    from stagebridge.spatial_backends import DestVIBackend
+    from stagebridge.spatial_mapping import DestVIBackend
 
     backend = DestVIBackend(
         n_latent=5,
@@ -66,7 +66,7 @@ def test_destvi_backend_initialization():
 
 def test_tangram_backend_has_visualization_methods():
     """Test that Tangram backend has new visualization methods."""
-    from stagebridge.spatial_backends import TangramBackend
+    from stagebridge.spatial_mapping import TangramBackend
 
     backend = TangramBackend()
 
@@ -81,7 +81,7 @@ def test_tangram_backend_has_visualization_methods():
 
 def test_destvi_backend_has_advanced_methods():
     """Test that DestVI backend has new multi-resolution methods."""
-    from stagebridge.spatial_backends import DestVIBackend
+    from stagebridge.spatial_mapping import DestVIBackend
 
     backend = DestVIBackend()
 
@@ -109,7 +109,7 @@ def test_tangram_backend_map_synthetic(synthetic_snrna, synthetic_spatial, tmp_o
     except ImportError:
         pytest.skip("scvi.external.Tangram not available (install scvi-tools[jax])")
 
-    from stagebridge.spatial_backends import TangramBackend
+    from stagebridge.spatial_mapping import TangramBackend
 
     backend = TangramBackend(
         constrained=True,
@@ -151,7 +151,7 @@ def test_destvi_backend_map_synthetic(synthetic_snrna, synthetic_spatial, tmp_ou
     """Test DestVI mapping with synthetic data."""
     pytest.importorskip("scvi")
 
-    from stagebridge.spatial_backends import DestVIBackend
+    from stagebridge.spatial_mapping import DestVIBackend
 
     backend = DestVIBackend(
         n_latent=5,
@@ -201,7 +201,7 @@ def test_destvi_get_gamma(synthetic_snrna, synthetic_spatial):
     """Test DestVI gamma extraction after mapping."""
     pytest.importorskip("scvi")
 
-    from stagebridge.spatial_backends import DestVIBackend
+    from stagebridge.spatial_mapping import DestVIBackend
 
     backend = DestVIBackend(
         n_latent=5,
@@ -232,7 +232,7 @@ def test_destvi_filter_spots(synthetic_snrna, synthetic_spatial):
     """Test DestVI spot filtering by cell type."""
     pytest.importorskip("scvi")
 
-    from stagebridge.spatial_backends import DestVIBackend
+    from stagebridge.spatial_mapping import DestVIBackend
 
     backend = DestVIBackend(
         n_latent=5,
@@ -264,7 +264,7 @@ def test_tangram_project_genes(synthetic_snrna, synthetic_spatial):
     except ImportError:
         pytest.skip("scvi.external.Tangram not available (install scvi-tools[jax])")
 
-    from stagebridge.spatial_backends import TangramBackend
+    from stagebridge.spatial_mapping import TangramBackend
 
     backend = TangramBackend(
         constrained=True,
@@ -290,7 +290,7 @@ def test_tangram_project_genes(synthetic_snrna, synthetic_spatial):
 
 def test_visualization_utils_imports():
     """Test that visualization utilities can be imported."""
-    from stagebridge.spatial_backends import (
+    from stagebridge.spatial_mapping import (
         plot_proportions_spatial,
         plot_gamma_pca_spatial,
         create_comprehensive_report,
@@ -304,7 +304,7 @@ def test_visualization_utils_imports():
 
 def test_viz_utils_plot_proportion_distribution(synthetic_mapping_result):
     """Test proportion distribution plotting."""
-    from stagebridge.spatial_backends.viz_utils import plot_proportion_distribution
+    from stagebridge.spatial_mapping.viz_utils import plot_proportion_distribution
 
     proportions = synthetic_mapping_result.cell_type_proportions
 
@@ -321,7 +321,7 @@ def test_viz_utils_plot_proportion_distribution(synthetic_mapping_result):
 
 def test_viz_utils_plot_entropy_vs_sparsity(synthetic_mapping_result):
     """Test entropy vs sparsity plotting."""
-    from stagebridge.spatial_backends.viz_utils import plot_entropy_vs_sparsity
+    from stagebridge.spatial_mapping.viz_utils import plot_entropy_vs_sparsity
 
     proportions = synthetic_mapping_result.cell_type_proportions
 
@@ -336,7 +336,7 @@ def test_viz_utils_plot_entropy_vs_sparsity(synthetic_mapping_result):
 
 def test_backend_factory():
     """Test backend factory function."""
-    from stagebridge.spatial_backends import get_backend
+    from stagebridge.spatial_mapping import get_backend
 
     # Get direct backends
     TangramBackend = get_backend("tangram", use_adapter=False)
@@ -359,7 +359,7 @@ def test_backend_factory():
 
 def test_backend_factory_invalid():
     """Test backend factory with invalid name."""
-    from stagebridge.spatial_backends import get_backend
+    from stagebridge.spatial_mapping import get_backend
 
     with pytest.raises(ValueError, match="Unknown backend"):
         get_backend("invalid_backend")
@@ -367,7 +367,7 @@ def test_backend_factory_invalid():
 
 def test_destvi_requires_mapping_before_gamma():
     """Test that DestVI raises error if gamma accessed before mapping."""
-    from stagebridge.spatial_backends import DestVIBackend
+    from stagebridge.spatial_mapping import DestVIBackend
 
     backend = DestVIBackend()
 
@@ -377,7 +377,7 @@ def test_destvi_requires_mapping_before_gamma():
 
 def test_tangram_requires_mapping_before_projection():
     """Test that Tangram raises error if projection before mapping."""
-    from stagebridge.spatial_backends import TangramBackend
+    from stagebridge.spatial_mapping import TangramBackend
 
     backend = TangramBackend()
 

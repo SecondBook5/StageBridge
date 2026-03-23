@@ -6,7 +6,7 @@ These tests focus on the pipeline infrastructure, not actual backend execution.
 
 import pytest
 
-from stagebridge.spatial_backends.pipeline import (
+from stagebridge.spatial_mapping.pipeline import (
     SpatialBenchmarkConfig,
     BenchmarkProgress,
     run_smoke_benchmark,
@@ -214,8 +214,8 @@ class TestLoadBenchmarkResults:
 
     def test_load_results(self, tmp_output_dir, synthetic_comparison_table):
         """Test loading saved results."""
-        from stagebridge.spatial_backends.comparison import ComparisonResult
-        from stagebridge.spatial_backends.selection import (
+        from stagebridge.spatial_mapping.comparison import ComparisonResult
+        from stagebridge.spatial_mapping.selection import (
             BackendSelection,
             save_canonical_decision,
         )
@@ -246,7 +246,7 @@ class TestGetCanonicalBackendResult:
 
     def test_get_canonical_result(self, tmp_output_dir, synthetic_standardized_output):
         """Test retrieving canonical backend's standardized output."""
-        from stagebridge.spatial_backends.selection import (
+        from stagebridge.spatial_mapping.selection import (
             BackendSelection,
             save_canonical_decision,
         )

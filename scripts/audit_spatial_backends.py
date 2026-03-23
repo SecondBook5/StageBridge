@@ -68,8 +68,8 @@ def check_docstrings(module_path: Path) -> dict:
 
 def audit_backend_structure():
     """Run full audit of spatial backends."""
-    base_dir = Path(__file__).parent.parent / "stagebridge" / "spatial_backends"
-    test_dir = Path(__file__).parent.parent / "tests" / "spatial_backends"
+    base_dir = Path(__file__).parent.parent / "stagebridge" / "spatial_mapping"
+    test_dir = Path(__file__).parent.parent / "tests" / "spatial_mapping"
 
     print("=" * 70)
     print("Spatial Backend Structure Audit")

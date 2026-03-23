@@ -20,7 +20,7 @@ from typing import Any
 import pandas as pd
 
 from stagebridge.spatial_mapping.base import SpatialMappingResult
-from .base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy
+from .backend_base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy
 
 
 @dataclass

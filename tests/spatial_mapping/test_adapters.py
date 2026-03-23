@@ -1,4 +1,4 @@
-"""Tests for spatial_backends adapters that wrap spatial_mapping implementations."""
+"""Tests for spatial_mapping adapters."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 import pandas as pd
 
-from stagebridge.spatial_backends.adapters import (
+from stagebridge.spatial_mapping.adapters import (
     AdapterConfig,
     TangramAdapter,
     DestVIAdapter,
@@ -15,7 +15,7 @@ from stagebridge.spatial_backends.adapters import (
     _convert_to_backend_result,
     ADAPTERS,
 )
-from stagebridge.spatial_backends.base import BackendMappingResult
+from stagebridge.spatial_mapping.backend_base import BackendMappingResult
 
 
 # ---------------------------------------------------------------------------
@@ -288,8 +288,8 @@ class TestModuleExports:
     """Test that adapters are properly exported from module."""
 
     def test_import_from_package(self) -> None:
-        """Test importing adapters from stagebridge.spatial_backends."""
-        from stagebridge.spatial_backends import (
+        """Test importing adapters from stagebridge.spatial_mapping."""
+        from stagebridge.spatial_mapping import (
             AdapterConfig,
             TangramAdapter,
             DestVIAdapter,
@@ -305,7 +305,7 @@ class TestModuleExports:
 
     def test_get_backend_with_adapter_flag(self) -> None:
         """Test get_backend with use_adapter=True."""
-        from stagebridge.spatial_backends import get_backend, TangramAdapter, TangramBackend
+        from stagebridge.spatial_mapping import get_backend, TangramAdapter, TangramBackend
 
         # Direct backend (default)
         direct = get_backend("tangram")

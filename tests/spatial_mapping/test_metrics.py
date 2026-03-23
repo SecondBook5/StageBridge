@@ -5,7 +5,7 @@ Tests for spatial backend metrics module.
 import numpy as np
 import pandas as pd
 
-from stagebridge.spatial_backends.metrics import (
+from stagebridge.spatial_mapping.metrics import (
     MetricsReport,
     compute_upstream_metrics,
     compute_downstream_utility,
@@ -172,7 +172,7 @@ class TestComputeSpatialCoherence:
 
     def test_few_spots_handling(self, synthetic_snrna):
         """Test handling of very few spots."""
-        from stagebridge.spatial_backends.base import BackendMappingResult
+        from stagebridge.spatial_mapping.backend_base import BackendMappingResult
 
         # Create tiny dataset
         n_spots = 3

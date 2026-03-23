@@ -11,7 +11,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from .base import BackendMappingResult
+from .backend_base import BackendMappingResult
 
 
 @dataclass

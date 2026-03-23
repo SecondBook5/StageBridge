@@ -5,7 +5,7 @@ Tests for spatial backend output standardization module.
 import numpy as np
 import pandas as pd
 
-from stagebridge.spatial_backends.standardize import (
+from stagebridge.spatial_mapping.standardize import (
     StandardizedOutput,
     standardize_backend_output,
     validate_standardized_output,
@@ -177,7 +177,7 @@ class TestStandardizeBackendOutput:
 
     def test_standardization_handles_zero_rows(self, synthetic_snrna):
         """Test that standardization handles zero-sum rows."""
-        from stagebridge.spatial_backends.base import BackendMappingResult
+        from stagebridge.spatial_mapping.backend_base import BackendMappingResult
 
         n_spots = 10
         cell_types = synthetic_snrna.obs["cell_type"].cat.categories.tolist()

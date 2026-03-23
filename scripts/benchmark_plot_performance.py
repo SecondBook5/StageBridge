@@ -36,7 +36,7 @@ def generate_test_data(n_samples=1000, n_features=32):
 
 def benchmark_original_plots(embeddings, labels, output_dir):
     """Benchmark original implementation (no caching)"""
-    from stagebridge.visualization.individual_plots import (
+    from stagebridge.viz.individual_plots import (
         plot_pca_with_variance,
         plot_tsne,
         plot_umap,
@@ -70,13 +70,13 @@ def benchmark_original_plots(embeddings, labels, output_dir):
 
 def benchmark_optimized_plots(embeddings, labels, output_dir):
     """Benchmark optimized implementation (with caching)"""
-    from stagebridge.visualization.individual_plots_optimized import (
+    from stagebridge.viz.individual_plots_optimized import (
         plot_pca_with_variance,
         plot_tsne,
         plot_umap,
         plot_phate,
     )
-    from stagebridge.visualization.plot_cache import clear_cache
+    from stagebridge.viz.plot_cache import clear_cache
 
     # First run (cold cache)
     clear_cache()
@@ -184,7 +184,7 @@ def main():
         print("\n" + "=" * 80)
         print("MEMORY ESTIMATE")
         print("=" * 80)
-        from stagebridge.visualization.plot_cache import get_cache
+        from stagebridge.viz.plot_cache import get_cache
         cache = get_cache()
         cache_size_mb = cache.size_mb()
         print(f"Cache size: {cache_size_mb:.1f} MB")

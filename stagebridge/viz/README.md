@@ -30,12 +30,16 @@ from stagebridge.viz.lungpca_style import STAGE_COLORS
 
 **Usage:**
 ```python
-from stagebridge.visualization import generate_dr_figure, generate_attention_figure
+from stagebridge.viz import generate_figure2_dimensionality_reduction, generate_fig2_pro
 ```
 
 ## Summary
 
-| Module | Level | Purpose |
-|--------|-------|---------|
-| `viz/` | Low-level | Individual plot components |
-| `visualization/` | High-level | Assembled multi-panel figures |
+All visualization code is now unified in `stagebridge/viz/`. The former `visualization/` module has been merged here.
+
+| Submodule | Purpose |
+|-----------|---------|
+| Individual plots | `plot_umap`, `plot_confusion_matrix`, etc. |
+| Multi-panel figures | `generate_figure1_architecture`, etc. |
+| Professional figures | `generate_fig2_pro`, `generate_fig4_pro` |
+| Plot cache | Cached DR computations (`get_cache`) |

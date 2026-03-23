@@ -30,7 +30,7 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
-from stagebridge.spatial_backends import (
+from stagebridge.spatial_mapping import (
     TangramBackend,
     DestVIBackend,
     TACCOBackend,

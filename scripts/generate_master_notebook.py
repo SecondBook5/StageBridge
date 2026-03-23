@@ -344,7 +344,7 @@ Create all figures emphasizing biological discoveries.
 
     nbf.v4.new_code_cell("""print("Generating publication figures...")
 
-from stagebridge.visualization.figure_generation import (
+from stagebridge.viz.figure_generation import (
     generate_figure3_niche_influence_biology,
     generate_figure8_flagship_biology,
 )
