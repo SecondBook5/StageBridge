@@ -114,3 +114,6 @@ docs/architecture/*.pdf
 docs/*.pdf
 docs/luca-master.zip
 docs/luca_code/
+CLAUDE.md
+.claude/
+PUBLICATION_QUALITY_REPORT.md
