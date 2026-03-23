@@ -171,9 +171,11 @@ class TangramBackend(SpatialBackend):
 
             # Save annotated spatial data
             spatial_annotated = spatial.copy()
-            spatial_annotated.obsm["tangram_proportions"] = cell_type_proportions.values
-            for ct in cell_type_proportions.columns:
-                spatial_annotated.obs[f"tangram_{ct}"] = cell_type_proportions[ct].values
+            props_array = cell_type_proportions.values if hasattr(cell_type_proportions, 'values') else cell_type_proportions
+            spatial_annotated.obsm["tangram_proportions"] = props_array
+            if hasattr(cell_type_proportions, 'columns'):
+                for ct in cell_type_proportions.columns:
+                    spatial_annotated.obs[f"tangram_{ct}"] = cell_type_proportions[ct].values
             spatial_annotated.write_h5ad(output_dir / "tangram_spatial_annotated.h5ad")
 
             print(f"  Tangram outputs saved to {output_dir}")
@@ -298,7 +300,7 @@ class TangramBackend(SpatialBackend):
 
     def _compute_mapping_confidence(
         self,
-        cell_type_proportions: pd.DataFrame,
+        cell_type_proportions: pd.DataFrame | np.ndarray,
     ) -> np.ndarray:
         """
         Compute confidence scores from cell type proportion entropy.
@@ -306,7 +308,7 @@ class TangramBackend(SpatialBackend):
         Lower entropy = higher confidence (more certain mapping).
         """
         # Compute entropy per spot
-        props = cell_type_proportions.values
+        props = cell_type_proportions.values if hasattr(cell_type_proportions, 'values') else cell_type_proportions
         props = props / (props.sum(axis=1, keepdims=True) + 1e-10)
 
         entropy = -np.sum(props * np.log(props + 1e-10), axis=1)
@@ -327,7 +329,7 @@ class TangramBackend(SpatialBackend):
         metrics = {}
 
         if result is not None and result.cell_type_proportions is not None:
-            props = result.cell_type_proportions.values
+            props = result.cell_type_proportions.values if hasattr(result.cell_type_proportions, 'values') else result.cell_type_proportions
             # Cell type entropy (diversity)
             metrics["mean_entropy"] = float(compute_cell_type_entropy(props).mean())
             # Sparsity
