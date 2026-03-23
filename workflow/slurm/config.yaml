@@ -3,7 +3,6 @@
 
 executor: slurm
 
-# Activate conda environment for all jobs
 default-resources:
   slurm_account: chaunzt1
   slurm_partition: gpu
@@ -16,6 +15,3 @@ keep-going: true
 printshellcmds: true
 rerun-incomplete: true
 local-cores: 1
-
-# Ensure conda environment is activated for all shell commands
-shell: "source /scratch/chaunzt1/stagebridge_env/bin/activate && "

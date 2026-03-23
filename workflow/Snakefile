@@ -22,6 +22,9 @@
 import os
 from pathlib import Path
 
+# Activate conda environment for all shell commands
+shell.prefix("source /scratch/chaunzt1/stagebridge_env/bin/activate && ")
+
 # =============================================================================
 # Configuration
 # =============================================================================
