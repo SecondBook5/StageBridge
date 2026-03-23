@@ -323,7 +323,8 @@ def compute_spatial_coherence(
     Returns:
         Dictionary of spatial coherence metrics
     """
-    proportions = result.cell_type_proportions.values
+    props = result.cell_type_proportions
+    proportions = props.values if hasattr(props, 'values') else props
     n_spots = len(proportions)
 
     if n_spots < k_neighbors + 1:

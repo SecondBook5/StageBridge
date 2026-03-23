@@ -285,14 +285,17 @@ def compute_cell_type_entropy(proportions: pd.DataFrame) -> pd.Series:
         Series of entropy values per spot
     """
     # Avoid log(0)
-    p = proportions.values + 1e-10
+    p_vals = proportions.values if hasattr(proportions, 'values') else proportions
+    p = p_vals + 1e-10
     p = p / p.sum(axis=1, keepdims=True)
 
     entropy = -np.sum(p * np.log(p), axis=1) / np.log(proportions.shape[1])
-    return pd.Series(entropy, index=proportions.index, name="entropy")
+    if hasattr(proportions, 'index'):
+        return pd.Series(entropy, index=proportions.index, name="entropy")
+    return entropy
 
 
-def compute_sparsity(proportions: pd.DataFrame) -> float:
+def compute_sparsity(proportions: pd.DataFrame | np.ndarray) -> float:
     """
     Compute sparsity (fraction of zeros) in proportion matrix.
 
@@ -302,4 +305,5 @@ def compute_sparsity(proportions: pd.DataFrame) -> float:
     Returns:
         Sparsity fraction in [0, 1]
     """
-    return (proportions.values == 0).mean()
+    p_vals = proportions.values if hasattr(proportions, 'values') else proportions
+    return (p_vals == 0).mean()
