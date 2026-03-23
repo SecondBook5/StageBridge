@@ -110,7 +110,8 @@ def run_backend_comparison(
                     n_epochs_destvi=50 if quick else 2500,
                 )
             elif backend_name == "tacco":
-                backend = TACCOBackend(method="OT")
+                # Use NNLS instead of OT - handles sparse data better
+                backend = TACCOBackend(method="NNLS")
             elif backend_name == "cell2location":
                 backend = Cell2locationBackend(
                     max_epochs_ref=50 if quick else 250,
