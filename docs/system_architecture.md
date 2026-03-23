@@ -1012,12 +1012,15 @@ stagebridge/
 │   ├── metrics.py             # All metrics
 │   ├── cv.py                  # Cross-validation
 │   └── ablations.py           # Ablation runner
-├── visualization/
+├── viz/
 │   ├── __init__.py
-│   ├── latent_space.py        # UMAP, PCA plots
-│   ├── attention.py           # Attention heatmaps
-│   ├── trajectories.py        # Flow fields
-│   └── figures.py             # Publication figures
+│   ├── embeddings.py          # UMAP, PCA plots
+│   ├── curves.py              # Training curves
+│   ├── flows.py               # Sankey diagrams
+│   ├── lungpca_style.py       # Publication color palette
+│   ├── publication_theme.py   # Publication styling
+│   ├── figure_generation.py   # Multi-panel figures
+│   └── professional_figures.py # DR, attention figures
 ├── pipelines/
 │   ├── __init__.py
 │   ├── run_data_prep.py       # Step 0

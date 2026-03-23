@@ -97,7 +97,7 @@ rsync -avz --progress \
 
 ```bash
 # Submit entire pipeline with SLURM dependencies
-sbatch scripts/hpc_v1_master_pipeline.sbatch
+sbatch scripts/hpc/hpc_v1_master_pipeline.sbatch
 ```
 
 ### Pipeline Stages
@@ -123,25 +123,25 @@ Stage 7: Publication Figures (1h, 1 GPU)
 
 ```bash
 # Stage 1: HLCA mapping
-sbatch scripts/hpc_step1_hlca.sbatch
+sbatch scripts/hpc/hpc_step1_hlca.sbatch
 
 # Stage 2: LuCA mapping (after Stage 1)
-sbatch --dependency=afterok:$HLCA_JOB scripts/hpc_step2_luca.sbatch
+sbatch --dependency=afterok:$HLCA_JOB scripts/hpc/hpc_step2_luca_mapping.sbatch
 
 # Stage 3: Spatial benchmark (parallel with 1-2)
-sbatch scripts/hpc_step3_spatial.sbatch
+sbatch scripts/hpc/hpc_step3_spatial_benchmark.sbatch
 
 # Stage 4: Data prep (after 1, 2, 3)
-sbatch --dependency=afterok:$LUCA_JOB:$SPATIAL_JOB scripts/hpc_step4_data_prep.sbatch
+sbatch --dependency=afterok:$LUCA_JOB:$SPATIAL_JOB scripts/hpc/hpc_step4_complete_data_prep.sbatch
 
 # Stage 5: Training (after Stage 4)
-sbatch --dependency=afterok:$PREP_JOB scripts/hpc_step5_training.sbatch
+sbatch --dependency=afterok:$PREP_JOB scripts/hpc/hpc_step5_training.sbatch
 
-# Stage 6: Evaluation
-sbatch --dependency=afterok:$TRAIN_JOB scripts/hpc_step6_evaluation.sbatch
+# Stage 6: Evaluation (ablations)
+sbatch --dependency=afterok:$TRAIN_JOB scripts/hpc/hpc_step6_ablations.sbatch
 
 # Stage 7: Figures
-sbatch --dependency=afterok:$EVAL_JOB scripts/hpc_step7_figures.sbatch
+sbatch --dependency=afterok:$EVAL_JOB scripts/hpc/hpc_step7_figures.sbatch
 ```
 
 ### Monitor Jobs
@@ -201,5 +201,5 @@ module load miniforge3 cuda/12.4
 ## Reference
 
 - **Pipeline README**: `stagebridge/pipelines/README.md`
-- **SLURM scripts**: `scripts/hpc_*.sbatch`
+- **SLURM scripts**: `scripts/hpc/*.sbatch`
 - **Environment file**: `envs/environment.yaml`
