@@ -171,6 +171,7 @@ def main():
 
     # Use centralized data directory by default
     from pathlib import Path as PathLib
+
     default_output = str(PathLib.home() / "data" / "stagebridge" / "processed")
 
     parser.add_argument(

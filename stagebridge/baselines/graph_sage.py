@@ -74,10 +74,9 @@ class GraphSAGEBaseline(nn.Module):
         self.input_proj = nn.Linear(input_dim, hidden_dim)
 
         # GraphSAGE layers
-        self.layers = nn.ModuleList([
-            GraphSAGELayer(hidden_dim, hidden_dim, dropout=dropout)
-            for _ in range(num_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [GraphSAGELayer(hidden_dim, hidden_dim, dropout=dropout) for _ in range(num_layers)]
+        )
 
         # Readout
         self.pool = nn.Sequential(
@@ -156,7 +155,7 @@ class GraphSAGEBaseline(nn.Module):
         # Compute pairwise distances
         # coords: [B, N, 2]
         diff = coords.unsqueeze(2) - coords.unsqueeze(1)  # [B, N, N, 2]
-        dist = torch.sqrt((diff ** 2).sum(dim=-1) + 1e-8)  # [B, N, N]
+        dist = torch.sqrt((diff**2).sum(dim=-1) + 1e-8)  # [B, N, N]
 
         # Binary adjacency (within radius)
         adj = (dist <= self.spatial_radius).float()

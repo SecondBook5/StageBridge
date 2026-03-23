@@ -99,7 +99,9 @@ def load_benchmark_world(world_dir: Path) -> BenchmarkWorld:
     )
 
 
-def load_benchmark_split(benchmark_dir: Path, split: Literal["train", "val", "test"]) -> list[BenchmarkWorld]:
+def load_benchmark_split(
+    benchmark_dir: Path, split: Literal["train", "val", "test"]
+) -> list[BenchmarkWorld]:
     """Load all worlds from a split."""
     split_dir = benchmark_dir / split
     if not split_dir.exists():
@@ -133,9 +135,7 @@ class BenchmarkDataset(Dataset):
         X = torch.from_numpy(world.expression.X).float()
 
         # Coordinates
-        coords = torch.from_numpy(
-            world.coordinates[["x", "y"]].values
-        ).float()
+        coords = torch.from_numpy(world.coordinates[["x", "y"]].values).float()
 
         # Stage labels (if available)
         if "stage" in world.ground_truth.columns:
@@ -148,9 +148,7 @@ class BenchmarkDataset(Dataset):
 
         # Interaction labels (if available)
         if "is_interacting" in world.ground_truth.columns:
-            interactions = torch.from_numpy(
-                world.ground_truth["is_interacting"].values
-            ).float()
+            interactions = torch.from_numpy(world.ground_truth["is_interacting"].values).float()
         else:
             interactions = torch.zeros(X.shape[0])
 
@@ -292,16 +290,18 @@ def run_baseline_comparison(
         log.info(f"{name} Test Accuracy: {test_metrics.stage_accuracy:.3f}")
 
     # Create results DataFrame
-    results_df = pd.DataFrame([
-        {
-            "baseline": r.baseline_name,
-            "split": r.split,
-            "accuracy": r.stage_accuracy,
-            "balanced_accuracy": r.stage_balanced_accuracy,
-            "f1_macro": r.stage_f1_macro,
-        }
-        for r in results
-    ])
+    results_df = pd.DataFrame(
+        [
+            {
+                "baseline": r.baseline_name,
+                "split": r.split,
+                "accuracy": r.stage_accuracy,
+                "balanced_accuracy": r.stage_balanced_accuracy,
+                "f1_macro": r.stage_f1_macro,
+            }
+            for r in results
+        ]
+    )
 
     # Save results
     results_path = output_dir / "baseline_comparison.csv"

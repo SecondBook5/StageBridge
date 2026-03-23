@@ -57,18 +57,18 @@ def compute_risk_scores(
     # Positive weight = higher score = higher risk
     risk_weights = {
         "sig_emt_hallmark": 0.20,  # EMT associated with worse outcomes
-        "sig_caf_general": 0.15,   # CAF infiltration
-        "sig_macrophage_m2": 0.15, # Tumor-promoting macrophages
+        "sig_caf_general": 0.15,  # CAF infiltration
+        "sig_macrophage_m2": 0.15,  # Tumor-promoting macrophages
         "sig_t_cell_exhaustion": 0.15,  # Immune escape
         "sig_proliferation": 0.10,  # High proliferation
         "sig_il1b_macrophage": 0.10,  # Inflammatory niche
-        "sig_nfkb_pathway": 0.05,   # NF-kB activation
+        "sig_nfkb_pathway": 0.05,  # NF-kB activation
     }
 
     # Protective signatures (negative weight)
     protective_weights = {
         "sig_t_cell_cytotoxic": -0.10,  # Active anti-tumor immunity
-        "sig_at2_markers": -0.05,       # AT2 identity retention
+        "sig_at2_markers": -0.05,  # AT2 identity retention
     }
 
     all_weights = {**risk_weights, **protective_weights}
@@ -91,12 +91,15 @@ def compute_risk_scores(
         # Normalize to 0-1 range
         scores = (scores - scores.min()) / (scores.max() - scores.min() + 1e-10)
 
-        risk_df = pd.DataFrame({
-            "cell_id": adata.obs_names,
-            "risk_score": scores,
-            "risk_category": pd.cut(scores, bins=[0, 0.33, 0.67, 1.0],
-                                    labels=["low", "intermediate", "high"]),
-        })
+        risk_df = pd.DataFrame(
+            {
+                "cell_id": adata.obs_names,
+                "risk_score": scores,
+                "risk_category": pd.cut(
+                    scores, bins=[0, 0.33, 0.67, 1.0], labels=["low", "intermediate", "high"]
+                ),
+            }
+        )
 
     else:  # individual
         risk_df = pd.DataFrame({"cell_id": adata.obs_names})
@@ -171,18 +174,22 @@ def stratify_by_niche_phenotype(
     # Cluster
     if method == "kmeans":
         from sklearn.cluster import KMeans
+
         clusterer = KMeans(n_clusters=n_phenotypes, random_state=42, n_init=10)
     else:
         from sklearn.cluster import AgglomerativeClustering
+
         clusterer = AgglomerativeClustering(n_clusters=n_phenotypes)
 
     labels = clusterer.fit_predict(X)
 
     # Create result DataFrame
-    result = pd.DataFrame({
-        "cell_id": adata.obs_names,
-        "phenotype": labels,
-    })
+    result = pd.DataFrame(
+        {
+            "cell_id": adata.obs_names,
+            "phenotype": labels,
+        }
+    )
 
     # Characterize each phenotype
     characterizations = []
@@ -267,11 +274,11 @@ def generate_clinical_summary(
         summary["stage_risk"] = stage_risk.to_dict()
 
         # Find high-risk stages
-        high_risk_stages = stage_risk[stage_risk["mean"] > stage_risk["mean"].median()].index.tolist()
+        high_risk_stages = stage_risk[
+            stage_risk["mean"] > stage_risk["mean"].median()
+        ].index.tolist()
         if high_risk_stages:
-            summary["key_findings"].append(
-                f"High-risk stages: {', '.join(high_risk_stages)}"
-            )
+            summary["key_findings"].append(f"High-risk stages: {', '.join(high_risk_stages)}")
 
     # Phenotype analysis
     if phenotype_df is not None and len(phenotype_df) == 2:
@@ -293,9 +300,7 @@ def generate_clinical_summary(
     if "risk_distribution" in summary and summary["risk_distribution"]:
         high_pct = summary["risk_distribution"].get("high", 0) / summary["n_cells"] * 100
         if high_pct > 30:
-            interpretations.append(
-                f"WARNING: {high_pct:.1f}% of cells classified as high-risk"
-            )
+            interpretations.append(f"WARNING: {high_pct:.1f}% of cells classified as high-risk")
         elif high_pct < 10:
             interpretations.append(
                 f"Favorable: Only {high_pct:.1f}% of cells classified as high-risk"
@@ -310,6 +315,7 @@ def generate_clinical_summary(
 
         # Save as JSON
         import json
+
         with open(output_dir / "clinical_summary.json", "w") as f:
             # Convert numpy types for JSON serialization
             def convert(obj):

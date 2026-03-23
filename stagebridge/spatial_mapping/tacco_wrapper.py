@@ -10,7 +10,12 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 
-from .backend_base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy, compute_sparsity
+from .backend_base import (
+    SpatialBackend,
+    BackendMappingResult,
+    compute_cell_type_entropy,
+    compute_sparsity,
+)
 
 
 class TACCOBackend(SpatialBackend):

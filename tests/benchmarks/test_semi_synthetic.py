@@ -135,18 +135,24 @@ class TestWorldGenerator:
         """Create simple cell pools for testing."""
         n = 100
         return {
-            "epithelial_receiver": pd.DataFrame({
-                "cell_type": ["AT2"] * n,
-                "stage": np.random.choice(["Normal", "LUAD"], n),
-            }),
-            "caf_sender": pd.DataFrame({
-                "cell_type": ["Fibroblast"] * n,
-                "stage": np.random.choice(["Normal", "LUAD"], n),
-            }),
-            "immune_sender": pd.DataFrame({
-                "cell_type": ["Macrophage"] * n,
-                "stage": np.random.choice(["Normal", "LUAD"], n),
-            }),
+            "epithelial_receiver": pd.DataFrame(
+                {
+                    "cell_type": ["AT2"] * n,
+                    "stage": np.random.choice(["Normal", "LUAD"], n),
+                }
+            ),
+            "caf_sender": pd.DataFrame(
+                {
+                    "cell_type": ["Fibroblast"] * n,
+                    "stage": np.random.choice(["Normal", "LUAD"], n),
+                }
+            ),
+            "immune_sender": pd.DataFrame(
+                {
+                    "cell_type": ["Macrophage"] * n,
+                    "stage": np.random.choice(["Normal", "LUAD"], n),
+                }
+            ),
         }
 
     def test_generate_world_produces_cells(self, simple_cell_pools):
@@ -209,33 +215,39 @@ class TestInteractionRules:
 
         # Receivers in center
         for i in range(10):
-            positions.append({
-                "synthetic_cell_id": f"receiver_{i}",
-                "x": 250 + np.random.randn() * 10,
-                "y": 250 + np.random.randn() * 10,
-                "cell_group": "epithelial_receiver",
-                "stage": "Normal",
-            })
+            positions.append(
+                {
+                    "synthetic_cell_id": f"receiver_{i}",
+                    "x": 250 + np.random.randn() * 10,
+                    "y": 250 + np.random.randn() * 10,
+                    "cell_group": "epithelial_receiver",
+                    "stage": "Normal",
+                }
+            )
 
         # Senders nearby (within 100 radius)
         for i in range(5):
-            positions.append({
-                "synthetic_cell_id": f"caf_near_{i}",
-                "x": 300 + np.random.randn() * 10,
-                "y": 250 + np.random.randn() * 10,
-                "cell_group": "caf_sender",
-                "stage": "Normal",
-            })
+            positions.append(
+                {
+                    "synthetic_cell_id": f"caf_near_{i}",
+                    "x": 300 + np.random.randn() * 10,
+                    "y": 250 + np.random.randn() * 10,
+                    "cell_group": "caf_sender",
+                    "stage": "Normal",
+                }
+            )
 
         # Senders far away (outside 100 radius)
         for i in range(5):
-            positions.append({
-                "synthetic_cell_id": f"caf_far_{i}",
-                "x": 500,
-                "y": 500,
-                "cell_group": "caf_sender",
-                "stage": "Normal",
-            })
+            positions.append(
+                {
+                    "synthetic_cell_id": f"caf_far_{i}",
+                    "x": 500,
+                    "y": 500,
+                    "cell_group": "caf_sender",
+                    "stage": "Normal",
+                }
+            )
 
         return pd.DataFrame(positions)
 

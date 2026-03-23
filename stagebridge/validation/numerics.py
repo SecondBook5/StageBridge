@@ -11,6 +11,7 @@ import numpy as np
 
 try:
     import torch
+
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
@@ -120,7 +121,9 @@ def check_gradient_health(model: "torch.nn.Module") -> dict[str, Any]:
 
         # Check for exploding gradients
         if param_report["norm"] > 1e6:
-            report["issues"].append(f"Exploding gradient in {name}: norm={param_report['norm']:.2e}")
+            report["issues"].append(
+                f"Exploding gradient in {name}: norm={param_report['norm']:.2e}"
+            )
 
     return report
 
@@ -215,13 +218,17 @@ def check_embedding_quality(
 
     if collapsed_dims > embeddings.shape[1] * 0.5:
         report["issues"] = report.get("issues", [])
-        report["issues"].append(f"Embedding collapse: {collapsed_dims}/{embeddings.shape[1]} dims have near-zero variance")
+        report["issues"].append(
+            f"Embedding collapse: {collapsed_dims}/{embeddings.shape[1]} dims have near-zero variance"
+        )
         report["valid"] = False
 
     # Check for extreme values
     if np.abs(embeddings).max() > 1e6:
         report["issues"] = report.get("issues", [])
-        report["issues"].append(f"Extreme embedding values: max_abs={np.abs(embeddings).max():.2e}")
+        report["issues"].append(
+            f"Extreme embedding values: max_abs={np.abs(embeddings).max():.2e}"
+        )
 
     return report
 

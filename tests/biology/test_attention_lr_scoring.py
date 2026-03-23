@@ -37,8 +37,15 @@ class TestLRPriors:
     def test_families_are_consistent(self):
         """Check that families are from expected set."""
         expected_families = {
-            "inflammatory", "chemokine", "tgfb", "growth_factor",
-            "notch", "ecm", "vascular", "immune_modulatory", "developmental"
+            "inflammatory",
+            "chemokine",
+            "tgfb",
+            "growth_factor",
+            "notch",
+            "ecm",
+            "vascular",
+            "immune_modulatory",
+            "developmental",
         }
         for (ligand, receptor), info in LR_PRIORS.items():
             assert info["family"] in expected_families, f"Unknown family: {info['family']}"
@@ -58,10 +65,12 @@ class TestComputeAttentionWeightedLRScores:
         sender_types = np.zeros(n_senders, dtype=int)
 
         # Ligand expression - IL1B expressed in first 5 senders
-        ligand_df = pd.DataFrame({
-            "IL1B": [1.0] * 5 + [0.0] * 5,
-            "IL6": [0.5] * 10,
-        })
+        ligand_df = pd.DataFrame(
+            {
+                "IL1B": [1.0] * 5 + [0.0] * 5,
+                "IL6": [0.5] * 10,
+            }
+        )
 
         # Receptor expression in receiver
         receptor_expr = pd.Series({"IL1R1": 0.8, "IL6ST": 0.3})
@@ -86,9 +95,11 @@ class TestComputeAttentionWeightedLRScores:
         n_senders = 10
 
         # Ligand expression - IL1B in first 5
-        ligand_df = pd.DataFrame({
-            "IL1B": [1.0] * 5 + [0.0] * 5,
-        })
+        ligand_df = pd.DataFrame(
+            {
+                "IL1B": [1.0] * 5 + [0.0] * 5,
+            }
+        )
         receptor_expr = pd.Series({"IL1R1": 1.0})
         sender_types = np.zeros(n_senders, dtype=int)
 
@@ -151,9 +162,11 @@ class TestComputeAttentionWeightedLRScores:
         sender_types = np.array([0] * 5 + [1] * 5)  # Two types
         type_names = ["Macrophage", "Fibroblast"]
 
-        ligand_df = pd.DataFrame({
-            "IL1B": [1.0] * 5 + [0.0] * 5,  # Only macrophages express IL1B
-        })
+        ligand_df = pd.DataFrame(
+            {
+                "IL1B": [1.0] * 5 + [0.0] * 5,  # Only macrophages express IL1B
+            }
+        )
         receptor_expr = pd.Series({"IL1R1": 1.0})
 
         scores = compute_attention_weighted_lr_scores(
@@ -174,24 +187,57 @@ class TestAggregateLRScoresByStage:
 
         # Create mock cell scores
         cell_scores = [
-            ("AAH", [LRInteractionScore(
-                ligand="IL1B", receptor="IL1R1", family="inflammatory",
-                mechanism="test", prior_support=1.0, attention_weight=0.5,
-                ligand_expression=0.8, receptor_expression=0.7,
-                interaction_score=0.56, confidence="high"
-            )]),
-            ("AAH", [LRInteractionScore(
-                ligand="IL1B", receptor="IL1R1", family="inflammatory",
-                mechanism="test", prior_support=1.0, attention_weight=0.6,
-                ligand_expression=0.9, receptor_expression=0.8,
-                interaction_score=0.72, confidence="high"
-            )]),
-            ("AIS", [LRInteractionScore(
-                ligand="IL1B", receptor="IL1R1", family="inflammatory",
-                mechanism="test", prior_support=1.0, attention_weight=0.3,
-                ligand_expression=0.4, receptor_expression=0.5,
-                interaction_score=0.20, confidence="medium"
-            )]),
+            (
+                "AAH",
+                [
+                    LRInteractionScore(
+                        ligand="IL1B",
+                        receptor="IL1R1",
+                        family="inflammatory",
+                        mechanism="test",
+                        prior_support=1.0,
+                        attention_weight=0.5,
+                        ligand_expression=0.8,
+                        receptor_expression=0.7,
+                        interaction_score=0.56,
+                        confidence="high",
+                    )
+                ],
+            ),
+            (
+                "AAH",
+                [
+                    LRInteractionScore(
+                        ligand="IL1B",
+                        receptor="IL1R1",
+                        family="inflammatory",
+                        mechanism="test",
+                        prior_support=1.0,
+                        attention_weight=0.6,
+                        ligand_expression=0.9,
+                        receptor_expression=0.8,
+                        interaction_score=0.72,
+                        confidence="high",
+                    )
+                ],
+            ),
+            (
+                "AIS",
+                [
+                    LRInteractionScore(
+                        ligand="IL1B",
+                        receptor="IL1R1",
+                        family="inflammatory",
+                        mechanism="test",
+                        prior_support=1.0,
+                        attention_weight=0.3,
+                        ligand_expression=0.4,
+                        receptor_expression=0.5,
+                        interaction_score=0.20,
+                        confidence="medium",
+                    )
+                ],
+            ),
         ]
 
         result = aggregate_lr_scores_by_stage(cell_scores)
@@ -211,12 +257,17 @@ class TestComputeIL1BAxisScore:
 
         scores = [
             LRInteractionScore(
-                ligand="IL1B", receptor="IL1R1", family="inflammatory",
-                mechanism="test", prior_support=1.0, attention_weight=0.5,
-                ligand_expression=0.8, receptor_expression=0.7,
+                ligand="IL1B",
+                receptor="IL1R1",
+                family="inflammatory",
+                mechanism="test",
+                prior_support=1.0,
+                attention_weight=0.5,
+                ligand_expression=0.8,
+                receptor_expression=0.7,
                 interaction_score=0.56,
                 sender_type_breakdown={"Macrophage": 0.4},
-                confidence="high"
+                confidence="high",
             ),
         ]
 
@@ -233,10 +284,16 @@ class TestComputeIL1BAxisScore:
 
         scores = [
             LRInteractionScore(
-                ligand="IL6", receptor="IL6ST", family="inflammatory",
-                mechanism="test", prior_support=0.95, attention_weight=0.5,
-                ligand_expression=0.8, receptor_expression=0.7,
-                interaction_score=0.56, confidence="high"
+                ligand="IL6",
+                receptor="IL6ST",
+                family="inflammatory",
+                mechanism="test",
+                prior_support=0.95,
+                attention_weight=0.5,
+                ligand_expression=0.8,
+                receptor_expression=0.7,
+                interaction_score=0.56,
+                confidence="high",
             ),
         ]
 
@@ -252,24 +309,28 @@ class TestGenerateNicheEcosystemSummary:
     def test_basic_summary_generation(self):
         """Test summary generation from stage scores."""
         stage_scores = {
-            "AAH": pd.DataFrame({
-                "ligand": ["IL1B", "IL6"],
-                "receptor": ["IL1R1", "IL6ST"],
-                "family": ["inflammatory", "inflammatory"],
-                "mean_score": [0.8, 0.3],
-                "std_score": [0.1, 0.05],
-                "n_cells": [100, 100],
-                "mean_attention": [0.4, 0.2],
-            }),
-            "AIS": pd.DataFrame({
-                "ligand": ["IL1B", "TGFB1"],
-                "receptor": ["IL1R1", "TGFBR2"],
-                "family": ["inflammatory", "tgfb"],
-                "mean_score": [0.9, 0.5],
-                "std_score": [0.15, 0.1],
-                "n_cells": [150, 150],
-                "mean_attention": [0.5, 0.3],
-            }),
+            "AAH": pd.DataFrame(
+                {
+                    "ligand": ["IL1B", "IL6"],
+                    "receptor": ["IL1R1", "IL6ST"],
+                    "family": ["inflammatory", "inflammatory"],
+                    "mean_score": [0.8, 0.3],
+                    "std_score": [0.1, 0.05],
+                    "n_cells": [100, 100],
+                    "mean_attention": [0.4, 0.2],
+                }
+            ),
+            "AIS": pd.DataFrame(
+                {
+                    "ligand": ["IL1B", "TGFB1"],
+                    "receptor": ["IL1R1", "TGFBR2"],
+                    "family": ["inflammatory", "tgfb"],
+                    "mean_score": [0.9, 0.5],
+                    "std_score": [0.15, 0.1],
+                    "n_cells": [150, 150],
+                    "mean_attention": [0.5, 0.3],
+                }
+            ),
         }
 
         summaries = generate_niche_ecosystem_summary(stage_scores)
@@ -286,7 +347,10 @@ class TestCreateLRInteractionReport:
 
     def test_report_structure(self):
         """Test report has expected structure."""
-        from stagebridge.biology.attention_lr_scoring import NicheEcosystemSummary, LRInteractionScore
+        from stagebridge.biology.attention_lr_scoring import (
+            NicheEcosystemSummary,
+            LRInteractionScore,
+        )
 
         summaries = {
             "AAH": NicheEcosystemSummary(
@@ -294,10 +358,17 @@ class TestCreateLRInteractionReport:
                 n_cells=100,
                 dominant_lr_interactions=[
                     LRInteractionScore(
-                        ligand="IL1B", receptor="IL1R1", family="inflammatory",
-                        mechanism="test", prior_support=1.0, attention_weight=0.5,
-                        ligand_expression=0.8, receptor_expression=0.7,
-                        interaction_score=0.8, stage="AAH", confidence="high"
+                        ligand="IL1B",
+                        receptor="IL1R1",
+                        family="inflammatory",
+                        mechanism="test",
+                        prior_support=1.0,
+                        attention_weight=0.5,
+                        ligand_expression=0.8,
+                        receptor_expression=0.7,
+                        interaction_score=0.8,
+                        stage="AAH",
+                        confidence="high",
                     )
                 ],
                 dominant_sender_types={"inflammatory": 0.8},
@@ -322,24 +393,28 @@ class TestExportLRScores:
     def test_export_combines_stages(self):
         """Test export combines all stages into one DataFrame."""
         stage_scores = {
-            "AAH": pd.DataFrame({
-                "ligand": ["IL1B"],
-                "receptor": ["IL1R1"],
-                "family": ["inflammatory"],
-                "mean_score": [0.8],
-                "std_score": [0.1],
-                "n_cells": [100],
-                "mean_attention": [0.4],
-            }),
-            "AIS": pd.DataFrame({
-                "ligand": ["IL6"],
-                "receptor": ["IL6ST"],
-                "family": ["inflammatory"],
-                "mean_score": [0.5],
-                "std_score": [0.1],
-                "n_cells": [100],
-                "mean_attention": [0.3],
-            }),
+            "AAH": pd.DataFrame(
+                {
+                    "ligand": ["IL1B"],
+                    "receptor": ["IL1R1"],
+                    "family": ["inflammatory"],
+                    "mean_score": [0.8],
+                    "std_score": [0.1],
+                    "n_cells": [100],
+                    "mean_attention": [0.4],
+                }
+            ),
+            "AIS": pd.DataFrame(
+                {
+                    "ligand": ["IL6"],
+                    "receptor": ["IL6ST"],
+                    "family": ["inflammatory"],
+                    "mean_score": [0.5],
+                    "std_score": [0.1],
+                    "n_cells": [100],
+                    "mean_attention": [0.3],
+                }
+            ),
         }
 
         result = export_lr_scores_for_visualization(stage_scores)

@@ -39,7 +39,9 @@ class TestUnifiedConfig:
     def test_interaction_rules_have_niche_influence(self):
         """Default interaction rules should have linked niche influence."""
         config = UnifiedBenchmarkConfig()
-        rules_with_influence = [r for r in config.interaction_rules if r.niche_influence is not None]
+        rules_with_influence = [
+            r for r in config.interaction_rules if r.niche_influence is not None
+        ]
         assert len(rules_with_influence) > 0
 
     def test_smoke_config_is_smaller(self):
@@ -204,7 +206,7 @@ class TestGroundTruthRecovery:
         )
 
         assert metrics["influential_celltype_precision"] == 0.5  # 1/2
-        assert abs(metrics["influential_celltype_recall"] - 1/3) < 0.01  # 1/3
+        assert abs(metrics["influential_celltype_recall"] - 1 / 3) < 0.01  # 1/3
 
     def test_compute_composite_score(self):
         """Should compute composite recovery score."""
@@ -396,7 +398,9 @@ class TestUnifiedGenerator:
 
         assert len(world1.cell_positions) == len(world2.cell_positions)
         # Interaction states should match
-        assert (world1.cell_positions["is_interacting"] == world2.cell_positions["is_interacting"]).all()
+        assert (
+            world1.cell_positions["is_interacting"] == world2.cell_positions["is_interacting"]
+        ).all()
 
     def test_different_splits_different_seeds(self, tmp_path):
         """Different splits should have different seeds."""
@@ -453,7 +457,10 @@ class TestInteractionRules:
         assert len(gt_cols) > 0
 
         # gt_max_strength should exist
-        assert "gt_max_strength" in world.cell_positions.columns or "gt_should_interact" in world.cell_positions.columns
+        assert (
+            "gt_max_strength" in world.cell_positions.columns
+            or "gt_should_interact" in world.cell_positions.columns
+        )
 
 
 class TestConvenienceFunctions:

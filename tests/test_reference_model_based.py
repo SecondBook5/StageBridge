@@ -12,6 +12,7 @@ def test_hlca_mapper_imports():
         map_full_snrna_with_hlca,
         HLCAMappingResult,
     )
+
     assert callable(map_full_snrna_with_hlca)
     assert HLCAMappingResult is not None
 
@@ -24,6 +25,7 @@ def test_run_reference_imports():
         calibrate_confidence_percentile,
         normalize_latent_space,
     )
+
     assert callable(run_hpc_reference_mapping)
     assert callable(run_dual_reference_mapping)
     assert callable(calibrate_confidence_percentile)

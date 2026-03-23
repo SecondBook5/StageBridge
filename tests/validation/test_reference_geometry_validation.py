@@ -41,12 +41,14 @@ def _create_hlca_df(
 ) -> pd.DataFrame:
     """Create mock HLCA embedding DataFrame."""
     np.random.seed(42)
-    df = pd.DataFrame({
-        "cell_id": [f"cell_{i}" for i in range(n_cells)],
-        "donor_id": [f"D{i % 5}" for i in range(n_cells)],
-        "sample_id": [f"S{i % 10}" for i in range(n_cells)],
-        "stage_id": [["AAH", "AIS", "MIA", "LUAD"][i % 4] for i in range(n_cells)],
-    })
+    df = pd.DataFrame(
+        {
+            "cell_id": [f"cell_{i}" for i in range(n_cells)],
+            "donor_id": [f"D{i % 5}" for i in range(n_cells)],
+            "sample_id": [f"S{i % 10}" for i in range(n_cells)],
+            "stage_id": [["AAH", "AIS", "MIA", "LUAD"][i % 4] for i in range(n_cells)],
+        }
+    )
     for i in range(hlca_dim):
         df[f"hlca_latent_{i}"] = np.random.randn(n_cells).astype(np.float32)
 
@@ -66,12 +68,14 @@ def _create_luca_df(
 ) -> pd.DataFrame:
     """Create mock LuCA embedding DataFrame."""
     np.random.seed(43)
-    df = pd.DataFrame({
-        "cell_id": [f"{cell_id_base}_{i}" for i in range(n_cells)],
-        "donor_id": [f"D{i % 5}" for i in range(n_cells)],
-        "sample_id": [f"S{i % 10}" for i in range(n_cells)],
-        "stage_id": [["AAH", "AIS", "MIA", "LUAD"][i % 4] for i in range(n_cells)],
-    })
+    df = pd.DataFrame(
+        {
+            "cell_id": [f"{cell_id_base}_{i}" for i in range(n_cells)],
+            "donor_id": [f"D{i % 5}" for i in range(n_cells)],
+            "sample_id": [f"S{i % 10}" for i in range(n_cells)],
+            "stage_id": [["AAH", "AIS", "MIA", "LUAD"][i % 4] for i in range(n_cells)],
+        }
+    )
     for i in range(luca_dim):
         df[f"luca_latent_{i}"] = np.random.randn(n_cells).astype(np.float32)
 
@@ -88,13 +92,15 @@ def _create_fused_df(
 ) -> pd.DataFrame:
     """Create mock fused embedding DataFrame."""
     np.random.seed(44)
-    df = pd.DataFrame({
-        "cell_id": [f"{cell_id_base}_{i}" for i in range(n_cells)],
-        "donor_id": [f"D{i % 5}" for i in range(n_cells)],
-        "sample_id": [f"S{i % 10}" for i in range(n_cells)],
-        "stage_id": [["AAH", "AIS", "MIA", "LUAD"][i % 4] for i in range(n_cells)],
-        "reference_mode_used": ["both"] * n_cells,
-    })
+    df = pd.DataFrame(
+        {
+            "cell_id": [f"{cell_id_base}_{i}" for i in range(n_cells)],
+            "donor_id": [f"D{i % 5}" for i in range(n_cells)],
+            "sample_id": [f"S{i % 10}" for i in range(n_cells)],
+            "stage_id": [["AAH", "AIS", "MIA", "LUAD"][i % 4] for i in range(n_cells)],
+            "reference_mode_used": ["both"] * n_cells,
+        }
+    )
     for i in range(fused_dim):
         df[f"fused_latent_{i}"] = np.random.randn(n_cells).astype(np.float32)
 
@@ -119,16 +125,18 @@ def _create_confidence_df(
     hlca_conf = np.clip(np.random.normal(hlca_mean, 0.15, n_cells), 0, 1).astype(np.float32)
     luca_conf = np.clip(np.random.normal(luca_mean, 0.15, n_cells), 0, 1).astype(np.float32)
 
-    df = pd.DataFrame({
-        "cell_id": [f"{cell_id_base}_{i}" for i in range(n_cells)],
-        "hlca_confidence": hlca_conf,
-        "luca_confidence": luca_conf,
-        "hlca_raw_distance": np.random.uniform(0.1, 2.0, n_cells).astype(np.float32),
-        "luca_raw_distance": np.random.uniform(0.1, 2.0, n_cells).astype(np.float32),
-        "hlca_confidence_method": ["percentile_rank"] * n_cells,
-        "luca_confidence_method": ["percentile_rank"] * n_cells,
-        "reference_mode_used": ["both"] * n_cells,
-    })
+    df = pd.DataFrame(
+        {
+            "cell_id": [f"{cell_id_base}_{i}" for i in range(n_cells)],
+            "hlca_confidence": hlca_conf,
+            "luca_confidence": luca_conf,
+            "hlca_raw_distance": np.random.uniform(0.1, 2.0, n_cells).astype(np.float32),
+            "luca_raw_distance": np.random.uniform(0.1, 2.0, n_cells).astype(np.float32),
+            "hlca_confidence_method": ["percentile_rank"] * n_cells,
+            "luca_confidence_method": ["percentile_rank"] * n_cells,
+            "reference_mode_used": ["both"] * n_cells,
+        }
+    )
 
     if add_nan:
         df.loc[0, "hlca_confidence"] = np.nan
@@ -223,7 +231,9 @@ def output_dir_with_nan(tmp_path: Path) -> Path:
     _create_hlca_df(n_cells, add_nan=True).to_parquet(output_dir / "hlca_embedding.parquet")
     _create_luca_df(n_cells, add_nan=True).to_parquet(output_dir / "luca_embedding.parquet")
     _create_fused_df(n_cells).to_parquet(output_dir / "fused_embedding.parquet")
-    _create_confidence_df(n_cells, add_nan=True).to_parquet(output_dir / "reference_confidence.parquet")
+    _create_confidence_df(n_cells, add_nan=True).to_parquet(
+        output_dir / "reference_confidence.parquet"
+    )
 
     with open(output_dir / "reference_manifest.json", "w") as f:
         json.dump(_create_manifest(n_cells), f)
@@ -312,7 +322,10 @@ class TestFileExistence:
         report = validator.validate()
 
         assert not report.valid
-        assert "Required file missing" in report.errors[0] or "Critical files missing" in report.errors[0]
+        assert (
+            "Required file missing" in report.errors[0]
+            or "Critical files missing" in report.errors[0]
+        )
 
 
 class TestSchemaValidation:
@@ -355,12 +368,14 @@ class TestSchemaValidation:
         output_dir.mkdir()
 
         # Create HLCA with no latent columns
-        df = pd.DataFrame({
-            "cell_id": [f"cell_{i}" for i in range(50)],
-            "donor_id": [f"D{i % 5}" for i in range(50)],
-            "sample_id": [f"S{i}" for i in range(50)],
-            "stage_id": ["AAH"] * 50,
-        })
+        df = pd.DataFrame(
+            {
+                "cell_id": [f"cell_{i}" for i in range(50)],
+                "donor_id": [f"D{i % 5}" for i in range(50)],
+                "sample_id": [f"S{i}" for i in range(50)],
+                "stage_id": ["AAH"] * 50,
+            }
+        )
         df.to_parquet(output_dir / "hlca_embedding.parquet")
 
         _create_luca_df(50).to_parquet(output_dir / "luca_embedding.parquet")

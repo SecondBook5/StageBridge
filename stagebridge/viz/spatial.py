@@ -21,6 +21,9 @@ from scipy.spatial.distance import pdist
 
 from stagebridge.logging_utils import get_logger
 
+# Stage colors - LungPCA canonical palette
+from .lungpca_style import STAGE_COLORS as _STAGE_COLORS
+
 log = get_logger(__name__)
 
 
@@ -265,9 +268,6 @@ def plot_metric_heatmap(
 # ---------------------------------------------------------------------------
 # Visium / spatial spot plots
 # ---------------------------------------------------------------------------
-
-# Stage colors - LungPCA canonical palette
-from .lungpca_style import STAGE_COLORS as _STAGE_COLORS
 
 
 def _get_spot_coords(adata: Any) -> np.ndarray:

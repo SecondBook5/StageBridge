@@ -105,15 +105,17 @@ def run_enrichment_analysis(
         expected = n_query * n_pathway / n_background if n_background > 0 else 0
         fold_enrichment = n_overlap / expected if expected > 0 else 0
 
-        results.append({
-            "pathway": name,
-            "overlap": n_overlap,
-            "pathway_size": n_pathway,
-            "query_size": n_query,
-            "fold_enrichment": fold_enrichment,
-            "pvalue": pval,
-            "overlap_genes": list(gene_set & pathway_set),
-        })
+        results.append(
+            {
+                "pathway": name,
+                "overlap": n_overlap,
+                "pathway_size": n_pathway,
+                "query_size": n_query,
+                "fold_enrichment": fold_enrichment,
+                "pvalue": pval,
+                "overlap_genes": list(gene_set & pathway_set),
+            }
+        )
 
     df = pd.DataFrame(results)
 
@@ -181,9 +183,7 @@ def compare_pathway_activity_by_stage(
         stage_numeric = activity["stage"].map({s: i for i, s in enumerate(stage_order)})
         valid = ~stage_numeric.isna()
         if valid.sum() > 10:
-            rho, rho_pval = stats.spearmanr(
-                stage_numeric[valid], activity.loc[valid, pathway]
-            )
+            rho, rho_pval = stats.spearmanr(stage_numeric[valid], activity.loc[valid, pathway])
         else:
             rho, rho_pval = 0, 1.0
 
@@ -254,9 +254,7 @@ def identify_stage_specific_pathways(
             other_vals = activity.loc[other_mask, pathway]
 
             # Mann-Whitney U test
-            stat, pval = stats.mannwhitneyu(
-                stage_vals, other_vals, alternative="greater"
-            )
+            stat, pval = stats.mannwhitneyu(stage_vals, other_vals, alternative="greater")
 
             # Fold change
             stage_mean = stage_vals.mean()
@@ -264,13 +262,15 @@ def identify_stage_specific_pathways(
             fc = stage_mean / (other_mean + 1e-10)
 
             if pval < pval_threshold and fc >= fold_change_threshold:
-                results.append({
-                    "pathway": pathway,
-                    "stage_mean": stage_mean,
-                    "other_mean": other_mean,
-                    "fold_change": fc,
-                    "pvalue": pval,
-                })
+                results.append(
+                    {
+                        "pathway": pathway,
+                        "stage_mean": stage_mean,
+                        "other_mean": other_mean,
+                        "fold_change": fc,
+                        "pvalue": pval,
+                    }
+                )
 
         if results:
             stage_specific[stage] = pd.DataFrame(results).sort_values("pvalue")

@@ -108,6 +108,7 @@ def detect_environment() -> Literal["local", "hpc"]:
 
     # Check hostname
     import socket
+
     hostname = socket.gethostname().lower()
     if "mskcc" in hostname or "lilac" in hostname or "login" in hostname:
         return "hpc"

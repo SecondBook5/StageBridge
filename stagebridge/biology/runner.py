@@ -111,7 +111,9 @@ def run_biological_analysis(
     signature_scores.to_parquet(output_dir / "signature_scores.parquet")
     results["signature_scores"] = signature_scores
     results["output_files"].append("signature_scores.parquet")
-    log.info(f"  Scored {len(signature_scores.columns)} signatures for {len(signature_scores)} cells")
+    log.info(
+        f"  Scored {len(signature_scores.columns)} signatures for {len(signature_scores)} cells"
+    )
 
     # Step 2: Pathway activity by stage
     log.info("\n[2/6] Analyzing pathway activity by stage...")
@@ -218,43 +220,53 @@ def run_biological_analysis(
 
         try:
             # Signature scores by stage
-            key_sigs = ["emt_hallmark", "caf_general", "macrophage_m2", "t_cell_exhaustion", "proliferation"]
+            key_sigs = [
+                "emt_hallmark",
+                "caf_general",
+                "macrophage_m2",
+                "t_cell_exhaustion",
+                "proliferation",
+            ]
             available_sigs = [s for s in key_sigs if f"sig_{s}" in adata.obs.columns]
             if available_sigs:
                 plot_signature_scores_by_stage(
-                    adata, available_sigs, stage_col=stage_col,
-                    save_path=plots_dir / "signature_scores_by_stage.png"
+                    adata,
+                    available_sigs,
+                    stage_col=stage_col,
+                    save_path=plots_dir / "signature_scores_by_stage.png",
                 )
                 results["output_files"].append("plots/signature_scores_by_stage.png")
 
             # Ridge plot
             if len(available_sigs) >= 3:
                 plot_pathway_activity_ridge(
-                    adata, available_sigs[:5], stage_col=stage_col,
-                    save_path=plots_dir / "pathway_ridge.png"
+                    adata,
+                    available_sigs[:5],
+                    stage_col=stage_col,
+                    save_path=plots_dir / "pathway_ridge.png",
                 )
                 results["output_files"].append("plots/pathway_ridge.png")
 
             # EMT/CAF/Immune triangle
             plot_emt_caf_immune_triangle(
-                adata, stage_col=stage_col,
-                save_path=plots_dir / "emt_caf_immune_triangle.png"
+                adata, stage_col=stage_col, save_path=plots_dir / "emt_caf_immune_triangle.png"
             )
             results["output_files"].append("plots/emt_caf_immune_triangle.png")
 
             # Niche-biology heatmap
             if results.get("niche_biology") is not None:
                 plot_niche_biology_heatmap(
-                    results["niche_biology"],
-                    save_path=plots_dir / "niche_biology_heatmap.png"
+                    results["niche_biology"], save_path=plots_dir / "niche_biology_heatmap.png"
                 )
                 results["output_files"].append("plots/niche_biology_heatmap.png")
 
                 # Summary panel
                 plot_biological_summary_panel(
-                    adata, influence_df, results["niche_biology"],
+                    adata,
+                    influence_df,
+                    results["niche_biology"],
                     stage_col=stage_col,
-                    save_path=plots_dir / "biological_summary_panel.png"
+                    save_path=plots_dir / "biological_summary_panel.png",
                 )
                 results["output_files"].append("plots/biological_summary_panel.png")
 

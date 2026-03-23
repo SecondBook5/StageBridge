@@ -50,13 +50,17 @@ PARQUET_SCHEMAS = {
     "hlca_embedding.parquet": {"required_cols": ["cell_id"], "min_rows": 1},
     "luca_embedding.parquet": {"required_cols": ["cell_id"], "min_rows": 1},
     "fused_embedding.parquet": {"required_cols": ["cell_id"], "min_rows": 1},
-    "reference_confidence.parquet": {"required_cols": ["cell_id", "hlca_confidence", "luca_confidence"], "min_rows": 1},
+    "reference_confidence.parquet": {
+        "required_cols": ["cell_id", "hlca_confidence", "luca_confidence"],
+        "min_rows": 1,
+    },
 }
 
 
 # =============================================================================
 # Check Functions
 # =============================================================================
+
 
 def check_artifact_exists(artifact_path: Path) -> dict[str, Any]:
     """Check if artifact file exists."""
@@ -163,6 +167,7 @@ def check_model_checkpoint(model_path: Path) -> dict[str, Any]:
 
     try:
         import torch
+
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 
         if isinstance(checkpoint, dict):
@@ -187,6 +192,7 @@ def check_model_checkpoint(model_path: Path) -> dict[str, Any]:
 # =============================================================================
 # Aggregate Validation
 # =============================================================================
+
 
 def validate_run_artifacts(
     run_dir: Path,

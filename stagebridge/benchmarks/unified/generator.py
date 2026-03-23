@@ -201,7 +201,9 @@ class UnifiedBenchmarkGenerator:
     def _build_cell_pools(self, use_fallback: bool) -> None:
         """Build cell pools from real data or synthetic fallback."""
         for group_spec in self.config.cell_groups:
-            if self.config.is_synthetic or (use_fallback and not self._try_load_real_data(group_spec)):
+            if self.config.is_synthetic or (
+                use_fallback and not self._try_load_real_data(group_spec)
+            ):
                 pool = self._create_synthetic_pool(group_spec)
             else:
                 pool = self._load_real_pool(group_spec)
@@ -223,7 +225,11 @@ class UnifiedBenchmarkGenerator:
                 return True
             if source == "luca" and self.config.luca_path and self.config.luca_path.exists():
                 return True
-            if source == "progression" and self.config.progression_path and self.config.progression_path.exists():
+            if (
+                source == "progression"
+                and self.config.progression_path
+                and self.config.progression_path.exists()
+            ):
                 return True
         return False
 
@@ -245,7 +251,7 @@ class UnifiedBenchmarkGenerator:
         # Add role-specific bias
         if spec.latent_position_bias is not None:
             bias = np.array(spec.latent_position_bias)
-            z_base = z_base + bias[:self.config.latent_dim]
+            z_base = z_base + bias[: self.config.latent_dim]
         elif spec.role == "sender":
             # Senders slightly offset in latent space
             z_base[:, 1] += 0.5
@@ -254,13 +260,15 @@ class UnifiedBenchmarkGenerator:
         stages = self.rng.choice(self.config.stages, size=n_cells)
 
         # Build DataFrame
-        cells = pd.DataFrame({
-            "cell_id": [f"{spec.name}_{i:06d}" for i in range(n_cells)],
-            "cell_group": spec.name,
-            "role": spec.role,
-            "cell_type": spec.base_expression_profile or spec.name.split("_")[0],
-            "stage": stages,
-        })
+        cells = pd.DataFrame(
+            {
+                "cell_id": [f"{spec.name}_{i:06d}" for i in range(n_cells)],
+                "cell_group": spec.name,
+                "role": spec.role,
+                "cell_type": spec.base_expression_profile or spec.name.split("_")[0],
+                "stage": stages,
+            }
+        )
 
         # Store latent positions
         cells["z_base"] = [z.tolist() for z in z_base]
@@ -322,8 +330,7 @@ class UnifiedBenchmarkGenerator:
 
                 # Generate unique cell IDs for this world
                 sampled["synthetic_cell_id"] = [
-                    f"{world_id}_{pool_name}_{i:06d}"
-                    for i in range(len(sampled))
+                    f"{world_id}_{pool_name}_{i:06d}" for i in range(len(sampled))
                 ]
 
                 all_cells.append(sampled)
@@ -341,7 +348,11 @@ class UnifiedBenchmarkGenerator:
             y = np.zeros(n)
 
             for i, (_, row) in enumerate(cell_positions.iterrows()):
-                stage_idx = self.config.stages.index(row["stage"]) if row["stage"] in self.config.stages else 0
+                stage_idx = (
+                    self.config.stages.index(row["stage"])
+                    if row["stage"] in self.config.stages
+                    else 0
+                )
                 role = row.get("role", "background")
 
                 # Position based on stage and role
@@ -427,7 +438,7 @@ class UnifiedBenchmarkGenerator:
                     continue
 
                 # Find senders within radius
-                sender_mask = (groups == rule.sender_group)
+                sender_mask = groups == rule.sender_group
                 dists = distances[idx]
                 within_radius = (dists <= rule.interaction_radius) & (dists > 0)
                 nearby_senders = sender_mask & within_radius
@@ -440,7 +451,9 @@ class UnifiedBenchmarkGenerator:
                         direction = np.array(self.ground_truth.influence_vectors[influence_name])
 
                         # Weight by sender count and stage
-                        effective_strength = rule.niche_influence.get_effective_strength(cell_stage)
+                        effective_strength = rule.niche_influence.get_effective_strength(
+                            cell_stage
+                        )
                         weight = effective_strength * (1 - np.exp(-n_senders / 2))
 
                         influence_vec += direction * weight
@@ -495,10 +508,7 @@ class UnifiedBenchmarkGenerator:
         n_interacting = 0
         rule_counts: dict[str, int] = {}
 
-        receiver_groups = {
-            rule.receiver_group
-            for rule in self.config.interaction_rules
-        }
+        receiver_groups = {rule.receiver_group for rule in self.config.interaction_rules}
 
         for idx in range(len(cells)):
             cell_group = groups[idx]
@@ -518,7 +528,11 @@ class UnifiedBenchmarkGenerator:
 
                 # Count senders within radius
                 dists = np.sqrt(((coords - coords[idx]) ** 2).sum(axis=1))
-                sender_mask = (groups == rule.sender_group) & (dists <= rule.interaction_radius) & (dists > 0)
+                sender_mask = (
+                    (groups == rule.sender_group)
+                    & (dists <= rule.interaction_radius)
+                    & (dists > 0)
+                )
                 n_senders = sender_mask.sum()
 
                 if n_senders > 0:
@@ -572,7 +586,11 @@ class UnifiedBenchmarkGenerator:
                     continue
 
                 dists = np.sqrt(((coords - coords[idx]) ** 2).sum(axis=1))
-                sender_mask = (groups == rule.sender_group) & (dists <= rule.interaction_radius) & (dists > 0)
+                sender_mask = (
+                    (groups == rule.sender_group)
+                    & (dists <= rule.interaction_radius)
+                    & (dists > 0)
+                )
                 n_senders = sender_mask.sum()
 
                 if n_senders > 0:
@@ -613,7 +631,9 @@ class UnifiedBenchmarkGenerator:
 
                     # Fused (stage-weighted)
                     stage = cell.get("stage", "Normal")
-                    stage_idx = self.config.stages.index(stage) if stage in self.config.stages else 0
+                    stage_idx = (
+                        self.config.stages.index(stage) if stage in self.config.stages else 0
+                    )
                     hlca_weight = 1.0 - stage_idx / max(1, len(self.config.stages) - 1)
                     luca_weight = stage_idx / max(1, len(self.config.stages) - 1)
 
@@ -656,7 +676,9 @@ class UnifiedBenchmarkGenerator:
                 expressions = []
 
                 for _, cell in cells.iterrows():
-                    z = np.array(cell.get("z_fused", cell.get("z_base", [0] * self.config.latent_dim)))
+                    z = np.array(
+                        cell.get("z_fused", cell.get("z_base", [0] * self.config.latent_dim))
+                    )
 
                     # Base expression from latent
                     expr = z @ self._gene_loadings
@@ -694,17 +716,19 @@ class UnifiedBenchmarkGenerator:
 
             # Find k nearest neighbors
             dists = distances[i]
-            neighbor_order = np.argsort(dists)[1:self.config.k_neighbors + 1]
+            neighbor_order = np.argsort(dists)[1 : self.config.k_neighbors + 1]
 
             # Build 9 tokens
             tokens = []
 
             # Token 0: Receiver
-            tokens.append({
-                "token_idx": 0,
-                "token_type": "receiver",
-                "cell_id": cell.get("synthetic_cell_id", cell.get("cell_id")),
-            })
+            tokens.append(
+                {
+                    "token_idx": 0,
+                    "token_type": "receiver",
+                    "cell_id": cell.get("synthetic_cell_id", cell.get("cell_id")),
+                }
+            )
 
             # Tokens 1-4: Spatial rings
             cells_per_ring = self.config.k_neighbors // self.config.n_rings
@@ -717,31 +741,39 @@ class UnifiedBenchmarkGenerator:
                     ring_cells = cells.iloc[ring_indices]
                     ct_counts = ring_cells["cell_group"].value_counts().to_dict()
 
-                    tokens.append({
-                        "token_idx": ring + 1,
-                        "token_type": f"ring_{ring + 1}",
-                        "celltype_composition": ct_counts,
-                        "n_cells": len(ring_indices),
-                        "mean_distance": float(dists[ring_indices].mean()),
-                    })
+                    tokens.append(
+                        {
+                            "token_idx": ring + 1,
+                            "token_type": f"ring_{ring + 1}",
+                            "celltype_composition": ct_counts,
+                            "n_cells": len(ring_indices),
+                            "mean_distance": float(dists[ring_indices].mean()),
+                        }
+                    )
                 else:
-                    tokens.append({
-                        "token_idx": ring + 1,
-                        "token_type": f"ring_{ring + 1}",
-                        "n_cells": 0,
-                    })
+                    tokens.append(
+                        {
+                            "token_idx": ring + 1,
+                            "token_type": f"ring_{ring + 1}",
+                            "n_cells": 0,
+                        }
+                    )
 
             # Token 5: HLCA context
-            tokens.append({
-                "token_idx": 5,
-                "token_type": "hlca",
-            })
+            tokens.append(
+                {
+                    "token_idx": 5,
+                    "token_type": "hlca",
+                }
+            )
 
             # Token 6: LuCA context
-            tokens.append({
-                "token_idx": 6,
-                "token_type": "luca",
-            })
+            tokens.append(
+                {
+                    "token_idx": 6,
+                    "token_type": "luca",
+                }
+            )
 
             # Token 7: Pathway context
             if len(neighbor_order) > 0:
@@ -752,24 +784,30 @@ class UnifiedBenchmarkGenerator:
                 caf_frac = 0.0
                 immune_frac = 0.0
 
-            tokens.append({
-                "token_idx": 7,
-                "token_type": "pathway",
-                "caf_fraction": float(caf_frac),
-                "immune_fraction": float(immune_frac),
-            })
+            tokens.append(
+                {
+                    "token_idx": 7,
+                    "token_type": "pathway",
+                    "caf_fraction": float(caf_frac),
+                    "immune_fraction": float(immune_frac),
+                }
+            )
 
             # Token 8: Statistics
-            tokens.append({
-                "token_idx": 8,
-                "token_type": "stats",
-                "n_neighbors": len(neighbor_order),
-            })
+            tokens.append(
+                {
+                    "token_idx": 8,
+                    "token_type": "stats",
+                    "n_neighbors": len(neighbor_order),
+                }
+            )
 
-            neighborhoods.append({
-                "cell_id": cell.get("synthetic_cell_id", cell.get("cell_id")),
-                "tokens": tokens,
-            })
+            neighborhoods.append(
+                {
+                    "cell_id": cell.get("synthetic_cell_id", cell.get("cell_id")),
+                    "tokens": tokens,
+                }
+            )
 
         world.neighborhoods = pd.DataFrame(neighborhoods)
 
@@ -828,7 +866,13 @@ class UnifiedBenchmarkGenerator:
                 exported_paths.append(coords_path)
 
                 # Export ground truth labels
-                gt_cols = ["synthetic_cell_id", "cell_group", "is_interacting", "interaction_strength", "niche_influence_score"]
+                gt_cols = [
+                    "synthetic_cell_id",
+                    "cell_group",
+                    "is_interacting",
+                    "interaction_strength",
+                    "niche_influence_score",
+                ]
                 gt_cols.extend([c for c in world.cell_positions.columns if c.startswith("gt_")])
                 gt_cols = [c for c in gt_cols if c in world.cell_positions.columns]
 

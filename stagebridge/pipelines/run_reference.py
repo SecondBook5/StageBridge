@@ -77,7 +77,8 @@ def calibrate_confidence_percentile(
         # Percentile rank: lower distance = higher confidence
         # Rank from 0 (worst/highest distance) to 1 (best/lowest distance)
         from scipy.stats import rankdata
-        ranks = rankdata(distances, method='average')
+
+        ranks = rankdata(distances, method="average")
         # Invert: highest rank (highest distance) -> lowest confidence
         confidence = 1.0 - (ranks - 1) / (len(ranks) - 1 + 1e-10)
         method_used = "percentile_rank"
@@ -248,24 +249,32 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
     if file_size_gb > max_size_gb:
         log.info("  Large file - checking with backed mode...")
         try:
-            adata = anndata.read_h5ad(ref_path, backed='r')
+            adata = anndata.read_h5ad(ref_path, backed="r")
             first_gene = str(adata.var_names[0])
             if first_gene.startswith("ENSG") and "feature_name" in adata.var.columns:
                 # Create a mapping file instead of rewriting
                 mapping_path = ref_path.parent / f"{ref_path.stem}_gene_mapping.parquet"
                 if not mapping_path.exists():
                     import pandas as pd
-                    gene_map = pd.DataFrame({
-                        "ensembl_id": adata.var_names.astype(str),
-                        "gene_symbol": adata.var["feature_name"].astype(str),
-                    })
+
+                    gene_map = pd.DataFrame(
+                        {
+                            "ensembl_id": adata.var_names.astype(str),
+                            "gene_symbol": adata.var["feature_name"].astype(str),
+                        }
+                    )
                     gene_map.to_parquet(mapping_path)
                     log.info("  Created gene mapping: %s", mapping_path)
-                log.info("  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching.")
+                log.info(
+                    "  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching."
+                )
             adata.file.close()
         except (ValueError, OSError) as e:
             # h5py version incompatibility - skip check and proceed
-            log.warning("Could not read in backed mode (%s), skipping gene format check", e.__class__.__name__)
+            log.warning(
+                "Could not read in backed mode (%s), skipping gene format check",
+                e.__class__.__name__,
+            )
         return ref_path
 
     adata = anndata.read_h5ad(ref_path)
@@ -360,7 +369,7 @@ def run_hpc_reference_mapping(
     # 787K cells x 15K genes in dense = 47GB - keep sparse/on-disk
     log.info("Loading query data (backed mode)...")
     try:
-        query_adata = anndata.read_h5ad(query_path, backed='r')
+        query_adata = anndata.read_h5ad(query_path, backed="r")
     except Exception as e:
         # Fallback to non-backed mode for older anndata versions
         log.warning("Backed mode failed (%s), loading fully into memory...", e.__class__.__name__)
@@ -402,7 +411,9 @@ def run_hpc_reference_mapping(
                     hlca_model_path = hub_cache  # Pass hub_cache, HubModel handles the rest
                     log.info("  Found HLCA hub cache: {hub_cache}")
                 else:
-                    log.info("  HLCA hub_cache exists but model repo not found. Will pull from HuggingFace.")
+                    log.info(
+                        "  HLCA hub_cache exists but model repo not found. Will pull from HuggingFace."
+                    )
                     hlca_model_path = hub_cache  # Still use it - HubModel will download
             else:
                 # No hub_cache, but we can still try - HubModel will download
@@ -417,7 +428,8 @@ def run_hpc_reference_mapping(
         if luca_data_root:
             candidates = [
                 # Extracted core atlas model (nested path from tar.gz)
-                luca_data_root / "processed/LuCA/data/20_build_atlas/annotate_datasets/35_final_atlas/full_atlas_hvg_integrated_scvi_scanvi_model",
+                luca_data_root
+                / "processed/LuCA/data/20_build_atlas/annotate_datasets/35_final_atlas/full_atlas_hvg_integrated_scvi_scanvi_model",
                 # Alternative: if moved to references/
                 luca_data_root / "references/luca/luca_scanvi_model",
                 luca_data_root / "references/luca/model",
@@ -482,6 +494,7 @@ def run_hpc_reference_mapping(
 
             # Read back the results
             import anndata
+
             hlca_latent_adata = anndata.read_h5ad(hlca_output_dir / "hlca_latent.h5ad")
             results["hlca_embeddings"] = hlca_latent_adata.X
             results["hlca_cell_types"] = hlca_latent_adata.obs["hlca_label"].astype(str).to_numpy()
@@ -490,14 +503,20 @@ def run_hpc_reference_mapping(
                 "latent_dim": hlca_latent_adata.X.shape[1],
                 "overlap_percent": hlca_result.overlap_percent,
             }
-            print(f"  HLCA mapping complete: {hlca_latent_adata.X.shape}, {len(results['hlca_cell_types'])} cell types")
+            print(
+                f"  HLCA mapping complete: {hlca_latent_adata.X.shape}, {len(results['hlca_cell_types'])} cell types"
+            )
         except Exception as e:
             print(f"  ERROR: HLCA mapping failed: {e}")
             print("  Falling back to k-NN projection...")
             from stagebridge.reference.map_query_chunked import map_query_chunked
+
             hlca_emb, hlca_dist, hlca_info = map_query_chunked(
-                query_adata, hlca_path,
-                latent_key=hlca_latent_key, k_neighbors=k_neighbors, use_faiss=True,
+                query_adata,
+                hlca_path,
+                latent_key=hlca_latent_key,
+                k_neighbors=k_neighbors,
+                use_faiss=True,
             )
             results["hlca_embeddings"] = hlca_emb
             results["hlca_distances"] = hlca_dist
@@ -507,9 +526,13 @@ def run_hpc_reference_mapping(
         # k-NN fallback when model not available
         print("  Using k-NN projection for HLCA (model not available)")
         from stagebridge.reference.map_query_chunked import map_query_chunked
+
         hlca_emb, hlca_dist, hlca_info = map_query_chunked(
-            query_adata, hlca_path,
-            latent_key=hlca_latent_key, k_neighbors=k_neighbors, use_faiss=True,
+            query_adata,
+            hlca_path,
+            latent_key=hlca_latent_key,
+            k_neighbors=k_neighbors,
+            use_faiss=True,
         )
         results["hlca_embeddings"] = hlca_emb
         results["hlca_distances"] = hlca_dist
@@ -547,6 +570,7 @@ def run_hpc_reference_mapping(
 
             # Read back the results
             import anndata
+
             luca_latent_adata = anndata.read_h5ad(luca_output_dir / "luca_latent.h5ad")
             results["luca_embeddings"] = luca_latent_adata.X
             results["luca_cell_types"] = luca_latent_adata.obs["luca_label"].astype(str).to_numpy()
@@ -555,14 +579,20 @@ def run_hpc_reference_mapping(
                 "latent_dim": luca_latent_adata.X.shape[1],
                 "overlap_percent": luca_result.overlap_percent,
             }
-            print(f"  LuCA mapping complete: {luca_latent_adata.X.shape}, {len(results['luca_cell_types'])} cell types")
+            print(
+                f"  LuCA mapping complete: {luca_latent_adata.X.shape}, {len(results['luca_cell_types'])} cell types"
+            )
         except Exception as e:
             print(f"  ERROR: LuCA mapping failed: {e}")
             print("  Falling back to k-NN projection...")
             from stagebridge.reference.map_query_chunked import map_query_chunked
+
             luca_emb, luca_dist, luca_info = map_query_chunked(
-                query_adata, luca_path,
-                latent_key=luca_latent_key, k_neighbors=k_neighbors, use_faiss=True,
+                query_adata,
+                luca_path,
+                latent_key=luca_latent_key,
+                k_neighbors=k_neighbors,
+                use_faiss=True,
             )
             results["luca_embeddings"] = luca_emb
             results["luca_distances"] = luca_dist
@@ -572,9 +602,13 @@ def run_hpc_reference_mapping(
         # k-NN fallback when model not available
         print("  Using k-NN projection for LuCA (model not available)")
         from stagebridge.reference.map_query_chunked import map_query_chunked
+
         luca_emb, luca_dist, luca_info = map_query_chunked(
-            query_adata, luca_path,
-            latent_key=luca_latent_key, k_neighbors=k_neighbors, use_faiss=True,
+            query_adata,
+            luca_path,
+            latent_key=luca_latent_key,
+            k_neighbors=k_neighbors,
+            use_faiss=True,
         )
         results["luca_embeddings"] = luca_emb
         results["luca_distances"] = luca_dist
@@ -597,9 +631,15 @@ def run_hpc_reference_mapping(
 
     # Get metadata from query
     cell_ids = results["cell_ids"]
-    donor_ids = query_adata.obs.get("donor_id", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
-    sample_ids = query_adata.obs.get("sample_id", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
-    stage_ids = query_adata.obs.get("stage", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
+    donor_ids = (
+        query_adata.obs.get("donor_id", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
+    )
+    sample_ids = (
+        query_adata.obs.get("sample_id", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
+    )
+    stage_ids = (
+        query_adata.obs.get("stage", pd.Series(["unknown"] * len(cell_ids))).astype(str).values
+    )
 
     # Normalize latent spaces BEFORE fusion (per-reference L2 normalization)
     hlca_emb_normalized = normalize_latent_space(results["hlca_embeddings"], method="l2")
@@ -617,24 +657,30 @@ def run_hpc_reference_mapping(
 
     # Calibrate confidence using percentile rank (not naive distance conversion)
     # This ensures HLCA and LuCA confidences are comparable despite density differences
-    hlca_conf, hlca_conf_method = calibrate_confidence_percentile(
-        results["hlca_distances"], method="percentile"
-    ) if results["hlca_distances"] is not None else (np.zeros(len(cell_ids), dtype=np.float32), "none")
+    hlca_conf, hlca_conf_method = (
+        calibrate_confidence_percentile(results["hlca_distances"], method="percentile")
+        if results["hlca_distances"] is not None
+        else (np.zeros(len(cell_ids), dtype=np.float32), "none")
+    )
 
-    luca_conf, luca_conf_method = calibrate_confidence_percentile(
-        results["luca_distances"], method="percentile"
-    ) if results["luca_distances"] is not None else (np.zeros(len(cell_ids), dtype=np.float32), "none")
+    luca_conf, luca_conf_method = (
+        calibrate_confidence_percentile(results["luca_distances"], method="percentile")
+        if results["luca_distances"] is not None
+        else (np.zeros(len(cell_ids), dtype=np.float32), "none")
+    )
 
     print(f"  Confidence calibration: HLCA={hlca_conf_method}, LuCA={luca_conf_method}")
 
     # HLCA embedding (normalized)
     if hlca_emb_normalized is not None:
-        hlca_df = pd.DataFrame({
-            "cell_id": cell_ids,
-            "donor_id": donor_ids,
-            "sample_id": sample_ids,
-            "stage_id": stage_ids,
-        })
+        hlca_df = pd.DataFrame(
+            {
+                "cell_id": cell_ids,
+                "donor_id": donor_ids,
+                "sample_id": sample_ids,
+                "stage_id": stage_ids,
+            }
+        )
         for i in range(hlca_emb_normalized.shape[1]):
             hlca_df[f"hlca_latent_{i}"] = hlca_emb_normalized[:, i]
         # Add cell type labels from model prediction
@@ -646,12 +692,14 @@ def run_hpc_reference_mapping(
 
     # LuCA embedding (normalized)
     if luca_emb_normalized is not None:
-        luca_df = pd.DataFrame({
-            "cell_id": cell_ids,
-            "donor_id": donor_ids,
-            "sample_id": sample_ids,
-            "stage_id": stage_ids,
-        })
+        luca_df = pd.DataFrame(
+            {
+                "cell_id": cell_ids,
+                "donor_id": donor_ids,
+                "sample_id": sample_ids,
+                "stage_id": stage_ids,
+            }
+        )
         for i in range(luca_emb_normalized.shape[1]):
             luca_df[f"luca_latent_{i}"] = luca_emb_normalized[:, i]
         # Add cell type labels from model prediction
@@ -663,35 +711,43 @@ def run_hpc_reference_mapping(
 
     # Fused embedding (from normalized latents)
     if fused_normalized is not None:
-        fused_df = pd.DataFrame({
-            "cell_id": cell_ids,
-            "donor_id": donor_ids,
-            "sample_id": sample_ids,
-            "stage_id": stage_ids,
-            "reference_mode_used": mode,
-        })
+        fused_df = pd.DataFrame(
+            {
+                "cell_id": cell_ids,
+                "donor_id": donor_ids,
+                "sample_id": sample_ids,
+                "stage_id": stage_ids,
+                "reference_mode_used": mode,
+            }
+        )
         for i in range(fused_normalized.shape[1]):
             fused_df[f"fused_latent_{i}"] = fused_normalized[:, i]
         fused_df.to_parquet(output_dir / "fused_embedding.parquet", index=False)
         print(f"  Saved fused_embedding.parquet: {fused_normalized.shape}")
 
     # Confidence with calibration (includes raw distances for reference)
-    conf_df = pd.DataFrame({
-        "cell_id": cell_ids,
-        "donor_id": donor_ids,
-        "sample_id": sample_ids,
-        "stage_id": stage_ids,
-        "reference_mode_used": mode,
-        # Calibrated confidence (comparable across references)
-        "hlca_confidence": hlca_conf if len(hlca_conf) > 0 else 0.0,
-        "luca_confidence": luca_conf if len(luca_conf) > 0 else 0.0,
-        # Raw distances (for debugging/analysis)
-        "hlca_raw_distance": results["hlca_distances"] if results["hlca_distances"] is not None else 0.0,
-        "luca_raw_distance": results["luca_distances"] if results["luca_distances"] is not None else 0.0,
-        # Calibration method used
-        "hlca_confidence_method": hlca_conf_method,
-        "luca_confidence_method": luca_conf_method,
-    })
+    conf_df = pd.DataFrame(
+        {
+            "cell_id": cell_ids,
+            "donor_id": donor_ids,
+            "sample_id": sample_ids,
+            "stage_id": stage_ids,
+            "reference_mode_used": mode,
+            # Calibrated confidence (comparable across references)
+            "hlca_confidence": hlca_conf if len(hlca_conf) > 0 else 0.0,
+            "luca_confidence": luca_conf if len(luca_conf) > 0 else 0.0,
+            # Raw distances (for debugging/analysis)
+            "hlca_raw_distance": results["hlca_distances"]
+            if results["hlca_distances"] is not None
+            else 0.0,
+            "luca_raw_distance": results["luca_distances"]
+            if results["luca_distances"] is not None
+            else 0.0,
+            # Calibration method used
+            "hlca_confidence_method": hlca_conf_method,
+            "luca_confidence_method": luca_conf_method,
+        }
+    )
     conf_df.to_parquet(output_dir / "reference_confidence.parquet", index=False)
     print("  Saved reference_confidence.parquet with calibrated confidence")
 
@@ -788,10 +844,12 @@ def run_hpc_reference_mapping(
 
     # Save cell types to separate parquet for easy loading
     if results.get("hlca_cell_types") is not None:
-        cell_types_df = pd.DataFrame({
-            "cell_id": cell_ids,
-            "cell_type": results["hlca_cell_types"],
-        })
+        cell_types_df = pd.DataFrame(
+            {
+                "cell_id": cell_ids,
+                "cell_type": results["hlca_cell_types"],
+            }
+        )
         if results.get("luca_cell_types") is not None:
             cell_types_df["luca_cell_type"] = results["luca_cell_types"]
         cell_types_df.to_parquet(output_dir / "cell_types.parquet", index=False)
@@ -800,6 +858,7 @@ def run_hpc_reference_mapping(
         # Update snRNA h5ad files with cell_type column
         print("\n  Updating snRNA h5ad files with cell_type column...")
         import anndata
+
         snrna_files = [
             query_path,
             query_path.parent / "snrna_merged.h5ad",
@@ -823,7 +882,7 @@ def run_hpc_reference_mapping(
 
     # Cleanup backed file handle
     try:
-        if hasattr(query_adata, 'file') and query_adata.file is not None:
+        if hasattr(query_adata, "file") and query_adata.file is not None:
             query_adata.file.close()
     except Exception:
         pass  # Ignore cleanup errors
@@ -913,7 +972,7 @@ def _run_reference_diagnostics(
             )
         elif ratio < 0.5:
             diagnostics["warnings"].append(
-                f"LuCA raw distances {1/ratio:.1f}x larger than HLCA - unusual, check references"
+                f"LuCA raw distances {1 / ratio:.1f}x larger than HLCA - unusual, check references"
             )
 
     # 2. Calibrated confidence statistics
@@ -961,7 +1020,9 @@ def _run_reference_diagnostics(
         if abs(conf_ratio - 1.0) < 0.2:
             diagnostics["calibration_balance"] = "GOOD - references are balanced after calibration"
         else:
-            diagnostics["calibration_balance"] = f"CHECK - ratio={conf_ratio:.2f}, may indicate reference quality difference"
+            diagnostics["calibration_balance"] = (
+                f"CHECK - ratio={conf_ratio:.2f}, may indicate reference quality difference"
+            )
 
     # 4. Embedding integrity checks
     emb_checks = {}
@@ -1026,12 +1087,18 @@ def _run_reference_diagnostics(
     print("\n  === Diagnostics Summary ===")
     print(f"  Status: {diagnostics['status']}")
     if "raw_distance_ratio_hlca_over_luca" in diagnostics:
-        print(f"  Raw distance ratio (HLCA/LuCA): {diagnostics['raw_distance_ratio_hlca_over_luca']:.2f}")
+        print(
+            f"  Raw distance ratio (HLCA/LuCA): {diagnostics['raw_distance_ratio_hlca_over_luca']:.2f}"
+        )
     if "calibrated_confidence_ratio_hlca_over_luca" in diagnostics:
-        print(f"  Calibrated confidence ratio (HLCA/LuCA): {diagnostics['calibrated_confidence_ratio_hlca_over_luca']:.2f}")
+        print(
+            f"  Calibrated confidence ratio (HLCA/LuCA): {diagnostics['calibrated_confidence_ratio_hlca_over_luca']:.2f}"
+        )
     if "calibration_balance" in diagnostics:
         print(f"  Calibration balance: {diagnostics['calibration_balance']}")
-    print(f"  Mode readiness: HLCA-only={readiness['hlca_only']}, LuCA-only={readiness['luca_only']}, Fused={readiness['fused']}")
+    print(
+        f"  Mode readiness: HLCA-only={readiness['hlca_only']}, LuCA-only={readiness['luca_only']}, Fused={readiness['fused']}"
+    )
     if diagnostics["warnings"]:
         print(f"  Warnings: {len(diagnostics['warnings'])}")
         for w in diagnostics["warnings"]:
@@ -1054,7 +1121,8 @@ def _generate_reference_figures(
 ) -> None:
     """Generate visualization figures for reference mapping results."""
     import matplotlib
-    matplotlib.use('Agg')
+
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from sklearn.decomposition import PCA
 
@@ -1062,7 +1130,9 @@ def _generate_reference_figures(
     from stagebridge.viz.lungpca_style import STAGE_COLORS
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("Dual-Reference Mapping Results (Calibrated Confidence)", fontsize=14, fontweight='bold')
+    fig.suptitle(
+        "Dual-Reference Mapping Results (Calibrated Confidence)", fontsize=14, fontweight="bold"
+    )
 
     # 1. Fused embedding UMAP/PCA colored by stage
     ax = axes[0, 0]
@@ -1073,8 +1143,8 @@ def _generate_reference_figures(
             pca = PCA(n_components=2)
             emb_2d = pca.fit_transform(emb)
             var_explained = pca.explained_variance_ratio_.sum() * 100
-            ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
-            ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+            ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}%)")
+            ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}%)")
         else:
             emb_2d = emb
             var_explained = 100
@@ -1085,14 +1155,18 @@ def _generate_reference_figures(
             mask = stage_ids == stage
             if mask.sum() > 0:
                 ax.scatter(
-                    emb_2d[mask, 0], emb_2d[mask, 1],
-                    c=STAGE_COLORS[stage], label=stage,
-                    s=10, alpha=0.5, edgecolors='none'
+                    emb_2d[mask, 0],
+                    emb_2d[mask, 1],
+                    c=STAGE_COLORS[stage],
+                    label=stage,
+                    s=10,
+                    alpha=0.5,
+                    edgecolors="none",
                 )
-        ax.legend(loc='upper right', fontsize=8)
+        ax.legend(loc="upper right", fontsize=8)
         ax.set_title(f"Fused Embedding (PCA, {var_explained:.0f}% var)")
     else:
-        ax.text(0.5, 0.5, "No valid fused embedding", ha='center', va='center')
+        ax.text(0.5, 0.5, "No valid fused embedding", ha="center", va="center")
         ax.set_title("Fused Embedding")
 
     # 2. HLCA vs LuCA calibrated confidence scatter
@@ -1102,20 +1176,24 @@ def _generate_reference_figures(
             mask = stage_ids == stage
             if mask.sum() > 0:
                 ax.scatter(
-                    hlca_conf[mask], luca_conf[mask],
-                    c=STAGE_COLORS[stage], label=stage,
-                    s=10, alpha=0.5, edgecolors='none'
+                    hlca_conf[mask],
+                    luca_conf[mask],
+                    c=STAGE_COLORS[stage],
+                    label=stage,
+                    s=10,
+                    alpha=0.5,
+                    edgecolors="none",
                 )
 
-        ax.plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Equal confidence')
+        ax.plot([0, 1], [0, 1], "k--", alpha=0.3, label="Equal confidence")
         ax.set_xlabel("HLCA Confidence (healthy, calibrated)")
         ax.set_ylabel("LuCA Confidence (cancer, calibrated)")
         ax.set_title("Calibrated Reference Confidence")
-        ax.legend(loc='upper left', fontsize=8)
+        ax.legend(loc="upper left", fontsize=8)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
     else:
-        ax.text(0.5, 0.5, "Need both references", ha='center', va='center')
+        ax.text(0.5, 0.5, "Need both references", ha="center", va="center")
         ax.set_title("Reference Confidence")
 
     # 3. Distance distributions by stage
@@ -1126,15 +1204,15 @@ def _generate_reference_figures(
         colors = [STAGE_COLORS[s] for s in stages_present]
 
         bp = ax.boxplot(data, labels=stages_present, patch_artist=True)
-        for patch, color in zip(bp['boxes'], colors):
+        for patch, color in zip(bp["boxes"], colors):
             patch.set_facecolor(color)
             patch.set_alpha(0.7)
 
         ax.set_ylabel("HLCA Distance")
         ax.set_title("HLCA Mapping Distance by Stage")
-        ax.tick_params(axis='x', rotation=45)
+        ax.tick_params(axis="x", rotation=45)
     else:
-        ax.text(0.5, 0.5, "No HLCA mapping", ha='center', va='center')
+        ax.text(0.5, 0.5, "No HLCA mapping", ha="center", va="center")
         ax.set_title("HLCA Distance by Stage")
 
     # 4. Stage composition / summary stats
@@ -1153,18 +1231,24 @@ def _generate_reference_figures(
         bars = ax.bar(stages, counts, color=colors, alpha=0.8)
         ax.set_ylabel("Cell Count")
         ax.set_title("Stage Distribution")
-        ax.tick_params(axis='x', rotation=45)
+        ax.tick_params(axis="x", rotation=45)
 
         # Add count labels
         for bar, count in zip(bars, counts):
-            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{count:,}', ha='center', va='bottom', fontsize=8)
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                f"{count:,}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
     else:
-        ax.text(0.5, 0.5, "No stage data", ha='center', va='center')
+        ax.text(0.5, 0.5, "No stage data", ha="center", va="center")
         ax.set_title("Stage Distribution")
 
     plt.tight_layout()
-    plt.savefig(output_dir / "reference_mapping_summary.png", dpi=150, bbox_inches='tight')
+    plt.savefig(output_dir / "reference_mapping_summary.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     # Additional: Latent dimension heatmap
@@ -1188,7 +1272,8 @@ def _plot_latent_heatmap(
 ) -> None:
     """Plot average latent values per stage as heatmap."""
     import matplotlib
-    matplotlib.use('Agg')
+
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -1196,13 +1281,15 @@ def _plot_latent_heatmap(
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    for idx, (name, emb) in enumerate([
-        ("HLCA", results.get("hlca_embeddings")),
-        ("LuCA", results.get("luca_embeddings")),
-    ]):
+    for idx, (name, emb) in enumerate(
+        [
+            ("HLCA", results.get("hlca_embeddings")),
+            ("LuCA", results.get("luca_embeddings")),
+        ]
+    ):
         ax = axes[idx]
         if emb is None:
-            ax.text(0.5, 0.5, f"No {name} embedding", ha='center', va='center')
+            ax.text(0.5, 0.5, f"No {name} embedding", ha="center", va="center")
             ax.set_title(f"{name} Latent by Stage")
             continue
 
@@ -1215,7 +1302,7 @@ def _plot_latent_heatmap(
             mean_latent[i] = emb[mask].mean(axis=0)
 
         # Plot heatmap
-        im = ax.imshow(mean_latent, aspect='auto', cmap='RdBu_r')
+        im = ax.imshow(mean_latent, aspect="auto", cmap="RdBu_r")
         ax.set_yticks(range(len(stages_present)))
         ax.set_yticklabels(stages_present)
         ax.set_xlabel("Latent Dimension")
@@ -1224,7 +1311,7 @@ def _plot_latent_heatmap(
         plt.colorbar(im, ax=ax, label="Value")
 
     plt.tight_layout()
-    plt.savefig(output_dir / "latent_heatmap_by_stage.png", dpi=150, bbox_inches='tight')
+    plt.savefig(output_dir / "latent_heatmap_by_stage.png", dpi=150, bbox_inches="tight")
     plt.close()
 
 
@@ -1237,58 +1324,101 @@ def _plot_calibration_diagnostics(
 ) -> None:
     """Plot diagnostic figures comparing raw distances vs calibrated confidence."""
     import matplotlib
-    matplotlib.use('Agg')
+
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("Confidence Calibration Diagnostics", fontsize=14, fontweight='bold')
+    fig.suptitle("Confidence Calibration Diagnostics", fontsize=14, fontweight="bold")
 
     # 1. Raw distance distributions (showing density bias)
     ax = axes[0, 0]
     if hlca_distances is not None:
-        ax.hist(hlca_distances, bins=50, alpha=0.6, label=f"HLCA (mean={np.nanmean(hlca_distances):.3f})", color='blue', density=True)
+        ax.hist(
+            hlca_distances,
+            bins=50,
+            alpha=0.6,
+            label=f"HLCA (mean={np.nanmean(hlca_distances):.3f})",
+            color="blue",
+            density=True,
+        )
     if luca_distances is not None:
-        ax.hist(luca_distances, bins=50, alpha=0.6, label=f"LuCA (mean={np.nanmean(luca_distances):.3f})", color='red', density=True)
+        ax.hist(
+            luca_distances,
+            bins=50,
+            alpha=0.6,
+            label=f"LuCA (mean={np.nanmean(luca_distances):.3f})",
+            color="red",
+            density=True,
+        )
     ax.set_xlabel("Raw k-NN Distance")
     ax.set_ylabel("Density")
     ax.set_title("Raw Distance Distributions (BEFORE calibration)")
     ax.legend()
-    ax.axvline(np.nanmean(hlca_distances) if hlca_distances is not None else 0, color='blue', linestyle='--', alpha=0.5)
-    ax.axvline(np.nanmean(luca_distances) if luca_distances is not None else 0, color='red', linestyle='--', alpha=0.5)
+    ax.axvline(
+        np.nanmean(hlca_distances) if hlca_distances is not None else 0,
+        color="blue",
+        linestyle="--",
+        alpha=0.5,
+    )
+    ax.axvline(
+        np.nanmean(luca_distances) if luca_distances is not None else 0,
+        color="red",
+        linestyle="--",
+        alpha=0.5,
+    )
 
     # 2. Calibrated confidence distributions (should be similar)
     ax = axes[0, 1]
     if len(hlca_conf) > 0 and hlca_conf.max() > 0:
-        ax.hist(hlca_conf, bins=50, alpha=0.6, label=f"HLCA (mean={np.nanmean(hlca_conf):.3f})", color='blue', density=True)
+        ax.hist(
+            hlca_conf,
+            bins=50,
+            alpha=0.6,
+            label=f"HLCA (mean={np.nanmean(hlca_conf):.3f})",
+            color="blue",
+            density=True,
+        )
     if len(luca_conf) > 0 and luca_conf.max() > 0:
-        ax.hist(luca_conf, bins=50, alpha=0.6, label=f"LuCA (mean={np.nanmean(luca_conf):.3f})", color='red', density=True)
+        ax.hist(
+            luca_conf,
+            bins=50,
+            alpha=0.6,
+            label=f"LuCA (mean={np.nanmean(luca_conf):.3f})",
+            color="red",
+            density=True,
+        )
     ax.set_xlabel("Calibrated Confidence")
     ax.set_ylabel("Density")
     ax.set_title("Calibrated Confidence Distributions (AFTER calibration)")
     ax.legend()
-    ax.axvline(0.5, color='black', linestyle='--', alpha=0.5, label='Expected mean')
+    ax.axvline(0.5, color="black", linestyle="--", alpha=0.5, label="Expected mean")
 
     # 3. Raw distance scatter (HLCA vs LuCA per cell)
     ax = axes[1, 0]
     if hlca_distances is not None and luca_distances is not None:
-        ax.scatter(hlca_distances, luca_distances, s=5, alpha=0.3, c='gray')
-        ax.plot([0, max(hlca_distances.max(), luca_distances.max())],
-                [0, max(hlca_distances.max(), luca_distances.max())],
-                'k--', alpha=0.3, label='Equal distance')
+        ax.scatter(hlca_distances, luca_distances, s=5, alpha=0.3, c="gray")
+        ax.plot(
+            [0, max(hlca_distances.max(), luca_distances.max())],
+            [0, max(hlca_distances.max(), luca_distances.max())],
+            "k--",
+            alpha=0.3,
+            label="Equal distance",
+        )
         ax.set_xlabel("HLCA Raw Distance")
         ax.set_ylabel("LuCA Raw Distance")
         ax.set_title("Raw Distance: HLCA vs LuCA per cell")
         # Add correlation
         corr = np.corrcoef(hlca_distances, luca_distances)[0, 1]
-        ax.text(0.05, 0.95, f"r = {corr:.3f}", transform=ax.transAxes, fontsize=10, va='top')
+        ax.text(0.05, 0.95, f"r = {corr:.3f}", transform=ax.transAxes, fontsize=10, va="top")
     else:
-        ax.text(0.5, 0.5, "Need both references", ha='center', va='center')
+        ax.text(0.5, 0.5, "Need both references", ha="center", va="center")
 
     # 4. Calibrated confidence scatter (should be more balanced)
     ax = axes[1, 1]
     if len(hlca_conf) > 0 and len(luca_conf) > 0 and hlca_conf.max() > 0 and luca_conf.max() > 0:
-        ax.scatter(hlca_conf, luca_conf, s=5, alpha=0.3, c='gray')
-        ax.plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Equal confidence')
+        ax.scatter(hlca_conf, luca_conf, s=5, alpha=0.3, c="gray")
+        ax.plot([0, 1], [0, 1], "k--", alpha=0.3, label="Equal confidence")
         ax.set_xlabel("HLCA Calibrated Confidence")
         ax.set_ylabel("LuCA Calibrated Confidence")
         ax.set_title("Calibrated Confidence: HLCA vs LuCA per cell")
@@ -1296,12 +1426,12 @@ def _plot_calibration_diagnostics(
         ax.set_ylim(0, 1)
         # Add correlation
         corr = np.corrcoef(hlca_conf, luca_conf)[0, 1]
-        ax.text(0.05, 0.95, f"r = {corr:.3f}", transform=ax.transAxes, fontsize=10, va='top')
+        ax.text(0.05, 0.95, f"r = {corr:.3f}", transform=ax.transAxes, fontsize=10, va="top")
     else:
-        ax.text(0.5, 0.5, "Need both references", ha='center', va='center')
+        ax.text(0.5, 0.5, "Need both references", ha="center", va="center")
 
     plt.tight_layout()
-    plt.savefig(output_dir / "calibration_diagnostics.png", dpi=150, bbox_inches='tight')
+    plt.savefig(output_dir / "calibration_diagnostics.png", dpi=150, bbox_inches="tight")
     plt.close()
 
 
@@ -1322,7 +1452,8 @@ def _plot_training_curves(
         Directory to save plots
     """
     import matplotlib
-    matplotlib.use('Agg')
+
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import json
 
@@ -1341,63 +1472,83 @@ def _plot_training_curves(
         ax = axes[plot_idx]
         plot_idx += 1
 
-        if 'elbo_train' in hlca_history:
-            epochs = list(range(1, len(hlca_history['elbo_train']) + 1))
-            ax.plot(epochs, hlca_history['elbo_train'], 'b-', label='Training ELBO', linewidth=2)
-        if 'elbo_validation' in hlca_history:
-            epochs = list(range(1, len(hlca_history['elbo_validation']) + 1))
-            ax.plot(epochs, hlca_history['elbo_validation'], 'r--', label='Validation ELBO', linewidth=2)
+        if "elbo_train" in hlca_history:
+            epochs = list(range(1, len(hlca_history["elbo_train"]) + 1))
+            ax.plot(epochs, hlca_history["elbo_train"], "b-", label="Training ELBO", linewidth=2)
+        if "elbo_validation" in hlca_history:
+            epochs = list(range(1, len(hlca_history["elbo_validation"]) + 1))
+            ax.plot(
+                epochs,
+                hlca_history["elbo_validation"],
+                "r--",
+                label="Validation ELBO",
+                linewidth=2,
+            )
 
-        ax.set_xlabel('Epoch', fontsize=12)
-        ax.set_ylabel('ELBO Loss', fontsize=12)
-        ax.set_title('HLCA scArches Surgery Training', fontsize=14, fontweight='bold')
-        ax.legend(loc='upper right')
+        ax.set_xlabel("Epoch", fontsize=12)
+        ax.set_ylabel("ELBO Loss", fontsize=12)
+        ax.set_title("HLCA scArches Surgery Training", fontsize=14, fontweight="bold")
+        ax.legend(loc="upper right")
         ax.grid(True, alpha=0.3)
 
         # Add final loss annotation
-        if 'elbo_train' in hlca_history:
-            final_loss = hlca_history['elbo_train'][-1]
-            ax.annotate(f'Final: {final_loss:.2f}',
-                       xy=(len(hlca_history['elbo_train']), final_loss),
-                       xytext=(10, 10), textcoords='offset points',
-                       fontsize=10, ha='left')
+        if "elbo_train" in hlca_history:
+            final_loss = hlca_history["elbo_train"][-1]
+            ax.annotate(
+                f"Final: {final_loss:.2f}",
+                xy=(len(hlca_history["elbo_train"]), final_loss),
+                xytext=(10, 10),
+                textcoords="offset points",
+                fontsize=10,
+                ha="left",
+            )
 
     # Plot LuCA training curve
     if luca_history is not None:
         ax = axes[plot_idx]
 
-        if 'elbo_train' in luca_history:
-            epochs = list(range(1, len(luca_history['elbo_train']) + 1))
-            ax.plot(epochs, luca_history['elbo_train'], 'b-', label='Training ELBO', linewidth=2)
-        if 'elbo_validation' in luca_history:
-            epochs = list(range(1, len(luca_history['elbo_validation']) + 1))
-            ax.plot(epochs, luca_history['elbo_validation'], 'r--', label='Validation ELBO', linewidth=2)
+        if "elbo_train" in luca_history:
+            epochs = list(range(1, len(luca_history["elbo_train"]) + 1))
+            ax.plot(epochs, luca_history["elbo_train"], "b-", label="Training ELBO", linewidth=2)
+        if "elbo_validation" in luca_history:
+            epochs = list(range(1, len(luca_history["elbo_validation"]) + 1))
+            ax.plot(
+                epochs,
+                luca_history["elbo_validation"],
+                "r--",
+                label="Validation ELBO",
+                linewidth=2,
+            )
 
-        ax.set_xlabel('Epoch', fontsize=12)
-        ax.set_ylabel('ELBO Loss', fontsize=12)
-        ax.set_title('LuCA scArches Surgery Training', fontsize=14, fontweight='bold')
-        ax.legend(loc='upper right')
+        ax.set_xlabel("Epoch", fontsize=12)
+        ax.set_ylabel("ELBO Loss", fontsize=12)
+        ax.set_title("LuCA scArches Surgery Training", fontsize=14, fontweight="bold")
+        ax.legend(loc="upper right")
         ax.grid(True, alpha=0.3)
 
-        if 'elbo_train' in luca_history:
-            final_loss = luca_history['elbo_train'][-1]
-            ax.annotate(f'Final: {final_loss:.2f}',
-                       xy=(len(luca_history['elbo_train']), final_loss),
-                       xytext=(10, 10), textcoords='offset points',
-                       fontsize=10, ha='left')
+        if "elbo_train" in luca_history:
+            final_loss = luca_history["elbo_train"][-1]
+            ax.annotate(
+                f"Final: {final_loss:.2f}",
+                xy=(len(luca_history["elbo_train"]), final_loss),
+                xytext=(10, 10),
+                textcoords="offset points",
+                fontsize=10,
+                ha="left",
+            )
 
     plt.tight_layout()
-    plt.savefig(output_dir / "scarches_training_curves.png", dpi=150, bbox_inches='tight')
+    plt.savefig(output_dir / "scarches_training_curves.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     # Also save training history as JSON for future analysis
     history_data = {}
     if hlca_history is not None:
-        history_data['hlca'] = hlca_history
+        history_data["hlca"] = hlca_history
     if luca_history is not None:
-        history_data['luca'] = luca_history
+        history_data["luca"] = luca_history
 
-    with open(output_dir / "training_history.json", 'w') as f:
+    with open(output_dir / "training_history.json", "w") as f:
         json.dump(history_data, f, indent=2)
 
 
@@ -1503,7 +1654,7 @@ def _run_dual_reference_mapping_legacy(
     )
 
     def progress_callback(step: str, pct: float) -> None:
-        print(f"  [{pct*100:5.1f}%] {step}")
+        print(f"  [{pct * 100:5.1f}%] {step}")
 
     result = run_reference_pipeline(
         config,
@@ -1684,8 +1835,16 @@ def main():
     args = parser.parse_args()
 
     data_root = Path(args.data_root)
-    snrna_path = Path(args.snrna) if args.snrna else data_root / "processed/luad_evo/snrna_qc_normalized.h5ad"
-    output_dir = Path(args.output_dir) if args.output_dir else data_root / "processed/luad_evo/reference_geometry"
+    snrna_path = (
+        Path(args.snrna)
+        if args.snrna
+        else data_root / "processed/luad_evo/snrna_qc_normalized.h5ad"
+    )
+    output_dir = (
+        Path(args.output_dir)
+        if args.output_dir
+        else data_root / "processed/luad_evo/reference_geometry"
+    )
 
     # Determine mode
     if args.hlca_only:
@@ -1732,7 +1891,9 @@ def main():
     if mode == "both":
         if hlca_path is None:
             print("WARNING: HLCA reference not found, falling back to HLCA-only mode")
-            print("  Download with: python -m stagebridge.pipelines.download_references --download_hlca")
+            print(
+                "  Download with: python -m stagebridge.pipelines.download_references --download_hlca"
+            )
         if luca_path is None:
             print("WARNING: LuCA reference not found")
             print("  If LuCA is not available, use --hlca-only mode")

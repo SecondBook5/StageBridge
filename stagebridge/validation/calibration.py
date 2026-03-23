@@ -233,9 +233,7 @@ def calibrate_reference_confidence(
 
     if method == "temperature":
         if hlca_accuracy is not None:
-            hlca_calib = temperature_scale(
-                hlca_confidence, hlca_accuracy, n_bins=n_bins
-            )
+            hlca_calib = temperature_scale(hlca_confidence, hlca_accuracy, n_bins=n_bins)
             result["hlca_calibration"] = hlca_calib
             result["hlca_calibrated"] = hlca_calib.calibrated_confidence
         else:
@@ -243,9 +241,7 @@ def calibrate_reference_confidence(
             result["hlca_calibrated"] = hlca_confidence
 
         if luca_accuracy is not None:
-            luca_calib = temperature_scale(
-                luca_confidence, luca_accuracy, n_bins=n_bins
-            )
+            luca_calib = temperature_scale(luca_confidence, luca_accuracy, n_bins=n_bins)
             result["luca_calibration"] = luca_calib
             result["luca_calibrated"] = luca_calib.calibrated_confidence
         else:
@@ -255,9 +251,12 @@ def calibrate_reference_confidence(
     elif method == "isotonic":
         log.warning("Isotonic calibration not yet implemented, using temperature scaling")
         return calibrate_reference_confidence(
-            hlca_confidence, luca_confidence,
-            hlca_accuracy, luca_accuracy,
-            method="temperature", n_bins=n_bins
+            hlca_confidence,
+            luca_confidence,
+            hlca_accuracy,
+            luca_accuracy,
+            method="temperature",
+            n_bins=n_bins,
         )
     else:
         raise ValueError(f"Unknown calibration method: {method}")

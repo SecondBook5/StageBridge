@@ -72,15 +72,17 @@ def correlate_niche_influence_with_biology(
         # Spearman correlation (more robust)
         rho, rho_pval = stats.spearmanr(influence, pathway_scores)
 
-        results.append({
-            "pathway": pathway,
-            "pearson_r": r,
-            "pearson_pval": pval,
-            "spearman_rho": rho,
-            "spearman_pval": rho_pval,
-            "direction": "positive" if r > 0 else "negative",
-            "interpretation": _interpret_correlation(pathway, r),
-        })
+        results.append(
+            {
+                "pathway": pathway,
+                "pearson_r": r,
+                "pearson_pval": pval,
+                "spearman_rho": rho,
+                "spearman_pval": rho_pval,
+                "direction": "positive" if r > 0 else "negative",
+                "interpretation": _interpret_correlation(pathway, r),
+            }
+        )
 
     df = pd.DataFrame(results)
 
@@ -172,13 +174,15 @@ def identify_biological_drivers(
             r, pval = stats.pearsonr(attention_to_type, activity[pathway].values)
 
             if pval < 0.05:  # Only significant
-                results.append({
-                    "sender_type": sender_type,
-                    "pathway": pathway,
-                    "correlation": r,
-                    "pvalue": pval,
-                    "biological_meaning": _interpret_sender_pathway(sender_type, pathway, r),
-                })
+                results.append(
+                    {
+                        "sender_type": sender_type,
+                        "pathway": pathway,
+                        "correlation": r,
+                        "pvalue": pval,
+                        "biological_meaning": _interpret_sender_pathway(sender_type, pathway, r),
+                    }
+                )
 
     if not results:
         return pd.DataFrame()
@@ -193,10 +197,22 @@ def _interpret_sender_pathway(sender_type: str, pathway: str, r: float) -> str:
 
     # Known biology
     known_associations = {
-        ("Fibroblast", "emt_hallmark"): f"CAFs {direction} EMT in receivers - classic stromal-epithelial crosstalk",
-        ("Macrophage", "il1b_macrophage"): f"Macrophages {direction} inflammatory signaling - IL1B autocrine loop",
-        ("T_cell", "t_cell_exhaustion"): f"T cells {direction} exhaustion phenotype - potential paracrine signaling",
-        ("Endothelial", "wnt_pathway"): f"Endothelial cells {direction} WNT - vascular niche signaling",
+        (
+            "Fibroblast",
+            "emt_hallmark",
+        ): f"CAFs {direction} EMT in receivers - classic stromal-epithelial crosstalk",
+        (
+            "Macrophage",
+            "il1b_macrophage",
+        ): f"Macrophages {direction} inflammatory signaling - IL1B autocrine loop",
+        (
+            "T_cell",
+            "t_cell_exhaustion",
+        ): f"T cells {direction} exhaustion phenotype - potential paracrine signaling",
+        (
+            "Endothelial",
+            "wnt_pathway",
+        ): f"Endothelial cells {direction} WNT - vascular niche signaling",
     }
 
     key = (sender_type, pathway)
@@ -235,18 +251,14 @@ def compute_niche_pathway_associations(
         stage_mask = adata.obs[stage_col] == stage
         stage_adata = adata[stage_mask].copy()
 
-        stage_influence = influence_df[
-            influence_df["cell_id"].isin(stage_adata.obs_names)
-        ]
+        stage_influence = influence_df[influence_df["cell_id"].isin(stage_adata.obs_names)]
 
         if len(stage_influence) < 50:
             log.warning(f"Skipping {stage}: too few cells ({len(stage_influence)})")
             continue
 
         try:
-            results[stage] = correlate_niche_influence_with_biology(
-                stage_influence, stage_adata
-            )
+            results[stage] = correlate_niche_influence_with_biology(stage_influence, stage_adata)
         except Exception as e:
             log.warning(f"Failed for stage {stage}: {e}")
 
@@ -282,8 +294,8 @@ def generate_biological_hypotheses(
 
     # Filter significant associations
     sig_df = niche_biology_df[
-        (niche_biology_df["spearman_pval"] < max_pvalue) &
-        (niche_biology_df["spearman_rho"].abs() >= min_correlation)
+        (niche_biology_df["spearman_pval"] < max_pvalue)
+        & (niche_biology_df["spearman_rho"].abs() >= min_correlation)
     ]
 
     for _, row in sig_df.iterrows():

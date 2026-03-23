@@ -33,27 +33,29 @@ NICHE_COLORS = {
 
 def setup_publication_style():
     """Configure matplotlib for publication-quality figures."""
-    plt.rcParams.update({
-        'figure.facecolor': 'white',
-        'axes.facecolor': 'white',
-        'savefig.facecolor': 'white',
-        'font.family': 'sans-serif',
-        'font.sans-serif': ['Arial', 'DejaVu Sans', 'Helvetica'],
-        'font.size': 10,
-        'axes.titlesize': 12,
-        'axes.labelsize': 11,
-        'xtick.labelsize': 9,
-        'ytick.labelsize': 9,
-        'legend.fontsize': 9,
-        'axes.spines.top': False,
-        'axes.spines.right': False,
-        'axes.linewidth': 1.0,
-        'xtick.major.width': 1.0,
-        'ytick.major.width': 1.0,
-        'figure.dpi': 150,
-        'savefig.dpi': 300,
-        'savefig.bbox': 'tight',
-    })
+    plt.rcParams.update(
+        {
+            "figure.facecolor": "white",
+            "axes.facecolor": "white",
+            "savefig.facecolor": "white",
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial", "DejaVu Sans", "Helvetica"],
+            "font.size": 10,
+            "axes.titlesize": 12,
+            "axes.labelsize": 11,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.fontsize": 9,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.linewidth": 1.0,
+            "xtick.major.width": 1.0,
+            "ytick.major.width": 1.0,
+            "figure.dpi": 150,
+            "savefig.dpi": 300,
+            "savefig.bbox": "tight",
+        }
+    )
 
 
 def plot_progression_risk_by_stage(
@@ -76,7 +78,11 @@ def plot_progression_risk_by_stage(
 
     # Violin plot
     parts = ax.violinplot(
-        [df[df["stage"] == s]["progression_risk_score"].values for s in STAGE_ORDER if s in df["stage"].values],
+        [
+            df[df["stage"] == s]["progression_risk_score"].values
+            for s in STAGE_ORDER
+            if s in df["stage"].values
+        ],
         positions=range(len([s for s in STAGE_ORDER if s in df["stage"].values])),
         showmeans=False,
         showmedians=True,
@@ -85,12 +91,12 @@ def plot_progression_risk_by_stage(
 
     # Color violins by stage
     present_stages = [s for s in STAGE_ORDER if s in df["stage"].values]
-    for i, (pc, stage) in enumerate(zip(parts['bodies'], present_stages)):
+    for i, (pc, stage) in enumerate(zip(parts["bodies"], present_stages)):
         pc.set_facecolor(STAGE_COLORS[stage])
         pc.set_alpha(0.7)
 
-    parts['cmedians'].set_color('black')
-    parts['cmedians'].set_linewidth(2)
+    parts["cmedians"].set_color("black")
+    parts["cmedians"].set_linewidth(2)
 
     # Add box plots inside
     bp = ax.boxplot(
@@ -101,8 +107,8 @@ def plot_progression_risk_by_stage(
         showfliers=False,
     )
 
-    for patch in bp['boxes']:
-        patch.set_facecolor('white')
+    for patch in bp["boxes"]:
+        patch.set_facecolor("white")
         patch.set_alpha(0.9)
 
     # Labels
@@ -116,15 +122,30 @@ def plot_progression_risk_by_stage(
     # Add sample sizes
     for i, stage in enumerate(present_stages):
         n = len(df[df["stage"] == stage])
-        ax.text(i, -0.08, f"n={n:,}", ha='center', va='top', fontsize=8, transform=ax.get_xaxis_transform())
+        ax.text(
+            i,
+            -0.08,
+            f"n={n:,}",
+            ha="center",
+            va="top",
+            fontsize=8,
+            transform=ax.get_xaxis_transform(),
+        )
 
     # Statistical annotation (if significant)
     # Add brackets for significant comparisons
-    ax.text(0.02, 0.98, "Higher = More Progression-Prone",
-            transform=ax.transAxes, fontsize=8, va='top', style='italic')
+    ax.text(
+        0.02,
+        0.98,
+        "Higher = More Progression-Prone",
+        transform=ax.transAxes,
+        fontsize=8,
+        va="top",
+        style="italic",
+    )
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
 
@@ -150,7 +171,7 @@ def plot_niche_ecosystem_comparison(
     ax = axes[0]
     if "niche_category" in df.columns:
         pivot = df.groupby(["stage", "niche_category"]).size().unstack(fill_value=0)
-        pivot = pivot.reindex(STAGE_ORDER).dropna(how='all')
+        pivot = pivot.reindex(STAGE_ORDER).dropna(how="all")
         pivot_pct = pivot.div(pivot.sum(axis=1), axis=0) * 100
 
         categories = list(NICHE_COLORS.keys())
@@ -160,8 +181,14 @@ def plot_niche_ecosystem_comparison(
         for cat in categories:
             if cat in pivot_pct.columns:
                 values = pivot_pct[cat].values
-                ax.bar(range(len(pivot_pct)), values, bottom=bottom,
-                       label=cat, color=NICHE_COLORS.get(cat, '#999999'), width=0.7)
+                ax.bar(
+                    range(len(pivot_pct)),
+                    values,
+                    bottom=bottom,
+                    label=cat,
+                    color=NICHE_COLORS.get(cat, "#999999"),
+                    width=0.7,
+                )
                 bottom += values
 
         ax.set_xticks(range(len(pivot_pct)))
@@ -169,10 +196,10 @@ def plot_niche_ecosystem_comparison(
         ax.set_ylabel("Percentage of Cells")
         ax.set_xlabel("Disease Stage")
         ax.set_title("Niche Category Distribution")
-        ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
+        ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8)
         ax.set_ylim(0, 100)
     else:
-        ax.text(0.5, 0.5, "No niche category data", ha='center', va='center')
+        ax.text(0.5, 0.5, "No niche category data", ha="center", va="center")
 
     # Panel B: Mean risk scores by stage
     ax = axes[1]
@@ -184,8 +211,14 @@ def plot_niche_ecosystem_comparison(
 
     for i, (metric, label) in enumerate(zip(metrics, metric_labels)):
         if metric in df.columns:
-            means = [df[df["stage"] == s][metric].mean() if s in df["stage"].values else 0 for s in STAGE_ORDER]
-            stds = [df[df["stage"] == s][metric].std() if s in df["stage"].values else 0 for s in STAGE_ORDER]
+            means = [
+                df[df["stage"] == s][metric].mean() if s in df["stage"].values else 0
+                for s in STAGE_ORDER
+            ]
+            stds = [
+                df[df["stage"] == s][metric].std() if s in df["stage"].values else 0
+                for s in STAGE_ORDER
+            ]
             ax.bar(x + i * width, means, width, label=label, yerr=stds, capsize=2, alpha=0.8)
 
     ax.set_xticks(x + width)
@@ -193,10 +226,10 @@ def plot_niche_ecosystem_comparison(
     ax.set_ylabel("Score")
     ax.set_xlabel("Disease Stage")
     ax.set_title("Niche Risk Metrics by Stage")
-    ax.legend(loc='upper left', fontsize=8)
+    ax.legend(loc="upper left", fontsize=8)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
 
@@ -232,30 +265,39 @@ def plot_kac_vs_niche_risk(
                 stage_data["kac_state_score"],
                 stage_data["niche_risk_score"],
                 c=STAGE_COLORS[stage],
-                label=f"{stage} (n={len(df[df['stage']==stage]):,})",
+                label=f"{stage} (n={len(df[df['stage'] == stage]):,})",
                 alpha=0.3,
                 s=10,
-                edgecolors='none',
+                edgecolors="none",
             )
 
     ax.set_xlabel("KAC State Score (Alveolar Progenitor)")
     ax.set_ylabel("Niche Risk Score (Proinflammatory)")
     ax.set_title("KAC State vs Niche Risk by Stage")
-    ax.legend(loc='upper right', fontsize=8, markerscale=2)
+    ax.legend(loc="upper right", fontsize=8, markerscale=2)
 
     # Add quadrant lines
-    ax.axhline(0.5, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
-    ax.axvline(0.5, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
+    ax.axhline(0.5, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
+    ax.axvline(0.5, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
 
     # Quadrant labels
-    ax.text(0.75, 0.85, "High Risk\nQuadrant", ha='center', va='center',
-            transform=ax.transAxes, fontsize=9, style='italic', alpha=0.7)
+    ax.text(
+        0.75,
+        0.85,
+        "High Risk\nQuadrant",
+        ha="center",
+        va="center",
+        transform=ax.transAxes,
+        fontsize=9,
+        style="italic",
+        alpha=0.7,
+    )
 
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
 
@@ -278,7 +320,7 @@ def plot_fold_change_heatmap(
 
     data = np.zeros((len(stages), len(metrics)))
     for i, stage in enumerate(stages):
-        if hasattr(stage_summaries[stage], 'comparison_to_normal'):
+        if hasattr(stage_summaries[stage], "comparison_to_normal"):
             comp = stage_summaries[stage].comparison_to_normal
         else:
             comp = stage_summaries[stage].get("comparison_to_normal", {})
@@ -291,10 +333,10 @@ def plot_fold_change_heatmap(
     # Log2 transform for better visualization
     data_log2 = np.log2(data + 0.01)
 
-    im = ax.imshow(data_log2, cmap='RdBu_r', aspect='auto', vmin=-2, vmax=2)
+    im = ax.imshow(data_log2, cmap="RdBu_r", aspect="auto", vmin=-2, vmax=2)
 
     ax.set_xticks(range(len(metric_labels)))
-    ax.set_xticklabels(metric_labels, rotation=45, ha='right')
+    ax.set_xticklabels(metric_labels, rotation=45, ha="right")
     ax.set_yticks(range(len(stages)))
     ax.set_yticklabels(stages)
 
@@ -310,12 +352,20 @@ def plot_fold_change_heatmap(
     for i in range(len(stages)):
         for j in range(len(metrics)):
             fc = data[i, j]
-            text_color = 'white' if abs(data_log2[i, j]) > 1 else 'black'
-            ax.text(j, i, f"{fc:.1f}x", ha='center', va='center',
-                    fontsize=9, color=text_color, fontweight='bold')
+            text_color = "white" if abs(data_log2[i, j]) > 1 else "black"
+            ax.text(
+                j,
+                i,
+                f"{fc:.1f}x",
+                ha="center",
+                va="center",
+                fontsize=9,
+                color=text_color,
+                fontweight="bold",
+            )
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
 
@@ -362,10 +412,14 @@ def plot_proinflammatory_enrichment_trajectory(
             # Proinflammatory fraction
             if "is_proinflammatory_niche" in stage_data.columns:
                 pf = stage_data["is_proinflammatory_niche"].mean()
-                stage_proinflam_values[stage] = stage_data["is_proinflammatory_niche"].values.astype(float)
+                stage_proinflam_values[stage] = stage_data[
+                    "is_proinflammatory_niche"
+                ].values.astype(float)
             else:
                 pf = (stage_data["proinflammatory_score"] >= 0.3).mean()
-                stage_proinflam_values[stage] = (stage_data["proinflammatory_score"] >= 0.3).values.astype(float)
+                stage_proinflam_values[stage] = (
+                    stage_data["proinflammatory_score"] >= 0.3
+                ).values.astype(float)
             proinflam_fracs.append(pf)
 
             # Bootstrap CI
@@ -387,31 +441,64 @@ def plot_proinflammatory_enrichment_trajectory(
             if "niche_category" in stage_data.columns:
                 combined = (stage_data["niche_category"] == "Proinflammatory-CAF").mean()
             else:
-                combined = ((stage_data["proinflammatory_score"] >= 0.3) &
-                           (stage_data["caf_enrichment"] >= 0.2)).mean()
+                combined = (
+                    (stage_data["proinflammatory_score"] >= 0.3)
+                    & (stage_data["caf_enrichment"] >= 0.2)
+                ).mean()
             combined_fracs.append(combined)
 
     x = np.arange(len(stages))
 
     # Plot lines
-    ax.errorbar(x, proinflam_fracs, yerr=proinflam_errs, marker='o', markersize=8,
-                label='IL1B-high Mac Niche', color='#e78ac3', linewidth=2, capsize=3)
-    ax.plot(x, caf_fracs, marker='s', markersize=8,
-            label='CAF-enriched Niche', color='#8da0cb', linewidth=2)
-    ax.plot(x, combined_fracs, marker='^', markersize=8,
-            label='Proinflammatory + CAF', color='#a6d854', linewidth=2)
+    ax.errorbar(
+        x,
+        proinflam_fracs,
+        yerr=proinflam_errs,
+        marker="o",
+        markersize=8,
+        label="IL1B-high Mac Niche",
+        color="#e78ac3",
+        linewidth=2,
+        capsize=3,
+    )
+    ax.plot(
+        x,
+        caf_fracs,
+        marker="s",
+        markersize=8,
+        label="CAF-enriched Niche",
+        color="#8da0cb",
+        linewidth=2,
+    )
+    ax.plot(
+        x,
+        combined_fracs,
+        marker="^",
+        markersize=8,
+        label="Proinflammatory + CAF",
+        color="#a6d854",
+        linewidth=2,
+    )
 
     ax.set_xticks(x)
     ax.set_xticklabels(stages)
     ax.set_xlabel("Disease Stage")
     ax.set_ylabel("Fraction of Cells")
     ax.set_title("Niche Enrichment Across LUAD Progression")
-    ax.legend(loc='upper right', fontsize=9)
+    ax.legend(loc="upper right", fontsize=9)
 
     # Highlight precursor window
-    ax.axvspan(-0.5, 3.5, alpha=0.1, color='orange', label='Precursor Window')
-    ax.text(1.5, ax.get_ylim()[1] * 0.95, "Interception\nWindow",
-            ha='center', va='top', fontsize=9, style='italic', alpha=0.7)
+    ax.axvspan(-0.5, 3.5, alpha=0.1, color="orange", label="Precursor Window")
+    ax.text(
+        1.5,
+        ax.get_ylim()[1] * 0.95,
+        "Interception\nWindow",
+        ha="center",
+        va="top",
+        fontsize=9,
+        style="italic",
+        alpha=0.7,
+    )
 
     # Add statistical annotations
     if show_statistics:
@@ -442,15 +529,31 @@ def plot_proinflammatory_enrichment_trajectory(
 
                 # Draw bracket
                 bracket_y = max_y + 0.02
-                ax.plot([precursor_x, precursor_x, luad_x, luad_x],
-                       [max_y, bracket_y, bracket_y, max_y],
-                       color='black', linewidth=1)
+                ax.plot(
+                    [precursor_x, precursor_x, luad_x, luad_x],
+                    [max_y, bracket_y, bracket_y, max_y],
+                    color="black",
+                    linewidth=1,
+                )
 
                 # Add p-value text
-                significance = "***" if mw_pval < 0.001 else "**" if mw_pval < 0.01 else "*" if mw_pval < 0.05 else "ns"
-                ax.text((precursor_x + luad_x) / 2, bracket_y + 0.01,
-                       f"{significance}\n({pval_str})",
-                       ha='center', va='bottom', fontsize=8)
+                significance = (
+                    "***"
+                    if mw_pval < 0.001
+                    else "**"
+                    if mw_pval < 0.01
+                    else "*"
+                    if mw_pval < 0.05
+                    else "ns"
+                )
+                ax.text(
+                    (precursor_x + luad_x) / 2,
+                    bracket_y + 0.01,
+                    f"{significance}\n({pval_str})",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
 
                 # Adjust y-axis to accommodate annotation
                 ax.set_ylim(0, bracket_y + 0.08)
@@ -458,7 +561,7 @@ def plot_proinflammatory_enrichment_trajectory(
     ax.set_ylim(0, None)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
 
@@ -485,11 +588,15 @@ def plot_perturbation_effects(
 
     # Panel A: Distribution of prediction changes
     ax = axes[0]
-    ax.hist(deltas, bins=50, alpha=0.7, color='steelblue', edgecolor='white')
-    ax.axvline(np.mean(deltas), color='red', linestyle='--', linewidth=2,
-               label=f'Mean: {np.mean(deltas):.3f}')
-    ax.axvline(0.1, color='gray', linestyle=':', linewidth=1,
-               label='Significance threshold')
+    ax.hist(deltas, bins=50, alpha=0.7, color="steelblue", edgecolor="white")
+    ax.axvline(
+        np.mean(deltas),
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label=f"Mean: {np.mean(deltas):.3f}",
+    )
+    ax.axvline(0.1, color="gray", linestyle=":", linewidth=1, label="Significance threshold")
     ax.set_xlabel("Prediction Change (L2 norm)")
     ax.set_ylabel("Number of Cells")
     ax.set_title(f"Effect of Removing {cell_type}")
@@ -497,17 +604,22 @@ def plot_perturbation_effects(
 
     # Panel B: Progression risk change
     ax = axes[1]
-    ax.hist(risk_deltas, bins=50, alpha=0.7, color='coral', edgecolor='white')
-    ax.axvline(np.mean(risk_deltas), color='red', linestyle='--', linewidth=2,
-               label=f'Mean: {np.mean(risk_deltas):.3f}')
-    ax.axvline(0, color='black', linestyle='-', linewidth=1)
+    ax.hist(risk_deltas, bins=50, alpha=0.7, color="coral", edgecolor="white")
+    ax.axvline(
+        np.mean(risk_deltas),
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label=f"Mean: {np.mean(risk_deltas):.3f}",
+    )
+    ax.axvline(0, color="black", linestyle="-", linewidth=1)
     ax.set_xlabel("Progression Risk Change")
     ax.set_ylabel("Number of Cells")
     ax.set_title(f"Risk Change After {cell_type} Ablation")
     ax.legend(fontsize=8)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
 
@@ -528,40 +640,28 @@ def generate_all_biology_figures(
     print("Generating biology paper figures...")
 
     # Figure 1: Progression risk by stage
-    plot_progression_risk_by_stage(
-        cell_risks,
-        output_dir / "fig1_progression_risk_by_stage.png"
-    )
+    plot_progression_risk_by_stage(cell_risks, output_dir / "fig1_progression_risk_by_stage.png")
 
     # Figure 2: Niche ecosystem comparison
     plot_niche_ecosystem_comparison(
-        niche_risks,
-        output_dir / "fig2_niche_ecosystem_comparison.png"
+        niche_risks, output_dir / "fig2_niche_ecosystem_comparison.png"
     )
 
     # Figure 3: KAC vs niche risk scatter
-    plot_kac_vs_niche_risk(
-        cell_risks, niche_risks,
-        output_dir / "fig3_kac_vs_niche_risk.png"
-    )
+    plot_kac_vs_niche_risk(cell_risks, niche_risks, output_dir / "fig3_kac_vs_niche_risk.png")
 
     # Figure 4: Fold change heatmap
-    plot_fold_change_heatmap(
-        stage_summaries,
-        output_dir / "fig4_fold_change_heatmap.png"
-    )
+    plot_fold_change_heatmap(stage_summaries, output_dir / "fig4_fold_change_heatmap.png")
 
     # Figure 5: Proinflammatory trajectory
     plot_proinflammatory_enrichment_trajectory(
-        niche_risks,
-        output_dir / "fig5_proinflammatory_trajectory.png"
+        niche_risks, output_dir / "fig5_proinflammatory_trajectory.png"
     )
 
     # Figure 6: Perturbation effects (if available)
     if perturbation_results:
         plot_perturbation_effects(
-            perturbation_results,
-            output_dir / "fig6_perturbation_effects.png"
+            perturbation_results, output_dir / "fig6_perturbation_effects.png"
         )
 
     print(f"All figures saved to: {output_dir}")

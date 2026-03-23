@@ -14,7 +14,12 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 
-from .backend_base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy, compute_sparsity
+from .backend_base import (
+    SpatialBackend,
+    BackendMappingResult,
+    compute_cell_type_entropy,
+    compute_sparsity,
+)
 
 
 class DestVIBackend(SpatialBackend):
@@ -385,7 +390,6 @@ class DestVIBackend(SpatialBackend):
         indices = np.where(ct_proportions > threshold)[0]
         return indices
 
-
     def plot_cell_type_spatial(
         self,
         cell_type: str,
@@ -569,7 +573,7 @@ class DestVIBackend(SpatialBackend):
             )
             plt.colorbar(scatter, ax=ax)
             var_exp = gamma_result["explained_variance"][i]
-            ax.set_title(f"{cell_type} - Spatial PC{i+1} ({var_exp:.1%} var)")
+            ax.set_title(f"{cell_type} - Spatial PC{i + 1} ({var_exp:.1%} var)")
             ax.set_xlabel("Spatial X")
             ax.set_ylabel("Spatial Y")
 

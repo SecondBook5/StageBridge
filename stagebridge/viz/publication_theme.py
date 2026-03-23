@@ -21,20 +21,20 @@ from typing import Any
 
 from stagebridge.logging_utils import get_logger
 
-log = get_logger(__name__)
-
 # Publication-grade color palette
 # Now uses LungPCA colors for consistency with original paper
 # Import the canonical colors from lungpca_style
 from .lungpca_style import STAGE_COLORS as _LUNGPCA_STAGE_COLORS
 
+log = get_logger(__name__)
+
 PUBLICATION_PALETTE = {
     # Stage colors (from LungPCA paper - Peng et al.)
-    "Normal": _LUNGPCA_STAGE_COLORS["Normal"],      # #33a02c green
-    "AAH": _LUNGPCA_STAGE_COLORS["AAH"],            # #b2df8a light green
-    "AIS": _LUNGPCA_STAGE_COLORS["AIS"],            # #fdbf6f light orange
-    "MIA": _LUNGPCA_STAGE_COLORS["MIA"],            # #fb9a99 pink
-    "LUAD": _LUNGPCA_STAGE_COLORS["LUAD"],          # #ff7f00 orange
+    "Normal": _LUNGPCA_STAGE_COLORS["Normal"],  # #33a02c green
+    "AAH": _LUNGPCA_STAGE_COLORS["AAH"],  # #b2df8a light green
+    "AIS": _LUNGPCA_STAGE_COLORS["AIS"],  # #fdbf6f light orange
+    "MIA": _LUNGPCA_STAGE_COLORS["MIA"],  # #fb9a99 pink
+    "LUAD": _LUNGPCA_STAGE_COLORS["LUAD"],  # #ff7f00 orange
     "Unknown": _LUNGPCA_STAGE_COLORS.get("Unknown", "#d9d9d9"),  # gray
     # Utility colors
     "ink": "#000000",  # Pure black for text

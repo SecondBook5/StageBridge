@@ -60,7 +60,9 @@ class BenchmarkMetrics:
 
     receiver_state: ReceiverStateMetrics = field(default_factory=ReceiverStateMetrics)
     sender_attribution: list[SenderAttributionMetrics] = field(default_factory=list)
-    distance_sensitivity: DistanceSensitivityMetrics = field(default_factory=DistanceSensitivityMetrics)
+    distance_sensitivity: DistanceSensitivityMetrics = field(
+        default_factory=DistanceSensitivityMetrics
+    )
     stage_metrics: dict[str, ReceiverStateMetrics] = field(default_factory=dict)
     overall_score: float = 0.0
 
@@ -89,8 +91,7 @@ class BenchmarkMetrics:
                 "radius_ordering_correct": self.distance_sensitivity.radius_ordering_correct,
             },
             "stage_metrics": {
-                stage: {"f1": m.f1, "auroc": m.auroc}
-                for stage, m in self.stage_metrics.items()
+                stage: {"f1": m.f1, "auroc": m.auroc} for stage, m in self.stage_metrics.items()
             },
             "overall_score": self.overall_score,
         }
@@ -302,9 +303,7 @@ def compute_benchmark_metrics(
                 gt_effects[radius] = ground_truth[gt_col].values
 
         if model_effects and gt_effects:
-            metrics.distance_sensitivity = evaluate_distance_sensitivity(
-                model_effects, gt_effects
-            )
+            metrics.distance_sensitivity = evaluate_distance_sensitivity(model_effects, gt_effects)
 
     # Stage-specific metrics
     if "stage" in ground_truth.columns and "predicted_interacting" in predictions.columns:

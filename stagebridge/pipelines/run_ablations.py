@@ -500,11 +500,17 @@ def main():
         from stagebridge.ablations import generate_ablation_visualizations
 
         # Convert results_df to format expected by visualization
-        viz_df = results_df.groupby("ablation").agg({
-            "wasserstein": "mean",
-            "mse": "mean",
-            "mae": "mean",
-        }).reset_index()
+        viz_df = (
+            results_df.groupby("ablation")
+            .agg(
+                {
+                    "wasserstein": "mean",
+                    "mse": "mean",
+                    "mae": "mean",
+                }
+            )
+            .reset_index()
+        )
         viz_df["label"] = viz_df["ablation"].str.replace("_", " ").str.title()
 
         # Add delta columns (relative to full_model baseline)

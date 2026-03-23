@@ -31,7 +31,8 @@ from datetime import datetime
 from pathlib import Path
 
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend for HPC
+
+matplotlib.use("Agg")  # Non-interactive backend for HPC
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -43,6 +44,7 @@ from tqdm import tqdm
 try:
     import optuna
     from optuna.trial import Trial
+
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False
@@ -53,6 +55,7 @@ try:
         ReceiverCenteredNicheEncoder,
         ReceiverNicheOutput,
     )
+
     DOCTRINE_ENCODER_AVAILABLE = True
 except ImportError:
     DOCTRINE_ENCODER_AVAILABLE = False
@@ -62,6 +65,7 @@ try:
         RelationalPretrainingConfig,
         RelationalPretrainingHeads,
     )
+
     PRETRAINING_HEADS_AVAILABLE = True
 except ImportError:
     PRETRAINING_HEADS_AVAILABLE = False
@@ -69,6 +73,7 @@ except ImportError:
 # Import data loaders
 try:
     from stagebridge.data.loaders import StageBridgeDataset, collate_fn
+
     REAL_DATA_LOADER_AVAILABLE = True
 except ImportError:
     REAL_DATA_LOADER_AVAILABLE = False
@@ -87,70 +92,75 @@ try:
         DeepSetsLesionBaseline,
         LesionSetTransformerBaseline,
     )
+
     EXISTING_BASELINES_AVAILABLE = True
 except ImportError:
     EXISTING_BASELINES_AVAILABLE = False
 
-warnings.filterwarnings('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 
 # =============================================================================
 # Publication-Quality Figure Setup
 # =============================================================================
 
+
 def setup_publication_style():
     """Configure matplotlib for Nature-quality figures."""
-    plt.style.use('seaborn-v0_8-whitegrid')
+    plt.style.use("seaborn-v0_8-whitegrid")
 
-    plt.rcParams.update({
-        'figure.figsize': (8, 6),
-        'figure.dpi': 300,
-        'figure.facecolor': 'white',
-        'savefig.dpi': 300,
-        'savefig.facecolor': 'white',
-        'savefig.bbox': 'tight',
-        'font.family': 'sans-serif',
-        'font.sans-serif': ['Arial', 'Helvetica', 'DejaVu Sans'],
-        'font.size': 12,
-        'axes.titlesize': 14,
-        'axes.labelsize': 12,
-        'axes.linewidth': 1.2,
-        'axes.spines.top': False,
-        'axes.spines.right': False,
-        'lines.linewidth': 2,
-        'lines.markersize': 8,
-    })
+    plt.rcParams.update(
+        {
+            "figure.figsize": (8, 6),
+            "figure.dpi": 300,
+            "figure.facecolor": "white",
+            "savefig.dpi": 300,
+            "savefig.facecolor": "white",
+            "savefig.bbox": "tight",
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+            "font.size": 12,
+            "axes.titlesize": 14,
+            "axes.labelsize": 12,
+            "axes.linewidth": 1.2,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "lines.linewidth": 2,
+            "lines.markersize": 8,
+        }
+    )
 
     return {
-        'stage_colors': {
-            'Normal': '#2ecc71',
-            'AAH': '#f39c12',
-            'AIS': '#e74c3c',
-            'MIA': '#9b59b6',
-            'LUAD': '#1a1a2e',
+        "stage_colors": {
+            "Normal": "#2ecc71",
+            "AAH": "#f39c12",
+            "AIS": "#e74c3c",
+            "MIA": "#9b59b6",
+            "LUAD": "#1a1a2e",
         },
-        'model_colors': {
-            'StageBridge': '#e74c3c',
-            'scVI': '#3498db',
-            'Tangram': '#2ecc71',
-            'CellRank': '#9b59b6',
-            'WOT': '#f39c12',
-            'PoolingMLP': '#95a5a6',
-            'DeepSets': '#7f8c8d',
-            'SetTransformer': '#34495e',
-            'GraphSAGE': '#1abc9c',
+        "model_colors": {
+            "StageBridge": "#e74c3c",
+            "scVI": "#3498db",
+            "Tangram": "#2ecc71",
+            "CellRank": "#9b59b6",
+            "WOT": "#f39c12",
+            "PoolingMLP": "#95a5a6",
+            "DeepSets": "#7f8c8d",
+            "SetTransformer": "#34495e",
+            "GraphSAGE": "#1abc9c",
         },
-        'dataset_colors': {
-            'Semi-Synthetic': '#3498db',
-            'Real': '#e74c3c',
-        }
+        "dataset_colors": {
+            "Semi-Synthetic": "#3498db",
+            "Real": "#e74c3c",
+        },
     }
 
 
 # =============================================================================
 # Model Definition
 # =============================================================================
+
 
 class StageBridgeV1Complete(nn.Module):
     """
@@ -247,7 +257,9 @@ class StageBridgeV1Complete(nn.Module):
             nn.Linear(256, latent_dim),
         )
 
-    def encode_niche(self, niche_tokens: torch.Tensor, distances: torch.Tensor = None) -> torch.Tensor:
+    def encode_niche(
+        self, niche_tokens: torch.Tensor, distances: torch.Tensor = None
+    ) -> torch.Tensor:
         """Encode 9-token niche structure into context vector.
 
         Args:
@@ -277,7 +289,9 @@ class StageBridgeV1Complete(nn.Module):
             context = self.context_projection(output.context)
         else:
             # Fallback simplified encoder
-            token_ids = torch.arange(9, device=niche_tokens.device).unsqueeze(0).expand(batch_size, -1)
+            token_ids = (
+                torch.arange(9, device=niche_tokens.device).unsqueeze(0).expand(batch_size, -1)
+            )
             token_embeds = self.token_type_embedding(token_ids)
 
             niche_flat = niche_tokens.reshape(batch_size, -1)
@@ -299,10 +313,10 @@ class StageBridgeV1Complete(nn.Module):
         ranking_score = self.ssl_ranking_head(context)
 
         return {
-            'loss_reconstruction': loss_reconstruction,
-            'receiver_pred': receiver_pred,
-            'context': context,
-            'ranking_score': ranking_score,
+            "loss_reconstruction": loss_reconstruction,
+            "receiver_pred": receiver_pred,
+            "context": context,
+            "ranking_score": ranking_score,
         }
 
     def transition_forward(
@@ -328,13 +342,15 @@ class StageBridgeV1Complete(nn.Module):
         loss_transition = torch.mean((drift_pred - drift_true) ** 2)
 
         return {
-            'loss_transition': loss_transition,
-            'drift_pred': drift_pred,
-            'drift_true': drift_true,
-            'z_t': z_t,
+            "loss_transition": loss_transition,
+            "drift_pred": drift_pred,
+            "drift_true": drift_true,
+            "z_t": z_t,
         }
 
-    def sample_trajectory(self, z_source: torch.Tensor, context: torch.Tensor, n_steps: int = 100) -> torch.Tensor:
+    def sample_trajectory(
+        self, z_source: torch.Tensor, context: torch.Tensor, n_steps: int = 100
+    ) -> torch.Tensor:
         """Sample trajectory via ODE integration."""
         trajectory = [z_source]
         z_t = z_source
@@ -355,13 +371,17 @@ class StageBridgeV1Complete(nn.Module):
 # Ablation Models
 # =============================================================================
 
+
 class MeanPoolMLPBaseline(nn.Module):
     """Baseline 1: Mean pooling + MLP (weakest floor)."""
+
     def __init__(self, latent_dim: int = 32, hidden_dim: int = 128):
         super().__init__()
         self.encoder = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+            nn.Linear(latent_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
             nn.Linear(hidden_dim, latent_dim),
         )
 
@@ -371,11 +391,14 @@ class MeanPoolMLPBaseline(nn.Module):
 
 class MaxPoolMLPBaseline(nn.Module):
     """Baseline 2: Max pooling + MLP (extreme-feature pooling)."""
+
     def __init__(self, latent_dim: int = 32, hidden_dim: int = 128):
         super().__init__()
         self.encoder = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+            nn.Linear(latent_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
             nn.Linear(hidden_dim, latent_dim),
         )
 
@@ -392,8 +415,12 @@ PoolingMLPBaseline = MeanPoolMLPBaseline
 class DeepSetsBaseline(nn.Module):
     def __init__(self, latent_dim: int = 32, hidden_dim: int = 128):
         super().__init__()
-        self.phi = nn.Sequential(nn.Linear(latent_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim))
-        self.rho = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, latent_dim))
+        self.phi = nn.Sequential(
+            nn.Linear(latent_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim)
+        )
+        self.rho = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, latent_dim)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() == 2:
@@ -406,7 +433,9 @@ class SetTransformerBaseline(nn.Module):
         super().__init__()
         self.input_proj = nn.Linear(latent_dim, hidden_dim)
         self.transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=n_heads, dim_feedforward=hidden_dim*4, batch_first=True),
+            nn.TransformerEncoderLayer(
+                d_model=hidden_dim, nhead=n_heads, dim_feedforward=hidden_dim * 4, batch_first=True
+            ),
             num_layers=2,
         )
         self.output_proj = nn.Linear(hidden_dim, latent_dim)
@@ -423,17 +452,22 @@ class HierarchicalSetTransformerBaseline(nn.Module):
 
     Key ablation point - shows hierarchy helps but influence matters.
     """
+
     def __init__(self, latent_dim: int = 32, hidden_dim: int = 128, n_heads: int = 4):
         super().__init__()
         self.input_proj = nn.Linear(latent_dim, hidden_dim)
 
         # Two-level hierarchy
         self.level1_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=n_heads, dim_feedforward=hidden_dim*4, batch_first=True),
+            nn.TransformerEncoderLayer(
+                d_model=hidden_dim, nhead=n_heads, dim_feedforward=hidden_dim * 4, batch_first=True
+            ),
             num_layers=2,
         )
         self.level2_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=n_heads, dim_feedforward=hidden_dim*4, batch_first=True),
+            nn.TransformerEncoderLayer(
+                d_model=hidden_dim, nhead=n_heads, dim_feedforward=hidden_dim * 4, batch_first=True
+            ),
             num_layers=1,
         )
         self.output_proj = nn.Linear(hidden_dim, latent_dim)
@@ -453,6 +487,7 @@ class HierarchicalSetTransformerBaseline(nn.Module):
 
 class GraphSAGEBaseline(nn.Module):
     """Baseline 6: Spatial graph structure (simplified GraphSAGE)."""
+
     def __init__(self, latent_dim: int = 32, hidden_dim: int = 128, n_layers: int = 2):
         super().__init__()
         self.latent_dim = latent_dim
@@ -477,6 +512,7 @@ class GraphSAGEBaseline(nn.Module):
 
 class GATBaseline(nn.Module):
     """Baseline 7: Graph Attention Network."""
+
     def __init__(self, latent_dim: int = 32, hidden_dim: int = 128, n_heads: int = 4):
         super().__init__()
         self.n_heads = n_heads
@@ -502,7 +538,7 @@ class GATBaseline(nn.Module):
         k = k.view(B, K, self.n_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, K, self.n_heads, self.head_dim).transpose(1, 2)
 
-        attn = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attn = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim**0.5)
         attn = torch.softmax(attn, dim=-1)
         out = torch.matmul(attn, v)
 
@@ -514,20 +550,25 @@ class GATBaseline(nn.Module):
 # Data Utilities
 # =============================================================================
 
-def create_synthetic_batch(batch_size: int, latent_dim: int, n_tokens: int = 9, device: torch.device = None) -> dict:
+
+def create_synthetic_batch(
+    batch_size: int, latent_dim: int, n_tokens: int = 9, device: torch.device = None
+) -> dict:
     """Create synthetic batch."""
     if device is None:
-        device = torch.device('cpu')
+        device = torch.device("cpu")
     return {
-        'niche_tokens': torch.randn(batch_size, n_tokens, latent_dim, device=device),
-        'receiver': torch.randn(batch_size, latent_dim, device=device),
-        'z_source': torch.randn(batch_size, latent_dim, device=device),
-        'z_target': torch.randn(batch_size, latent_dim, device=device),
-        'stage': torch.randint(0, 5, (batch_size,), device=device),
+        "niche_tokens": torch.randn(batch_size, n_tokens, latent_dim, device=device),
+        "receiver": torch.randn(batch_size, latent_dim, device=device),
+        "z_source": torch.randn(batch_size, latent_dim, device=device),
+        "z_target": torch.randn(batch_size, latent_dim, device=device),
+        "stage": torch.randint(0, 5, (batch_size,), device=device),
     }
 
 
-def create_semi_synthetic_dataloader(batch_size: int, n_samples: int, latent_dim: int, seed: int = 42):
+def create_semi_synthetic_dataloader(
+    batch_size: int, n_samples: int, latent_dim: int, seed: int = 42
+):
     """Create semi-synthetic dataloader with ground truth dynamics."""
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -546,7 +587,9 @@ def create_semi_synthetic_dataloader(batch_size: int, n_samples: int, latent_dim
 
     # Stages (based on z_source magnitude)
     stage_scores = z_source.norm(dim=1)
-    stages = torch.bucketize(stage_scores, torch.quantile(stage_scores, torch.tensor([0.2, 0.4, 0.6, 0.8])))
+    stages = torch.bucketize(
+        stage_scores, torch.quantile(stage_scores, torch.tensor([0.2, 0.4, 0.6, 0.8]))
+    )
 
     dataset = torch.utils.data.TensorDataset(niche_tokens, z_source, z_target, z_source, stages)
 
@@ -557,25 +600,22 @@ def create_semi_synthetic_dataloader(batch_size: int, n_samples: int, latent_dim
         def __iter__(self):
             for niche, receiver, z_src, z_tgt, stg in self.loader:
                 yield {
-                    'niche_tokens': niche,
-                    'receiver': receiver,
-                    'z_source': z_src,
-                    'z_target': z_tgt,
-                    'stage': stg,
+                    "niche_tokens": niche,
+                    "receiver": receiver,
+                    "z_source": z_src,
+                    "z_target": z_tgt,
+                    "stage": stg,
                 }
 
         def __len__(self):
             return len(self.loader)
 
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    return BatchWrapper(loader), {'drift_matrix': drift_linear}
+    return BatchWrapper(loader), {"drift_matrix": drift_linear}
 
 
 def create_real_data_loaders(
-    data_dir: str | Path,
-    batch_size: int,
-    latent_dim: int,
-    fold: int = 0
+    data_dir: str | Path, batch_size: int, latent_dim: int, fold: int = 0
 ) -> tuple:
     """
     Create train/val dataloaders from real processed data.
@@ -641,10 +681,11 @@ def create_real_data_loaders(
 # Training Functions
 # =============================================================================
 
+
 def _get_batch_tensors(batch, device):
     """Extract tensors from batch, handling both dict and StageBridgeBatch formats."""
     # Handle StageBridgeBatch (real data) vs dict (synthetic data)
-    if hasattr(batch, 'niche_tokens'):
+    if hasattr(batch, "niche_tokens"):
         # StageBridgeBatch object
         niche_tokens = batch.niche_tokens.to(device)
         z_source = batch.z_source.to(device)
@@ -653,10 +694,10 @@ def _get_batch_tensors(batch, device):
         receiver = niche_tokens[:, 0, :]
     else:
         # Dict-like batch (synthetic)
-        niche_tokens = batch['niche_tokens'].to(device)
-        z_source = batch['z_source'].to(device)
-        z_target = batch['z_target'].to(device)
-        receiver = batch.get('receiver', niche_tokens[:, 0, :])
+        niche_tokens = batch["niche_tokens"].to(device)
+        z_source = batch["z_source"].to(device)
+        z_target = batch["z_target"].to(device)
+        receiver = batch.get("receiver", niche_tokens[:, 0, :])
         if isinstance(receiver, torch.Tensor):
             receiver = receiver.to(device)
 
@@ -667,34 +708,37 @@ def train_ssl_epoch(model, dataloader, optimizer, device, config):
     model.train()
     total_loss, total_recon, n_batches = 0.0, 0.0, 0
 
-    for batch in tqdm(dataloader, desc='SSL', leave=False):
+    for batch in tqdm(dataloader, desc="SSL", leave=False):
         niche_tokens, receiver, _, _ = _get_batch_tensors(batch, device)
 
         optimizer.zero_grad()
         outputs = model.ssl_forward(niche_tokens, receiver)
-        loss = config['masked_token_weight'] * outputs['loss_reconstruction']
+        loss = config["masked_token_weight"] * outputs["loss_reconstruction"]
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         total_loss += loss.item()
-        total_recon += outputs['loss_reconstruction'].item()
+        total_recon += outputs["loss_reconstruction"].item()
         n_batches += 1
 
-    return {'loss': total_loss / max(n_batches, 1), 'loss_reconstruction': total_recon / max(n_batches, 1)}
+    return {
+        "loss": total_loss / max(n_batches, 1),
+        "loss_reconstruction": total_recon / max(n_batches, 1),
+    }
 
 
 def train_transition_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss, n_batches = 0.0, 0
 
-    for batch in tqdm(dataloader, desc='Transition', leave=False):
+    for batch in tqdm(dataloader, desc="Transition", leave=False):
         niche_tokens, _, z_source, z_target = _get_batch_tensors(batch, device)
 
         optimizer.zero_grad()
         context = model.encode_niche(niche_tokens)
         outputs = model.transition_forward(z_source, z_target, context)
-        loss = outputs['loss_transition']
+        loss = outputs["loss_transition"]
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -702,7 +746,7 @@ def train_transition_epoch(model, dataloader, optimizer, device):
         total_loss += loss.item()
         n_batches += 1
 
-    return {'loss_transition': total_loss / max(n_batches, 1)}
+    return {"loss_transition": total_loss / max(n_batches, 1)}
 
 
 @torch.no_grad()
@@ -717,19 +761,19 @@ def evaluate_model(model, dataloader, device):
         context = model.encode_niche(niche_tokens)
         outputs = model.transition_forward(z_source, z_target, context)
 
-        total_loss += outputs['loss_transition'].item()
-        all_drifts.append(outputs['drift_pred'].cpu())
-        all_targets.append(outputs['drift_true'].cpu())
+        total_loss += outputs["loss_transition"].item()
+        all_drifts.append(outputs["drift_pred"].cpu())
+        all_targets.append(outputs["drift_true"].cpu())
         n_batches += 1
 
     all_drifts = torch.cat(all_drifts, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
 
     return {
-        'loss': total_loss / max(n_batches, 1),
-        'mse': torch.mean((all_drifts - all_targets) ** 2).item(),
-        'mae': torch.mean(torch.abs(all_drifts - all_targets)).item(),
-        'wasserstein': torch.mean(torch.norm(all_drifts - all_targets, dim=1)).item(),
+        "loss": total_loss / max(n_batches, 1),
+        "mse": torch.mean((all_drifts - all_targets) ** 2).item(),
+        "mae": torch.mean(torch.abs(all_drifts - all_targets)).item(),
+        "wasserstein": torch.mean(torch.norm(all_drifts - all_targets, dim=1)).item(),
     }
 
 
@@ -751,17 +795,17 @@ def run_ablation_studies(model, dataloader, device, output_dir, n_epochs=10):
 
     # Evaluate main model
     metrics = evaluate_model(model, dataloader, device)
-    results.append({'Model': 'StageBridge (Full)', **metrics})
+    results.append({"Model": "StageBridge (Full)", **metrics})
 
     # Define baseline ladder - use existing implementations when available
     baseline_ladder = [
-        ('MeanPoolMLP', MeanPoolMLPBaseline),
-        ('MaxPoolMLP', MaxPoolMLPBaseline),
-        ('DeepSets', DeepSetsBaseline),
-        ('SetTransformer', SetTransformerBaseline),
-        ('HierarchicalSetTransformer', HierarchicalSetTransformerBaseline),
-        ('GraphSAGE', GraphSAGEBaseline),
-        ('GAT', GATBaseline),
+        ("MeanPoolMLP", MeanPoolMLPBaseline),
+        ("MaxPoolMLP", MaxPoolMLPBaseline),
+        ("DeepSets", DeepSetsBaseline),
+        ("SetTransformer", SetTransformerBaseline),
+        ("HierarchicalSetTransformer", HierarchicalSetTransformerBaseline),
+        ("GraphSAGE", GraphSAGEBaseline),
+        ("GAT", GATBaseline),
     ]
 
     for name, baseline_cls in baseline_ladder:
@@ -789,16 +833,19 @@ def run_ablation_studies(model, dataloader, device, output_dir, n_epochs=10):
                 total_loss += torch.mean((pred - receiver) ** 2).item()
 
         n_batches = max(len(dataloader), 1)
-        results.append({'Model': name, 'loss': total_loss / n_batches, 'mse': total_loss / n_batches})
+        results.append(
+            {"Model": name, "loss": total_loss / n_batches, "mse": total_loss / n_batches}
+        )
 
     df = pd.DataFrame(results)
-    df.to_csv(output_dir / 'ablation_results.csv', index=False)
+    df.to_csv(output_dir / "ablation_results.csv", index=False)
     return df
 
 
 # =============================================================================
 # Figure Generation
 # =============================================================================
+
 
 def generate_all_figures(
     history_semi: dict,
@@ -810,7 +857,7 @@ def generate_all_figures(
     colors: dict,
 ):
     """Generate all publication-quality figures."""
-    figures_dir = output_dir / 'figures'
+    figures_dir = output_dir / "figures"
     figures_dir.mkdir(exist_ok=True)
 
     # Figure 1: Training curves comparison
@@ -818,60 +865,83 @@ def generate_all_figures(
 
     # Semi-synthetic SSL
     ax = axes[0, 0]
-    if history_semi['ssl_loss']:
-        ax.plot(history_semi['ssl_loss'], 'o-', color=colors['dataset_colors']['Semi-Synthetic'], linewidth=2)
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.set_title('A. SSL Pretraining (Semi-Synthetic)', fontweight='bold')
+    if history_semi["ssl_loss"]:
+        ax.plot(
+            history_semi["ssl_loss"],
+            "o-",
+            color=colors["dataset_colors"]["Semi-Synthetic"],
+            linewidth=2,
+        )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title("A. SSL Pretraining (Semi-Synthetic)", fontweight="bold")
 
     # Semi-synthetic transition
     ax = axes[0, 1]
-    if history_semi['transition_loss']:
-        ax.plot(history_semi['transition_loss'], 'o-', color=colors['dataset_colors']['Semi-Synthetic'], label='Train')
-        ax.plot(history_semi['val_loss'], 's--', color='gray', label='Val')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.set_title('B. Transition Model (Semi-Synthetic)', fontweight='bold')
+    if history_semi["transition_loss"]:
+        ax.plot(
+            history_semi["transition_loss"],
+            "o-",
+            color=colors["dataset_colors"]["Semi-Synthetic"],
+            label="Train",
+        )
+        ax.plot(history_semi["val_loss"], "s--", color="gray", label="Val")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title("B. Transition Model (Semi-Synthetic)", fontweight="bold")
     ax.legend()
 
     # Real SSL
     ax = axes[1, 0]
-    if history_real['ssl_loss']:
-        ax.plot(history_real['ssl_loss'], 'o-', color=colors['dataset_colors']['Real'], linewidth=2)
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.set_title('C. SSL Pretraining (Real Data)', fontweight='bold')
+    if history_real["ssl_loss"]:
+        ax.plot(
+            history_real["ssl_loss"], "o-", color=colors["dataset_colors"]["Real"], linewidth=2
+        )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title("C. SSL Pretraining (Real Data)", fontweight="bold")
 
     # Real transition
     ax = axes[1, 1]
-    if history_real['transition_loss']:
-        ax.plot(history_real['transition_loss'], 'o-', color=colors['dataset_colors']['Real'], label='Train')
-        ax.plot(history_real['val_loss'], 's--', color='gray', label='Val')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.set_title('D. Transition Model (Real Data)', fontweight='bold')
+    if history_real["transition_loss"]:
+        ax.plot(
+            history_real["transition_loss"],
+            "o-",
+            color=colors["dataset_colors"]["Real"],
+            label="Train",
+        )
+        ax.plot(history_real["val_loss"], "s--", color="gray", label="Val")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title("D. Transition Model (Real Data)", fontweight="bold")
     ax.legend()
 
     plt.tight_layout()
-    plt.savefig(figures_dir / 'fig1_training_curves.png', dpi=300, facecolor='white')
+    plt.savefig(figures_dir / "fig1_training_curves.png", dpi=300, facecolor="white")
     plt.close()
     print("    Saved: fig1_training_curves.png")
 
     # Figure 2: Ablation comparison
     fig, ax = plt.subplots(figsize=(10, 6))
-    models = ablation_df['Model'].tolist()
-    losses = ablation_df['loss'].tolist()
-    bar_colors = [colors['model_colors'].get(m.split()[0], '#666666') for m in models]
-    bars = ax.bar(models, losses, color=bar_colors, edgecolor='black', linewidth=1.2)
-    bars[0].set_edgecolor(colors['model_colors']['StageBridge'])
+    models = ablation_df["Model"].tolist()
+    losses = ablation_df["loss"].tolist()
+    bar_colors = [colors["model_colors"].get(m.split()[0], "#666666") for m in models]
+    bars = ax.bar(models, losses, color=bar_colors, edgecolor="black", linewidth=1.2)
+    bars[0].set_edgecolor(colors["model_colors"]["StageBridge"])
     bars[0].set_linewidth(3)
-    ax.set_ylabel('Loss')
-    ax.set_title('Ablation Study: Architecture Comparison', fontweight='bold', fontsize=14)
-    ax.tick_params(axis='x', rotation=15)
+    ax.set_ylabel("Loss")
+    ax.set_title("Ablation Study: Architecture Comparison", fontweight="bold", fontsize=14)
+    ax.tick_params(axis="x", rotation=15)
     for bar, val in zip(bars, losses):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, f'{val:.3f}', ha='center', va='bottom')
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.01,
+            f"{val:.3f}",
+            ha="center",
+            va="bottom",
+        )
     plt.tight_layout()
-    plt.savefig(figures_dir / 'fig2_ablation.png', dpi=300, facecolor='white')
+    plt.savefig(figures_dir / "fig2_ablation.png", dpi=300, facecolor="white")
     plt.close()
     print("    Saved: fig2_ablation.png")
 
@@ -881,47 +951,59 @@ def generate_all_figures(
 
     batch = create_synthetic_batch(100, model.latent_dim, device=device)
     with torch.no_grad():
-        context = model.encode_niche(batch['niche_tokens'])
-        trajectories = model.sample_trajectory(batch['z_source'], context, n_steps=50)
+        context = model.encode_niche(batch["niche_tokens"])
+        trajectories = model.sample_trajectory(batch["z_source"], context, n_steps=50)
     trajectories = trajectories.cpu().numpy()
 
     from sklearn.decomposition import PCA
+
     traj_flat = trajectories.reshape(-1, model.latent_dim)
     pca = PCA(n_components=2)
     traj_pca = pca.fit_transform(traj_flat).reshape(100, 51, 2)
 
-    stages = batch['stage'].cpu().numpy()
-    stage_names = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+    stages = batch["stage"].cpu().numpy()
+    stage_names = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
 
     ax = axes[0]
     for i in range(20):
-        color = colors['stage_colors'][stage_names[stages[i] % 5]]
-        ax.plot(traj_pca[i, :, 0], traj_pca[i, :, 1], '-', color=color, alpha=0.5)
-        ax.scatter(traj_pca[i, 0, 0], traj_pca[i, 0, 1], c=color, s=30, marker='o', edgecolors='black')
-        ax.scatter(traj_pca[i, -1, 0], traj_pca[i, -1, 1], c=color, s=30, marker='s', edgecolors='black')
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('A. Sample Trajectories', fontweight='bold')
+        color = colors["stage_colors"][stage_names[stages[i] % 5]]
+        ax.plot(traj_pca[i, :, 0], traj_pca[i, :, 1], "-", color=color, alpha=0.5)
+        ax.scatter(
+            traj_pca[i, 0, 0], traj_pca[i, 0, 1], c=color, s=30, marker="o", edgecolors="black"
+        )
+        ax.scatter(
+            traj_pca[i, -1, 0], traj_pca[i, -1, 1], c=color, s=30, marker="s", edgecolors="black"
+        )
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.set_title("A. Sample Trajectories", fontweight="bold")
 
     ax = axes[1]
     x, y = np.meshgrid(np.linspace(-3, 3, 15), np.linspace(-3, 3, 15))
-    ax.quiver(x, y, -x*0.3, -y*0.3, alpha=0.7, color=colors['model_colors']['StageBridge'])
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('B. Learned Drift Field', fontweight='bold')
+    ax.quiver(x, y, -x * 0.3, -y * 0.3, alpha=0.7, color=colors["model_colors"]["StageBridge"])
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.set_title("B. Learned Drift Field", fontweight="bold")
 
     ax = axes[2]
     for idx, name in enumerate(stage_names):
         mask = stages == idx
         if mask.any():
-            ax.scatter(traj_pca[mask, -1, 0], traj_pca[mask, -1, 1], c=colors['stage_colors'][name], label=name, s=50, alpha=0.7)
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('C. Endpoints by Stage', fontweight='bold')
+            ax.scatter(
+                traj_pca[mask, -1, 0],
+                traj_pca[mask, -1, 1],
+                c=colors["stage_colors"][name],
+                label=name,
+                s=50,
+                alpha=0.7,
+            )
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.set_title("C. Endpoints by Stage", fontweight="bold")
     ax.legend()
 
     plt.tight_layout()
-    plt.savefig(figures_dir / 'fig3_trajectories.png', dpi=300, facecolor='white')
+    plt.savefig(figures_dir / "fig3_trajectories.png", dpi=300, facecolor="white")
     plt.close()
     print("    Saved: fig3_trajectories.png")
 
@@ -929,44 +1011,72 @@ def generate_all_figures(
     fig = plt.figure(figsize=(16, 12))
 
     ax1 = fig.add_subplot(2, 2, 1)
-    x = ['Semi-Synthetic', 'Real']
-    ssl_final = [history_semi['ssl_loss'][-1] if history_semi['ssl_loss'] else 0,
-                 history_real['ssl_loss'][-1] if history_real['ssl_loss'] else 0]
-    ax1.bar(x, ssl_final, color=[colors['dataset_colors']['Semi-Synthetic'], colors['dataset_colors']['Real']])
-    ax1.set_ylabel('Final SSL Loss')
-    ax1.set_title('A. SSL Final Loss by Dataset', fontweight='bold')
+    x = ["Semi-Synthetic", "Real"]
+    ssl_final = [
+        history_semi["ssl_loss"][-1] if history_semi["ssl_loss"] else 0,
+        history_real["ssl_loss"][-1] if history_real["ssl_loss"] else 0,
+    ]
+    ax1.bar(
+        x,
+        ssl_final,
+        color=[colors["dataset_colors"]["Semi-Synthetic"], colors["dataset_colors"]["Real"]],
+    )
+    ax1.set_ylabel("Final SSL Loss")
+    ax1.set_title("A. SSL Final Loss by Dataset", fontweight="bold")
 
     ax2 = fig.add_subplot(2, 2, 2)
-    trans_final = [history_semi['val_loss'][-1] if history_semi['val_loss'] else 0,
-                   history_real['val_loss'][-1] if history_real['val_loss'] else 0]
-    ax2.bar(x, trans_final, color=[colors['dataset_colors']['Semi-Synthetic'], colors['dataset_colors']['Real']])
-    ax2.set_ylabel('Final Validation Loss')
-    ax2.set_title('B. Transition Validation Loss', fontweight='bold')
+    trans_final = [
+        history_semi["val_loss"][-1] if history_semi["val_loss"] else 0,
+        history_real["val_loss"][-1] if history_real["val_loss"] else 0,
+    ]
+    ax2.bar(
+        x,
+        trans_final,
+        color=[colors["dataset_colors"]["Semi-Synthetic"], colors["dataset_colors"]["Real"]],
+    )
+    ax2.set_ylabel("Final Validation Loss")
+    ax2.set_title("B. Transition Validation Loss", fontweight="bold")
 
     ax3 = fig.add_subplot(2, 2, 3)
-    ax3.axis('off')
+    ax3.axis("off")
     table_data = [
-        ['Metric', 'Semi-Synthetic', 'Real'],
-        ['SSL Epochs', str(len(history_semi['ssl_loss'])), str(len(history_real['ssl_loss']))],
-        ['Trans Epochs', str(len(history_semi['transition_loss'])), str(len(history_real['transition_loss']))],
-        ['Final Val Loss', f"{history_semi['val_loss'][-1]:.4f}" if history_semi['val_loss'] else 'N/A',
-                          f"{history_real['val_loss'][-1]:.4f}" if history_real['val_loss'] else 'N/A'],
+        ["Metric", "Semi-Synthetic", "Real"],
+        ["SSL Epochs", str(len(history_semi["ssl_loss"])), str(len(history_real["ssl_loss"]))],
+        [
+            "Trans Epochs",
+            str(len(history_semi["transition_loss"])),
+            str(len(history_real["transition_loss"])),
+        ],
+        [
+            "Final Val Loss",
+            f"{history_semi['val_loss'][-1]:.4f}" if history_semi["val_loss"] else "N/A",
+            f"{history_real['val_loss'][-1]:.4f}" if history_real["val_loss"] else "N/A",
+        ],
     ]
-    table = ax3.table(cellText=table_data, loc='center', cellLoc='center', colWidths=[0.3, 0.3, 0.3])
+    table = ax3.table(
+        cellText=table_data, loc="center", cellLoc="center", colWidths=[0.3, 0.3, 0.3]
+    )
     table.auto_set_font_size(False)
     table.set_fontsize(11)
     table.scale(1.2, 1.8)
-    ax3.set_title('C. Summary Metrics', fontweight='bold', y=0.85)
+    ax3.set_title("C. Summary Metrics", fontweight="bold", y=0.85)
 
     ax4 = fig.add_subplot(2, 2, 4)
-    ax4.text(0.5, 0.5, 'StageBridge V1\n\n1. SSL Pretraining (70%)\n   └─ Receiver reconstruction\n\n2. Transition Model\n   └─ Flow matching\n\n3. Trajectory Sampling\n   └─ ODE integration',
-             ha='center', va='center', fontsize=12, family='monospace',
-             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    ax4.axis('off')
-    ax4.set_title('D. Architecture', fontweight='bold')
+    ax4.text(
+        0.5,
+        0.5,
+        "StageBridge V1\n\n1. SSL Pretraining (70%)\n   └─ Receiver reconstruction\n\n2. Transition Model\n   └─ Flow matching\n\n3. Trajectory Sampling\n   └─ ODE integration",
+        ha="center",
+        va="center",
+        fontsize=12,
+        family="monospace",
+        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+    )
+    ax4.axis("off")
+    ax4.set_title("D. Architecture", fontweight="bold")
 
     plt.tight_layout()
-    plt.savefig(figures_dir / 'fig4_summary.png', dpi=300, facecolor='white')
+    plt.savefig(figures_dir / "fig4_summary.png", dpi=300, facecolor="white")
     plt.close()
     print("    Saved: fig4_summary.png")
 
@@ -974,6 +1084,7 @@ def generate_all_figures(
 # =============================================================================
 # Hyperparameter Optimization
 # =============================================================================
+
 
 def run_hyperparameter_optimization(
     device: torch.device,
@@ -993,12 +1104,12 @@ def run_hyperparameter_optimization(
 
     def objective(trial: Trial) -> float:
         # Hyperparameters to optimize
-        lr = trial.suggest_float('lr', 1e-5, 1e-2, log=True)
-        hidden_dim = trial.suggest_categorical('hidden_dim', [64, 128, 256])
-        context_dim = trial.suggest_categorical('context_dim', [128, 256, 512])
-        dropout = trial.suggest_float('dropout', 0.0, 0.3)
-        ssl_weight = trial.suggest_float('ssl_weight', 0.5, 0.9)
-        trial.suggest_int('n_layers', 1, 4)
+        lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
+        hidden_dim = trial.suggest_categorical("hidden_dim", [64, 128, 256])
+        context_dim = trial.suggest_categorical("context_dim", [128, 256, 512])
+        dropout = trial.suggest_float("dropout", 0.0, 0.3)
+        ssl_weight = trial.suggest_float("ssl_weight", 0.5, 0.9)
+        trial.suggest_int("n_layers", 1, 4)
 
         # Create model with trial hyperparameters
         model = StageBridgeV1Complete(
@@ -1014,7 +1125,7 @@ def run_hyperparameter_optimization(
 
         # Quick training
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-        ssl_config = {'masked_token_weight': ssl_weight}
+        ssl_config = {"masked_token_weight": ssl_weight}
 
         # SSL phase (half epochs)
         for _ in range(n_epochs_per_trial // 2):
@@ -1027,12 +1138,12 @@ def run_hyperparameter_optimization(
         # Evaluate
         val_metrics = evaluate_model(model, val_loader, device)
 
-        return val_metrics['loss']
+        return val_metrics["loss"]
 
     # Create study
     study = optuna.create_study(
-        direction='minimize',
-        study_name='stagebridge_hpo',
+        direction="minimize",
+        study_name="stagebridge_hpo",
         sampler=optuna.samplers.TPESampler(seed=seed),
         pruner=optuna.pruners.MedianPruner(n_warmup_steps=5),
     )
@@ -1050,25 +1161,26 @@ def run_hyperparameter_optimization(
 
     # Save results
     hpo_results = {
-        'best_params': best_params,
-        'best_value': best_value,
-        'n_trials': n_trials,
-        'all_trials': [
-            {'number': t.number, 'value': t.value, 'params': t.params}
-            for t in study.trials if t.value is not None
+        "best_params": best_params,
+        "best_value": best_value,
+        "n_trials": n_trials,
+        "all_trials": [
+            {"number": t.number, "value": t.value, "params": t.params}
+            for t in study.trials
+            if t.value is not None
         ],
     }
 
-    with open(output_dir / 'hpo_results.json', 'w') as f:
+    with open(output_dir / "hpo_results.json", "w") as f:
         json.dump(hpo_results, f, indent=2)
 
     # Generate HPO visualization
     try:
         fig = optuna.visualization.plot_optimization_history(study)
-        fig.write_image(str(output_dir / 'figures' / 'hpo_history.png'))
+        fig.write_image(str(output_dir / "figures" / "hpo_history.png"))
 
         fig = optuna.visualization.plot_param_importances(study)
-        fig.write_image(str(output_dir / 'figures' / 'hpo_importance.png'))
+        fig.write_image(str(output_dir / "figures" / "hpo_importance.png"))
 
         print("    Saved HPO figures")
     except Exception as e:
@@ -1088,13 +1200,20 @@ def generate_hpo_figure(study, output_dir: Path, colors: dict):
     ax = axes[0]
     trials = [t for t in study.trials if t.value is not None]
     values = [t.value for t in trials]
-    best_values = [min(values[:i+1]) for i in range(len(values))]
+    best_values = [min(values[: i + 1]) for i in range(len(values))]
 
-    ax.plot(range(len(values)), values, 'o', alpha=0.5, color='gray', label='Trial')
-    ax.plot(range(len(best_values)), best_values, '-', color=colors['model_colors']['StageBridge'], linewidth=2, label='Best')
-    ax.set_xlabel('Trial')
-    ax.set_ylabel('Validation Loss')
-    ax.set_title('A. HPO Optimization History', fontweight='bold')
+    ax.plot(range(len(values)), values, "o", alpha=0.5, color="gray", label="Trial")
+    ax.plot(
+        range(len(best_values)),
+        best_values,
+        "-",
+        color=colors["model_colors"]["StageBridge"],
+        linewidth=2,
+        label="Best",
+    )
+    ax.set_xlabel("Trial")
+    ax.set_ylabel("Validation Loss")
+    ax.set_title("A. HPO Optimization History", fontweight="bold")
     ax.legend()
 
     # Parameter importance (simplified)
@@ -1113,12 +1232,12 @@ def generate_hpo_figure(study, output_dir: Path, colors: dict):
     if importances.sum() > 0:
         importances = importances / importances.sum()
 
-    ax.barh(params, importances, color=colors['model_colors']['StageBridge'])
-    ax.set_xlabel('Relative Importance')
-    ax.set_title('B. Hyperparameter Importance', fontweight='bold')
+    ax.barh(params, importances, color=colors["model_colors"]["StageBridge"])
+    ax.set_xlabel("Relative Importance")
+    ax.set_title("B. Hyperparameter Importance", fontweight="bold")
 
     plt.tight_layout()
-    plt.savefig(output_dir / 'figures' / 'fig5_hpo.png', dpi=300, facecolor='white')
+    plt.savefig(output_dir / "figures" / "fig5_hpo.png", dpi=300, facecolor="white")
     plt.close()
     print("    Saved: fig5_hpo.png")
 
@@ -1126,6 +1245,7 @@ def generate_hpo_figure(study, output_dir: Path, colors: dict):
 # =============================================================================
 # Main Pipeline
 # =============================================================================
+
 
 def run_on_dataset(
     name: str,
@@ -1139,19 +1259,19 @@ def run_on_dataset(
     lr: float,
 ):
     """Run full pipeline on one dataset."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Running on: {name}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
-    history = {'ssl_loss': [], 'transition_loss': [], 'val_loss': []}
+    history = {"ssl_loss": [], "transition_loss": [], "val_loss": []}
 
     # SSL config per relational_pretraining.py (MEMORY.md compliant)
     ssl_config = {
-        'masked_token_weight': 0.70,      # PRIMARY: Receiver reconstruction from niche
-        'ranking_weight': 0.10,            # Auxiliary: Positive/negative discrimination
-        'provider_consistency_weight': 0.10,  # Auxiliary: Cross-view consistency
-        'coordinate_corruption_weight': 0.05,  # Auxiliary: Spatial awareness
-        'group_relation_weight': 0.05,     # Auxiliary: Biological group structure
+        "masked_token_weight": 0.70,  # PRIMARY: Receiver reconstruction from niche
+        "ranking_weight": 0.10,  # Auxiliary: Positive/negative discrimination
+        "provider_consistency_weight": 0.10,  # Auxiliary: Cross-view consistency
+        "coordinate_corruption_weight": 0.05,  # Auxiliary: Spatial awareness
+        "group_relation_weight": 0.05,  # Auxiliary: Biological group structure
     }
 
     # SSL Pretraining
@@ -1160,54 +1280,63 @@ def run_on_dataset(
 
     for epoch in range(ssl_epochs):
         metrics = train_ssl_epoch(model, dataloader, ssl_optimizer, device, ssl_config)
-        history['ssl_loss'].append(metrics['loss'])
+        history["ssl_loss"].append(metrics["loss"])
         if (epoch + 1) % 5 == 0 or epoch == 0:
-            print(f"    Epoch {epoch+1}/{ssl_epochs}: Loss = {metrics['loss']:.4f}")
+            print(f"    Epoch {epoch + 1}/{ssl_epochs}: Loss = {metrics['loss']:.4f}")
 
     # Transition Training
     print(f"\n  [2/2] Transition Training ({transition_epochs} epochs)...")
     trans_optimizer = optim.AdamW(model.parameters(), lr=lr * 0.5, weight_decay=1e-4)
-    best_val_loss = float('inf')
+    best_val_loss = float("inf")
 
     for epoch in range(transition_epochs):
         train_metrics = train_transition_epoch(model, dataloader, trans_optimizer, device)
         val_metrics = evaluate_model(model, val_loader, device)
 
-        history['transition_loss'].append(train_metrics['loss_transition'])
-        history['val_loss'].append(val_metrics['loss'])
+        history["transition_loss"].append(train_metrics["loss_transition"])
+        history["val_loss"].append(val_metrics["loss"])
 
-        if val_metrics['loss'] < best_val_loss:
-            best_val_loss = val_metrics['loss']
-            torch.save(model.state_dict(), output_dir / 'weights' / f'best_model_{name.lower().replace(" ", "_")}.pt')
+        if val_metrics["loss"] < best_val_loss:
+            best_val_loss = val_metrics["loss"]
+            torch.save(
+                model.state_dict(),
+                output_dir / "weights" / f"best_model_{name.lower().replace(' ', '_')}.pt",
+            )
 
         if (epoch + 1) % 5 == 0 or epoch == 0:
-            print(f"    Epoch {epoch+1}/{transition_epochs}: Train = {train_metrics['loss_transition']:.4f}, Val = {val_metrics['loss']:.4f}")
+            print(
+                f"    Epoch {epoch + 1}/{transition_epochs}: Train = {train_metrics['loss_transition']:.4f}, Val = {val_metrics['loss']:.4f}"
+            )
 
     return history, best_val_loss
 
 
 def main():
-    parser = argparse.ArgumentParser(description='StageBridge V1 Complete Pipeline')
+    parser = argparse.ArgumentParser(description="StageBridge V1 Complete Pipeline")
 
-    parser.add_argument('--data_dir', type=str, required=True)
-    parser.add_argument('--output_dir', type=str, required=True)
-    parser.add_argument('--hlca_path', type=str, default=None)
-    parser.add_argument('--luca_path', type=str, default=None)
+    parser.add_argument("--data_dir", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--hlca_path", type=str, default=None)
+    parser.add_argument("--luca_path", type=str, default=None)
 
-    parser.add_argument('--latent_dim', type=int, default=32)
-    parser.add_argument('--ssl_epochs', type=int, default=20)
-    parser.add_argument('--transition_epochs', type=int, default=30)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--device', type=str, default='auto')
+    parser.add_argument("--latent_dim", type=int, default=32)
+    parser.add_argument("--ssl_epochs", type=int, default=20)
+    parser.add_argument("--transition_epochs", type=int, default=30)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", type=str, default="auto")
 
-    parser.add_argument('--skip_semi_synthetic', action='store_true')
-    parser.add_argument('--skip_real', action='store_true')
-    parser.add_argument('--skip_ablations', action='store_true')
-    parser.add_argument('--skip_hpo', action='store_true', help='Skip hyperparameter optimization')
-    parser.add_argument('--hpo_trials', type=int, default=30, help='Number of HPO trials')
-    parser.add_argument('--use_best_hparams', action='store_true', help='Use best params from HPO for final training')
+    parser.add_argument("--skip_semi_synthetic", action="store_true")
+    parser.add_argument("--skip_real", action="store_true")
+    parser.add_argument("--skip_ablations", action="store_true")
+    parser.add_argument("--skip_hpo", action="store_true", help="Skip hyperparameter optimization")
+    parser.add_argument("--hpo_trials", type=int, default=30, help="Number of HPO trials")
+    parser.add_argument(
+        "--use_best_hparams",
+        action="store_true",
+        help="Use best params from HPO for final training",
+    )
 
     args = parser.parse_args()
 
@@ -1218,11 +1347,11 @@ def main():
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / 'figures').mkdir(exist_ok=True)
-    (output_dir / 'weights').mkdir(exist_ok=True)
+    (output_dir / "figures").mkdir(exist_ok=True)
+    (output_dir / "weights").mkdir(exist_ok=True)
 
-    if args.device == 'auto':
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if args.device == "auto":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         device = torch.device(args.device)
 
@@ -1235,8 +1364,12 @@ def main():
     colors = setup_publication_style()
 
     # Save config
-    with open(output_dir / 'config.json', 'w') as f:
-        json.dump({**vars(args), 'device_used': str(device), 'start_time': start_time.isoformat()}, f, indent=2)
+    with open(output_dir / "config.json", "w") as f:
+        json.dump(
+            {**vars(args), "device_used": str(device), "start_time": start_time.isoformat()},
+            f,
+            indent=2,
+        )
 
     # ==========================================================================
     # Hyperparameter Optimization
@@ -1261,10 +1394,10 @@ def main():
     # Initialize model (with best hparams if available)
     print("\n[2/6] Initializing Model...")
 
-    hidden_dim = best_hparams.get('hidden_dim', 128) if args.use_best_hparams else 128
-    context_dim = best_hparams.get('context_dim', 256) if args.use_best_hparams else 256
-    dropout = best_hparams.get('dropout', 0.1) if args.use_best_hparams else 0.1
-    lr = best_hparams.get('lr', args.lr) if args.use_best_hparams else args.lr
+    hidden_dim = best_hparams.get("hidden_dim", 128) if args.use_best_hparams else 128
+    context_dim = best_hparams.get("context_dim", 256) if args.use_best_hparams else 256
+    dropout = best_hparams.get("dropout", 0.1) if args.use_best_hparams else 0.1
+    lr = best_hparams.get("lr", args.lr) if args.use_best_hparams else args.lr
 
     model = StageBridgeV1Complete(
         latent_dim=args.latent_dim,
@@ -1276,22 +1409,35 @@ def main():
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"  Parameters: {n_params:,}")
     if args.use_best_hparams and best_hparams:
-        print(f"  Using HPO params: hidden={hidden_dim}, context={context_dim}, dropout={dropout:.3f}, lr={lr:.2e}")
+        print(
+            f"  Using HPO params: hidden={hidden_dim}, context={context_dim}, dropout={dropout:.3f}, lr={lr:.2e}"
+        )
 
-    history_semi = {'ssl_loss': [], 'transition_loss': [], 'val_loss': []}
-    history_real = {'ssl_loss': [], 'transition_loss': [], 'val_loss': []}
+    history_semi = {"ssl_loss": [], "transition_loss": [], "val_loss": []}
+    history_real = {"ssl_loss": [], "transition_loss": [], "val_loss": []}
 
     # ==========================================================================
     # Semi-Synthetic Data
     # ==========================================================================
     if not args.skip_semi_synthetic:
         print("\n[3/6] Semi-Synthetic Data...")
-        train_loader, _gt = create_semi_synthetic_dataloader(args.batch_size, 2000, args.latent_dim, args.seed)
-        val_loader, _ = create_semi_synthetic_dataloader(args.batch_size, 500, args.latent_dim, args.seed + 1)
+        train_loader, _gt = create_semi_synthetic_dataloader(
+            args.batch_size, 2000, args.latent_dim, args.seed
+        )
+        val_loader, _ = create_semi_synthetic_dataloader(
+            args.batch_size, 500, args.latent_dim, args.seed + 1
+        )
 
         history_semi, best_semi = run_on_dataset(
-            "Semi-Synthetic", train_loader, val_loader, model, device, output_dir,
-            args.ssl_epochs, args.transition_epochs, args.lr
+            "Semi-Synthetic",
+            train_loader,
+            val_loader,
+            model,
+            device,
+            output_dir,
+            args.ssl_epochs,
+            args.transition_epochs,
+            args.lr,
         )
         print(f"  Best validation loss: {best_semi:.4f}")
 
@@ -1303,16 +1449,20 @@ def main():
 
         # Try to load real processed data, fallback to synthetic
         train_loader, val_loader, is_real = create_real_data_loaders(
-            data_dir=args.data_dir,
-            batch_size=args.batch_size,
-            latent_dim=args.latent_dim,
-            fold=0
+            data_dir=args.data_dir, batch_size=args.batch_size, latent_dim=args.latent_dim, fold=0
         )
 
         dataset_name = "Real" if is_real else "Real (Synthetic Fallback)"
         history_real, best_real = run_on_dataset(
-            dataset_name, train_loader, val_loader, model, device, output_dir,
-            args.ssl_epochs, args.transition_epochs, args.lr
+            dataset_name,
+            train_loader,
+            val_loader,
+            model,
+            device,
+            output_dir,
+            args.ssl_epochs,
+            args.transition_epochs,
+            args.lr,
         )
         print(f"  Best validation loss: {best_real:.4f}")
         if not is_real:
@@ -1323,43 +1473,47 @@ def main():
     # ==========================================================================
     print("\n[5/6] Ablation Studies...")
     if not args.skip_ablations:
-        val_loader, _ = create_semi_synthetic_dataloader(args.batch_size, 500, args.latent_dim, args.seed)
+        val_loader, _ = create_semi_synthetic_dataloader(
+            args.batch_size, 500, args.latent_dim, args.seed
+        )
         ablation_df = run_ablation_studies(model, val_loader, device, output_dir)
         print(ablation_df.to_string(index=False))
     else:
-        ablation_df = pd.DataFrame({'Model': ['StageBridge (Full)'], 'loss': [0.1], 'mse': [0.1]})
+        ablation_df = pd.DataFrame({"Model": ["StageBridge (Full)"], "loss": [0.1], "mse": [0.1]})
 
     # ==========================================================================
     # Generate Figures
     # ==========================================================================
     print("\n[6/6] Generating Figures...")
-    generate_all_figures(history_semi, history_real, ablation_df, model, device, output_dir, colors)
+    generate_all_figures(
+        history_semi, history_real, ablation_df, model, device, output_dir, colors
+    )
 
     # HPO figure if available
     if study is not None:
         generate_hpo_figure(study, output_dir, colors)
 
     # Save final weights
-    torch.save(model.state_dict(), output_dir / 'weights' / 'final_model.pt')
+    torch.save(model.state_dict(), output_dir / "weights" / "final_model.pt")
 
     # Save results
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
 
     results = {
-        'history_semi_synthetic': history_semi,
-        'history_real': history_real,
-        'ablation_results': ablation_df.to_dict(),
-        'duration_seconds': duration,
-        'n_parameters': n_params,
+        "history_semi_synthetic": history_semi,
+        "history_real": history_real,
+        "ablation_results": ablation_df.to_dict(),
+        "duration_seconds": duration,
+        "n_parameters": n_params,
     }
-    with open(output_dir / 'results.json', 'w') as f:
+    with open(output_dir / "results.json", "w") as f:
         json.dump(results, f, indent=2)
 
     print("\n" + "=" * 70)
     print("Pipeline Complete!")
     print("=" * 70)
-    print(f"Duration: {duration:.1f}s ({duration/60:.1f}min)")
+    print(f"Duration: {duration:.1f}s ({duration / 60:.1f}min)")
     print(f"Outputs: {output_dir}")
     print("  - weights/best_model_semi_synthetic.pt")
     print("  - weights/best_model_real.pt")
@@ -1371,7 +1525,9 @@ def main():
     print()
     print("Research Director Compliance:")
     print("  ✓ SSL Pretraining (70% receiver reconstruction)")
-    print(f"  ✓ Doctrine encoder: {'ReceiverCenteredNicheEncoder' if DOCTRINE_ENCODER_AVAILABLE else 'fallback'}")
+    print(
+        f"  ✓ Doctrine encoder: {'ReceiverCenteredNicheEncoder' if DOCTRINE_ENCODER_AVAILABLE else 'fallback'}"
+    )
     print("  ✓ Baseline ladder: PoolingMLP, DeepSets, SetTransformer, GraphSAGE")
     print("  ✓ Flow matching transitions")
     print("  ✓ Semi-synthetic + Real data")
@@ -1380,5 +1536,5 @@ def main():
     print("=" * 70)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

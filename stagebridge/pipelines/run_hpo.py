@@ -84,7 +84,8 @@ def main():
     if study:
         history["all_trials"] = [
             {"number": t.number, "value": t.value, "params": t.params}
-            for t in study.trials if t.value is not None
+            for t in study.trials
+            if t.value is not None
         ]
 
     with open(output_dir / "optimization_history.json", "w") as f:
@@ -94,7 +95,9 @@ def main():
     log.info("HPO Complete")
     if study:
         log.info(f"  Best value: {study.best_value:.6f}")
-        log.info(f"  Completed trials: {len([t for t in study.trials if t.value])}/{args.n_trials}")
+        log.info(
+            f"  Completed trials: {len([t for t in study.trials if t.value])}/{args.n_trials}"
+        )
     log.info("=" * 60)
 
 

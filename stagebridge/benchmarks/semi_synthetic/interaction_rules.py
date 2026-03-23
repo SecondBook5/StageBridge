@@ -96,7 +96,11 @@ class InteractionRuleEngine:
 
         coords = cell_positions[["x", "y"]].values
         groups = cell_positions[cell_group_column].values
-        stages = cell_positions[stage_column].values if stage_column and stage_column in cell_positions.columns else None
+        stages = (
+            cell_positions[stage_column].values
+            if stage_column and stage_column in cell_positions.columns
+            else None
+        )
 
         # Process each receiver cell
         receiver_groups = set(self._rules_by_receiver.keys())
@@ -124,9 +128,15 @@ class InteractionRuleEngine:
 
             # Update cell data
             cell_positions.at[cell_positions.index[idx], "is_interacting"] = result.is_interacting
-            cell_positions.at[cell_positions.index[idx], "triggered_rules"] = ",".join(result.triggered_rules)
-            cell_positions.at[cell_positions.index[idx], "dominant_interaction"] = result.dominant_interaction
-            cell_positions.at[cell_positions.index[idx], "interaction_strength"] = result.interaction_strength
+            cell_positions.at[cell_positions.index[idx], "triggered_rules"] = ",".join(
+                result.triggered_rules
+            )
+            cell_positions.at[cell_positions.index[idx], "dominant_interaction"] = (
+                result.dominant_interaction
+            )
+            cell_positions.at[cell_positions.index[idx], "interaction_strength"] = (
+                result.interaction_strength
+            )
 
             # Count senders
             total_senders = sum(result.sender_counts.values())
@@ -136,17 +146,23 @@ class InteractionRuleEngine:
             if result.is_interacting:
                 report.n_interacting += 1
                 for rule_id in result.triggered_rules:
-                    report.rule_trigger_counts[rule_id] = report.rule_trigger_counts.get(rule_id, 0) + 1
+                    report.rule_trigger_counts[rule_id] = (
+                        report.rule_trigger_counts.get(rule_id, 0) + 1
+                    )
             else:
                 report.n_non_interacting += 1
 
         # Compute stage-specific interaction rates
         if stages is not None:
             # Filter out NaN values and get unique stages
-            valid_stages = stages.dropna() if hasattr(stages, 'dropna') else stages[~pd.isna(stages)]
+            valid_stages = (
+                stages.dropna() if hasattr(stages, "dropna") else stages[~pd.isna(stages)]
+            )
             unique_stages = np.unique(valid_stages.astype(str))
             for stage in unique_stages:
-                stage_mask = (stages.astype(str) == stage) & (cell_positions[cell_group_column].isin(receiver_groups))
+                stage_mask = (stages.astype(str) == stage) & (
+                    cell_positions[cell_group_column].isin(receiver_groups)
+                )
                 if stage_mask.sum() > 0:
                     rate = cell_positions.loc[stage_mask, "is_interacting"].mean()
                     report.stage_interaction_rates[str(stage)] = float(rate)
@@ -171,14 +187,22 @@ class InteractionRuleEngine:
         for rule in rules:
             # Count senders within radius
             distances = np.sqrt(((coords - cell_coord) ** 2).sum(axis=1))
-            sender_mask = (groups == rule.sender_group) & (distances <= rule.interaction_radius) & (distances > 0)
+            sender_mask = (
+                (groups == rule.sender_group)
+                & (distances <= rule.interaction_radius)
+                & (distances > 0)
+            )
             n_senders = sender_mask.sum()
 
             if n_senders > 0:
-                sender_counts[rule.sender_group] = sender_counts.get(rule.sender_group, 0) + n_senders
+                sender_counts[rule.sender_group] = (
+                    sender_counts.get(rule.sender_group, 0) + n_senders
+                )
 
                 # Get effective strength (may be stage-modulated)
-                effect_strength = rule.get_stage_effect(cell_stage) if cell_stage else rule.effect_strength
+                effect_strength = (
+                    rule.get_stage_effect(cell_stage) if cell_stage else rule.effect_strength
+                )
 
                 # Probability of interaction increases with sender count
                 # Using saturating function: p = strength * (1 - exp(-n_senders / 2))
@@ -230,7 +254,11 @@ def compute_ground_truth_labels(
 
             cell_coord = coords[idx]
             distances = np.sqrt(((coords - cell_coord) ** 2).sum(axis=1))
-            sender_mask = (groups == rule.sender_group) & (distances <= rule.interaction_radius) & (distances > 0)
+            sender_mask = (
+                (groups == rule.sender_group)
+                & (distances <= rule.interaction_radius)
+                & (distances > 0)
+            )
             n_senders = sender_mask.sum()
 
             if n_senders > 0:
@@ -240,7 +268,11 @@ def compute_ground_truth_labels(
         cell_positions[col_name] = strengths
 
     # Compute aggregate ground truth
-    gt_columns = [col for col in cell_positions.columns if col.startswith("gt_") and col.endswith("_strength")]
+    gt_columns = [
+        col
+        for col in cell_positions.columns
+        if col.startswith("gt_") and col.endswith("_strength")
+    ]
     if gt_columns:
         cell_positions["gt_max_interaction_strength"] = cell_positions[gt_columns].max(axis=1)
         cell_positions["gt_should_interact"] = cell_positions["gt_max_interaction_strength"] > 0.3
@@ -272,7 +304,7 @@ def create_distance_decay_benchmark(
 
         record = {
             "cell_idx": idx,
-            "cell_id": cell_positions.index[idx] if hasattr(cell_positions, 'index') else idx,
+            "cell_id": cell_positions.index[idx] if hasattr(cell_positions, "index") else idx,
         }
 
         for radius in radii:

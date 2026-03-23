@@ -28,14 +28,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-log = logging.getLogger(__name__)
-
 from stagebridge.spatial_mapping import (
     TangramBackend,
     DestVIBackend,
     TACCOBackend,
     Cell2locationBackend,
 )
+
+log = logging.getLogger(__name__)
 
 
 def run_backend_comparison(

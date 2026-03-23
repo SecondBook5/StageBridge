@@ -10,30 +10,32 @@ import numpy as np
 import pandas as pd
 import logging
 
-log = logging.getLogger(__name__)
-
 # Stage colors - LungPCA canonical palette (Peng et al. Nature 2024)
 # Import from authoritative source for consistency
 from stagebridge.viz.lungpca_style import STAGE_COLORS, STAGE_ORDER
+
+log = logging.getLogger(__name__)
 
 
 def _setup_style():
     """Set up publication-quality plot style."""
     import matplotlib as mpl
 
-    mpl.rcParams.update({
-        "figure.facecolor": "white",
-        "axes.facecolor": "white",
-        "savefig.facecolor": "white",
-        "figure.dpi": 150,
-        "savefig.dpi": 300,
-        "font.size": 11,
-        "axes.titlesize": 13,
-        "axes.labelsize": 11,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "font.family": "sans-serif",
-    })
+    mpl.rcParams.update(
+        {
+            "figure.facecolor": "white",
+            "axes.facecolor": "white",
+            "savefig.facecolor": "white",
+            "figure.dpi": 150,
+            "savefig.dpi": 300,
+            "font.size": 11,
+            "axes.titlesize": 13,
+            "axes.labelsize": 11,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "font.family": "sans-serif",
+        }
+    )
 
 
 def plot_signature_scores_by_stage(
@@ -86,10 +88,12 @@ def plot_signature_scores_by_stage(
         ax = axes[i]
         sig_name = col.replace("sig_", "")
 
-        df = pd.DataFrame({
-            "score": adata.obs[col].values,
-            "stage": adata.obs[stage_col].values,
-        })
+        df = pd.DataFrame(
+            {
+                "score": adata.obs[col].values,
+                "stage": adata.obs[stage_col].values,
+            }
+        )
         df = df[df["stage"].isin(stages)]
 
         sns.violinplot(
@@ -319,7 +323,8 @@ def plot_emt_caf_immune_triangle(
         color = STAGE_COLORS.get(stage, "#999999")
 
         ax.scatter(
-            x[mask], y[mask],
+            x[mask],
+            y[mask],
             c=color,
             label=stage,
             alpha=0.5,
@@ -332,18 +337,20 @@ def plot_emt_caf_immune_triangle(
 
     # Draw triangle
     triangle = plt.Polygon(
-        [[0, 0], [1, 0], [0.5, np.sqrt(3)/2]],
-        fill=False, edgecolor="black", linewidth=2,
+        [[0, 0], [1, 0], [0.5, np.sqrt(3) / 2]],
+        fill=False,
+        edgecolor="black",
+        linewidth=2,
     )
     ax.add_patch(triangle)
 
     # Labels
     ax.text(0, -0.05, "EMT", ha="center", fontsize=12, fontweight="bold")
     ax.text(1, -0.05, "CAF", ha="center", fontsize=12, fontweight="bold")
-    ax.text(0.5, np.sqrt(3)/2 + 0.05, "Immune", ha="center", fontsize=12, fontweight="bold")
+    ax.text(0.5, np.sqrt(3) / 2 + 0.05, "Immune", ha="center", fontsize=12, fontweight="bold")
 
     ax.set_xlim(-0.1, 1.1)
-    ax.set_ylim(-0.15, np.sqrt(3)/2 + 0.15)
+    ax.set_ylim(-0.15, np.sqrt(3) / 2 + 0.15)
     ax.set_aspect("equal")
     ax.axis("off")
     ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
@@ -474,10 +481,12 @@ def plot_biological_summary_panel(
     # Panel A: EMT score by stage
     ax_a = fig.add_subplot(gs[0, 0])
     if "sig_emt_hallmark" in adata.obs.columns:
-        df = pd.DataFrame({
-            "score": adata.obs["sig_emt_hallmark"].values,
-            "stage": adata.obs[stage_col].values,
-        })
+        df = pd.DataFrame(
+            {
+                "score": adata.obs["sig_emt_hallmark"].values,
+                "stage": adata.obs[stage_col].values,
+            }
+        )
         df = df[df["stage"].isin(stages)]
         sns.violinplot(data=df, x="stage", y="score", order=stages, palette=palette, ax=ax_a)
         ax_a.set_title("A) EMT Score by Stage")
@@ -487,10 +496,12 @@ def plot_biological_summary_panel(
     # Panel B: Immune score by stage
     ax_b = fig.add_subplot(gs[0, 1])
     if "sig_macrophage_m2" in adata.obs.columns:
-        df = pd.DataFrame({
-            "score": adata.obs["sig_macrophage_m2"].values,
-            "stage": adata.obs[stage_col].values,
-        })
+        df = pd.DataFrame(
+            {
+                "score": adata.obs["sig_macrophage_m2"].values,
+                "stage": adata.obs[stage_col].values,
+            }
+        )
         df = df[df["stage"].isin(stages)]
         sns.violinplot(data=df, x="stage", y="score", order=stages, palette=palette, ax=ax_b)
         ax_b.set_title("B) M2 Macrophage Score by Stage")
@@ -513,7 +524,9 @@ def plot_biological_summary_panel(
     ax_d = fig.add_subplot(gs[1, 0])
     if "stage" in influence_df.columns and "ring_influence" in influence_df.columns:
         inf_df = influence_df[influence_df["stage"].isin(stages)]
-        sns.boxplot(data=inf_df, x="stage", y="ring_influence", order=stages, palette=palette, ax=ax_d)
+        sns.boxplot(
+            data=inf_df, x="stage", y="ring_influence", order=stages, palette=palette, ax=ax_d
+        )
         ax_d.set_title("D) Niche Influence by Stage")
         ax_d.set_xlabel("")
         ax_d.set_ylabel("Influence Score")
@@ -521,10 +534,12 @@ def plot_biological_summary_panel(
     # Panel E: CAF score by stage
     ax_e = fig.add_subplot(gs[1, 1])
     if "sig_caf_general" in adata.obs.columns:
-        df = pd.DataFrame({
-            "score": adata.obs["sig_caf_general"].values,
-            "stage": adata.obs[stage_col].values,
-        })
+        df = pd.DataFrame(
+            {
+                "score": adata.obs["sig_caf_general"].values,
+                "stage": adata.obs[stage_col].values,
+            }
+        )
         df = df[df["stage"].isin(stages)]
         sns.violinplot(data=df, x="stage", y="score", order=stages, palette=palette, ax=ax_e)
         ax_e.set_title("E) CAF Score by Stage")
@@ -553,9 +568,16 @@ def plot_biological_summary_panel(
         findings.append(f"- {row['pathway']}")
         findings.append(f"  (rho={row['spearman_rho']:.2f})")
 
-    ax_f.text(0.1, 0.9, "\n".join(findings), transform=ax_f.transAxes,
-              fontsize=10, verticalalignment="top", fontfamily="monospace",
-              bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5))
+    ax_f.text(
+        0.1,
+        0.9,
+        "\n".join(findings),
+        transform=ax_f.transAxes,
+        fontsize=10,
+        verticalalignment="top",
+        fontfamily="monospace",
+        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+    )
 
     plt.suptitle("StageBridge Biological Interpretation Summary", fontsize=16, y=1.02)
     plt.tight_layout()

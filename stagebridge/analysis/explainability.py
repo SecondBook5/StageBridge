@@ -49,7 +49,9 @@ class SHAPResult:
                 vals = np.abs(self.shap_values).mean(axis=(0, 2))
             else:
                 vals = np.abs(self.shap_values).mean(axis=0)
-            self.mean_abs_shap = pd.Series(vals, index=self.feature_names).sort_values(ascending=False)
+            self.mean_abs_shap = pd.Series(vals, index=self.feature_names).sort_values(
+                ascending=False
+            )
 
     def top_features(self, n: int = 20) -> pd.Series:
         """Get top N most important features."""
@@ -115,11 +117,10 @@ class BaselineSHAPAnalyzer:
         if self._shap is None:
             try:
                 import shap
+
                 self._shap = shap
             except ImportError as e:
-                raise ImportError(
-                    "SHAP not installed. Install with: pip install shap"
-                ) from e
+                raise ImportError("SHAP not installed. Install with: pip install shap") from e
         return self._shap
 
     def analyze_model(
@@ -158,9 +159,9 @@ class BaselineSHAPAnalyzer:
         # Create explainer
         if predict_fn is not None:
             explainer = shap.KernelExplainer(predict_fn, X_background)
-        elif hasattr(model, 'predict_proba'):
+        elif hasattr(model, "predict_proba"):
             explainer = shap.KernelExplainer(model.predict_proba, X_background)
-        elif hasattr(model, 'predict'):
+        elif hasattr(model, "predict"):
             explainer = shap.KernelExplainer(model.predict, X_background)
         else:
             raise ValueError("Model must have predict or predict_proba method")
@@ -215,7 +216,7 @@ class BaselineSHAPAnalyzer:
             with torch.no_grad():
                 x_tensor = torch.tensor(x, dtype=torch.float32, device=device)
                 output = model(x_tensor)
-                if hasattr(output, 'cpu'):
+                if hasattr(output, "cpu"):
                     output = output.cpu().numpy()
                 return output
 
@@ -390,7 +391,7 @@ class SenderInfluenceAnalyzer:
             mask_t = torch.tensor(sender_mask, dtype=torch.bool, device=self.device)
 
             baseline_pred = self.model(receiver_t, niche_t, mask_t)
-            if hasattr(baseline_pred, 'cpu'):
+            if hasattr(baseline_pred, "cpu"):
                 baseline_pred = baseline_pred.cpu().numpy()
 
         # Compute influence by masking each sender type
@@ -402,7 +403,7 @@ class SenderInfluenceAnalyzer:
             with torch.no_grad():
                 mask_excluded = torch.tensor(exclude_mask, dtype=torch.bool, device=self.device)
                 pred_excluded = self.model(receiver_t, niche_t, mask_excluded)
-                if hasattr(pred_excluded, 'cpu'):
+                if hasattr(pred_excluded, "cpu"):
                     pred_excluded = pred_excluded.cpu().numpy()
 
             # Influence = change in prediction when sender type is removed
@@ -481,7 +482,7 @@ class SenderInfluenceAnalyzer:
         if not result.stage_specific:
             # Just plot mean influence as bar chart
             fig, ax = plt.subplots(figsize=(10, 5))
-            result.mean_influence.plot(kind='barh', ax=ax)
+            result.mean_influence.plot(kind="barh", ax=ax)
             ax.set_xlabel("Mean Influence Score")
             ax.set_title(f"Sender Influence on {result.receiver_cell_type}")
             ax.invert_yaxis()
@@ -490,7 +491,7 @@ class SenderInfluenceAnalyzer:
             stage_df = pd.DataFrame(result.stage_specific).T
 
             # Order stages by progression
-            stage_order = ['AAH', 'AIS', 'MIA', 'ADC']
+            stage_order = ["AAH", "AIS", "MIA", "ADC"]
             stage_df = stage_df.reindex([s for s in stage_order if s in stage_df.index])
 
             fig, ax = plt.subplots(figsize=(12, 5))
@@ -561,7 +562,7 @@ class AttentionAnalyzer:
         # Register hooks on attention modules
         hooks = []
         for name, module in self.model.named_modules():
-            if 'attention' in name.lower() or 'attn' in name.lower():
+            if "attention" in name.lower() or "attn" in name.lower():
                 hooks.append(module.register_forward_hook(attention_hook))
 
         # Forward pass
@@ -628,6 +629,7 @@ class AttentionAnalyzer:
 
 
 # Convenience functions
+
 
 def plot_sender_influence_heatmap(
     influence_result: SenderInfluenceResult,

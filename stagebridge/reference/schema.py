@@ -29,6 +29,7 @@ log = get_logger(__name__)
 # Shared Data Classes (moved from map_query.py)
 # ============================================================================
 
+
 @dataclass
 class MappingResult:
     """Result of mapping query cells to a reference atlas.

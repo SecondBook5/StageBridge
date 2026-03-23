@@ -28,42 +28,92 @@ log = logging.getLogger(__name__)
 # L-R priors with biological support scores (from communication_builder.py)
 LR_PRIORS = {
     # Inflammatory axis - primary mechanism from Peng et al.
-    ("IL1B", "IL1R1"): {"family": "inflammatory", "support": 1.00, "mechanism": "IL1B+ macrophage niche signaling"},
-    ("IL6", "IL6ST"): {"family": "inflammatory", "support": 0.95, "mechanism": "Inflammatory cytokine signaling"},
-    ("TNF", "TNFRSF1A"): {"family": "inflammatory", "support": 0.92, "mechanism": "TNF-mediated inflammation"},
-    ("OSM", "OSMR"): {"family": "inflammatory", "support": 0.80, "mechanism": "Oncostatin M signaling"},
-
+    ("IL1B", "IL1R1"): {
+        "family": "inflammatory",
+        "support": 1.00,
+        "mechanism": "IL1B+ macrophage niche signaling",
+    },
+    ("IL6", "IL6ST"): {
+        "family": "inflammatory",
+        "support": 0.95,
+        "mechanism": "Inflammatory cytokine signaling",
+    },
+    ("TNF", "TNFRSF1A"): {
+        "family": "inflammatory",
+        "support": 0.92,
+        "mechanism": "TNF-mediated inflammation",
+    },
+    ("OSM", "OSMR"): {
+        "family": "inflammatory",
+        "support": 0.80,
+        "mechanism": "Oncostatin M signaling",
+    },
     # Chemokine axis - migration and invasion
-    ("CXCL9", "CXCR3"): {"family": "chemokine", "support": 0.85, "mechanism": "T cell recruitment"},
-    ("CXCL10", "CXCR3"): {"family": "chemokine", "support": 0.85, "mechanism": "T cell recruitment"},
-    ("CXCL12", "CXCR4"): {"family": "chemokine", "support": 1.00, "mechanism": "Stem cell homing/metastasis"},
-    ("CXCL1", "CXCR2"): {"family": "chemokine", "support": 0.72, "mechanism": "Neutrophil recruitment"},
-    ("CXCL2", "CXCR2"): {"family": "chemokine", "support": 0.72, "mechanism": "Neutrophil recruitment"},
-
+    ("CXCL9", "CXCR3"): {
+        "family": "chemokine",
+        "support": 0.85,
+        "mechanism": "T cell recruitment",
+    },
+    ("CXCL10", "CXCR3"): {
+        "family": "chemokine",
+        "support": 0.85,
+        "mechanism": "T cell recruitment",
+    },
+    ("CXCL12", "CXCR4"): {
+        "family": "chemokine",
+        "support": 1.00,
+        "mechanism": "Stem cell homing/metastasis",
+    },
+    ("CXCL1", "CXCR2"): {
+        "family": "chemokine",
+        "support": 0.72,
+        "mechanism": "Neutrophil recruitment",
+    },
+    ("CXCL2", "CXCR2"): {
+        "family": "chemokine",
+        "support": 0.72,
+        "mechanism": "Neutrophil recruitment",
+    },
     # TGF-beta axis - EMT and fibrosis
-    ("TGFB1", "TGFBR2"): {"family": "tgfb", "support": 1.00, "mechanism": "EMT induction, fibrosis"},
+    ("TGFB1", "TGFBR2"): {
+        "family": "tgfb",
+        "support": 1.00,
+        "mechanism": "EMT induction, fibrosis",
+    },
     ("TGFB3", "TGFBR2"): {"family": "tgfb", "support": 0.80, "mechanism": "EMT regulation"},
-
     # Growth factor axis - proliferation
-    ("AREG", "EGFR"): {"family": "growth_factor", "support": 0.95, "mechanism": "EGFR-driven proliferation"},
+    ("AREG", "EGFR"): {
+        "family": "growth_factor",
+        "support": 0.95,
+        "mechanism": "EGFR-driven proliferation",
+    },
     ("EREG", "EGFR"): {"family": "growth_factor", "support": 0.85, "mechanism": "EGFR ligand"},
     ("HBEGF", "EGFR"): {"family": "growth_factor", "support": 0.80, "mechanism": "EGFR ligand"},
     ("EGF", "EGFR"): {"family": "growth_factor", "support": 0.65, "mechanism": "EGFR ligand"},
-    ("HGF", "MET"): {"family": "growth_factor", "support": 0.90, "mechanism": "MET-driven invasion"},
-
+    ("HGF", "MET"): {
+        "family": "growth_factor",
+        "support": 0.90,
+        "mechanism": "MET-driven invasion",
+    },
     # Notch axis - cell fate decisions
     ("JAG1", "NOTCH1"): {"family": "notch", "support": 0.85, "mechanism": "Notch-mediated fate"},
     ("DLL4", "NOTCH1"): {"family": "notch", "support": 0.80, "mechanism": "Notch signaling"},
-
     # ECM axis - invasion and remodeling
     ("SPP1", "ITGAV"): {"family": "ecm", "support": 0.78, "mechanism": "Osteopontin-integrin"},
     ("COL1A1", "ITGB1"): {"family": "ecm", "support": 0.75, "mechanism": "Collagen-integrin"},
     ("FN1", "ITGB1"): {"family": "ecm", "support": 0.82, "mechanism": "Fibronectin-integrin"},
-
     # Other
     ("VEGFA", "KDR"): {"family": "vascular", "support": 0.78, "mechanism": "Angiogenesis"},
-    ("MIF", "CD74"): {"family": "immune_modulatory", "support": 0.75, "mechanism": "Macrophage inhibition"},
-    ("WNT5A", "FZD7"): {"family": "developmental", "support": 0.68, "mechanism": "Non-canonical WNT"},
+    ("MIF", "CD74"): {
+        "family": "immune_modulatory",
+        "support": 0.75,
+        "mechanism": "Macrophage inhibition",
+    },
+    ("WNT5A", "FZD7"): {
+        "family": "developmental",
+        "support": 0.68,
+        "mechanism": "Non-canonical WNT",
+    },
 }
 
 # Sender cell type categories for interpretation
@@ -167,11 +217,7 @@ def compute_attention_weighted_lr_scores(
         weighted_ligand = (attn * ligand_expr).sum()
 
         # Compute interaction score: attention × ligand × receptor × prior
-        interaction_score = (
-            weighted_ligand *
-            receptor_expr *
-            info["support"]
-        )
+        interaction_score = weighted_ligand * receptor_expr * info["support"]
 
         # Breakdown by sender type
         sender_breakdown = {}
@@ -192,19 +238,21 @@ def compute_attention_weighted_lr_scores(
         else:
             confidence = "low"
 
-        scores.append(LRInteractionScore(
-            ligand=ligand,
-            receptor=receptor,
-            family=info["family"],
-            mechanism=info["mechanism"],
-            prior_support=info["support"],
-            attention_weight=float(mean_attn_to_expressors),
-            ligand_expression=float(weighted_ligand),
-            receptor_expression=float(receptor_expr),
-            interaction_score=float(interaction_score),
-            sender_type_breakdown=sender_breakdown,
-            confidence=confidence,
-        ))
+        scores.append(
+            LRInteractionScore(
+                ligand=ligand,
+                receptor=receptor,
+                family=info["family"],
+                mechanism=info["mechanism"],
+                prior_support=info["support"],
+                attention_weight=float(mean_attn_to_expressors),
+                ligand_expression=float(weighted_ligand),
+                receptor_expression=float(receptor_expr),
+                interaction_score=float(interaction_score),
+                sender_type_breakdown=sender_breakdown,
+                confidence=confidence,
+            )
+        )
 
     # Sort by interaction score
     scores.sort(key=lambda x: x.interaction_score, reverse=True)
@@ -235,14 +283,16 @@ def aggregate_lr_scores_by_stage(
             stage_data[stage] = []
 
         for score in cell_scores:
-            stage_data[stage].append({
-                "ligand": score.ligand,
-                "receptor": score.receptor,
-                "family": score.family,
-                "interaction_score": score.interaction_score,
-                "attention_weight": score.attention_weight,
-                "confidence": score.confidence,
-            })
+            stage_data[stage].append(
+                {
+                    "ligand": score.ligand,
+                    "receptor": score.receptor,
+                    "family": score.family,
+                    "interaction_score": score.interaction_score,
+                    "attention_weight": score.attention_weight,
+                    "confidence": score.confidence,
+                }
+            )
 
     results = {}
     for stage, records in stage_data.items():
@@ -252,14 +302,25 @@ def aggregate_lr_scores_by_stage(
         df = pd.DataFrame(records)
 
         # Aggregate per L-R pair
-        agg = df.groupby(["ligand", "receptor", "family"]).agg({
-            "interaction_score": ["mean", "std", "count"],
-            "attention_weight": "mean",
-        }).reset_index()
+        agg = (
+            df.groupby(["ligand", "receptor", "family"])
+            .agg(
+                {
+                    "interaction_score": ["mean", "std", "count"],
+                    "attention_weight": "mean",
+                }
+            )
+            .reset_index()
+        )
 
         agg.columns = [
-            "ligand", "receptor", "family",
-            "mean_score", "std_score", "n_cells", "mean_attention"
+            "ligand",
+            "receptor",
+            "family",
+            "mean_score",
+            "std_score",
+            "n_cells",
+            "mean_attention",
         ]
 
         # Sort by mean score
@@ -324,8 +385,7 @@ def identify_stage_specific_interactions(
             else:
                 # Weighted mean by cell count
                 other_score = np.average(
-                    other_data["mean_score"].values,
-                    weights=other_data["n_cells"].values
+                    other_data["mean_score"].values, weights=other_data["n_cells"].values
                 )
 
             fold_change = stage_score / (other_score + 1e-10)
@@ -335,25 +395,25 @@ def identify_stage_specific_interactions(
                 family = stage_data["family"].values[0]
                 mechanism = LR_PRIORS.get((ligand, receptor), {}).get("mechanism", "Unknown")
 
-                results.append({
-                    "stage": stage,
-                    "ligand": ligand,
-                    "receptor": receptor,
-                    "family": family,
-                    "mechanism": mechanism,
-                    "stage_score": stage_score,
-                    "other_score": other_score,
-                    "fold_change": fold_change,
-                    "n_cells": stage_data["n_cells"].values[0],
-                    "mean_attention": stage_data["mean_attention"].values[0],
-                })
+                results.append(
+                    {
+                        "stage": stage,
+                        "ligand": ligand,
+                        "receptor": receptor,
+                        "family": family,
+                        "mechanism": mechanism,
+                        "stage_score": stage_score,
+                        "other_score": other_score,
+                        "fold_change": fold_change,
+                        "n_cells": stage_data["n_cells"].values[0],
+                        "mean_attention": stage_data["mean_attention"].values[0],
+                    }
+                )
 
     if not results:
         return pd.DataFrame()
 
-    return pd.DataFrame(results).sort_values(
-        ["stage", "fold_change"], ascending=[True, False]
-    )
+    return pd.DataFrame(results).sort_values(["stage", "fold_change"], ascending=[True, False])
 
 
 def compute_il1b_axis_score(
@@ -406,13 +466,9 @@ def compute_il1b_axis_score(
             "Peng et al. IL1B+ macrophage niche"
         )
     elif il1b_score.interaction_score > 0.1:
-        interpretation_parts.append(
-            "Moderate IL1B-IL1R1 signaling present"
-        )
+        interpretation_parts.append("Moderate IL1B-IL1R1 signaling present")
     else:
-        interpretation_parts.append(
-            "Weak IL1B-IL1R1 signaling"
-        )
+        interpretation_parts.append("Weak IL1B-IL1R1 signaling")
 
     if macrophage_contribution > 0.3:
         interpretation_parts.append(
@@ -480,18 +536,20 @@ def generate_niche_ecosystem_summary(
         top_lr = []
         for _, row in scores_df.head(5).iterrows():
             info = LR_PRIORS.get((row["ligand"], row["receptor"]), {})
-            top_lr.append(LRInteractionScore(
-                ligand=row["ligand"],
-                receptor=row["receptor"],
-                family=row["family"],
-                mechanism=info.get("mechanism", "Unknown"),
-                prior_support=info.get("support", 0.5),
-                attention_weight=row["mean_attention"],
-                ligand_expression=0.0,  # Not available in aggregated
-                receptor_expression=0.0,
-                interaction_score=row["mean_score"],
-                stage=stage,
-            ))
+            top_lr.append(
+                LRInteractionScore(
+                    ligand=row["ligand"],
+                    receptor=row["receptor"],
+                    family=row["family"],
+                    mechanism=info.get("mechanism", "Unknown"),
+                    prior_support=info.get("support", 0.5),
+                    attention_weight=row["mean_attention"],
+                    ligand_expression=0.0,  # Not available in aggregated
+                    receptor_expression=0.0,
+                    interaction_score=row["mean_score"],
+                    stage=stage,
+                )
+            )
 
         # Dominant sender types from family breakdown
         family_counts = scores_df.groupby("family")["mean_score"].sum().to_dict()
@@ -559,8 +617,7 @@ def _generate_stage_interpretation(
     if top_lr:
         dominant = top_lr[0]
         parts.append(
-            f"Dominant communication: {dominant.ligand}-{dominant.receptor} "
-            f"({dominant.mechanism})"
+            f"Dominant communication: {dominant.ligand}-{dominant.receptor} ({dominant.mechanism})"
         )
 
     # Family patterns
@@ -573,8 +630,7 @@ def _generate_stage_interpretation(
     il1b_present = any(lr.ligand == "IL1B" for lr in top_lr)
     if il1b_present:
         parts.append(
-            "IL1B-IL1R1 axis active - consistent with Peng et al. "
-            "proinflammatory niche mechanism"
+            "IL1B-IL1R1 axis active - consistent with Peng et al. proinflammatory niche mechanism"
         )
 
     return " ".join(parts)
@@ -697,39 +753,43 @@ def create_lr_interaction_report(
 
         # Check IL1B trend
         aah_il1b = next(
-            (lr.interaction_score for lr in aah.dominant_lr_interactions
-             if lr.ligand == "IL1B"), 0.0
+            (lr.interaction_score for lr in aah.dominant_lr_interactions if lr.ligand == "IL1B"),
+            0.0,
         )
         ais_il1b = next(
-            (lr.interaction_score for lr in ais.dominant_lr_interactions
-             if lr.ligand == "IL1B"), 0.0
+            (lr.interaction_score for lr in ais.dominant_lr_interactions if lr.ligand == "IL1B"),
+            0.0,
         )
 
         if ais_il1b > aah_il1b:
-            report["stage_progression"].append({
-                "transition": "AAH -> AIS",
-                "observation": f"IL1B signaling increases ({aah_il1b:.2f} -> {ais_il1b:.2f})",
-                "interpretation": "Consistent with Peng et al. proinflammatory niche expansion",
-            })
+            report["stage_progression"].append(
+                {
+                    "transition": "AAH -> AIS",
+                    "observation": f"IL1B signaling increases ({aah_il1b:.2f} -> {ais_il1b:.2f})",
+                    "interpretation": "Consistent with Peng et al. proinflammatory niche expansion",
+                }
+            )
 
     # Identify intervention targets
     if stage_specific_df is not None and not stage_specific_df.empty:
         # Interactions enriched in early stages (AAH/AIS) are intervention targets
-        early_enriched = stage_specific_df[
-            stage_specific_df["stage"].isin(["AAH", "AIS"])
-        ].head(10)
+        early_enriched = stage_specific_df[stage_specific_df["stage"].isin(["AAH", "AIS"])].head(
+            10
+        )
 
         for _, row in early_enriched.iterrows():
-            report["intervention_targets"].append({
-                "target": f"{row['ligand']}-{row['receptor']}",
-                "stage": row["stage"],
-                "fold_enrichment": row["fold_change"],
-                "mechanism": row["mechanism"],
-                "rationale": (
-                    f"Enriched {row['fold_change']:.1f}x in {row['stage']} vs other stages. "
-                    "Blocking may disrupt progression-promoting niche."
-                ),
-            })
+            report["intervention_targets"].append(
+                {
+                    "target": f"{row['ligand']}-{row['receptor']}",
+                    "stage": row["stage"],
+                    "fold_enrichment": row["fold_change"],
+                    "mechanism": row["mechanism"],
+                    "rationale": (
+                        f"Enriched {row['fold_change']:.1f}x in {row['stage']} vs other stages. "
+                        "Blocking may disrupt progression-promoting niche."
+                    ),
+                }
+            )
 
     return report
 

@@ -172,7 +172,8 @@ def fuse_dual_reference(
         fused, ref_mode = _fuse_weighted(hlca_emb, luca_emb, hlca_confidence, luca_confidence)
     elif method == "learned":
         fused, ref_mode = _fuse_learned(
-            hlca_emb, luca_emb,
+            hlca_emb,
+            luca_emb,
             hlca_weight=learned_hlca_weight,
             output_dim=learned_output_dim,
         )
@@ -343,7 +344,10 @@ def _fuse_learned(
 
     log.info(
         "Learned fusion: HLCA(%d) + LuCA(%d) -> %d dims, weight=%.2f",
-        hlca_dim, luca_dim, output_dim, w
+        hlca_dim,
+        luca_dim,
+        output_dim,
+        w,
     )
 
     return fused.astype(np.float32), ref_mode

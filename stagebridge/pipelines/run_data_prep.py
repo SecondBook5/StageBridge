@@ -43,6 +43,7 @@ def ensure_dir(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
 
+
 log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -122,8 +123,16 @@ def process_snrna(
                         n_cells, n_genes = f["X"].shape
                     elif "data" in f["X"]:
                         # Sparse matrix - get shape from attributes or indices
-                        n_cells = f["X"].attrs.get("shape", [0, 0])[0] if "shape" in f["X"].attrs else len(f["obs/_index"][()])
-                        n_genes = f["X"].attrs.get("shape", [0, 0])[1] if "shape" in f["X"].attrs else len(f["var/_index"][()])
+                        n_cells = (
+                            f["X"].attrs.get("shape", [0, 0])[0]
+                            if "shape" in f["X"].attrs
+                            else len(f["obs/_index"][()])
+                        )
+                        n_genes = (
+                            f["X"].attrs.get("shape", [0, 0])[1]
+                            if "shape" in f["X"].attrs
+                            else len(f["var/_index"][()])
+                        )
                     else:
                         n_cells = len(f["obs/_index"][()])
                         n_genes = len(f["var/_index"][()])
@@ -450,8 +459,11 @@ def apply_normalization(
         if adata.n_obs <= max_cells_for_raw:
             adata.layers["counts"] = adata.X.copy()
         else:
-            log.info("Skipping raw counts storage (%d cells > %d max, OOM prevention)",
-                     adata.n_obs, max_cells_for_raw)
+            log.info(
+                "Skipping raw counts storage (%d cells > %d max, OOM prevention)",
+                adata.n_obs,
+                max_cells_for_raw,
+            )
 
     # Normalize
     if target_sum is not None:
@@ -514,6 +526,7 @@ def run_data_prep(
     # Resolve data root
     if data_root is not None:
         import os
+
         os.environ["STAGEBRIDGE_DATA_ROOT"] = str(data_root)
         root = Path(data_root)
     else:
@@ -629,7 +642,11 @@ def run_data_prep(
             try:
                 # Try loading into memory if possible
                 adata_snrna = anndata.read_h5ad(snrna_merged_path)
-                log.info("Loaded snRNA into memory: %d cells x %d genes", adata_snrna.n_obs, adata_snrna.n_vars)
+                log.info(
+                    "Loaded snRNA into memory: %d cells x %d genes",
+                    adata_snrna.n_obs,
+                    adata_snrna.n_vars,
+                )
 
                 # Calculate QC metrics
                 log.info("Calculating QC metrics...")
@@ -711,7 +728,10 @@ def run_data_prep(
             log.info("Spatial merge-only mode: skipping QC/normalization")
             log.info("  Spatial backends will handle processing internally")
             qc_results["spatial_qc"] = {"skipped": True, "reason": "spatial_merge_only mode"}
-            qc_results["spatial_normalization"] = {"skipped": True, "reason": "spatial_merge_only mode"}
+            qc_results["spatial_normalization"] = {
+                "skipped": True,
+                "reason": "spatial_merge_only mode",
+            }
             qc_results["spatial_merged_path"] = str(spatial_merged_path)
 
         elif spatial_merged_path.exists():
@@ -740,8 +760,12 @@ def run_data_prep(
                 del adata_backed
                 gc.collect()
 
-                log.info("Total: %d spots, %d genes. Processing in chunks of %d...",
-                         n_spots_before, n_genes_before, chunk_size)
+                log.info(
+                    "Total: %d spots, %d genes. Processing in chunks of %d...",
+                    n_spots_before,
+                    n_genes_before,
+                    chunk_size,
+                )
 
                 # Identify mitochondrial genes once
                 mt_genes = var_names.str.startswith(("MT-", "mt-"))
@@ -754,13 +778,14 @@ def run_data_prep(
                     start_idx = chunk_idx * chunk_size
                     end_idx = min((chunk_idx + 1) * chunk_size, n_spots_before)
 
-                    log.info("  Chunk %d/%d: cells %d-%d", chunk_idx + 1, n_chunks, start_idx, end_idx)
+                    log.info(
+                        "  Chunk %d/%d: cells %d-%d", chunk_idx + 1, n_chunks, start_idx, end_idx
+                    )
 
                     # Load chunk
-                    adata_chunk = sc.read_h5ad(
-                        spatial_merged_path,
-                        backed="r"
-                    )[start_idx:end_idx].to_memory()
+                    adata_chunk = sc.read_h5ad(spatial_merged_path, backed="r")[
+                        start_idx:end_idx
+                    ].to_memory()
 
                     # Calculate QC metrics for this chunk
                     adata_chunk.var["mt"] = mt_genes
@@ -804,7 +829,7 @@ def run_data_prep(
                         end = min(start + chunk_size, adata_spatial.n_obs)
                         chunk_X = adata_spatial.X[start:end]
                         # Count non-zero entries per gene
-                        if hasattr(chunk_X, 'toarray'):
+                        if hasattr(chunk_X, "toarray"):
                             chunk_X = chunk_X.toarray()
                         gene_counts += (chunk_X > 0).sum(axis=0).astype(np.int32).flatten()
 
@@ -813,7 +838,12 @@ def run_data_prep(
                     genes_pass = gene_counts >= min_cells
                     n_genes_pass = genes_pass.sum()
                     n_genes_removed = len(genes_pass) - n_genes_pass
-                    log.info("  %d/%d genes pass filter (%d to remove)", n_genes_pass, len(genes_pass), n_genes_removed)
+                    log.info(
+                        "  %d/%d genes pass filter (%d to remove)",
+                        n_genes_pass,
+                        len(genes_pass),
+                        n_genes_removed,
+                    )
 
                     # Only subset if removing more than 1% of genes (avoid OOM for trivial filters)
                     if n_genes_removed > 0 and n_genes_removed / len(genes_pass) > 0.01:
@@ -822,8 +852,10 @@ def run_data_prep(
                         gc.collect()
                         n_genes_after = adata_spatial.n_vars
                     elif n_genes_removed > 0:
-                        log.info("  Skipping gene subset (only %.2f%% removed, not worth OOM risk)",
-                                 100 * n_genes_removed / len(genes_pass))
+                        log.info(
+                            "  Skipping gene subset (only %.2f%% removed, not worth OOM risk)",
+                            100 * n_genes_removed / len(genes_pass),
+                        )
                         n_genes_after = len(genes_pass)  # Report as-is, minor difference
                     else:
                         n_genes_after = len(genes_pass)
@@ -1002,7 +1034,7 @@ def _build_parser():
         "--spatial-merge-only",
         action="store_true",
         help="Only merge spatial samples, skip QC/normalization. "
-             "Recommended: spatial backends (Tangram/DestVI/TACCO) handle their own processing.",
+        "Recommended: spatial backends (Tangram/DestVI/TACCO) handle their own processing.",
     )
     return parser
 

@@ -14,7 +14,12 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 
-from .backend_base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy, compute_sparsity
+from .backend_base import (
+    SpatialBackend,
+    BackendMappingResult,
+    compute_cell_type_entropy,
+    compute_sparsity,
+)
 
 
 class Cell2locationBackend(SpatialBackend):
@@ -196,11 +201,17 @@ class Cell2locationBackend(SpatialBackend):
             proportions = pd.DataFrame(
                 abundances / abundances.sum(axis=1, keepdims=True),
                 index=spatial_sub.obs_names,
-                columns=ref_sig.columns if hasattr(ref_sig, 'columns') else [f"type_{i}" for i in range(abundances.shape[1])],
+                columns=ref_sig.columns
+                if hasattr(ref_sig, "columns")
+                else [f"type_{i}" for i in range(abundances.shape[1])],
             )
 
         # Compute confidence (based on total abundance / expected)
-        total_abundance = abundances.sum(axis=1) if isinstance(abundances, np.ndarray) else abundances.sum(axis=1).values
+        total_abundance = (
+            abundances.sum(axis=1)
+            if isinstance(abundances, np.ndarray)
+            else abundances.sum(axis=1).values
+        )
         confidence = pd.Series(
             np.clip(total_abundance / self.n_cells_per_location, 0, 1),
             index=spatial_sub.obs_names,
@@ -226,7 +237,9 @@ class Cell2locationBackend(SpatialBackend):
             upstream_metrics=upstream_metrics,
             metadata={
                 "backend": "cell2location",
-                "version": cell2location.__version__ if hasattr(cell2location, "__version__") else "unknown",
+                "version": cell2location.__version__
+                if hasattr(cell2location, "__version__")
+                else "unknown",
                 "n_cells_per_location": self.n_cells_per_location,
                 "detection_alpha": self.detection_alpha,
                 "n_common_genes": len(common_genes),

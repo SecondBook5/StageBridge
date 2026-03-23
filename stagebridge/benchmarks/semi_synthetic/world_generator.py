@@ -46,8 +46,7 @@ class SyntheticWorld:
     ) -> pd.DataFrame:
         """Get cells within a radius of a point."""
         distances = np.sqrt(
-            (self.cell_positions["x"] - center_x) ** 2
-            + (self.cell_positions["y"] - center_y) ** 2
+            (self.cell_positions["x"] - center_x) ** 2 + (self.cell_positions["y"] - center_y) ** 2
         )
         return self.cell_positions[distances <= radius]
 
@@ -97,9 +96,7 @@ class WorldGenerator:
         regions = self._generate_regions(rng, stages)
 
         # Sample cells and assign positions
-        cell_positions = self._sample_and_place_cells(
-            rng, cell_pools, n_cells, regions
-        )
+        cell_positions = self._sample_and_place_cells(rng, cell_pools, n_cells, regions)
 
         metadata = {
             "world_id": world_id,
@@ -145,11 +142,17 @@ class WorldGenerator:
                     break
 
                 # Center with jitter
-                center_x = (col + 0.5) * cell_width + rng.uniform(-cell_width * 0.2, cell_width * 0.2)
-                center_y = (row + 0.5) * cell_height + rng.uniform(-cell_height * 0.2, cell_height * 0.2)
+                center_x = (col + 0.5) * cell_width + rng.uniform(
+                    -cell_width * 0.2, cell_width * 0.2
+                )
+                center_y = (row + 0.5) * cell_height + rng.uniform(
+                    -cell_height * 0.2, cell_height * 0.2
+                )
 
                 # Radius with overlap allowance
-                radius = min(cell_width, cell_height) * (0.5 + self.region_overlap * rng.uniform(0, 1))
+                radius = min(cell_width, cell_height) * (
+                    0.5 + self.region_overlap * rng.uniform(0, 1)
+                )
 
                 # Cell group weights - vary by region type
                 region_type = region_idx % 4
@@ -228,7 +231,7 @@ class WorldGenerator:
         # Sample cells
         for _ in range(n_cells):
             # Choose region (weighted by area)
-            region_probs = np.array([r.radius ** 2 for r in regions])
+            region_probs = np.array([r.radius**2 for r in regions])
             region_probs = region_probs / region_probs.sum()
             region = rng.choice(regions, p=region_probs)
 
@@ -290,7 +293,7 @@ class WorldGenerator:
         # Compute pairwise distances
         # Using broadcasting for efficiency
         diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
-        distances = np.sqrt((diff ** 2).sum(axis=2))
+        distances = np.sqrt((diff**2).sum(axis=2))
 
         # Create neighborhood matrix
         neighborhood = distances <= radius

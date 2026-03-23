@@ -49,6 +49,7 @@ from stagebridge.reference.loaders import (
     validate_reference,
     compute_feature_overlap,
 )
+
 # k-NN fallback mapping (use hlca_mapper/luca_mapper for model-based)
 from stagebridge.reference.map_query import (
     map_to_hlca,

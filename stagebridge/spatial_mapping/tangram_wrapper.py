@@ -14,7 +14,12 @@ import pandas as pd
 import anndata as ad
 import scanpy as sc
 
-from .backend_base import SpatialBackend, BackendMappingResult, compute_cell_type_entropy, compute_sparsity
+from .backend_base import (
+    SpatialBackend,
+    BackendMappingResult,
+    compute_cell_type_entropy,
+    compute_sparsity,
+)
 
 
 class TangramBackend(SpatialBackend):
@@ -88,10 +93,12 @@ class TangramBackend(SpatialBackend):
         print(f"Tangram (scvi-tools): Using {len(common_genes)} marker genes")
 
         # Create MuData
-        mdata = mudata.MuData({
-            "sc": snrna_train,
-            "sp": spatial_train,
-        })
+        mdata = mudata.MuData(
+            {
+                "sc": snrna_train,
+                "sp": spatial_train,
+            }
+        )
 
         # Compute density priors if using constrained mode
         if self.constrained:
@@ -252,7 +259,11 @@ class TangramBackend(SpatialBackend):
             metrics["sparsity"] = float(compute_sparsity(props))
             # Coverage (spots with confident mapping)
             if result.confidence is not None:
-                conf = result.confidence if isinstance(result.confidence, np.ndarray) else result.confidence.values
+                conf = (
+                    result.confidence
+                    if isinstance(result.confidence, np.ndarray)
+                    else result.confidence.values
+                )
                 metrics["coverage_0.5"] = float((conf > 0.5).mean())
                 metrics["mean_confidence"] = float(conf.mean())
 

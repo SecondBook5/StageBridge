@@ -1334,7 +1334,10 @@ def map_full_snrna_with_hlca(
         early_stopping_monitor=str(hlca_cfg.get("early_stopping_monitor", "elbo_validation")),
         early_stopping_patience=int(hlca_cfg.get("early_stopping_patience", 10)),
         early_stopping_min_delta=float(hlca_cfg.get("early_stopping_min_delta", 0.001)),
-        plan_kwargs={"weight_decay": float(hlca_cfg.get("weight_decay", 0.0)), "lr": float(hlca_cfg.get("lr", 2e-4))},
+        plan_kwargs={
+            "weight_decay": float(hlca_cfg.get("weight_decay", 0.0)),
+            "lr": float(hlca_cfg.get("lr", 2e-4)),
+        },
         enable_progress_bar=show_progress,
     )
     query_model_dir.parent.mkdir(parents=True, exist_ok=True)

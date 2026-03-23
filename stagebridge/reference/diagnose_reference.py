@@ -40,16 +40,16 @@ def diagnose_latent_integrity(
         "latent_key": latent_key,
     }
 
-    with h5py.File(ref_path, 'r') as f:
+    with h5py.File(ref_path, "r") as f:
         # Check if latent exists
-        if 'obsm' not in f or latent_key not in f['obsm']:
+        if "obsm" not in f or latent_key not in f["obsm"]:
             report["status"] = "error"
             report["error"] = f"Latent key '{latent_key}' not found in obsm"
-            if 'obsm' in f:
-                report["available_keys"] = list(f['obsm'].keys())
+            if "obsm" in f:
+                report["available_keys"] = list(f["obsm"].keys())
             return report
 
-        latent = f['obsm'][latent_key]
+        latent = f["obsm"][latent_key]
         n_cells, latent_dim = latent.shape
 
         report["n_cells"] = int(n_cells)
@@ -86,13 +86,19 @@ def diagnose_latent_integrity(
             report["recommendation_detail"] = "All cells have valid latents"
         elif n_cells_valid / n_cells >= 0.9:
             report["recommendation"] = "needs_cleaning"
-            report["recommendation_detail"] = f"Filter {n_cells_any_nan} invalid cells ({100*(1-n_cells_valid/n_cells):.1f}%)"
+            report["recommendation_detail"] = (
+                f"Filter {n_cells_any_nan} invalid cells ({100 * (1 - n_cells_valid / n_cells):.1f}%)"
+            )
         elif n_cells_valid / n_cells >= 0.5:
             report["recommendation"] = "needs_cleaning_major"
-            report["recommendation_detail"] = f"Filter {n_cells_any_nan} invalid cells ({100*(1-n_cells_valid/n_cells):.1f}%) - significant data loss"
+            report["recommendation_detail"] = (
+                f"Filter {n_cells_any_nan} invalid cells ({100 * (1 - n_cells_valid / n_cells):.1f}%) - significant data loss"
+            )
         else:
             report["recommendation"] = "unusable"
-            report["recommendation_detail"] = f"Only {100*n_cells_valid/n_cells:.1f}% valid cells - reference needs regeneration"
+            report["recommendation_detail"] = (
+                f"Only {100 * n_cells_valid / n_cells:.1f}% valid cells - reference needs regeneration"
+            )
 
         report["status"] = "complete"
 
@@ -143,7 +149,9 @@ def clean_reference_latent(
 
     if valid_fraction < min_valid_fraction:
         report["status"] = "aborted"
-        report["error"] = f"Only {valid_fraction:.1%} valid cells, below threshold {min_valid_fraction:.1%}"
+        report["error"] = (
+            f"Only {valid_fraction:.1%} valid cells, below threshold {min_valid_fraction:.1%}"
+        )
         return report
 
     if valid_fraction == 1.0:
@@ -166,7 +174,7 @@ def clean_reference_latent(
     n_after = adata_clean.n_obs
     n_removed = n_before - n_after
 
-    print(f"Removed {n_removed:,} cells with invalid latent ({100*n_removed/n_before:.1f}%)")
+    print(f"Removed {n_removed:,} cells with invalid latent ({100 * n_removed / n_before:.1f}%)")
     print(f"Cleaned reference: {n_after:,} cells")
 
     # Save
@@ -203,14 +211,19 @@ def main():
     print("\n=== Latent Integrity Report ===")
     print(f"  Total cells: {report.get('n_cells', 'N/A'):,}")
     print(f"  Latent dim: {report.get('latent_dim', 'N/A')}")
-    print(f"  Valid cells: {report.get('n_cells_valid', 'N/A'):,} ({report.get('valid_cell_fraction', 0):.1%})")
+    print(
+        f"  Valid cells: {report.get('n_cells_valid', 'N/A'):,} ({report.get('valid_cell_fraction', 0):.1%})"
+    )
     print(f"  Cells with any NaN: {report.get('n_cells_any_nan', 'N/A'):,}")
     print(f"  Cells with all NaN: {report.get('n_cells_all_nan', 'N/A'):,}")
     print(f"  Recommendation: {report.get('recommendation', 'N/A')}")
     print(f"  Detail: {report.get('recommendation_detail', 'N/A')}")
 
     # Clean if requested
-    if not args.diagnose_only and report.get("recommendation") in ("needs_cleaning", "needs_cleaning_major"):
+    if not args.diagnose_only and report.get("recommendation") in (
+        "needs_cleaning",
+        "needs_cleaning_major",
+    ):
         if args.output is None:
             # Default output path
             args.output = args.reference.parent / f"{args.reference.stem}_cleaned.h5ad"
@@ -225,7 +238,7 @@ def main():
     # Save report
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
-        with open(args.report, 'w') as f:
+        with open(args.report, "w") as f:
             json.dump(report, f, indent=2)
         print(f"\nReport saved to: {args.report}")
 

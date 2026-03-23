@@ -55,8 +55,8 @@ def create_split_manifest(
     n_val = int(n * val_frac)
 
     train_idx = perm[:n_train]
-    val_idx = perm[n_train:n_train + n_val]
-    test_idx = perm[n_train + n_val:]
+    val_idx = perm[n_train : n_train + n_val]
+    test_idx = perm[n_train + n_val :]
 
     manifest = {
         "train_donors": donors[train_idx].tolist(),
@@ -206,12 +206,14 @@ def validate_split_balance(
     for stage in crosstab.columns:
         props = crosstab[stage]
         if props.max() > 2 * props.min() and props.min() > 0:
-            issues.append({
-                "stage": stage,
-                "min_prop": props.min(),
-                "max_prop": props.max(),
-                "ratio": props.max() / props.min(),
-            })
+            issues.append(
+                {
+                    "stage": stage,
+                    "min_prop": props.min(),
+                    "max_prop": props.max(),
+                    "ratio": props.max() / props.min(),
+                }
+            )
 
     return {
         "valid": len(issues) == 0,

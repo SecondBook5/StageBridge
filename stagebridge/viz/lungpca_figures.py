@@ -49,6 +49,7 @@ log = get_logger(__name__)
 # Figure 1B: Sankey Diagram - Cell Type Flow by Stage
 # =============================================================================
 
+
 def figure_1b_sankey(
     adata: Any,
     stage_col: str = "stage",
@@ -109,6 +110,7 @@ def figure_1b_sankey(
 # Figure 1C: UMAP with Stage Coloring
 # =============================================================================
 
+
 def figure_1c_umap(
     adata: Any,
     stage_col: str = "stage",
@@ -158,9 +160,13 @@ def figure_1c_umap(
             continue
         coords = adata.obsm["X_umap"][mask]
         ax.scatter(
-            coords[:, 0], coords[:, 1],
+            coords[:, 0],
+            coords[:, 1],
             c=STAGE_COLORS.get(stage, "#d9d9d9"),
-            label=stage, s=0.8, alpha=0.6, rasterized=True
+            label=stage,
+            s=0.8,
+            alpha=0.6,
+            rasterized=True,
         )
 
     ax.set_xlabel("UMAP1", fontsize=6)
@@ -183,7 +189,11 @@ def figure_1c_umap(
             sc_plot = ax.scatter(
                 adata.obsm["X_umap"][:, 0],
                 adata.obsm["X_umap"][:, 1],
-                c=expr, cmap="Reds", s=0.5, alpha=0.7, rasterized=True
+                c=expr,
+                cmap="Reds",
+                s=0.5,
+                alpha=0.7,
+                rasterized=True,
             )
             plt.colorbar(sc_plot, ax=ax, fraction=0.046, pad=0.04)
 
@@ -205,6 +215,7 @@ def figure_1c_umap(
 # =============================================================================
 # Figure 3A: Cell Type UMAP
 # =============================================================================
+
 
 def figure_3a_celltype_umap(
     adata: Any,
@@ -241,9 +252,13 @@ def figure_3a_celltype_umap(
         mask = adata.obs[celltype_col] == ct
         coords = adata.obsm["X_umap"][mask]
         ax.scatter(
-            coords[:, 0], coords[:, 1],
+            coords[:, 0],
+            coords[:, 1],
             c=colors.get(ct, "#d9d9d9"),
-            label=ct, s=1.5, alpha=0.7, rasterized=True
+            label=ct,
+            s=1.5,
+            alpha=0.7,
+            rasterized=True,
         )
 
     ax.set_xlabel("UMAP1", fontsize=6)
@@ -264,6 +279,7 @@ def figure_3a_celltype_umap(
 # =============================================================================
 # Figure 3H: Boxplot of Scores by Stage
 # =============================================================================
+
 
 def figure_3h_stage_boxplot(
     adata: Any,
@@ -308,8 +324,7 @@ def figure_3h_stage_boxplot(
     colors = [STAGE_COLORS.get(s, "#d9d9d9") for s in stages]
 
     plot_boxplot_jitter(
-        ax, data, positions=list(range(len(stages))),
-        colors=colors, labels=stages, jitter_size=1
+        ax, data, positions=list(range(len(stages))), colors=colors, labels=stages, jitter_size=1
     )
 
     ax.set_ylabel(ylabel, fontsize=6)
@@ -329,6 +344,7 @@ def figure_3h_stage_boxplot(
 # =============================================================================
 # Figure 3L: Alluvial Plot of Composition by Stage
 # =============================================================================
+
 
 def figure_3l_alluvial(
     adata: Any,
@@ -397,6 +413,7 @@ def figure_3l_alluvial(
 # Figure 4B: Correlation Heatmap
 # =============================================================================
 
+
 def figure_4b_correlation(
     data: pd.DataFrame | np.ndarray,
     labels: list[str],
@@ -435,6 +452,7 @@ def figure_4b_correlation(
         corr = data.corr(method=method)
     else:
         from scipy.stats import spearmanr
+
         if method == "spearman":
             corr, _ = spearmanr(data, axis=0)
         else:
@@ -444,11 +462,13 @@ def figure_4b_correlation(
         corr = corr.values
 
     im = plot_heatmap(
-        ax, corr,
+        ax,
+        corr,
         row_labels=labels,
         col_labels=labels,
         cmap="RdBu_r",
-        vmin=-1, vmax=1,
+        vmin=-1,
+        vmax=1,
     )
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -468,6 +488,7 @@ def figure_4b_correlation(
 # =============================================================================
 # Figure 5D: Neighborhood Composition Stacked Bar
 # =============================================================================
+
 
 def figure_5d_neighborhood(
     neighborhood_df: pd.DataFrame,
@@ -536,6 +557,7 @@ def figure_5d_neighborhood(
 # Figure 5E: Violin + Boxplot by Cell Type
 # =============================================================================
 
+
 def figure_5e_violin(
     adata: Any,
     score_col: str,
@@ -579,8 +601,7 @@ def figure_5e_violin(
     colors = [colors_dict.get(ct, "#d9d9d9") for ct in celltypes]
 
     plot_violin_boxplot(
-        ax, data, positions=list(range(len(celltypes))),
-        colors=colors, labels=celltypes
+        ax, data, positions=list(range(len(celltypes))), colors=colors, labels=celltypes
     )
 
     ax.set_ylabel(ylabel, fontsize=6)
@@ -600,6 +621,7 @@ def figure_5e_violin(
 # =============================================================================
 # Multi-Panel Figure Generation
 # =============================================================================
+
 
 def generate_stagebridge_figure_panel(
     adata: Any,
@@ -633,8 +655,10 @@ def generate_stagebridge_figure_panel(
     # Figure 1B: Sankey
     try:
         fig = figure_1b_sankey(
-            adata, stage_col=stage_col, celltype_col=celltype_col,
-            output_path=output_dir / "fig1b_sankey.png"
+            adata,
+            stage_col=stage_col,
+            celltype_col=celltype_col,
+            output_path=output_dir / "fig1b_sankey.png",
         )
         paths["fig1b_sankey"] = output_dir / "fig1b_sankey.png"
     except Exception as e:
@@ -644,8 +668,7 @@ def generate_stagebridge_figure_panel(
     if "X_umap" in adata.obsm:
         try:
             fig = figure_1c_umap(
-                adata, stage_col=stage_col,
-                output_path=output_dir / "fig1c_umap.png"
+                adata, stage_col=stage_col, output_path=output_dir / "fig1c_umap.png"
             )
             paths["fig1c_umap"] = output_dir / "fig1c_umap.png"
             plt.close(fig)
@@ -656,8 +679,9 @@ def generate_stagebridge_figure_panel(
     if "X_umap" in adata.obsm:
         try:
             fig = figure_3a_celltype_umap(
-                adata, celltype_col=celltype_col,
-                output_path=output_dir / "fig3a_celltype_umap.png"
+                adata,
+                celltype_col=celltype_col,
+                output_path=output_dir / "fig3a_celltype_umap.png",
             )
             paths["fig3a_celltype_umap"] = output_dir / "fig3a_celltype_umap.png"
             plt.close(fig)

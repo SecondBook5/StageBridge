@@ -117,6 +117,7 @@ from .lungpca_figures import (
     figure_5e_violin,
     generate_stagebridge_figure_panel,
 )
+
 # Merged from visualization/ module
 from .figure_generation import (
     generate_figure1_architecture,

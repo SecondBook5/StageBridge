@@ -132,13 +132,15 @@ def generate_synthetic_attention_data(
     # Spatial coordinates
     coords = rng.uniform(0, 1000, size=(n_cells, 2))
 
-    metadata_df = pd.DataFrame({
-        "cell_id": cell_ids,
-        "stage": cell_stages,
-        "donor_id": cell_donors,
-        "x": coords[:, 0],
-        "y": coords[:, 1],
-    })
+    metadata_df = pd.DataFrame(
+        {
+            "cell_id": cell_ids,
+            "stage": cell_stages,
+            "donor_id": cell_donors,
+            "x": coords[:, 0],
+            "y": coords[:, 1],
+        }
+    )
 
     # Generate attention weights
     attention_dict = {}
@@ -148,8 +150,14 @@ def generate_synthetic_attention_data(
 
     # Generate sender types for each cell's neighborhood
     sender_type_names = [
-        "Macrophage", "Fibroblast", "T_cell", "Endothelial",
-        "AT2", "AT1", "Club", "Unknown"
+        "Macrophage",
+        "Fibroblast",
+        "T_cell",
+        "Endothelial",
+        "AT2",
+        "AT1",
+        "Club",
+        "Unknown",
     ]
     sender_types = rng.choice(len(sender_type_names), size=(n_cells, n_senders))
 
@@ -264,13 +272,17 @@ def run_biological_analysis(
             continue
 
         # Pivot to get ligand expression matrix
-        ligand_cols = [c for c in cell_ligand.columns if c not in ["cell_id", "sender_idx", "sender_type"]]
+        ligand_cols = [
+            c for c in cell_ligand.columns if c not in ["cell_id", "sender_idx", "sender_type"]
+        ]
         ligand_matrix = cell_ligand[ligand_cols]
 
         # Get sender types
-        sender_types = cell_ligand["sender_type"].map(
-            {name: i for i, name in enumerate(sender_type_names)}
-        ).values
+        sender_types = (
+            cell_ligand["sender_type"]
+            .map({name: i for i, name in enumerate(sender_type_names)})
+            .values
+        )
 
         # Get receptor expression
         cell_receptor = receptor_df[receptor_df["cell_id"] == cell_id]
@@ -317,8 +329,8 @@ def run_biological_analysis(
 
         # Check IL1B-IL1R1 in early stages
         il1b_early = stage_specific_df[
-            (stage_specific_df["ligand"] == "IL1B") &
-            (stage_specific_df["stage"].isin(["AAH", "AIS"]))
+            (stage_specific_df["ligand"] == "IL1B")
+            & (stage_specific_df["stage"].isin(["AAH", "AIS"]))
         ]
         results["il1b_enriched_in_early_stages"] = len(il1b_early) > 0
 
@@ -329,17 +341,17 @@ def run_biological_analysis(
     # Save summaries
     summary_records = []
     for stage, summary in summaries.items():
-        summary_records.append({
-            "stage": stage,
-            "n_cells": summary.n_cells,
-            "risk_level": summary.risk_level,
-            "interpretation": summary.biological_interpretation,
-            "key_findings": "; ".join(summary.key_findings),
-        })
+        summary_records.append(
+            {
+                "stage": stage,
+                "n_cells": summary.n_cells,
+                "risk_level": summary.risk_level,
+                "interpretation": summary.biological_interpretation,
+                "key_findings": "; ".join(summary.key_findings),
+            }
+        )
 
-    pd.DataFrame(summary_records).to_csv(
-        output_dir / "niche_ecosystem_summaries.csv", index=False
-    )
+    pd.DataFrame(summary_records).to_csv(output_dir / "niche_ecosystem_summaries.csv", index=False)
 
     # 5. Create L-R interaction report
     log.info("Creating L-R interaction report...")
@@ -359,19 +371,19 @@ def run_biological_analysis(
     if targets:
         target_records = []
         for t in targets:
-            target_records.append({
-                "ligand": t.ligand,
-                "receptor": t.receptor,
-                "target_gene": t.target_gene,
-                "priority_score": t.priority_score,
-                "druggability": t.druggability,
-                "rationale": t.rationale,
-                "expected_effect": t.expected_effect,
-            })
+            target_records.append(
+                {
+                    "ligand": t.ligand,
+                    "receptor": t.receptor,
+                    "target_gene": t.target_gene,
+                    "priority_score": t.priority_score,
+                    "druggability": t.druggability,
+                    "rationale": t.rationale,
+                    "expected_effect": t.expected_effect,
+                }
+            )
 
-        pd.DataFrame(target_records).to_csv(
-            output_dir / "intervention_targets.csv", index=False
-        )
+        pd.DataFrame(target_records).to_csv(output_dir / "intervention_targets.csv", index=False)
         results["n_intervention_targets"] = len(targets)
         results["top_target"] = f"{targets[0].ligand}-{targets[0].receptor}" if targets else None
 
@@ -389,10 +401,12 @@ def run_biological_analysis(
         il1b_contribution = 0.2 if il1b_result.get("detected", False) else 0.0
         il1b_contribution *= il1b_result.get("score", 0)
 
-        risk_records.append({
-            "cell_id": il1b_result["cell_id"],
-            "risk_score": min(base_risk + il1b_contribution, 1.0),
-        })
+        risk_records.append(
+            {
+                "cell_id": il1b_result["cell_id"],
+                "risk_score": min(base_risk + il1b_contribution, 1.0),
+            }
+        )
 
     cell_risks = pd.DataFrame(risk_records)
 

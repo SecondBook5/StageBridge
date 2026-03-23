@@ -199,8 +199,7 @@ class GroundTruthRecovery:
         if predicted_centroids is not None:
             # Compare centroids
             gt_centroids = {
-                stage: np.array(coords)
-                for stage, coords in self.gt.stage_centroids.items()
+                stage: np.array(coords) for stage, coords in self.gt.stage_centroids.items()
             }
 
             correlations = []
@@ -217,10 +216,17 @@ class GroundTruthRecovery:
 
         if predicted_transitions is not None and len(predicted_transitions) > 0:
             # Evaluate predicted transitions against ground truth drift
-            if "z_source" in predicted_transitions.columns and "z_predicted_target" in predicted_transitions.columns:
+            if (
+                "z_source" in predicted_transitions.columns
+                and "z_predicted_target" in predicted_transitions.columns
+            ):
                 z_src = np.stack(predicted_transitions["z_source"].values)
                 z_pred = np.stack(predicted_transitions["z_predicted_target"].values)
-                z_gt_target = np.stack(predicted_transitions["z_target"].values) if "z_target" in predicted_transitions.columns else None
+                z_gt_target = (
+                    np.stack(predicted_transitions["z_target"].values)
+                    if "z_target" in predicted_transitions.columns
+                    else None
+                )
 
                 if z_gt_target is not None:
                     # RMSE between predicted and actual targets
@@ -231,7 +237,9 @@ class GroundTruthRecovery:
                     pred_drift = z_pred - z_src
                     gt_drift = z_gt_target - z_src
 
-                    pred_norm = pred_drift / (np.linalg.norm(pred_drift, axis=1, keepdims=True) + 1e-8)
+                    pred_norm = pred_drift / (
+                        np.linalg.norm(pred_drift, axis=1, keepdims=True) + 1e-8
+                    )
                     gt_norm = gt_drift / (np.linalg.norm(gt_drift, axis=1, keepdims=True) + 1e-8)
 
                     cosines = (pred_norm * gt_norm).sum(axis=1)
@@ -259,10 +267,7 @@ class GroundTruthRecovery:
 
         if predicted_influence_vectors is not None:
             # Compare influence vectors (direction cosines)
-            gt_vectors = {
-                ct: np.array(vec)
-                for ct, vec in self.gt.influence_vectors.items()
-            }
+            gt_vectors = {ct: np.array(vec) for ct, vec in self.gt.influence_vectors.items()}
 
             direction_cosines = {}
             for ct in gt_vectors:
@@ -327,15 +332,20 @@ class GroundTruthRecovery:
                 # AUC for distinguishing matched vs shuffled
                 try:
                     from sklearn.metrics import roc_auc_score
+
                     if len(matched) > 0 and len(shuffled) > 0:
-                        labels = np.concatenate([
-                            np.ones(len(matched)),
-                            np.zeros(len(shuffled)),
-                        ])
-                        scores = np.concatenate([
-                            matched["score"].values,
-                            shuffled["score"].values,
-                        ])
+                        labels = np.concatenate(
+                            [
+                                np.ones(len(matched)),
+                                np.zeros(len(shuffled)),
+                            ]
+                        )
+                        scores = np.concatenate(
+                            [
+                                matched["score"].values,
+                                shuffled["score"].values,
+                            ]
+                        )
                         auc = roc_auc_score(labels, scores)
                         metrics["clone_compatibility_auc"] = float(auc)
                 except Exception:
@@ -366,7 +376,9 @@ class GroundTruthRecovery:
         if predicted_interactions is not None and ground_truth_interactions is not None:
             if "predicted_interacting" in predicted_interactions.columns:
                 pred = predicted_interactions["predicted_interacting"]
-                gt = ground_truth_interactions.get("is_interacting", ground_truth_interactions.get("gt_should_interact"))
+                gt = ground_truth_interactions.get(
+                    "is_interacting", ground_truth_interactions.get("gt_should_interact")
+                )
 
                 if gt is not None:
                     state_metrics = evaluate_receiver_state_recovery(
@@ -421,15 +433,21 @@ class GroundTruthRecovery:
             score_components.append(("flow", flow_score, weights["flow"]))
 
         if niche_metrics:
-            result.influence_direction_cosines = niche_metrics.get("influence_direction_cosines", {})
+            result.influence_direction_cosines = niche_metrics.get(
+                "influence_direction_cosines", {}
+            )
             result.influence_strength_correlation = niche_metrics.get("mean_direction_cosine", 0.0)
-            result.influential_celltype_precision = niche_metrics.get("influential_celltype_precision", 0.0)
-            result.influential_celltype_recall = niche_metrics.get("influential_celltype_recall", 0.0)
+            result.influential_celltype_precision = niche_metrics.get(
+                "influential_celltype_precision", 0.0
+            )
+            result.influential_celltype_recall = niche_metrics.get(
+                "influential_celltype_recall", 0.0
+            )
 
             niche_score = (
-                result.influence_strength_correlation +
-                result.influential_celltype_precision +
-                result.influential_celltype_recall
+                result.influence_strength_correlation
+                + result.influential_celltype_precision
+                + result.influential_celltype_recall
             ) / 3
             score_components.append(("niche", niche_score, weights["niche"]))
 
@@ -441,8 +459,12 @@ class GroundTruthRecovery:
             score_components.append(("clone", clone_score, weights["clone"]))
 
         if interaction_metrics:
-            result.radius_sensitivity_correlation = interaction_metrics.get("radius_sensitivity_correlation", 0.0)
-            result.stage_modulation_correlation = interaction_metrics.get("stage_modulation_correlation", 0.0)
+            result.radius_sensitivity_correlation = interaction_metrics.get(
+                "radius_sensitivity_correlation", 0.0
+            )
+            result.stage_modulation_correlation = interaction_metrics.get(
+                "stage_modulation_correlation", 0.0
+            )
 
             interaction_score = interaction_metrics.get("receiver_auroc", 0.0)
             score_components.append(("interaction", interaction_score, weights["interaction"]))
@@ -492,21 +514,25 @@ def build_ground_truth_from_config(
             direction = direction * rule.niche_influence.strength
 
             gt.influence_vectors[rule.niche_influence.influence_name] = direction.tolist()
-            gt.influence_strengths[rule.niche_influence.influence_name] = rule.niche_influence.strength
+            gt.influence_strengths[rule.niche_influence.influence_name] = (
+                rule.niche_influence.strength
+            )
 
     # Clone structure (Suite C)
     gt.clone_divergence = config.dynamics.clone_divergence
 
     # Interaction rules (Suite D)
     for rule in config.interaction_rules:
-        gt.interaction_rules.append({
-            "rule_id": rule.rule_id,
-            "sender_group": rule.sender_group,
-            "receiver_group": rule.receiver_group,
-            "interaction_radius": rule.interaction_radius,
-            "effect_strength": rule.effect_strength,
-            "effect_name": rule.effect_name,
-        })
+        gt.interaction_rules.append(
+            {
+                "rule_id": rule.rule_id,
+                "sender_group": rule.sender_group,
+                "receiver_group": rule.receiver_group,
+                "interaction_radius": rule.interaction_radius,
+                "effect_strength": rule.effect_strength,
+                "effect_name": rule.effect_name,
+            }
+        )
         gt.interaction_radii[rule.rule_id] = rule.interaction_radius
 
     # Reference geometry

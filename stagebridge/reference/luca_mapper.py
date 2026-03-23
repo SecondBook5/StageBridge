@@ -148,19 +148,23 @@ def map_full_snrna_with_luca(
     log.info("Loading LuCA scANVI model from: %s", luca_model_dir)
 
     # Get model's expected var_names
-    model_state = torch.load(luca_model_dir / "model.pt", map_location='cpu', weights_only=False)
-    model_var_names = list(model_state['var_names'])
+    model_state = torch.load(luca_model_dir / "model.pt", map_location="cpu", weights_only=False)
+    model_var_names = list(model_state["var_names"])
     log.info("  Model expects %d genes", len(model_var_names))
 
     # Check if model uses ENSG IDs
-    model_uses_ensg = model_var_names[0].startswith('ENSG') if model_var_names else False
+    model_uses_ensg = model_var_names[0].startswith("ENSG") if model_var_names else False
 
     # Subset reference adata to model's expected genes
     ref_genes = set(ref_adata.var_names.astype(str))
     model_genes_set = set(model_var_names)
     common_genes = ref_genes & model_genes_set
-    log.info("  Reference has %d genes, model expects %d, overlap: %d",
-             len(ref_genes), len(model_genes_set), len(common_genes))
+    log.info(
+        "  Reference has %d genes, model expects %d, overlap: %d",
+        len(ref_genes),
+        len(model_genes_set),
+        len(common_genes),
+    )
 
     if len(common_genes) < len(model_var_names):
         # Subset reference to model genes (in model's order)
@@ -187,16 +191,16 @@ def map_full_snrna_with_luca(
     query_genes = set(query_adata.var_names.astype(str))
 
     # Handle ENSG conversion if needed
-    if model_uses_ensg and 'ensembl_id' in query_adata.var.columns:
+    if model_uses_ensg and "ensembl_id" in query_adata.var.columns:
         log.info("  Converting query var_names to ENSG IDs...")
-        query_adata.var['gene_symbol'] = query_adata.var_names.tolist()
+        query_adata.var["gene_symbol"] = query_adata.var_names.tolist()
         new_var_names = []
         for i, symbol in enumerate(query_adata.var_names):
-            ensg = query_adata.var['ensembl_id'].iloc[i]
+            ensg = query_adata.var["ensembl_id"].iloc[i]
             new_var_names.append(ensg if ensg else symbol)
         query_adata.var_names = new_var_names
         query_genes = set(query_adata.var_names.astype(str))
-        n_converted = sum(1 for n in new_var_names if n.startswith('ENSG'))
+        n_converted = sum(1 for n in new_var_names if n.startswith("ENSG"))
         log.info("  Converted %d/%d genes to ENSG IDs", n_converted, len(new_var_names))
 
     model_genes = set(model_var_names)
@@ -211,7 +215,7 @@ def map_full_snrna_with_luca(
         "overlap_percent": 100 * overlap_ratio,
         "model_uses_ensg": model_uses_ensg,
     }
-    with open(gene_report_path, 'w') as f:
+    with open(gene_report_path, "w") as f:
         json.dump(gene_report, f, indent=2)
 
     stage_done("gene_overlap", t0)
@@ -387,7 +391,7 @@ def map_full_snrna_with_luca(
         "peak_rss_mb": peak_rss_mb,
     }
 
-    with open(mapping_report_path, 'w') as f:
+    with open(mapping_report_path, "w") as f:
         json.dump(report, f, indent=2, default=str)
     log.info("  Saved report: %s", mapping_report_path)
 
@@ -397,7 +401,7 @@ def map_full_snrna_with_luca(
         "run_id": run_id,
         "finished_at_unix": time.time(),
     }
-    with open(progress_path, 'w') as f:
+    with open(progress_path, "w") as f:
         json.dump(progress, f, indent=2)
 
     return LuCAMappingResult(

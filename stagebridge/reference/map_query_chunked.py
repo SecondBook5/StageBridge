@@ -77,7 +77,7 @@ def map_query_chunked(
     log.info("Starting chunked query mapping to %s", ref_path.name)
 
     # Load reference in backed mode
-    ref_adata = anndata.read_h5ad(ref_path, backed='r')
+    ref_adata = anndata.read_h5ad(ref_path, backed="r")
     n_ref = ref_adata.n_obs
     n_ref_genes = ref_adata.n_vars
 
@@ -85,7 +85,9 @@ def map_query_chunked(
 
     # Check latent exists
     if latent_key not in ref_adata.obsm:
-        raise KeyError(f"Reference missing latent key '{latent_key}'. Available: {list(ref_adata.obsm.keys())}")
+        raise KeyError(
+            f"Reference missing latent key '{latent_key}'. Available: {list(ref_adata.obsm.keys())}"
+        )
 
     ref_latent = np.asarray(ref_adata.obsm[latent_key], dtype=np.float32)
     latent_dim = ref_latent.shape[1]
@@ -98,13 +100,14 @@ def map_query_chunked(
         valid_fraction = 1.0 - n_invalid / n_ref
         if valid_fraction < 0.5:
             raise ValueError(
-                f"Reference latent has {n_invalid:,} invalid cells ({100*(1-valid_fraction):.1f}%). "
+                f"Reference latent has {n_invalid:,} invalid cells ({100 * (1 - valid_fraction):.1f}%). "
                 f"Run: python -m stagebridge.reference.diagnose_reference {ref_path} --diagnose-only"
             )
         log.warning(
             "Reference latent has %d cells with NaN (%d%%) - filtering them out. "
             "Consider running diagnose_reference.py to create a cleaned reference.",
-            n_invalid, int(100 * n_invalid / n_ref)
+            n_invalid,
+            int(100 * n_invalid / n_ref),
         )
         # Create mask for valid cells
         valid_cell_mask = ~nan_per_cell
@@ -142,12 +145,17 @@ def map_query_chunked(
     dim_reduction_method = "none"
 
     if use_pca:
-        log.info("Gene count (%d) exceeds max (%d) - using PCA reduction to %d dims",
-                 n_common, max_gene_dims, pca_components)
+        log.info(
+            "Gene count (%d) exceeds max (%d) - using PCA reduction to %d dims",
+            n_common,
+            max_gene_dims,
+            pca_components,
+        )
         dim_reduction_method = f"pca_{pca_components}"
 
         # Fit PCA on a sample of reference cells
         from sklearn.decomposition import IncrementalPCA
+
         pca_model = IncrementalPCA(n_components=pca_components)
 
         # Sample cells for PCA fitting
@@ -174,16 +182,22 @@ def map_query_chunked(
 
             pca_model.partial_fit(chunk)
 
-        log.info("PCA fitted. Explained variance: %.1f%%",
-                 100 * pca_model.explained_variance_ratio_.sum())
+        log.info(
+            "PCA fitted. Explained variance: %.1f%%",
+            100 * pca_model.explained_variance_ratio_.sum(),
+        )
 
     # Process query in chunks to avoid memory explosion
     # For 787K cells x 15K genes, dense would be 47GB - process in batches instead
     n_query = query_adata.n_obs
     effective_dims = pca_components if use_pca else n_common
 
-    log.info("Processing query in chunks (%d cells, %d effective dims, method: %s)",
-             n_query, effective_dims, dim_reduction_method)
+    log.info(
+        "Processing query in chunks (%d cells, %d effective dims, method: %s)",
+        n_query,
+        effective_dims,
+        dim_reduction_method,
+    )
 
     # Prepare query expression in chunks
     X_query_chunks = []
@@ -216,13 +230,16 @@ def map_query_chunked(
 
     # Track valid cell indices if we filtered NaN cells
     valid_cell_indices = None
-    if 'valid_cell_mask' in dir() and valid_cell_mask is not None:
+    if "valid_cell_mask" in dir() and valid_cell_mask is not None:
         valid_cell_indices = np.where(valid_cell_mask)[0]
 
     # Use FAISS with streaming - never load full reference matrix
     if use_faiss:
         embeddings, distances = _map_with_faiss_streaming(
-            X_query, ref_adata, ref_gene_idx, ref_latent,
+            X_query,
+            ref_adata,
+            ref_gene_idx,
+            ref_latent,
             k_neighbors=k_neighbors,
             n_probe=n_probe,
             chunk_size=ref_chunk_size,
@@ -232,7 +249,10 @@ def map_query_chunked(
         )
     else:
         embeddings, distances = _map_with_sklearn_streaming(
-            X_query, ref_adata, ref_gene_idx, ref_latent,
+            X_query,
+            ref_adata,
+            ref_gene_idx,
+            ref_latent,
             k_neighbors=k_neighbors,
             chunk_size=ref_chunk_size,
             normalize=normalize,
@@ -251,7 +271,8 @@ def map_query_chunked(
             "Final NaN check FAILED: %d NaN in embeddings, %d in distances. "
             "This indicates a problem with the reference or mapping. "
             "Do NOT proceed with these outputs.",
-            nan_embed, nan_dist
+            nan_embed,
+            nan_dist,
         )
         # Set distances to max for NaN embeddings so confidence will be low
         nan_rows = np.isnan(embeddings).any(axis=1)
@@ -300,6 +321,7 @@ def _map_with_faiss_streaming(
 
     try:
         import faiss
+
         has_faiss = True
     except ImportError:
         log.warning("FAISS not installed, falling back to streaming sklearn")
@@ -320,9 +342,15 @@ def _map_with_faiss_streaming(
 
     if not has_faiss:
         return _map_with_sklearn_streaming(
-            X_query, ref_adata, ref_gene_idx, ref_latent,
-            k_neighbors, chunk_size, normalize,
-            pca_model=pca_model, valid_cell_indices=valid_cell_indices,
+            X_query,
+            ref_adata,
+            ref_gene_idx,
+            ref_latent,
+            k_neighbors,
+            chunk_size,
+            normalize,
+            pca_model=pca_model,
+            valid_cell_indices=valid_cell_indices,
         )
 
     log.info("Building FAISS index with streaming (n=%d, d=%d)...", n_ref, dim)
@@ -359,7 +387,7 @@ def _map_with_faiss_streaming(
         # Load training data in chunks
         train_data = []
         for i in range(0, len(train_cell_ids), chunk_size):
-            batch_ids = train_cell_ids[i:i + chunk_size]
+            batch_ids = train_cell_ids[i : i + chunk_size]
             chunk = ref_adata.X[batch_ids, :]
             chunk = _process_chunk(chunk)
             train_data.append(chunk)
@@ -383,7 +411,7 @@ def _map_with_faiss_streaming(
     log.info("Adding reference vectors to index (streaming)...")
     n_added = 0
     for i in range(0, len(cells_to_use), chunk_size):
-        batch_ids = cells_to_use[i:i + chunk_size]
+        batch_ids = cells_to_use[i : i + chunk_size]
         chunk = ref_adata.X[batch_ids, :]
         chunk = _process_chunk(chunk)
         index.add(chunk)
@@ -431,7 +459,9 @@ def _map_with_faiss_streaming(
     # Handle cells with zero weight sum - use uniform weights
     zero_weight_mask = weight_sums.flatten() < 1e-10
     if zero_weight_mask.any():
-        log.warning("%d cells had invalid distances - using uniform weights", zero_weight_mask.sum())
+        log.warning(
+            "%d cells had invalid distances - using uniform weights", zero_weight_mask.sum()
+        )
         weights[zero_weight_mask] = 1.0 / k_neighbors
         weight_sums[zero_weight_mask] = 1.0
 
@@ -502,7 +532,7 @@ def _map_with_sklearn_streaming(
 
     # Stream through valid reference cells in chunks
     for i in range(0, len(cells_to_use), chunk_size):
-        batch_ids = cells_to_use[i:i + chunk_size]
+        batch_ids = cells_to_use[i : i + chunk_size]
         chunk = ref_adata.X[batch_ids, :]
         chunk = _process_chunk(chunk)
 
@@ -539,7 +569,9 @@ def _map_with_sklearn_streaming(
     # Handle cells with zero weight sum (no valid neighbors) - use uniform weights
     zero_weight_mask = weight_sums.flatten() < 1e-10
     if zero_weight_mask.any():
-        log.warning("%d cells had no valid neighbors - using uniform weights", zero_weight_mask.sum())
+        log.warning(
+            "%d cells had no valid neighbors - using uniform weights", zero_weight_mask.sum()
+        )
         weights[zero_weight_mask] = 1.0 / k_neighbors
         weight_sums[zero_weight_mask] = 1.0
 
@@ -592,7 +624,8 @@ def map_to_dual_reference_chunked(
     if hlca_path is not None and hlca_path.exists():
         log.info("=== Mapping to HLCA ===")
         hlca_emb, hlca_dist, hlca_info = map_query_chunked(
-            query_adata, hlca_path,
+            query_adata,
+            hlca_path,
             latent_key=hlca_latent_key,
             k_neighbors=k_neighbors,
             use_faiss=use_faiss,
@@ -606,7 +639,8 @@ def map_to_dual_reference_chunked(
     if luca_path is not None and luca_path.exists():
         log.info("=== Mapping to LuCA ===")
         luca_emb, luca_dist, luca_info = map_query_chunked(
-            query_adata, luca_path,
+            query_adata,
+            luca_path,
             latent_key=luca_latent_key,
             k_neighbors=k_neighbors,
             use_faiss=use_faiss,

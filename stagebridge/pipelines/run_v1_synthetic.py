@@ -29,14 +29,14 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 
-log = logging.getLogger(__name__)
-
 # StageBridge imports
 from stagebridge.data.synthetic import generate_synthetic_dataset
 from stagebridge.data.loaders_optimized import get_dataloader_optimized, StageBridgeBatch
 from stagebridge.models.dual_reference import create_dual_reference_mapper
 from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder
 from stagebridge.context_model.set_encoder import SetTransformer
+
+log = logging.getLogger(__name__)
 
 
 class SimpleWESRegularizer(nn.Module):

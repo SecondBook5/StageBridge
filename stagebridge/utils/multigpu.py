@@ -325,20 +325,22 @@ def get_scvi_train_kwargs(
     """
     config = get_accelerator_config(n_gpus=n_gpus, strategy="auto")
 
-    config.update({
-        "max_epochs": max_epochs,
-        "early_stopping": True,
-        "early_stopping_monitor": "elbo_validation",
-        "early_stopping_patience": 15,
-        "early_stopping_min_delta": 0.5,
-        "check_val_every_n_epoch": 1,
-        "train_size": train_size,
-        "enable_progress_bar": True,
-        "plan_kwargs": {
-            "lr": lr,
-            "weight_decay": weight_decay,
-        },
-    })
+    config.update(
+        {
+            "max_epochs": max_epochs,
+            "early_stopping": True,
+            "early_stopping_monitor": "elbo_validation",
+            "early_stopping_patience": 15,
+            "early_stopping_min_delta": 0.5,
+            "check_val_every_n_epoch": 1,
+            "train_size": train_size,
+            "enable_progress_bar": True,
+            "plan_kwargs": {
+                "lr": lr,
+                "weight_decay": weight_decay,
+            },
+        }
+    )
 
     config.update(extra_kwargs)
     return config

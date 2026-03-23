@@ -42,10 +42,13 @@ try:
         EMT_SIGNATURES,
         score_signature,
     )
+
     _HAS_SIGNATURES = True
 except ImportError:
     _HAS_SIGNATURES = False
-    warnings.warn("Could not import stagebridge.biology.signatures - using local definitions", stacklevel=2)
+    warnings.warn(
+        "Could not import stagebridge.biology.signatures - using local definitions", stacklevel=2
+    )
 
 
 # =============================================================================
@@ -57,13 +60,25 @@ except ImportError:
 KAC_MARKERS = {
     "positive": [
         # Core AT2 markers
-        "SFTPC", "SFTPB", "SFTPA1", "SFTPA2", "ABCA3", "LAMP3", "NAPSA",
+        "SFTPC",
+        "SFTPB",
+        "SFTPA1",
+        "SFTPA2",
+        "ABCA3",
+        "LAMP3",
+        "NAPSA",
         # Lineage TFs
-        "NKX2-1", "ETV5",
+        "NKX2-1",
+        "ETV5",
         # KAC-specific (Peng et al.) - defines KRT8+/CEACAM5+ intermediate
-        "KRT8", "CEACAM5", "CEACAM6", "KRT7", "MUC1",
+        "KRT8",
+        "CEACAM5",
+        "CEACAM6",
+        "KRT7",
+        "MUC1",
         # Progenitor markers
-        "SOX9", "AXIN2",
+        "SOX9",
+        "AXIN2",
     ],
     "negative": [
         "SCGB1A1",  # Club cell marker (not KAC)
@@ -77,15 +92,26 @@ KAC_MARKERS = {
 PROINFLAMMATORY_MACROPHAGE_MARKERS = {
     "positive": [
         # Core IL1B pathway
-        "IL1B", "IL6", "TNF", "CXCL8",
+        "IL1B",
+        "IL6",
+        "TNF",
+        "CXCL8",
         # Chemokines
-        "CCL2", "CCL3", "CCL4", "CXCL2", "CXCL3",
+        "CCL2",
+        "CCL3",
+        "CCL4",
+        "CXCL2",
+        "CXCL3",
         # Inflammasome
-        "NLRP3", "CASP1", "PYCARD",
+        "NLRP3",
+        "CASP1",
+        "PYCARD",
         # Alarmins (added per validation)
-        "S100A8", "S100A9",
+        "S100A8",
+        "S100A9",
         # Pan-macrophage
-        "CD68", "CD14",
+        "CD68",
+        "CD14",
     ],
     "negative": [
         "CD163",  # M2 marker
@@ -98,30 +124,53 @@ PROINFLAMMATORY_MACROPHAGE_MARKERS = {
 # IL1B signaling pathway genes (ligand + receptor sides)
 IL1B_PATHWAY_GENES = {
     "ligand_side": [  # On macrophages
-        "IL1B", "IL1A", "IL18",
-        "NLRP3", "CASP1", "PYCARD",  # Inflammasome
+        "IL1B",
+        "IL1A",
+        "IL18",
+        "NLRP3",
+        "CASP1",
+        "PYCARD",  # Inflammasome
     ],
     "receptor_side": [  # On epithelial cells - CRITICAL for biology paper
-        "IL1R1", "IL1R2", "IL1RAP", "IL1RN",
+        "IL1R1",
+        "IL1R2",
+        "IL1RAP",
+        "IL1RN",
     ],
     "signaling": [  # Downstream
-        "MYD88", "IRAK1", "IRAK4", "TRAF6", "NFKB1", "RELA",
+        "MYD88",
+        "IRAK1",
+        "IRAK4",
+        "TRAF6",
+        "NFKB1",
+        "RELA",
     ],
 }
 
 # Flatten for backward compatibility
 IL1B_PATHWAY_GENES_FLAT = (
-    IL1B_PATHWAY_GENES["ligand_side"] +
-    IL1B_PATHWAY_GENES["receptor_side"] +
-    IL1B_PATHWAY_GENES["signaling"]
+    IL1B_PATHWAY_GENES["ligand_side"]
+    + IL1B_PATHWAY_GENES["receptor_side"]
+    + IL1B_PATHWAY_GENES["signaling"]
 )
 
 # CAF (Cancer-Associated Fibroblast) markers
 CAF_MARKERS = {
     "positive": [
-        "FAP", "PDPN", "ACTA2", "PDGFRA", "PDGFRB",
-        "COL1A1", "COL1A2", "COL3A1", "FN1", "VIM",
-        "THY1", "DCN", "LUM", "POSTN",
+        "FAP",
+        "PDPN",
+        "ACTA2",
+        "PDGFRA",
+        "PDGFRB",
+        "COL1A1",
+        "COL1A2",
+        "COL3A1",
+        "FN1",
+        "VIM",
+        "THY1",
+        "DCN",
+        "LUM",
+        "POSTN",
     ],
     "negative": [
         "EPCAM",  # Epithelial marker
@@ -132,12 +181,28 @@ CAF_MARKERS = {
 # EMT (Epithelial-Mesenchymal Transition) markers
 EMT_MARKERS = {
     "mesenchymal": [
-        "VIM", "CDH2", "SNAI1", "SNAI2", "TWIST1", "TWIST2",
-        "ZEB1", "ZEB2", "FN1", "MMP2", "MMP9",
+        "VIM",
+        "CDH2",
+        "SNAI1",
+        "SNAI2",
+        "TWIST1",
+        "TWIST2",
+        "ZEB1",
+        "ZEB2",
+        "FN1",
+        "MMP2",
+        "MMP9",
     ],
     "epithelial": [
-        "CDH1", "EPCAM", "KRT8", "KRT18", "KRT19",
-        "CLDN1", "CLDN4", "OCLN", "TJP1",
+        "CDH1",
+        "EPCAM",
+        "KRT8",
+        "KRT18",
+        "KRT19",
+        "CLDN1",
+        "CLDN4",
+        "OCLN",
+        "TJP1",
     ],
 }
 
@@ -309,8 +374,16 @@ def compute_cell_progression_risk(
     results = []
 
     # Extract HLCA and LuCA latent columns
-    hlca_cols = [c for c in embeddings.columns if c.startswith("hlca_latent") or c.startswith("latent_") and "_hlca" in c]
-    luca_cols = [c for c in embeddings.columns if c.startswith("luca_latent") or c.startswith("latent_") and "_luca" in c]
+    hlca_cols = [
+        c
+        for c in embeddings.columns
+        if c.startswith("hlca_latent") or c.startswith("latent_") and "_hlca" in c
+    ]
+    luca_cols = [
+        c
+        for c in embeddings.columns
+        if c.startswith("luca_latent") or c.startswith("latent_") and "_luca" in c
+    ]
 
     # Fallback: look for generic latent columns and split
     if not hlca_cols and not luca_cols:
@@ -319,8 +392,8 @@ def compute_cell_progression_risk(
             hlca_cols = latent_cols[:30]
             luca_cols = latent_cols[30:40]
         elif len(latent_cols) > 0:
-            hlca_cols = latent_cols[:len(latent_cols)//2]
-            luca_cols = latent_cols[len(latent_cols)//2:]
+            hlca_cols = latent_cols[: len(latent_cols) // 2]
+            luca_cols = latent_cols[len(latent_cols) // 2 :]
 
     # Get confidence columns if available
     hlca_conf_col = "hlca_confidence" if "hlca_confidence" in embeddings.columns else None
@@ -385,17 +458,19 @@ def compute_cell_progression_risk(
             cell_type = row.get("cell_type", "Unknown")
             donor_id = row.get("donor_id", "Unknown")
 
-        results.append({
-            "cell_id": cell_id,
-            "progression_risk_score": float(progression_risk),
-            "hlca_distance": float(hlca_dist),
-            "luca_distance": float(luca_dist),
-            "reference_bias": float(reference_bias),
-            "kac_state_score": float(kac_score),
-            "stage": str(stage),
-            "cell_type": str(cell_type),
-            "donor_id": str(donor_id),
-        })
+        results.append(
+            {
+                "cell_id": cell_id,
+                "progression_risk_score": float(progression_risk),
+                "hlca_distance": float(hlca_dist),
+                "luca_distance": float(luca_dist),
+                "reference_bias": float(reference_bias),
+                "kac_state_score": float(kac_score),
+                "stage": str(stage),
+                "cell_type": str(cell_type),
+                "donor_id": str(donor_id),
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -435,13 +510,19 @@ def compute_niche_risk_scores(
     gene_to_idx = {g: i for i, g in enumerate(gene_names)} if gene_names else {}
 
     # Precompute IL1B ligand indices (on macrophages)
-    il1b_ligand_indices = [gene_to_idx[g] for g in IL1B_PATHWAY_GENES["ligand_side"] if g in gene_to_idx]
+    il1b_ligand_indices = [
+        gene_to_idx[g] for g in IL1B_PATHWAY_GENES["ligand_side"] if g in gene_to_idx
+    ]
 
     # Precompute IL1R1 receptor indices (on epithelial receivers)
-    il1r1_receptor_indices = [gene_to_idx[g] for g in IL1B_PATHWAY_GENES["receptor_side"] if g in gene_to_idx]
+    il1r1_receptor_indices = [
+        gene_to_idx[g] for g in IL1B_PATHWAY_GENES["receptor_side"] if g in gene_to_idx
+    ]
 
     # Precompute downstream signaling indices
-    il1b_signaling_indices = [gene_to_idx[g] for g in IL1B_PATHWAY_GENES["signaling"] if g in gene_to_idx]
+    il1b_signaling_indices = [
+        gene_to_idx[g] for g in IL1B_PATHWAY_GENES["signaling"] if g in gene_to_idx
+    ]
 
     for idx, row in neighborhoods.iterrows():
         cell_id = row.get("cell_id", str(idx))
@@ -464,20 +545,46 @@ def compute_niche_risk_scores(
         total_neighbors = sum(neighbor_types.values()) or 1
 
         # Compute proinflammatory score (macrophage-related types)
-        mac_types = ["Macrophage", "Monocyte", "M1_Macrophage", "Inflammatory_Mac",
-                     "TAM", "MARCO_Mac", "SPP1_Mac", "FCN1_Mac"]
+        mac_types = [
+            "Macrophage",
+            "Monocyte",
+            "M1_Macrophage",
+            "Inflammatory_Mac",
+            "TAM",
+            "MARCO_Mac",
+            "SPP1_Mac",
+            "FCN1_Mac",
+        ]
         mac_count = sum(neighbor_types.get(t, 0) for t in mac_types)
         proinflammatory_score = mac_count / total_neighbors
 
         # Compute CAF enrichment
-        caf_types = ["Fibroblast", "CAF", "Myofibroblast", "iCAF", "myCAF",
-                     "apCAF", "Matrix_Fibroblast"]
+        caf_types = [
+            "Fibroblast",
+            "CAF",
+            "Myofibroblast",
+            "iCAF",
+            "myCAF",
+            "apCAF",
+            "Matrix_Fibroblast",
+        ]
         caf_count = sum(neighbor_types.get(t, 0) for t in caf_types)
         caf_enrichment = caf_count / total_neighbors
 
         # Compute immune infiltration
-        immune_types = ["T_cell", "CD4_T", "CD8_T", "Treg", "NK", "B_cell",
-                        "Plasma", "DC", "pDC", "cDC", "Mast"]
+        immune_types = [
+            "T_cell",
+            "CD4_T",
+            "CD8_T",
+            "Treg",
+            "NK",
+            "B_cell",
+            "Plasma",
+            "DC",
+            "pDC",
+            "cDC",
+            "Mast",
+        ]
         immune_count = sum(neighbor_types.get(t, 0) for t in immune_types)
         immune_infiltration = immune_count / total_neighbors
 
@@ -510,9 +617,9 @@ def compute_niche_risk_scores(
         if receiver_expression is not None and (il1r1_receptor_indices or il1b_signaling_indices):
             # Weight: ligand presence (sender) + receptor expression (receiver) + downstream
             il1b_activity = (
-                0.3 * il1b_ligand_activity +
-                0.4 * il1r1_receptor_activity +  # IL1R1 on epithelial cells is key
-                0.3 * il1b_signaling_activity
+                0.3 * il1b_ligand_activity
+                + 0.4 * il1r1_receptor_activity  # IL1R1 on epithelial cells is key
+                + 0.3 * il1b_signaling_activity
             )
         else:
             # Fallback: use macrophage presence as proxy (less accurate)
@@ -521,28 +628,32 @@ def compute_niche_risk_scores(
         # Niche risk score: weighted combination
         # Proinflammatory macrophages + CAFs + IL1B signaling = high risk (from Peng/Kadara)
         niche_risk = (
-            0.35 * proinflammatory_score +
-            0.25 * caf_enrichment +
-            0.25 * il1b_activity +
-            0.15 * immune_infiltration
+            0.35 * proinflammatory_score
+            + 0.25 * caf_enrichment
+            + 0.25 * il1b_activity
+            + 0.15 * immune_infiltration
         )
         niche_risk = np.clip(niche_risk, 0, 1)
 
         # Find dominant neighbor type
-        dominant_type = max(neighbor_types, key=neighbor_types.get) if neighbor_types else "Unknown"
+        dominant_type = (
+            max(neighbor_types, key=neighbor_types.get) if neighbor_types else "Unknown"
+        )
 
-        results.append({
-            "cell_id": cell_id,
-            "niche_risk_score": float(niche_risk),
-            "proinflammatory_score": float(proinflammatory_score),
-            "caf_enrichment": float(caf_enrichment),
-            "il1b_pathway_activity": float(il1b_activity),
-            "il1r1_receptor_score": float(il1r1_receptor_activity),
-            "immune_infiltration": float(immune_infiltration),
-            "n_neighbors": int(total_neighbors),
-            "stage": row.get("stage", "Unknown"),
-            "dominant_neighbor_type": dominant_type,
-        })
+        results.append(
+            {
+                "cell_id": cell_id,
+                "niche_risk_score": float(niche_risk),
+                "proinflammatory_score": float(proinflammatory_score),
+                "caf_enrichment": float(caf_enrichment),
+                "il1b_pathway_activity": float(il1b_activity),
+                "il1r1_receptor_score": float(il1r1_receptor_activity),
+                "immune_infiltration": float(immune_infiltration),
+                "n_neighbors": int(total_neighbors),
+                "stage": row.get("stage", "Unknown"),
+                "dominant_neighbor_type": dominant_type,
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -619,7 +730,8 @@ def score_kac_alveolar_progenitor_state(
     """
     # Compute KAC marker score
     kac_score = compute_marker_score(
-        expression, gene_names,
+        expression,
+        gene_names,
         KAC_MARKERS["positive"],
         KAC_MARKERS["negative"],
     )
@@ -651,14 +763,16 @@ def score_kac_alveolar_progenitor_state(
         for k, a, p in zip(kac_score_norm, at2_score_norm, progenitor_score_norm)
     ]
 
-    return pd.DataFrame({
-        "cell_id": cell_ids,
-        "kac_score": kac_score_norm,
-        "at2_differentiation_score": at2_score_norm,
-        "progenitor_score": progenitor_score_norm,
-        "kac_category": categories,
-        "is_kac_like": [c == "KAC-like" for c in categories],
-    })
+    return pd.DataFrame(
+        {
+            "cell_id": cell_ids,
+            "kac_score": kac_score_norm,
+            "at2_differentiation_score": at2_score_norm,
+            "progenitor_score": progenitor_score_norm,
+            "kac_category": categories,
+            "is_kac_like": [c == "KAC-like" for c in categories],
+        }
+    )
 
 
 def perturbation_analysis(
@@ -688,7 +802,7 @@ def perturbation_analysis(
 
     with torch.no_grad():
         # Original prediction
-        batch_device = batch.to(device) if hasattr(batch, 'to') else batch
+        batch_device = batch.to(device) if hasattr(batch, "to") else batch
         original_output = model(batch_device)
 
         if isinstance(original_output, dict):
@@ -707,20 +821,30 @@ def perturbation_analysis(
         perturbed_batch = _ablate_cell_type_from_batch(batch, target_cell_type)
 
         if perturbed_batch is not None:
-            perturbed_batch_device = perturbed_batch.to(device) if hasattr(perturbed_batch, 'to') else perturbed_batch
+            perturbed_batch_device = (
+                perturbed_batch.to(device) if hasattr(perturbed_batch, "to") else perturbed_batch
+            )
             perturbed_output = model(perturbed_batch_device)
 
             if isinstance(perturbed_output, dict):
-                perturbed_pred = perturbed_output.get("reconstruction", perturbed_output.get("output"))
+                perturbed_pred = perturbed_output.get(
+                    "reconstruction", perturbed_output.get("output")
+                )
             else:
                 perturbed_pred = perturbed_output
 
-            perturbed_pred = perturbed_pred.cpu().numpy() if perturbed_pred is not None else original_pred
+            perturbed_pred = (
+                perturbed_pred.cpu().numpy() if perturbed_pred is not None else original_pred
+            )
         else:
             perturbed_pred = original_pred
 
         # Compute deltas
-        cell_ids = batch.cell_ids if hasattr(batch, 'cell_ids') else [f"cell_{i}" for i in range(len(original_pred))]
+        cell_ids = (
+            batch.cell_ids
+            if hasattr(batch, "cell_ids")
+            else [f"cell_{i}" for i in range(len(original_pred))]
+        )
 
         for i, cell_id in enumerate(cell_ids):
             delta = np.linalg.norm(perturbed_pred[i] - original_pred[i])
@@ -739,15 +863,17 @@ def perturbation_analysis(
             else:
                 interp = f"{target_cell_type} has minimal influence on this receiver"
 
-            results.append(PerturbationResult(
-                cell_id=cell_id,
-                original_prediction=original_pred[i],
-                perturbed_prediction=perturbed_pred[i],
-                removed_cell_type=target_cell_type,
-                prediction_delta=float(delta),
-                progression_risk_delta=float(risk_delta),
-                interpretation=interp,
-            ))
+            results.append(
+                PerturbationResult(
+                    cell_id=cell_id,
+                    original_prediction=original_pred[i],
+                    perturbed_prediction=perturbed_pred[i],
+                    removed_cell_type=target_cell_type,
+                    prediction_delta=float(delta),
+                    progression_risk_delta=float(risk_delta),
+                    interpretation=interp,
+                )
+            )
 
     return results
 
@@ -758,16 +884,17 @@ def _ablate_cell_type_from_batch(batch: Any, cell_type: str) -> Any:
     # In practice, you'd modify the ring token embeddings to remove
     # contributions from the target cell type
 
-    if not hasattr(batch, 'clone') and not hasattr(batch, 'copy'):
+    if not hasattr(batch, "clone") and not hasattr(batch, "copy"):
         return None
 
     try:
         # Deep copy the batch
         import copy
+
         perturbed = copy.deepcopy(batch)
 
         # If batch has cell type composition, zero out target type
-        if hasattr(perturbed, 'ring_compositions'):
+        if hasattr(perturbed, "ring_compositions"):
             for ring in perturbed.ring_compositions:
                 if cell_type in ring:
                     ring[cell_type] = 0
@@ -799,7 +926,9 @@ def compute_stage_ecosystem_summary(
     merged = cell_risks.merge(niche_risks, on="cell_id", suffixes=("", "_niche"))
 
     if kac_scores is not None:
-        merged = merged.merge(kac_scores[["cell_id", "kac_score", "is_kac_like"]], on="cell_id", how="left")
+        merged = merged.merge(
+            kac_scores[["cell_id", "kac_score", "is_kac_like"]], on="cell_id", how="left"
+        )
         merged["kac_score"] = merged["kac_score"].fillna(0.5)
         merged["is_kac_like"] = merged["is_kac_like"].fillna(False)
     else:
@@ -852,7 +981,11 @@ def compute_stage_ecosystem_summary(
             niche_counts = stage_data["niche_category"].value_counts()
             dominant_niches = niche_counts.head(3).index.tolist()
         else:
-            dominant_niches = [stage_data["dominant_neighbor_type"].mode().iloc[0]] if len(stage_data) > 0 else []
+            dominant_niches = (
+                [stage_data["dominant_neighbor_type"].mode().iloc[0]]
+                if len(stage_data) > 0
+                else []
+            )
 
         # Comparison to Normal
         comparison = {}
@@ -860,7 +993,8 @@ def compute_stage_ecosystem_summary(
             comparison = {
                 "progression_risk_fc": mean_prog_risk / (normal_means["progression_risk"] + 1e-8),
                 "niche_risk_fc": mean_niche_risk / (normal_means["niche_risk"] + 1e-8),
-                "proinflammatory_fc": stage_data["proinflammatory_score"].mean() / (normal_means["proinflammatory"] + 1e-8),
+                "proinflammatory_fc": stage_data["proinflammatory_score"].mean()
+                / (normal_means["proinflammatory"] + 1e-8),
                 "caf_fc": stage_data["caf_enrichment"].mean() / (normal_means["caf"] + 1e-8),
             }
 
@@ -958,25 +1092,27 @@ def compute_donor_consistency(
     # 1. ICC (Intraclass Correlation) - how much variance is between vs within donors
     # Simplified version: coefficient of variation across donors
     if len(donor_df) > 1:
-        donor_df["progression_risk_cv"] = (
-            donor_df["std_progression_risk"] / (donor_df["mean_progression_risk"] + 1e-8)
+        donor_df["progression_risk_cv"] = donor_df["std_progression_risk"] / (
+            donor_df["mean_progression_risk"] + 1e-8
         )
 
         # 2. Rank consistency: do stages maintain consistent ordering across donors?
         # For each donor with both precursor and LUAD, check if pattern holds
         donors_with_both = donor_df[
-            (donor_df["AAH_n_cells"] + donor_df["AIS_n_cells"] > 0) &
-            (donor_df["LUAD_n_cells"] > 0)
+            (donor_df["AAH_n_cells"] + donor_df["AIS_n_cells"] > 0)
+            & (donor_df["LUAD_n_cells"] > 0)
         ]
 
         if len(donors_with_both) > 0:
             # Check if precursor proinflammatory > LUAD proinflammatory holds
             pattern_holds = []
             for _, row in donors_with_both.iterrows():
-                precursor_proinflam = np.nanmean([
-                    row.get("AAH_mean_proinflam", np.nan),
-                    row.get("AIS_mean_proinflam", np.nan),
-                ])
+                precursor_proinflam = np.nanmean(
+                    [
+                        row.get("AAH_mean_proinflam", np.nan),
+                        row.get("AIS_mean_proinflam", np.nan),
+                    ]
+                )
                 luad_proinflam = row.get("LUAD_mean_proinflam", np.nan)
                 if not np.isnan(precursor_proinflam) and not np.isnan(luad_proinflam):
                     pattern_holds.append(precursor_proinflam > luad_proinflam)
@@ -1037,7 +1173,9 @@ def run_donor_consistency_tests(
         }
 
     # Test 2: Mann-Whitney U for precursor vs LUAD proinflammatory enrichment
-    precursor_proinflam = merged[merged["stage"].isin(["AAH", "AIS", "MIA"])]["proinflammatory_score"]
+    precursor_proinflam = merged[merged["stage"].isin(["AAH", "AIS", "MIA"])][
+        "proinflammatory_score"
+    ]
     luad_proinflam = merged[merged["stage"] == "LUAD"]["proinflammatory_score"]
 
     if len(precursor_proinflam) > 10 and len(luad_proinflam) > 10:
@@ -1049,7 +1187,9 @@ def run_donor_consistency_tests(
             "p_value": float(mw_pval),
             "precursor_median": float(precursor_proinflam.median()),
             "luad_median": float(luad_proinflam.median()),
-            "interpretation": "precursor > LUAD (significant)" if mw_pval < 0.05 else "not significant",
+            "interpretation": "precursor > LUAD (significant)"
+            if mw_pval < 0.05
+            else "not significant",
         }
 
     # Test 3: Spearman correlation between KAC score and niche risk
@@ -1084,8 +1224,12 @@ def run_donor_consistency_tests(
     if len(precursor_proinflam) > 10 and len(luad_proinflam) > 10:
         diff_samples = []
         for _ in range(n_bootstrap):
-            pre_sample = np.random.choice(precursor_proinflam.values, size=len(precursor_proinflam), replace=True)
-            luad_sample = np.random.choice(luad_proinflam.values, size=len(luad_proinflam), replace=True)
+            pre_sample = np.random.choice(
+                precursor_proinflam.values, size=len(precursor_proinflam), replace=True
+            )
+            luad_sample = np.random.choice(
+                luad_proinflam.values, size=len(luad_proinflam), replace=True
+            )
             diff_samples.append(np.mean(pre_sample) - np.mean(luad_sample))
 
         results["bootstrap_proinflam_diff"] = {
@@ -1150,6 +1294,7 @@ def generate_biology_paper_report(
                 donor_consistency.to_parquet(output_dir / "donor_consistency.parquet", index=False)
             stat_tests = run_donor_consistency_tests(cell_risks, niche_risks)
             import json
+
             with open(output_dir / "statistical_tests.json", "w") as f:
                 json.dump(stat_tests, f, indent=2, default=str)
         except Exception as e:
@@ -1166,18 +1311,26 @@ def generate_biology_paper_report(
     # Find stage with highest progression risk
     if stage_summaries:
         max_risk_stage = max(stage_summaries.values(), key=lambda x: x.mean_progression_risk)
-        report.append(f"1. **Highest progression risk stage:** {max_risk_stage.stage} "
-                     f"(mean risk = {max_risk_stage.mean_progression_risk:.3f})\n\n")
+        report.append(
+            f"1. **Highest progression risk stage:** {max_risk_stage.stage} "
+            f"(mean risk = {max_risk_stage.mean_progression_risk:.3f})\n\n"
+        )
 
         # Find stage with highest proinflammatory niche fraction
-        max_proinflam_stage = max(stage_summaries.values(), key=lambda x: x.proinflammatory_niche_fraction)
-        report.append(f"2. **Most proinflammatory niches:** {max_proinflam_stage.stage} "
-                     f"({max_proinflam_stage.proinflammatory_niche_fraction:.1%} of cells)\n\n")
+        max_proinflam_stage = max(
+            stage_summaries.values(), key=lambda x: x.proinflammatory_niche_fraction
+        )
+        report.append(
+            f"2. **Most proinflammatory niches:** {max_proinflam_stage.stage} "
+            f"({max_proinflam_stage.proinflammatory_niche_fraction:.1%} of cells)\n\n"
+        )
 
         # CAF enrichment
         max_caf_stage = max(stage_summaries.values(), key=lambda x: x.caf_enriched_fraction)
-        report.append(f"3. **Highest CAF enrichment:** {max_caf_stage.stage} "
-                     f"({max_caf_stage.caf_enriched_fraction:.1%} of cells)\n\n")
+        report.append(
+            f"3. **Highest CAF enrichment:** {max_caf_stage.stage} "
+            f"({max_caf_stage.caf_enriched_fraction:.1%} of cells)\n\n"
+        )
 
     # Stage-specific ecosystem table
     report.append("## Stage-Specific Ecosystem Summary\n\n")
@@ -1188,9 +1341,11 @@ def generate_biology_paper_report(
     for stage in canonical_order:
         if stage in stage_summaries:
             s = stage_summaries[stage]
-            report.append(f"| {stage} | {s.n_cells:,} | {s.mean_progression_risk:.3f} | "
-                         f"{s.mean_niche_risk:.3f} | {s.proinflammatory_niche_fraction:.1%} | "
-                         f"{s.caf_enriched_fraction:.1%} | {s.kac_cell_fraction:.1%} |\n")
+            report.append(
+                f"| {stage} | {s.n_cells:,} | {s.mean_progression_risk:.3f} | "
+                f"{s.mean_niche_risk:.3f} | {s.proinflammatory_niche_fraction:.1%} | "
+                f"{s.caf_enriched_fraction:.1%} | {s.kac_cell_fraction:.1%} |\n"
+            )
 
     # Fold changes vs Normal
     report.append("\n## Fold Changes vs Normal\n\n")
@@ -1201,10 +1356,12 @@ def generate_biology_paper_report(
         if stage in stage_summaries and stage_summaries[stage].comparison_to_normal:
             s = stage_summaries[stage]
             c = s.comparison_to_normal
-            report.append(f"| {stage} | {c.get('progression_risk_fc', 1):.2f}x | "
-                         f"{c.get('niche_risk_fc', 1):.2f}x | "
-                         f"{c.get('proinflammatory_fc', 1):.2f}x | "
-                         f"{c.get('caf_fc', 1):.2f}x |\n")
+            report.append(
+                f"| {stage} | {c.get('progression_risk_fc', 1):.2f}x | "
+                f"{c.get('niche_risk_fc', 1):.2f}x | "
+                f"{c.get('proinflammatory_fc', 1):.2f}x | "
+                f"{c.get('caf_fc', 1):.2f}x |\n"
+            )
 
     # Perturbation analysis summary
     if perturbation_results:
@@ -1224,20 +1381,29 @@ def generate_biology_paper_report(
         report.append(f"Analysis included {len(donor_consistency)} donors with ≥50 cells.\n\n")
 
         # Report pattern consistency rate if available
-        if hasattr(donor_consistency, "attrs") and "pattern_consistency_rate" in donor_consistency.attrs:
+        if (
+            hasattr(donor_consistency, "attrs")
+            and "pattern_consistency_rate" in donor_consistency.attrs
+        ):
             rate = donor_consistency.attrs["pattern_consistency_rate"]
             n_tested = donor_consistency.attrs["n_donors_tested"]
             if not np.isnan(rate):
-                report.append(f"**Pattern consistency:** {rate:.1%} of donors ({n_tested} tested) "
-                             "show higher proinflammatory enrichment in precursor lesions vs LUAD.\n\n")
+                report.append(
+                    f"**Pattern consistency:** {rate:.1%} of donors ({n_tested} tested) "
+                    "show higher proinflammatory enrichment in precursor lesions vs LUAD.\n\n"
+                )
 
         # Summary table
         report.append("| Donor | N Cells | Stages | Mean Prog Risk | Mean Proinflam |\n")
         report.append("|-------|---------|--------|----------------|----------------|\n")
         for _, row in donor_consistency.head(10).iterrows():
-            stages = ", ".join(row["stages_present"][:3]) + ("..." if len(row["stages_present"]) > 3 else "")
-            report.append(f"| {row['donor_id'][:10]} | {row['n_cells']:,} | {stages} | "
-                         f"{row['mean_progression_risk']:.3f} | {row['mean_proinflammatory']:.3f} |\n")
+            stages = ", ".join(row["stages_present"][:3]) + (
+                "..." if len(row["stages_present"]) > 3 else ""
+            )
+            report.append(
+                f"| {row['donor_id'][:10]} | {row['n_cells']:,} | {stages} | "
+                f"{row['mean_progression_risk']:.3f} | {row['mean_proinflammatory']:.3f} |\n"
+            )
         if len(donor_consistency) > 10:
             report.append(f"\n*Showing first 10 of {len(donor_consistency)} donors*\n")
 
@@ -1247,29 +1413,37 @@ def generate_biology_paper_report(
 
         if "kruskal_wallis_stages" in stat_tests:
             kw = stat_tests["kruskal_wallis_stages"]
-            report.append(f"**Kruskal-Wallis (progression risk across stages):** "
-                         f"H = {kw['statistic']:.2f}, p = {kw['p_value']:.2e} "
-                         f"({kw['interpretation']})\n\n")
+            report.append(
+                f"**Kruskal-Wallis (progression risk across stages):** "
+                f"H = {kw['statistic']:.2f}, p = {kw['p_value']:.2e} "
+                f"({kw['interpretation']})\n\n"
+            )
 
         if "mannwhitney_proinflam_precursor_vs_luad" in stat_tests:
             mw = stat_tests["mannwhitney_proinflam_precursor_vs_luad"]
-            report.append(f"**Mann-Whitney U (proinflammatory: precursor vs LUAD):** "
-                         f"U = {mw['statistic']:.1f}, p = {mw['p_value']:.2e}\n"
-                         f"  - Precursor median: {mw['precursor_median']:.3f}, "
-                         f"LUAD median: {mw['luad_median']:.3f}\n"
-                         f"  - Interpretation: {mw['interpretation']}\n\n")
+            report.append(
+                f"**Mann-Whitney U (proinflammatory: precursor vs LUAD):** "
+                f"U = {mw['statistic']:.1f}, p = {mw['p_value']:.2e}\n"
+                f"  - Precursor median: {mw['precursor_median']:.3f}, "
+                f"LUAD median: {mw['luad_median']:.3f}\n"
+                f"  - Interpretation: {mw['interpretation']}\n\n"
+            )
 
         if "spearman_kac_vs_niche" in stat_tests:
             sp = stat_tests["spearman_kac_vs_niche"]
-            report.append(f"**Spearman (KAC score vs niche risk):** "
-                         f"ρ = {sp['rho']:.3f}, p = {sp['p_value']:.2e} "
-                         f"({sp['interpretation']})\n\n")
+            report.append(
+                f"**Spearman (KAC score vs niche risk):** "
+                f"ρ = {sp['rho']:.3f}, p = {sp['p_value']:.2e} "
+                f"({sp['interpretation']})\n\n"
+            )
 
         if "bootstrap_proinflam_diff" in stat_tests:
             bs = stat_tests["bootstrap_proinflam_diff"]
-            report.append(f"**Bootstrap 95% CI (proinflammatory difference, precursor - LUAD):** "
-                         f"[{bs['ci_lower']:.3f}, {bs['ci_upper']:.3f}] "
-                         f"({'excludes zero - significant' if bs['significant'] else 'includes zero'})\n\n")
+            report.append(
+                f"**Bootstrap 95% CI (proinflammatory difference, precursor - LUAD):** "
+                f"[{bs['ci_lower']:.3f}, {bs['ci_upper']:.3f}] "
+                f"({'excludes zero - significant' if bs['significant'] else 'includes zero'})\n\n"
+            )
 
     # Biological interpretation
     report.append("\n## Biological Interpretation\n\n")
@@ -1278,28 +1452,49 @@ def generate_biology_paper_report(
     if stage_summaries:
         # Check if proinflammatory niches are enriched in precursors
         precursor_stages = ["AAH", "AIS", "MIA"]
-        precursor_proinflam = np.mean([
-            stage_summaries[s].proinflammatory_niche_fraction
-            for s in precursor_stages if s in stage_summaries
-        ]) if any(s in stage_summaries for s in precursor_stages) else 0
+        precursor_proinflam = (
+            np.mean(
+                [
+                    stage_summaries[s].proinflammatory_niche_fraction
+                    for s in precursor_stages
+                    if s in stage_summaries
+                ]
+            )
+            if any(s in stage_summaries for s in precursor_stages)
+            else 0
+        )
 
-        luad_proinflam = stage_summaries.get("LUAD", StageEcosystemSummary(
-            stage="LUAD", n_cells=0, mean_progression_risk=0, std_progression_risk=0,
-            mean_niche_risk=0, proinflammatory_niche_fraction=0, caf_enriched_fraction=0,
-            dominant_niche_types=[], kac_cell_fraction=0, il1b_pathway_activity=0,
-            comparison_to_normal={}
-        )).proinflammatory_niche_fraction
+        luad_proinflam = stage_summaries.get(
+            "LUAD",
+            StageEcosystemSummary(
+                stage="LUAD",
+                n_cells=0,
+                mean_progression_risk=0,
+                std_progression_risk=0,
+                mean_niche_risk=0,
+                proinflammatory_niche_fraction=0,
+                caf_enriched_fraction=0,
+                dominant_niche_types=[],
+                kac_cell_fraction=0,
+                il1b_pathway_activity=0,
+                comparison_to_normal={},
+            ),
+        ).proinflammatory_niche_fraction
 
         if precursor_proinflam > luad_proinflam:
-            report.append("✓ **Consistent with hypothesis:** Proinflammatory niches are more common in precursor "
-                         f"lesions ({precursor_proinflam:.1%}) than in LUAD ({luad_proinflam:.1%}). "
-                         "This pattern aligns with Peng/Kadara findings, though validation across "
-                         "independent cohorts is needed.\n\n")
+            report.append(
+                "✓ **Consistent with hypothesis:** Proinflammatory niches are more common in precursor "
+                f"lesions ({precursor_proinflam:.1%}) than in LUAD ({luad_proinflam:.1%}). "
+                "This pattern aligns with Peng/Kadara findings, though validation across "
+                "independent cohorts is needed.\n\n"
+            )
         else:
-            report.append("⚠ **Divergent pattern:** Proinflammatory niche enrichment pattern differs from expected "
-                         f"(precursors: {precursor_proinflam:.1%}, LUAD: {luad_proinflam:.1%}). "
-                         "This may reflect dataset-specific characteristics, cohort composition, "
-                         "or differences in cell type annotation granularity.\n\n")
+            report.append(
+                "⚠ **Divergent pattern:** Proinflammatory niche enrichment pattern differs from expected "
+                f"(precursors: {precursor_proinflam:.1%}, LUAD: {luad_proinflam:.1%}). "
+                "This may reflect dataset-specific characteristics, cohort composition, "
+                "or differences in cell type annotation granularity.\n\n"
+            )
 
     # Save report
     with open(output_dir / "biology_paper_report.md", "w") as f:
@@ -1307,6 +1502,7 @@ def generate_biology_paper_report(
 
     # Save stage summaries as JSON
     import json
+
     summary_dict = {
         stage: {
             "n_cells": s.n_cells,
@@ -1371,8 +1567,9 @@ def run_biology_paper_analysis(
     if expression_path and expression_path.exists():
         try:
             import anndata
+
             adata = anndata.read_h5ad(expression_path)
-            expression = adata.X.toarray() if hasattr(adata.X, 'toarray') else np.array(adata.X)
+            expression = adata.X.toarray() if hasattr(adata.X, "toarray") else np.array(adata.X)
             gene_names = list(adata.var_names)
             cell_ids = list(adata.obs_names)
         except Exception as e:
@@ -1399,8 +1596,9 @@ def run_biology_paper_analysis(
     if expression is not None and gene_names is not None:
         print("  Scoring KAC/alveolar progenitor states...")
         kac_scores = score_kac_alveolar_progenitor_state(
-            expression, gene_names,
-            cell_ids if 'cell_ids' in dir() else embeddings["cell_id"].tolist()
+            expression,
+            gene_names,
+            cell_ids if "cell_ids" in dir() else embeddings["cell_id"].tolist(),
         )
 
     # 5. Stage ecosystem summaries
@@ -1415,8 +1613,7 @@ def run_biology_paper_analysis(
     # 7. Generate report
     print("  Generating report...")
     generate_biology_paper_report(
-        cell_risks, niche_risks, stage_summaries, output_dir,
-        kac_scores, perturbation_results
+        cell_risks, niche_risks, stage_summaries, output_dir, kac_scores, perturbation_results
     )
 
     return {
@@ -1432,4 +1629,6 @@ if __name__ == "__main__":
     print("Biology paper outputs module loaded.")
     print("\nUsage:")
     print("  from stagebridge.analysis.biology_paper_outputs import run_biology_paper_analysis")
-    print("  results = run_biology_paper_analysis(embeddings_path, neighborhoods_path, output_dir)")
+    print(
+        "  results = run_biology_paper_analysis(embeddings_path, neighborhoods_path, output_dir)"
+    )

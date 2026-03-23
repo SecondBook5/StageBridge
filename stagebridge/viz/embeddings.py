@@ -27,13 +27,13 @@ from scipy.stats import gaussian_kde
 from stagebridge.logging_utils import get_logger
 from stagebridge.data.luad_evo.stages import CANONICAL_STAGE_ORDER
 
+# Stage color palette — use LungPCA colors for consistency with original paper
+from .lungpca_style import STAGE_COLORS as _STAGE_COLORS
+
 if TYPE_CHECKING:
     pass
 
 log = get_logger(__name__)
-
-# Stage color palette — use LungPCA colors for consistency with original paper
-from .lungpca_style import STAGE_COLORS as _STAGE_COLORS
 
 
 def _get_umap_coords(adata: Any) -> np.ndarray:
@@ -436,9 +436,7 @@ def plot_umap_with_trajectories(
     legend1.get_frame().set_linewidth(1.5)
 
     # Add arrow legend manually
-    mpatches.FancyArrow(
-        0, 0, 0.1, 0.1, width=0.05, color=arrow_color, alpha=arrow_alpha
-    )
+    mpatches.FancyArrow(0, 0, 0.1, 0.1, width=0.05, color=arrow_color, alpha=arrow_alpha)
     from matplotlib.lines import Line2D
 
     arrow_legend = Line2D(

@@ -148,9 +148,7 @@ def _execute_training(
         # Get data
         data_config = config.get("data", {})
         train_loader = get_dataloader_optimized(
-            split="train",
-            batch_size=config.get("batch_size", 32),
-            **data_config
+            split="train", batch_size=config.get("batch_size", 32), **data_config
         )
 
         # Training parameters
@@ -180,7 +178,7 @@ def _execute_training(
 
             avg_loss = epoch_loss / max(n_batches, 1)
             losses.append(avg_loss)
-            log.info(f"  Epoch {epoch+1}/{n_epochs}: loss={avg_loss:.4f}")
+            log.info(f"  Epoch {epoch + 1}/{n_epochs}: loss={avg_loss:.4f}")
 
         # Save model
         torch.save(model.state_dict(), output_dir / "model.pt")
@@ -216,10 +214,26 @@ def _execute_training(
 def _extract_model_config(config: dict) -> dict:
     """Extract model-specific config from full config."""
     model_keys = [
-        "reference_mode", "latent_dim", "hlca_dim", "luca_dim", "fusion_mode",
-        "niche_encoder_type", "receiver_dim", "sender_dim", "niche_hidden_dim",
-        "niche_heads", "niche_layers", "use_set_encoder", "set_hidden_dim",
-        "set_heads", "use_ude", "use_cross_attention", "num_edges",
-        "use_wes", "wes_dim", "wes_hidden_dim", "dropout",
+        "reference_mode",
+        "latent_dim",
+        "hlca_dim",
+        "luca_dim",
+        "fusion_mode",
+        "niche_encoder_type",
+        "receiver_dim",
+        "sender_dim",
+        "niche_hidden_dim",
+        "niche_heads",
+        "niche_layers",
+        "use_set_encoder",
+        "set_hidden_dim",
+        "set_heads",
+        "use_ude",
+        "use_cross_attention",
+        "num_edges",
+        "use_wes",
+        "wes_dim",
+        "wes_hidden_dim",
+        "dropout",
     ]
     return {k: config[k] for k in model_keys if k in config}

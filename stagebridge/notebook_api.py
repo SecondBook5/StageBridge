@@ -143,7 +143,10 @@ def _progress_iter(iterable: list[str], *, desc: str, enabled: bool) -> Any:
 
 
 _STEP_REGISTRY: dict[str, StepSpec] = {
-    "communication_benchmark": ("stagebridge.pipelines.run_communication_benchmark", "run_communication_benchmark"),
+    "communication_benchmark": (
+        "stagebridge.pipelines.run_communication_benchmark",
+        "run_communication_benchmark",
+    ),
     "context_model": ("stagebridge.pipelines.run_context_model", "run_context_model"),
     "data_prep": ("stagebridge.pipelines.run_data_prep", "run_data_prep"),
     "eamist_report": ("stagebridge.pipelines.run_eamist_reporting", "run_eamist_reporting"),

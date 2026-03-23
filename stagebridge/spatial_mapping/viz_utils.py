@@ -121,7 +121,7 @@ def plot_gamma_pca_spatial(
         )
         plt.colorbar(scatter, ax=ax, fraction=0.046, pad=0.04)
         var_exp = explained_variance[i]
-        ax.set_title(f"{cell_type}\nSpatial PC{i+1} ({var_exp:.1%} var)")
+        ax.set_title(f"{cell_type}\nSpatial PC{i + 1} ({var_exp:.1%} var)")
         ax.set_xlabel("Spatial X")
         ax.set_ylabel("Spatial Y")
         ax.axis("equal")

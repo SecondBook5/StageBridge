@@ -15,8 +15,6 @@ from typing import Any, Callable
 import anndata as ad
 import numpy as np
 
-log = logging.getLogger(__name__)
-
 from .backend_base import SpatialBackend
 from .tangram_wrapper import TangramBackend
 from .destvi_wrapper import DestVIBackend
@@ -38,6 +36,8 @@ from .visualize import (
     create_comparison_summary_figure,
 )
 from .standardize import StandardizedOutput
+
+log = logging.getLogger(__name__)
 
 
 @dataclass

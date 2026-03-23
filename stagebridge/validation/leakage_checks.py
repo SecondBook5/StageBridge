@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 # Core Leakage Checks
 # =============================================================================
 
+
 def check_donor_leakage(
     train_donors: set[str],
     val_donors: set[str],
@@ -80,11 +81,13 @@ def check_sample_containment(
         donor_splits = adata.obs.loc[donor_mask, split_col].unique()
 
         if len(donor_splits) > 1:
-            issues.append({
-                "donor": donor,
-                "splits": list(donor_splits),
-                "n_samples": donor_mask.sum(),
-            })
+            issues.append(
+                {
+                    "donor": donor,
+                    "splits": list(donor_splits),
+                    "n_samples": donor_mask.sum(),
+                }
+            )
 
     return {
         "check": "sample_containment",
@@ -125,12 +128,14 @@ def check_neighborhood_leakage(
         for neighbor_id in neighbors:
             neighbor_split = cell_splits.get(neighbor_id)
             if neighbor_split and neighbor_split != cell_split:
-                cross_split_neighbors.append({
-                    "cell": cell_id,
-                    "cell_split": cell_split,
-                    "neighbor": neighbor_id,
-                    "neighbor_split": neighbor_split,
-                })
+                cross_split_neighbors.append(
+                    {
+                        "cell": cell_id,
+                        "cell_split": cell_split,
+                        "neighbor": neighbor_id,
+                        "neighbor_split": neighbor_split,
+                    }
+                )
 
     return {
         "check": "neighborhood_leakage",
@@ -164,6 +169,7 @@ def check_reference_leakage(
 # =============================================================================
 # Split Manifest Validation
 # =============================================================================
+
 
 def validate_split_manifest(
     manifest: dict[str, Any],
@@ -223,6 +229,7 @@ def validate_split_manifest(
 # =============================================================================
 # Full Leakage Audit
 # =============================================================================
+
 
 def run_leakage_audit(
     adata: ad.AnnData,

@@ -29,13 +29,13 @@ from typing import Any, Literal
 
 # Stage/Histology colors (Figure 1B, used throughout)
 STAGE_COLORS = {
-    "Normal": "#33a02c",        # green
-    "AAH": "#b2df8a",           # light green
-    "AIS": "#fdbf6f",           # light orange
-    "MIA": "#fb9a99",           # pink
-    "LUAD": "#ff7f00",          # orange
-    "Tumor necrosis": "#e31a1c", # red
-    "Unknown": "#d9d9d9",       # gray
+    "Normal": "#33a02c",  # green
+    "AAH": "#b2df8a",  # light green
+    "AIS": "#fdbf6f",  # light orange
+    "MIA": "#fb9a99",  # pink
+    "LUAD": "#ff7f00",  # orange
+    "Tumor necrosis": "#e31a1c",  # red
+    "Unknown": "#d9d9d9",  # gray
 }
 
 # Alternative stage colors (Figure 3H, 5G style)
@@ -56,9 +56,9 @@ STAGE_COLORS_ALT = {
 # Epithelial cell type colors (Figure 3A)
 EPITHELIAL_COLORS = {
     "Basal": "#1f77b4",
-    "AT1": "#ff7f0e",           # or #aec7e8 in some figs
+    "AT1": "#ff7f0e",  # or #aec7e8 in some figs
     "AT2": "#e377c2",
-    "KAC": "#2ca02c",           # or #d62728 or #17becf
+    "KAC": "#2ca02c",  # or #d62728 or #17becf
     "Ciliated": "#ffbb78",
     "Club": "#ff9896",
     "Club.secretory": "#9467bd",
@@ -167,16 +167,18 @@ TREATMENT_COLORS = {
 # COLORMAPS
 # =============================================================================
 
+
 def get_magma_white() -> mcolors.LinearSegmentedColormap:
     """Custom magma colormap with white start (Figure 3E, 3G style)."""
     from matplotlib import cm
+
     magma = cm.get_cmap("magma", 323)
     white_portion = plt.cm.colors.LinearSegmentedColormap.from_list(
         "white_start", ["white", magma(0.15)], N=10
     )
     # Combine white start with reversed magma
-    colors_white = [white_portion(i/9) for i in range(10)]
-    colors_magma = [magma(1 - i/322 * 0.82) for i in range(323)]
+    colors_white = [white_portion(i / 9) for i in range(10)]
+    colors_magma = [magma(1 - i / 322 * 0.82) for i in range(323)]
     all_colors = colors_white + colors_magma
     return mcolors.LinearSegmentedColormap.from_list("magma_white", all_colors)
 
@@ -194,23 +196,35 @@ def get_turbo_truncated() -> mcolors.LinearSegmentedColormap:
 def get_correlation_cmap() -> mcolors.LinearSegmentedColormap:
     """Correlation colormap (Figure 4B style) - blue-white-red with asymmetry."""
     colors = (
-        list(plt.cm.colors.LinearSegmentedColormap.from_list(
-            "blue_white", ["#2171b5", "#ffffbf"], N=709
-        )(np.linspace(0, 1, 709))) +
-        list(plt.cm.colors.LinearSegmentedColormap.from_list(
-            "white_red", ["#ffffbf", "#d73027"], N=300
-        )(np.linspace(0, 1, 300))) +
-        list(plt.cm.colors.LinearSegmentedColormap.from_list(
-            "red_dark", ["#d73027", "#bd0026"], N=221
-        )(np.linspace(0, 1, 221)))
+        list(
+            plt.cm.colors.LinearSegmentedColormap.from_list(
+                "blue_white", ["#2171b5", "#ffffbf"], N=709
+            )(np.linspace(0, 1, 709))
+        )
+        + list(
+            plt.cm.colors.LinearSegmentedColormap.from_list(
+                "white_red", ["#ffffbf", "#d73027"], N=300
+            )(np.linspace(0, 1, 300))
+        )
+        + list(
+            plt.cm.colors.LinearSegmentedColormap.from_list(
+                "red_dark", ["#d73027", "#bd0026"], N=221
+            )(np.linspace(0, 1, 221))
+        )
     )
     return mcolors.LinearSegmentedColormap.from_list("correlation", colors)
 
 
 # Feature expression colormap (Figure 1C style)
 EXPRESSION_CMAP_COLORS = [
-    "white", "#ffffe5", "#ffffcc", "#ffffb2",
-    "#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"
+    "white",
+    "#ffffe5",
+    "#ffffcc",
+    "#ffffb2",
+    "#fecc5c",
+    "#fd8d3c",
+    "#f03b20",
+    "#bd0026",
 ]
 
 
@@ -221,67 +235,62 @@ EXPRESSION_CMAP_COLORS = [
 # Standard figure settings from LungPCA
 FIGURE_SETTINGS = {
     "dpi": 300,
-    "font_size": 6,           # Base font size
+    "font_size": 6,  # Base font size
     "title_size": 12,
     "label_size": 6,
     "tick_size": 6,
     "legend_size": 6,
-    "linewidth": 0.2,         # For boxplots, violins
+    "linewidth": 0.2,  # For boxplots, violins
     "boxplot_width": 0.5,
     "jitter_size": 0.5,
-    "pt_size": 0.1,           # Scatter point size
+    "pt_size": 0.1,  # Scatter point size
 }
 
 
 def configure_lungpca_style() -> None:
     """Configure matplotlib to match LungPCA publication style."""
-    mpl.rcParams.update({
-        # Background
-        "figure.facecolor": "white",
-        "axes.facecolor": "white",
-        "savefig.facecolor": "white",
-
-        # DPI
-        "savefig.dpi": 300,
-        "figure.dpi": 150,
-
-        # Fonts (LungPCA uses small fonts)
-        "font.family": "sans-serif",
-        "font.size": 6,
-        "axes.titlesize": 8,
-        "axes.labelsize": 6,
-        "xtick.labelsize": 6,
-        "ytick.labelsize": 6,
-        "legend.fontsize": 6,
-
-        # Spines
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.linewidth": 0.5,
-
-        # Ticks
-        "xtick.major.width": 0.5,
-        "ytick.major.width": 0.5,
-
-        # Colors
-        "axes.edgecolor": "black",
-        "text.color": "black",
-
-        # Grid (off by default)
-        "axes.grid": False,
-
-        # Legend
-        "legend.frameon": False,
-
-        # Saving
-        "savefig.bbox": "tight",
-        "pdf.fonttype": 42,
-    })
+    mpl.rcParams.update(
+        {
+            # Background
+            "figure.facecolor": "white",
+            "axes.facecolor": "white",
+            "savefig.facecolor": "white",
+            # DPI
+            "savefig.dpi": 300,
+            "figure.dpi": 150,
+            # Fonts (LungPCA uses small fonts)
+            "font.family": "sans-serif",
+            "font.size": 6,
+            "axes.titlesize": 8,
+            "axes.labelsize": 6,
+            "xtick.labelsize": 6,
+            "ytick.labelsize": 6,
+            "legend.fontsize": 6,
+            # Spines
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.linewidth": 0.5,
+            # Ticks
+            "xtick.major.width": 0.5,
+            "ytick.major.width": 0.5,
+            # Colors
+            "axes.edgecolor": "black",
+            "text.color": "black",
+            # Grid (off by default)
+            "axes.grid": False,
+            # Legend
+            "legend.frameon": False,
+            # Saving
+            "savefig.bbox": "tight",
+            "pdf.fonttype": 42,
+        }
+    )
 
 
 # =============================================================================
 # PLOTTING UTILITIES
 # =============================================================================
+
 
 def get_stage_color(stage: str, style: Literal["default", "alt"] = "default") -> str:
     """Get stage color matching LungPCA palette."""
@@ -290,8 +299,7 @@ def get_stage_color(stage: str, style: Literal["default", "alt"] = "default") ->
 
 
 def get_celltype_color(
-    celltype: str,
-    category: Literal["epithelial", "stromal", "major", "mouse"] = "epithelial"
+    celltype: str, category: Literal["epithelial", "stromal", "major", "mouse"] = "epithelial"
 ) -> str:
     """Get cell type color matching LungPCA palette."""
     palettes = {
@@ -355,6 +363,7 @@ def save_lungpca_figure(
 # SPECIFIC PLOT TYPES (matching LungPCA figures)
 # =============================================================================
 
+
 def plot_violin_boxplot(
     ax: plt.Axes,
     data: list[np.ndarray],
@@ -366,8 +375,12 @@ def plot_violin_boxplot(
 ) -> None:
     """Violin + boxplot combination (Figure 5E, 5K style)."""
     parts = ax.violinplot(
-        data, positions=positions, widths=width,
-        showmeans=False, showmedians=False, showextrema=False
+        data,
+        positions=positions,
+        widths=width,
+        showmeans=False,
+        showmedians=False,
+        showextrema=False,
     )
 
     for i, pc in enumerate(parts["bodies"]):
@@ -378,8 +391,7 @@ def plot_violin_boxplot(
 
     # Add boxplot overlay
     bp = ax.boxplot(
-        data, positions=positions, widths=width * 0.3,
-        patch_artist=True, showfliers=False
+        data, positions=positions, widths=width * 0.3, patch_artist=True, showfliers=False
     )
 
     for patch in bp["boxes"]:
@@ -423,9 +435,13 @@ def plot_stacked_bar(
     bottom = np.zeros(len(groups))
     for i, cat in enumerate(categories):
         ax.bar(
-            x, values[i], width, bottom=bottom,
-            label=cat, color=colors.get(cat, "#d9d9d9"),
-            edgecolor="none"
+            x,
+            values[i],
+            width,
+            bottom=bottom,
+            label=cat,
+            color=colors.get(cat, "#d9d9d9"),
+            edgecolor="none",
         )
         bottom += values[i]
 
@@ -463,10 +479,7 @@ def plot_boxplot_jitter(
     jitter_size: float = 1.0,
 ) -> None:
     """Boxplot with jittered points (Figure 1B, 3H style)."""
-    bp = ax.boxplot(
-        data, positions=positions, widths=width,
-        patch_artist=True, showfliers=False
-    )
+    bp = ax.boxplot(data, positions=positions, widths=width, patch_artist=True, showfliers=False)
 
     for i, patch in enumerate(bp["boxes"]):
         patch.set_facecolor(colors[i % len(colors)])
@@ -486,10 +499,7 @@ def plot_boxplot_jitter(
     for i, (d, pos) in enumerate(zip(data, positions)):
         jitter = np.random.uniform(-0.2, 0.2, len(d))
         ax.scatter(
-            pos + jitter, d,
-            c=colors[i % len(colors)],
-            s=jitter_size, alpha=0.6,
-            edgecolors="none"
+            pos + jitter, d, c=colors[i % len(colors)], s=jitter_size, alpha=0.6, edgecolors="none"
         )
 
     if labels:
@@ -509,10 +519,7 @@ def plot_heatmap(
     cbar: bool = True,
 ) -> Any:
     """Publication heatmap (Figure 1D, 4B style)."""
-    im = ax.imshow(
-        data, cmap=cmap, aspect="auto",
-        vmin=vmin, vmax=vmax, interpolation="nearest"
-    )
+    im = ax.imshow(data, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax, interpolation="nearest")
 
     if row_labels:
         ax.set_yticks(np.arange(len(row_labels)))
@@ -526,9 +533,13 @@ def plot_heatmap(
         for i in range(data.shape[0]):
             for j in range(data.shape[1]):
                 ax.text(
-                    j, i, f"{data[i, j]:.2f}",
-                    ha="center", va="center", fontsize=4,
-                    color="white" if abs(data[i, j]) > (vmax or data.max()) * 0.5 else "black"
+                    j,
+                    i,
+                    f"{data[i, j]:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=4,
+                    color="white" if abs(data[i, j]) > (vmax or data.max()) * 0.5 else "black",
                 )
 
     # Remove spines
@@ -557,13 +568,16 @@ def plot_spatial_hexbin(
         ax.imshow(background_img, alpha=background_alpha)
 
     hb = ax.hexbin(
-        x, y, C=values,
+        x,
+        y,
+        C=values,
         gridsize=gridsize,
         cmap=cmap,
         edgecolors="face",
         linewidths=0,
-        vmin=vmin, vmax=vmax,
-        alpha=1.0
+        vmin=vmin,
+        vmax=vmax,
+        alpha=1.0,
     )
 
     ax.axis("off")
@@ -594,12 +608,14 @@ def plot_spatial_categorical(
     color_values = np.array([cat_to_idx.get(c, 0) for c in categories])
 
     ax.hexbin(
-        x, y, C=color_values,
+        x,
+        y,
+        C=color_values,
         gridsize=gridsize,
         cmap=cmap,
         edgecolors="face",
         linewidths=-0.15,
-        alpha=1.0
+        alpha=1.0,
     )
 
     ax.axis("off")
@@ -609,6 +625,7 @@ def plot_spatial_categorical(
 # =============================================================================
 # SANKEY DIAGRAM (Figure 1B style)
 # =============================================================================
+
 
 def plot_sankey_diagram(
     source_labels: list[str],
@@ -646,27 +663,30 @@ def plot_sankey_diagram(
         if target_colors is None:
             target_colors = STAGE_COLORS
 
-        node_colors = (
-            [source_colors.get(label, "#d9d9d9") for label in source_labels] +
-            [target_colors.get(label, "#d9d9d9") for label in target_labels]
-        )
+        node_colors = [source_colors.get(label, "#d9d9d9") for label in source_labels] + [
+            target_colors.get(label, "#d9d9d9") for label in target_labels
+        ]
 
-        fig = go.Figure(data=[go.Sankey(
-            arrangement="snap",
-            node=dict(
-                pad=15,
-                thickness=20,
-                line=dict(color="black", width=0.5),
-                label=all_labels,
-                color=node_colors,
-            ),
-            link=dict(
-                source=sources,
-                target=targets,
-                value=values,
-                color="rgba(150, 150, 150, 0.4)",
-            ),
-        )])
+        fig = go.Figure(
+            data=[
+                go.Sankey(
+                    arrangement="snap",
+                    node=dict(
+                        pad=15,
+                        thickness=20,
+                        line=dict(color="black", width=0.5),
+                        label=all_labels,
+                        color=node_colors,
+                    ),
+                    link=dict(
+                        source=sources,
+                        target=targets,
+                        value=values,
+                        color="rgba(150, 150, 150, 0.4)",
+                    ),
+                )
+            ]
+        )
 
         fig.update_layout(
             title_text=title,
@@ -688,7 +708,8 @@ def plot_sankey_diagram(
         # Matplotlib fallback - show as heatmap
         fig, ax = create_lungpca_figure(width_inches=8, height_inches=6)
         im = plot_heatmap(
-            ax, flow_matrix,
+            ax,
+            flow_matrix,
             row_labels=source_labels,
             col_labels=target_labels,
             cmap="Blues",
@@ -706,6 +727,7 @@ def plot_sankey_diagram(
 # =============================================================================
 # ALLUVIAL PLOT (Figure 3L style)
 # =============================================================================
+
 
 def plot_alluvial(
     ax: plt.Axes,
@@ -726,8 +748,7 @@ def plot_alluvial(
     for stage in stage_order:
         total = sum(data.get(stage, {}).values())
         normalized[stage] = {
-            cat: data.get(stage, {}).get(cat, 0) / max(total, 1)
-            for cat in categories
+            cat: data.get(stage, {}).get(cat, 0) / max(total, 1) for cat in categories
         }
 
     # Stack areas
@@ -735,9 +756,13 @@ def plot_alluvial(
     for cat in categories:
         values = [normalized[stage].get(cat, 0) for stage in stage_order]
         ax.fill_between(
-            x, bottom, bottom + values,
-            label=cat, color=colors.get(cat, "#d9d9d9"),
-            alpha=alpha, edgecolor="none"
+            x,
+            bottom,
+            bottom + values,
+            label=cat,
+            color=colors.get(cat, "#d9d9d9"),
+            alpha=alpha,
+            edgecolor="none",
         )
         bottom += values
 
@@ -753,6 +778,7 @@ def plot_alluvial(
 # =============================================================================
 
 STAGE_ORDER = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+
 
 def get_stage_colors_list(stages: list[str] | None = None) -> list[str]:
     """Get list of colors for stages in order."""

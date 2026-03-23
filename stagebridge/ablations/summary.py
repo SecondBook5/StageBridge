@@ -48,11 +48,13 @@ def generate_ablation_summary(
     rows = []
     for name, results in all_results.items():
         if "error" in results:
-            rows.append({
-                "ablation": name,
-                "status": "failed",
-                "error": results["error"],
-            })
+            rows.append(
+                {
+                    "ablation": name,
+                    "status": "failed",
+                    "error": results["error"],
+                }
+            )
             continue
 
         ablation_metrics = compute_ablation_metrics(results)
@@ -61,21 +63,23 @@ def generate_ablation_summary(
 
         ablation_info = results.get("ablation", {})
 
-        rows.append({
-            "ablation": name,
-            "status": "success",
-            "tier": ablation_info.get("tier", "unknown"),
-            "description": ablation_info.get("description", ""),
-            "hypothesis": ablation_info.get("hypothesis", ""),
-            "expected_degradation": ablation_info.get("expected_degradation", "unknown"),
-            "actual_degradation": degradation_level,
-            "transition_loss": ablation_metrics.get("transition_loss"),
-            "transition_loss_delta": degradation.get("transition_loss"),
-            "donor_accuracy": ablation_metrics.get("donor_held_out_accuracy"),
-            "donor_accuracy_delta": degradation.get("donor_held_out_accuracy"),
-            "calibration_error": ablation_metrics.get("calibration_error"),
-            "calibration_error_delta": degradation.get("calibration_error"),
-        })
+        rows.append(
+            {
+                "ablation": name,
+                "status": "success",
+                "tier": ablation_info.get("tier", "unknown"),
+                "description": ablation_info.get("description", ""),
+                "hypothesis": ablation_info.get("hypothesis", ""),
+                "expected_degradation": ablation_info.get("expected_degradation", "unknown"),
+                "actual_degradation": degradation_level,
+                "transition_loss": ablation_metrics.get("transition_loss"),
+                "transition_loss_delta": degradation.get("transition_loss"),
+                "donor_accuracy": ablation_metrics.get("donor_held_out_accuracy"),
+                "donor_accuracy_delta": degradation.get("donor_held_out_accuracy"),
+                "calibration_error": ablation_metrics.get("calibration_error"),
+                "calibration_error_delta": degradation.get("calibration_error"),
+            }
+        )
 
     return pd.DataFrame(rows)
 
@@ -112,19 +116,19 @@ def generate_ablation_table(
         "donor_accuracy_delta",
     ]
 
-    pub_df = summary_df[
-        [c for c in pub_cols if c in summary_df.columns]
-    ].copy()
+    pub_df = summary_df[[c for c in pub_cols if c in summary_df.columns]].copy()
 
     # Rename for publication
-    pub_df = pub_df.rename(columns={
-        "ablation": "Ablation",
-        "description": "Description",
-        "expected_degradation": "Expected",
-        "actual_degradation": "Observed",
-        "transition_loss_delta": "ΔLoss",
-        "donor_accuracy_delta": "ΔAcc",
-    })
+    pub_df = pub_df.rename(
+        columns={
+            "ablation": "Ablation",
+            "description": "Description",
+            "expected_degradation": "Expected",
+            "actual_degradation": "Observed",
+            "transition_loss_delta": "ΔLoss",
+            "donor_accuracy_delta": "ΔAcc",
+        }
+    )
 
     if format == "latex":
         table_str = pub_df.to_latex(index=False, float_format="%.3f")
@@ -174,9 +178,7 @@ def save_ablation_report(
     # Save raw results
     with open(output_dir / "ablation_results.json", "w") as f:
         # Convert to JSON-serializable format
-        serializable = {
-            k: _make_serializable(v) for k, v in all_results.items()
-        }
+        serializable = {k: _make_serializable(v) for k, v in all_results.items()}
         json.dump(serializable, f, indent=2)
 
     return output_dir
@@ -247,10 +249,18 @@ def generate_ablation_visualizations(
     # -------------------------------------------------------------------------
     # 1. Radar Chart - Multi-metric comparison across ablations
     # -------------------------------------------------------------------------
-    radar_metrics = _get_available_metrics(success_df, [
-        "transition_loss", "donor_accuracy", "calibration_error",
-        "wasserstein", "mse", "mae", "stage_f1"
-    ])
+    radar_metrics = _get_available_metrics(
+        success_df,
+        [
+            "transition_loss",
+            "donor_accuracy",
+            "calibration_error",
+            "wasserstein",
+            "mse",
+            "mae",
+            "stage_f1",
+        ],
+    )
 
     if len(radar_metrics) >= 3:
         try:
@@ -283,10 +293,17 @@ def generate_ablation_visualizations(
     # -------------------------------------------------------------------------
     # 2. Parallel Coordinates - All metrics side by side
     # -------------------------------------------------------------------------
-    parallel_metrics = _get_available_metrics(success_df, [
-        "transition_loss", "donor_accuracy", "calibration_error",
-        "transition_loss_delta", "donor_accuracy_delta", "calibration_error_delta",
-    ])
+    parallel_metrics = _get_available_metrics(
+        success_df,
+        [
+            "transition_loss",
+            "donor_accuracy",
+            "calibration_error",
+            "transition_loss_delta",
+            "donor_accuracy_delta",
+            "calibration_error_delta",
+        ],
+    )
 
     if len(parallel_metrics) >= 2:
         try:
@@ -393,9 +410,9 @@ def _plot_ablation_heatmap(df: pd.DataFrame, output_dir: Path) -> plt.Figure | N
     delta_cols = [c for c in df.columns if c.endswith("_delta") and df[c].notna().any()]
     if not delta_cols:
         # Fall back to absolute metrics
-        delta_cols = _get_available_metrics(df, [
-            "transition_loss", "donor_accuracy", "calibration_error"
-        ])
+        delta_cols = _get_available_metrics(
+            df, ["transition_loss", "donor_accuracy", "calibration_error"]
+        )
 
     if len(delta_cols) < 1:
         return None
@@ -429,8 +446,16 @@ def _plot_ablation_heatmap(df: pd.DataFrame, output_dir: Path) -> plt.Figure | N
         for j in range(len(delta_cols)):
             val = matrix[i, j]
             text_color = "white" if matrix_norm[i, j] > 0.6 else "black"
-            ax.text(j, i, f"{val:.3f}", ha="center", va="center",
-                    fontsize=9, color=text_color, fontweight="bold")
+            ax.text(
+                j,
+                i,
+                f"{val:.3f}",
+                ha="center",
+                va="center",
+                fontsize=9,
+                color=text_color,
+                fontweight="bold",
+            )
 
     # Grid lines
     for i in range(len(ablations) + 1):
@@ -438,7 +463,9 @@ def _plot_ablation_heatmap(df: pd.DataFrame, output_dir: Path) -> plt.Figure | N
     for j in range(len(delta_cols) + 1):
         ax.axvline(j - 0.5, color="white", linewidth=1.5)
 
-    ax.set_title("Ablation Impact Heatmap (Δ from Baseline)", fontsize=14, fontweight="bold", pad=15)
+    ax.set_title(
+        "Ablation Impact Heatmap (Δ from Baseline)", fontsize=14, fontweight="bold", pad=15
+    )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label("Normalized Impact", fontsize=11)
@@ -473,17 +500,34 @@ def _plot_degradation_comparison(df: pd.DataFrame, output_dir: Path) -> plt.Figu
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#FAFAFA")
 
-    ax.bar(x - width/2, df["expected_num"], width, label="Expected",
-                   color="#3B82F6", alpha=0.8, edgecolor="white", linewidth=1.5)
-    ax.bar(x + width/2, df["actual_num"], width, label="Observed",
-                   color="#F97316", alpha=0.8, edgecolor="white", linewidth=1.5)
+    ax.bar(
+        x - width / 2,
+        df["expected_num"],
+        width,
+        label="Expected",
+        color="#3B82F6",
+        alpha=0.8,
+        edgecolor="white",
+        linewidth=1.5,
+    )
+    ax.bar(
+        x + width / 2,
+        df["actual_num"],
+        width,
+        label="Observed",
+        color="#F97316",
+        alpha=0.8,
+        edgecolor="white",
+        linewidth=1.5,
+    )
 
     ax.set_ylabel("Degradation Level", fontsize=12, fontweight="bold")
     ax.set_xlabel("Ablation", fontsize=12, fontweight="bold")
     ax.set_title("Expected vs Observed Degradation", fontsize=14, fontweight="bold", pad=15)
     ax.set_xticks(x)
-    ax.set_xticklabels([a.replace("_", " ").title() for a in ablations],
-                       rotation=45, ha="right", fontsize=10)
+    ax.set_xticklabels(
+        [a.replace("_", " ").title() for a in ablations], rotation=45, ha="right", fontsize=10
+    )
     ax.set_yticks([0, 1, 2, 3])
     ax.set_yticklabels(["Unknown", "Minimal", "Moderate", "Significant"])
     ax.legend(loc="upper right", framealpha=0.95)
@@ -519,23 +563,34 @@ def _plot_calibration_comparison(df: pd.DataFrame, output_dir: Path) -> plt.Figu
 
     ablations = df["ablation"].values
     errors = df["calibration_error"].fillna(0).values
-    colors = ["#10B981" if "temperature" in a else "#EF4444" if "no_calib" in a else "#6B7280"
-              for a in ablations]
+    colors = [
+        "#10B981" if "temperature" in a else "#EF4444" if "no_calib" in a else "#6B7280"
+        for a in ablations
+    ]
 
-    bars = ax.bar(range(len(ablations)), errors, color=colors, alpha=0.85,
-                  edgecolor="white", linewidth=1.5)
+    bars = ax.bar(
+        range(len(ablations)), errors, color=colors, alpha=0.85, edgecolor="white", linewidth=1.5
+    )
 
     ax.set_ylabel("Expected Calibration Error (ECE)", fontsize=12, fontweight="bold")
     ax.set_xlabel("Ablation", fontsize=12, fontweight="bold")
     ax.set_title("Confidence Calibration Comparison", fontsize=14, fontweight="bold", pad=15)
     ax.set_xticks(range(len(ablations)))
-    ax.set_xticklabels([a.replace("_", " ").title() for a in ablations],
-                       rotation=45, ha="right", fontsize=10)
+    ax.set_xticklabels(
+        [a.replace("_", " ").title() for a in ablations], rotation=45, ha="right", fontsize=10
+    )
 
     # Add value labels
     for bar, val in zip(bars, errors):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.002,
-                f"{val:.3f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.002,
+            f"{val:.3f}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            fontweight="bold",
+        )
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -559,9 +614,9 @@ def _plot_fusion_comparison(df: pd.DataFrame, output_dir: Path) -> plt.Figure | 
     if len(fusion_ablations) < 2:
         return None
 
-    metrics = _get_available_metrics(fusion_ablations, [
-        "transition_loss", "donor_accuracy", "wasserstein", "stage_f1"
-    ])
+    metrics = _get_available_metrics(
+        fusion_ablations, ["transition_loss", "donor_accuracy", "wasserstein", "stage_f1"]
+    )
     if len(metrics) < 1:
         return None
 
@@ -578,18 +633,31 @@ def _plot_fusion_comparison(df: pd.DataFrame, output_dir: Path) -> plt.Figure | 
         ax.set_facecolor("#FAFAFA")
         values = fusion_ablations[metric].fillna(0).values
 
-        bars = ax.bar(range(len(ablations)), values, color=colors, alpha=0.85,
-                      edgecolor="white", linewidth=1.5)
+        bars = ax.bar(
+            range(len(ablations)),
+            values,
+            color=colors,
+            alpha=0.85,
+            edgecolor="white",
+            linewidth=1.5,
+        )
 
         ax.set_ylabel(metric.replace("_", " ").title(), fontsize=11, fontweight="bold")
         ax.set_xticks(range(len(ablations)))
-        ax.set_xticklabels([a.replace("_", " ").title() for a in ablations],
-                           rotation=45, ha="right", fontsize=9)
+        ax.set_xticklabels(
+            [a.replace("_", " ").title() for a in ablations], rotation=45, ha="right", fontsize=9
+        )
 
         # Add value labels
         for bar, val in zip(bars, values):
-            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01 * max(values),
-                    f"{val:.3f}", ha="center", va="bottom", fontsize=8)
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.01 * max(values),
+                f"{val:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
 
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -668,7 +736,9 @@ def generate_full_ablation_report(
 
     log.info(
         "Generated full ablation report: %d ablations, %d figures -> %s",
-        len(all_results), len(figures), output_dir
+        len(all_results),
+        len(figures),
+        output_dir,
     )
 
     return manifest

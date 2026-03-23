@@ -74,13 +74,21 @@ class BenchmarkGenerationReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "config_name": self.config_name,
-            "data_source_report": self.data_source_report.to_dict() if self.data_source_report else None,
-            "harmonization_report": self.harmonization_report.to_dict() if self.harmonization_report else None,
+            "data_source_report": self.data_source_report.to_dict()
+            if self.data_source_report
+            else None,
+            "harmonization_report": self.harmonization_report.to_dict()
+            if self.harmonization_report
+            else None,
             "cell_pools": self.cell_pools,
             "worlds_generated": self.worlds_generated,
             "interaction_summary": {
                 "n_worlds": len(self.interaction_reports),
-                "avg_interaction_rate": np.mean([r.get("interaction_rate", 0) for r in self.interaction_reports]) if self.interaction_reports else 0,
+                "avg_interaction_rate": np.mean(
+                    [r.get("interaction_rate", 0) for r in self.interaction_reports]
+                )
+                if self.interaction_reports
+                else 0,
             },
             "output_paths": self.output_paths,
             "warnings": self.warnings,
@@ -228,7 +236,9 @@ class SemiSyntheticBenchmarkGenerator:
                 if source_name == "hlca":
                     self.data_loader._hlca = self.data_loader._inspect_source(adata, "hlca")
                 elif source_name == "progression":
-                    self.data_loader._progression = self.data_loader._inspect_source(adata, "progression")
+                    self.data_loader._progression = self.data_loader._inspect_source(
+                        adata, "progression"
+                    )
 
     def _harmonize_features(self) -> HarmonizationReport:
         """Harmonize gene features across sources."""
@@ -435,11 +445,11 @@ class SemiSyntheticBenchmarkGenerator:
             expression_matrices.append(X)
 
             # Build obs DataFrame aligned with expression rows
-            obs_subset = group[[
-                "synthetic_cell_id", "x", "y", "cell_group", "stage"
-            ]].copy() if "stage" in group.columns else group[[
-                "synthetic_cell_id", "x", "y", "cell_group"
-            ]].copy()
+            obs_subset = (
+                group[["synthetic_cell_id", "x", "y", "cell_group", "stage"]].copy()
+                if "stage" in group.columns
+                else group[["synthetic_cell_id", "x", "y", "cell_group"]].copy()
+            )
             obs_subset["source"] = source_name
             obs_records.append(obs_subset)
 
@@ -489,7 +499,9 @@ class SemiSyntheticBenchmarkGenerator:
             "n_hvg": self.config.n_hvg,
             "latent_dim": self.config.latent_dim,
             "stages": self.config.stages,
-            "harmonized_genes": harmonized_genes.tolist() if harmonized_genes is not None else None,
+            "harmonized_genes": harmonized_genes.tolist()
+            if harmonized_genes is not None
+            else None,
             "splits": {
                 "train": len(self.worlds["train"]),
                 "val": len(self.worlds["val"]),
@@ -553,7 +565,10 @@ class SemiSyntheticBenchmarkGenerator:
                 exported_paths.append(gt_path)
 
                 # Export expression data
-                if "_source_name" in world.cell_positions.columns and "_source_idx" in world.cell_positions.columns:
+                if (
+                    "_source_name" in world.cell_positions.columns
+                    and "_source_idx" in world.cell_positions.columns
+                ):
                     expr_path = world_dir / "expression.h5ad"
                     try:
                         expr_adata = self._extract_expression_for_world(world, harmonized_genes)

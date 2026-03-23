@@ -174,45 +174,57 @@ class ReferenceGeometryValidationReport:
                 lines.append(f"- [ ] {f} (REQUIRED)")
             lines.append("")
 
-        lines.extend([
-            "## Quality Checks",
-            "",
-            f"- NaN in embeddings: {'FAIL' if self.has_nan else 'PASS'}",
-            f"- Confidence calibration: {'PASS' if self.confidence_calibration_ok else 'WARNING'}",
-            f"- Latent dimensions: {'PASS' if self.latent_dims_ok else 'FAIL'}",
-            f"- Donors preserved: {'PASS' if self.donors_preserved else 'FAIL'}",
-            "",
-        ])
+        lines.extend(
+            [
+                "## Quality Checks",
+                "",
+                f"- NaN in embeddings: {'FAIL' if self.has_nan else 'PASS'}",
+                f"- Confidence calibration: {'PASS' if self.confidence_calibration_ok else 'WARNING'}",
+                f"- Latent dimensions: {'PASS' if self.latent_dims_ok else 'FAIL'}",
+                f"- Donors preserved: {'PASS' if self.donors_preserved else 'FAIL'}",
+                "",
+            ]
+        )
 
         if self.errors:
-            lines.extend([
-                "## Errors (BLOCKING)",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Errors (BLOCKING)",
+                    "",
+                ]
+            )
             for err in self.errors:
                 lines.append(f"- {err}")
             lines.append("")
 
         if self.warnings:
-            lines.extend([
-                "## Warnings",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Warnings",
+                    "",
+                ]
+            )
             for warn in self.warnings:
                 lines.append(f"- {warn}")
             lines.append("")
 
         if self.confidence_report:
-            lines.extend([
-                "## Confidence Calibration Details",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Confidence Calibration Details",
+                    "",
+                ]
+            )
             if "hlca" in self.confidence_report:
                 h = self.confidence_report["hlca"]
-                lines.append(f"- HLCA: mean={h.get('mean', 'N/A'):.3f}, std={h.get('std', 'N/A'):.3f}")
+                lines.append(
+                    f"- HLCA: mean={h.get('mean', 'N/A'):.3f}, std={h.get('std', 'N/A'):.3f}"
+                )
             if "luca" in self.confidence_report:
                 luca_stats = self.confidence_report["luca"]
-                lines.append(f"- LuCA: mean={luca_stats.get('mean', 'N/A'):.3f}, std={luca_stats.get('std', 'N/A'):.3f}")
+                lines.append(
+                    f"- LuCA: mean={luca_stats.get('mean', 'N/A'):.3f}, std={luca_stats.get('std', 'N/A'):.3f}"
+                )
             lines.append("")
 
         return "\n".join(lines)
@@ -275,9 +287,11 @@ class ReferenceGeometryValidator:
         self._check_files_exist()
 
         # If critical files are missing, abort early
-        if "hlca_embedding" in self._report.files_missing or \
-           "fused_embedding" in self._report.files_missing or \
-           "confidence" in self._report.files_missing:
+        if (
+            "hlca_embedding" in self._report.files_missing
+            or "fused_embedding" in self._report.files_missing
+            or "confidence" in self._report.files_missing
+        ):
             self._report.valid = False
             self._report.validation_status = "INVALID"
             self._report.errors.append("Critical files missing - cannot proceed with validation")
@@ -363,16 +377,22 @@ class ReferenceGeometryValidator:
             latent_cols = [c for c in df.columns if c.startswith("fused_latent_")]
             self._report.fused_dim = len(latent_cols)
             if len(latent_cols) == 0:
-                self._report.schema_errors.append("fused_embedding: No fused_latent_* columns found")
+                self._report.schema_errors.append(
+                    "fused_embedding: No fused_latent_* columns found"
+                )
             if "reference_mode_used" not in df.columns:
-                self._report.schema_warnings.append("fused_embedding: Missing reference_mode_used column")
+                self._report.schema_warnings.append(
+                    "fused_embedding: Missing reference_mode_used column"
+                )
 
         # Check confidence
         if "confidence" in self._dataframes:
             df = self._dataframes["confidence"]
             for col in CONFIDENCE_REQUIRED_COLS:
                 if col not in df.columns:
-                    self._report.schema_errors.append(f"reference_confidence: Missing required column '{col}'")
+                    self._report.schema_errors.append(
+                        f"reference_confidence: Missing required column '{col}'"
+                    )
 
         if self._report.schema_errors:
             self._report.errors.extend(self._report.schema_errors)
@@ -524,9 +544,7 @@ class ReferenceGeometryValidator:
                     if missing:
                         self._report.donors_preserved = False
                         self._report.missing_donors = list(missing)
-                        self._report.errors.append(
-                            f"Missing donors in output: {missing}"
-                        )
+                        self._report.errors.append(f"Missing donors in output: {missing}")
 
     def _check_manifest(self) -> None:
         """Load and validate manifest."""
@@ -540,8 +558,10 @@ class ReferenceGeometryValidator:
                     "mapping_method": self._manifest.get("mapping_method"),
                     "fusion_method": self._manifest.get("fusion_method"),
                     "n_cells": self._manifest.get("n_cells"),
-                    "hlca_dim": self._manifest.get("hlca_latent_dim") or self._manifest.get("hlca_dim"),
-                    "luca_dim": self._manifest.get("luca_latent_dim") or self._manifest.get("luca_dim"),
+                    "hlca_dim": self._manifest.get("hlca_latent_dim")
+                    or self._manifest.get("hlca_dim"),
+                    "luca_dim": self._manifest.get("luca_latent_dim")
+                    or self._manifest.get("luca_dim"),
                 }
             except json.JSONDecodeError as e:
                 self._report.errors.append(f"Invalid JSON in manifest: {e}")

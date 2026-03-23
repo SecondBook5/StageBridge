@@ -92,12 +92,10 @@ DRUGGABILITY_DATABASE = {
     "KDR": {"status": "approved", "drugs": ["Ramucirumab"]},
     "TGFB1": {"status": "clinical", "drugs": ["Fresolimumab (clinical trials)"]},
     "TGFBR2": {"status": "clinical", "drugs": ["Galunisertib (clinical trials)"]},
-
     # Clinical trials
     "CXCR4": {"status": "clinical", "drugs": ["Plerixafor", "BL-8040"]},
     "CXCL12": {"status": "clinical", "drugs": ["NOX-A12"]},
     "NOTCH1": {"status": "clinical", "drugs": ["Gamma-secretase inhibitors"]},
-
     # Preclinical
     "AREG": {"status": "preclinical", "drugs": []},
     "HGF": {"status": "preclinical", "drugs": []},
@@ -149,8 +147,8 @@ def prioritize_intervention_targets(
     # Get enriched interactions in target stages
     if stage_specific_df is not None and not stage_specific_df.empty:
         enriched = stage_specific_df[
-            (stage_specific_df["stage"].isin(target_stages)) &
-            (stage_specific_df["stage_score"] >= min_score)
+            (stage_specific_df["stage"].isin(target_stages))
+            & (stage_specific_df["stage_score"] >= min_score)
         ]
 
         for _, row in enriched.iterrows():
@@ -161,7 +159,9 @@ def prioritize_intervention_targets(
             receptor_drug = DRUGGABILITY_DATABASE.get(receptor, {})
 
             # Prefer more druggable target
-            if _druggability_rank(ligand_drug.get("status")) >= _druggability_rank(receptor_drug.get("status")):
+            if _druggability_rank(ligand_drug.get("status")) >= _druggability_rank(
+                receptor_drug.get("status")
+            ):
                 target_gene = ligand
                 drug_info = ligand_drug
             else:
@@ -174,7 +174,8 @@ def prioritize_intervention_targets(
                 row["fold_change"],
                 row["mean_attention"],
                 drug_info.get("status", "undrugged"),
-                ligand, receptor,
+                ligand,
+                receptor,
             )
 
             # Build evidence list
@@ -191,7 +192,9 @@ def prioritize_intervention_targets(
             stage_enrichment = {row["stage"]: row["fold_change"]}
 
             # Rationale
-            mechanism = row.get("mechanism", LR_PRIORS.get((ligand, receptor), {}).get("mechanism", ""))
+            mechanism = row.get(
+                "mechanism", LR_PRIORS.get((ligand, receptor), {}).get("mechanism", "")
+            )
             rationale = _build_rationale(ligand, receptor, row["stage"], mechanism)
 
             # Safety considerations
@@ -200,18 +203,20 @@ def prioritize_intervention_targets(
             # Expected effect
             expected = _predict_intervention_effect(ligand, receptor, row["stage"])
 
-            candidates.append(InterventionTarget(
-                ligand=ligand,
-                receptor=receptor,
-                target_gene=target_gene,
-                priority_score=priority,
-                rationale=rationale,
-                evidence=evidence,
-                stage_enrichment=stage_enrichment,
-                druggability=drug_info.get("status", "undrugged"),
-                safety_considerations=safety,
-                expected_effect=expected,
-            ))
+            candidates.append(
+                InterventionTarget(
+                    ligand=ligand,
+                    receptor=receptor,
+                    target_gene=target_gene,
+                    priority_score=priority,
+                    rationale=rationale,
+                    evidence=evidence,
+                    stage_enrichment=stage_enrichment,
+                    druggability=drug_info.get("status", "undrugged"),
+                    safety_considerations=safety,
+                    expected_effect=expected,
+                )
+            )
 
     # Sort by priority
     candidates.sort(key=lambda x: x.priority_score, reverse=True)
@@ -276,7 +281,9 @@ def _build_rationale(ligand: str, receptor: str, stage: str, mechanism: str) -> 
         "AIS": "non-invasive stage, high intervention benefit",
         "MIA": "critical window before full invasion",
     }
-    parts.append(f"Target {ligand}-{receptor} in {stage}: {stage_rationale.get(stage, 'therapeutic opportunity')}")
+    parts.append(
+        f"Target {ligand}-{receptor} in {stage}: {stage_rationale.get(stage, 'therapeutic opportunity')}"
+    )
 
     # Mechanism
     if mechanism:
@@ -466,20 +473,22 @@ def compute_niche_level_risk(
         else:
             confidence = "low"
 
-        niche_scores.append(NicheRiskScore(
-            niche_id=f"niche_{i}",
-            center_cell_id=str(cell_id),
-            n_cells=n_cells,
-            intrinsic_risk=float(intrinsic_risk),
-            niche_risk=float(niche_risk),
-            niche_contribution=float(niche_contribution),
-            dominant_risk_pathway=dominant_pathway,
-            dominant_sender_type=dominant_sender,
-            il1b_axis_active=il1b_active,
-            risk_category=category,
-            spatial_coords=(float(spatial_coords[i, 0]), float(spatial_coords[i, 1])),
-            confidence=confidence,
-        ))
+        niche_scores.append(
+            NicheRiskScore(
+                niche_id=f"niche_{i}",
+                center_cell_id=str(cell_id),
+                n_cells=n_cells,
+                intrinsic_risk=float(intrinsic_risk),
+                niche_risk=float(niche_risk),
+                niche_contribution=float(niche_contribution),
+                dominant_risk_pathway=dominant_pathway,
+                dominant_sender_type=dominant_sender,
+                il1b_axis_active=il1b_active,
+                risk_category=category,
+                spatial_coords=(float(spatial_coords[i, 0]), float(spatial_coords[i, 1])),
+                confidence=confidence,
+            )
+        )
 
     return niche_scores
 
@@ -508,16 +517,18 @@ def aggregate_niche_risks_by_region(
 
     records = []
     for niche in niche_scores:
-        records.append({
-            "niche_id": niche.niche_id,
-            "intrinsic_risk": niche.intrinsic_risk,
-            "niche_risk": niche.niche_risk,
-            "niche_contribution": niche.niche_contribution,
-            "risk_category": niche.risk_category,
-            "il1b_active": niche.il1b_axis_active,
-            "dominant_pathway": niche.dominant_risk_pathway,
-            "n_cells": niche.n_cells,
-        })
+        records.append(
+            {
+                "niche_id": niche.niche_id,
+                "intrinsic_risk": niche.intrinsic_risk,
+                "niche_risk": niche.niche_risk,
+                "niche_contribution": niche.niche_contribution,
+                "risk_category": niche.risk_category,
+                "il1b_active": niche.il1b_axis_active,
+                "dominant_pathway": niche.dominant_risk_pathway,
+                "n_cells": niche.n_cells,
+            }
+        )
 
     df = pd.DataFrame(records)
 
@@ -578,10 +589,7 @@ def generate_intervention_plan(
     secondary = targets[1:4] if len(targets) > 1 else []
 
     # High risk niches
-    high_risk_niches = [
-        n for n in niche_scores
-        if n.risk_category in ["high", "very_high"]
-    ][:10]
+    high_risk_niches = [n for n in niche_scores if n.risk_category in ["high", "very_high"]][:10]
 
     # Clinical recommendation
     recommendation = _generate_clinical_recommendation(
@@ -727,24 +735,29 @@ def export_intervention_report(
         }
 
     for target in plan.secondary_targets:
-        report["secondary_targets"].append({
-            "pair": f"{target.ligand}-{target.receptor}",
-            "target_gene": target.target_gene,
-            "priority_score": target.priority_score,
-            "druggability": target.druggability,
-        })
+        report["secondary_targets"].append(
+            {
+                "pair": f"{target.ligand}-{target.receptor}",
+                "target_gene": target.target_gene,
+                "priority_score": target.priority_score,
+                "druggability": target.druggability,
+            }
+        )
 
     for niche in plan.high_risk_niches:
-        report["high_risk_niches"].append({
-            "niche_id": niche.niche_id,
-            "risk_category": niche.risk_category,
-            "il1b_active": niche.il1b_axis_active,
-            "dominant_pathway": niche.dominant_risk_pathway,
-            "coords": niche.spatial_coords,
-        })
+        report["high_risk_niches"].append(
+            {
+                "niche_id": niche.niche_id,
+                "risk_category": niche.risk_category,
+                "il1b_active": niche.il1b_axis_active,
+                "dominant_pathway": niche.dominant_risk_pathway,
+                "coords": niche.spatial_coords,
+            }
+        )
 
     if output_path:
         import json
+
         with open(output_path, "w") as f:
             json.dump(report, f, indent=2)
         log.info(f"Exported intervention report to {output_path}")

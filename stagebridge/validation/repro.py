@@ -34,15 +34,23 @@ def capture_environment() -> dict[str, Any]:
 
     # Git info
     try:
-        env["git_commit"] = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
-        ).decode().strip()
-        env["git_branch"] = subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL
-        ).decode().strip()
-        env["git_dirty"] = bool(subprocess.check_output(
-            ["git", "status", "--porcelain"], stderr=subprocess.DEVNULL
-        ).decode().strip())
+        env["git_commit"] = (
+            subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
+        env["git_branch"] = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
+        env["git_dirty"] = bool(
+            subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
         env["git_commit"] = "unknown"
         env["git_branch"] = "unknown"
@@ -51,6 +59,7 @@ def capture_environment() -> dict[str, Any]:
     # Key packages
     try:
         import torch
+
         env["torch_version"] = torch.__version__
         env["cuda_available"] = torch.cuda.is_available()
         if torch.cuda.is_available():
@@ -60,24 +69,28 @@ def capture_environment() -> dict[str, Any]:
 
     try:
         import numpy
+
         env["numpy_version"] = numpy.__version__
     except ImportError:
         pass
 
     try:
         import pandas
+
         env["pandas_version"] = pandas.__version__
     except ImportError:
         pass
 
     try:
         import anndata
+
         env["anndata_version"] = anndata.__version__
     except ImportError:
         pass
 
     try:
         import scvi
+
         env["scvi_version"] = scvi.__version__
     except ImportError:
         pass
@@ -175,7 +188,9 @@ def verify_reproducibility(
     current_hash = compute_config_hash(current_config)
     if manifest["config_hash"] != current_hash:
         report["reproducible"] = False
-        report["issues"].append(f"Config hash mismatch: saved={manifest['config_hash']}, current={current_hash}")
+        report["issues"].append(
+            f"Config hash mismatch: saved={manifest['config_hash']}, current={current_hash}"
+        )
 
     # Check critical packages
     current_env = capture_environment()
@@ -214,6 +229,7 @@ def set_all_seeds(seed: int) -> None:
 
     try:
         import torch
+
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)

@@ -97,6 +97,7 @@ class DataSourceLoader:
 
         # Standard search paths - check centralized data directory first
         from pathlib import Path as PathLib
+
         centralized_data = PathLib.home() / "data" / "stagebridge" / "processed"
 
         search_paths = [
