@@ -6,11 +6,21 @@ Implements all metrics from evaluation_protocol.md:
 - Uncertainty quantification (ECE, coverage)
 - Evolutionary compatibility (matched vs mismatched gap)
 - Niche influence (ablation sensitivity)
+- Representation quality (Silhouette, ARI, NMI)
+- Batch integration (kBET, LISI)
 """
+
+from __future__ import annotations
 
 import numpy as np
 from scipy.stats import wasserstein_distance
 from scipy.spatial.distance import cdist
+from sklearn.metrics import (
+    adjusted_rand_score,
+    normalized_mutual_info_score,
+    silhouette_score,
+)
+from sklearn.neighbors import NearestNeighbors
 
 
 def wasserstein_nd_distance(pred: np.ndarray, target: np.ndarray) -> float:
@@ -79,6 +89,248 @@ def compute_all_metrics(
         "mse": float(np.mean((pred_embeddings - target_embeddings) ** 2)),
         "mae": float(np.mean(np.abs(pred_embeddings - target_embeddings))),
     }
+
+
+# ============================================================================
+# Representation Quality Metrics (Silhouette, ARI, NMI)
+# ============================================================================
+
+
+def compute_silhouette(embeddings: np.ndarray, labels: np.ndarray) -> float:
+    """Compute Silhouette score for cluster quality.
+
+    Higher values indicate better-defined clusters.
+    Range: [-1, 1], with 1 being best.
+    """
+    unique_labels = np.unique(labels)
+    if len(unique_labels) < 2:
+        return 0.0  # Need at least 2 clusters
+    return float(silhouette_score(embeddings, labels))
+
+
+def compute_ari(labels_true: np.ndarray, labels_pred: np.ndarray) -> float:
+    """Compute Adjusted Rand Index between two clusterings.
+
+    Measures similarity between clusterings, adjusted for chance.
+    Range: [-1, 1], with 1 being perfect agreement.
+    """
+    return float(adjusted_rand_score(labels_true, labels_pred))
+
+
+def compute_nmi(labels_true: np.ndarray, labels_pred: np.ndarray) -> float:
+    """Compute Normalized Mutual Information between two clusterings.
+
+    Measures mutual information normalized by entropy.
+    Range: [0, 1], with 1 being perfect agreement.
+    """
+    return float(normalized_mutual_info_score(labels_true, labels_pred))
+
+
+# ============================================================================
+# Batch Integration Metrics (kBET, LISI)
+# ============================================================================
+
+
+def compute_kbet(
+    embeddings: np.ndarray,
+    batch_labels: np.ndarray,
+    k: int = 50,
+    n_samples: int = 1000,
+    seed: int = 42,
+) -> dict[str, float]:
+    """Compute k-nearest neighbor Batch Effect Test (kBET).
+
+    Measures how well batches are mixed in the embedding space.
+    For each cell, tests if the batch distribution in its k-neighborhood
+    matches the global batch distribution (chi-squared test).
+
+    Args:
+        embeddings: Cell embeddings (n_cells, n_dims)
+        batch_labels: Batch labels for each cell
+        k: Number of neighbors to consider
+        n_samples: Number of cells to sample for testing
+        seed: Random seed for sampling
+
+    Returns:
+        Dictionary with:
+        - acceptance_rate: Fraction of cells that pass the test (higher = better mixing)
+        - mean_rejection_rate: Mean rejection rate (lower = better mixing)
+    """
+    rng = np.random.default_rng(seed)
+    n_cells = embeddings.shape[0]
+
+    # Sample cells if dataset is large
+    if n_cells > n_samples:
+        sample_idx = rng.choice(n_cells, size=n_samples, replace=False)
+    else:
+        sample_idx = np.arange(n_cells)
+
+    # Compute global batch frequencies
+    unique_batches, batch_counts = np.unique(batch_labels, return_counts=True)
+    global_freq = batch_counts / batch_counts.sum()
+
+    # Build k-NN index
+    k_use = min(k, n_cells - 1)
+    nn = NearestNeighbors(n_neighbors=k_use + 1, algorithm="auto")
+    nn.fit(embeddings)
+
+    # Test each sampled cell
+    rejections = []
+    for idx in sample_idx:
+        # Get k-neighborhood (excluding self)
+        _, neighbors = nn.kneighbors(embeddings[idx : idx + 1])
+        neighbor_batches = batch_labels[neighbors[0, 1:]]  # Exclude self
+
+        # Compute local batch frequencies
+        local_counts = np.array(
+            [np.sum(neighbor_batches == b) for b in unique_batches]
+        )
+        local_freq = local_counts / local_counts.sum()
+
+        # Chi-squared test statistic (simplified)
+        expected = global_freq * k_use
+        observed = local_counts
+        # Avoid division by zero
+        mask = expected > 0
+        chi2 = np.sum((observed[mask] - expected[mask]) ** 2 / expected[mask])
+
+        # Degrees of freedom = number of batches - 1
+        df = len(unique_batches) - 1
+        if df <= 0:
+            rejections.append(0)
+            continue
+
+        # Approximate p-value using chi-squared distribution
+        # Rejection at alpha=0.05
+        from scipy.stats import chi2 as chi2_dist
+
+        p_value = 1 - chi2_dist.cdf(chi2, df)
+        rejections.append(1 if p_value < 0.05 else 0)
+
+    rejection_rate = np.mean(rejections)
+    return {
+        "acceptance_rate": float(1 - rejection_rate),
+        "mean_rejection_rate": float(rejection_rate),
+    }
+
+
+def compute_lisi(
+    embeddings: np.ndarray,
+    labels: np.ndarray,
+    k: int = 30,
+) -> dict[str, float]:
+    """Compute Local Inverse Simpson's Index (LISI).
+
+    Measures local diversity of labels in the embedding space.
+    For each cell, computes the effective number of labels in its k-neighborhood.
+
+    For batch labels (iLISI): Higher = better batch mixing
+    For cell type labels (cLISI): Lower = better cell type separation
+
+    Args:
+        embeddings: Cell embeddings (n_cells, n_dims)
+        labels: Labels for each cell (batch or cell type)
+        k: Number of neighbors to consider
+
+    Returns:
+        Dictionary with:
+        - mean_lisi: Mean LISI score across all cells
+        - median_lisi: Median LISI score
+        - std_lisi: Standard deviation of LISI scores
+    """
+    n_cells = embeddings.shape[0]
+    k_use = min(k, n_cells - 1)
+
+    # Build k-NN index
+    nn = NearestNeighbors(n_neighbors=k_use + 1, algorithm="auto")
+    nn.fit(embeddings)
+
+    # Get all neighbors at once for efficiency
+    distances, indices = nn.kneighbors(embeddings)
+
+    # Compute LISI for each cell
+    lisi_scores = []
+    for i in range(n_cells):
+        # Get neighbor labels (excluding self)
+        neighbor_labels = labels[indices[i, 1:]]
+
+        # Compute label frequencies in neighborhood
+        _, counts = np.unique(neighbor_labels, return_counts=True)
+        freqs = counts / counts.sum()
+
+        # Simpson's Index = sum(p^2)
+        # Inverse Simpson's = 1 / sum(p^2)
+        simpson_index = np.sum(freqs**2)
+        lisi = 1.0 / simpson_index if simpson_index > 0 else 1.0
+        lisi_scores.append(lisi)
+
+    lisi_arr = np.array(lisi_scores)
+    return {
+        "mean_lisi": float(np.mean(lisi_arr)),
+        "median_lisi": float(np.median(lisi_arr)),
+        "std_lisi": float(np.std(lisi_arr)),
+    }
+
+
+def compute_batch_integration_metrics(
+    embeddings: np.ndarray,
+    batch_labels: np.ndarray,
+    cell_type_labels: np.ndarray | None = None,
+    k: int = 30,
+) -> dict[str, float]:
+    """Compute all batch integration metrics.
+
+    Args:
+        embeddings: Cell embeddings (n_cells, n_dims)
+        batch_labels: Batch labels for each cell
+        cell_type_labels: Optional cell type labels for cLISI
+        k: Number of neighbors for kBET and LISI
+
+    Returns:
+        Dictionary with kBET acceptance rate, iLISI, and optionally cLISI.
+    """
+    results = {}
+
+    # kBET
+    kbet = compute_kbet(embeddings, batch_labels, k=k)
+    results["kbet_acceptance_rate"] = kbet["acceptance_rate"]
+
+    # iLISI (integration LISI - for batches)
+    ilisi = compute_lisi(embeddings, batch_labels, k=k)
+    results["ilisi_mean"] = ilisi["mean_lisi"]
+
+    # cLISI (cell type LISI) if cell types provided
+    if cell_type_labels is not None:
+        clisi = compute_lisi(embeddings, cell_type_labels, k=k)
+        results["clisi_mean"] = clisi["mean_lisi"]
+
+    return results
+
+
+def compute_representation_metrics(
+    embeddings: np.ndarray,
+    labels: np.ndarray,
+    labels_pred: np.ndarray | None = None,
+) -> dict[str, float]:
+    """Compute all representation quality metrics.
+
+    Args:
+        embeddings: Cell embeddings (n_cells, n_dims)
+        labels: True cluster/cell type labels
+        labels_pred: Optional predicted labels for ARI/NMI
+
+    Returns:
+        Dictionary with Silhouette, and optionally ARI/NMI.
+    """
+    results = {
+        "silhouette": compute_silhouette(embeddings, labels),
+    }
+
+    if labels_pred is not None:
+        results["ari"] = compute_ari(labels, labels_pred)
+        results["nmi"] = compute_nmi(labels, labels_pred)
+
+    return results
 
 
 class MetricsTracker:
