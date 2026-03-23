@@ -84,6 +84,21 @@ class TACCOBackend(SpatialBackend):
             )
             snrna = snrna[subsample_idx].copy()
 
+        # Filter out zero-sum spots (TACCO fails on these with divide-by-zero)
+        if hasattr(spatial.X, "toarray"):
+            row_sums = np.array(spatial.X.sum(axis=1)).flatten()
+        else:
+            row_sums = np.array(spatial.X.sum(axis=1)).flatten()
+
+        nonzero_mask = row_sums > 0
+        n_zero = (~nonzero_mask).sum()
+        if n_zero > 0:
+            print(f"TACCO: Filtering out {n_zero} spots with zero counts")
+            spatial = spatial[nonzero_mask].copy()
+
+        if len(spatial) == 0:
+            raise ValueError("No spots remaining after filtering zero-count spots")
+
         print(f"Running TACCO with method={self.method}, {len(snrna)} cells, {len(spatial)} spots...")
 
         # Run TACCO annotation

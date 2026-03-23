@@ -47,8 +47,7 @@ ABLATIONS = f"{RUNS}/ablations"
 FIGURES = f"{RUNS}/publication_figures"
 
 # Spatial backends to run
-# NOTE: TACCO disabled - fails on some samples with "observations without non-zero variables"
-SPATIAL_BACKENDS = ["tangram", "destvi", "cell2location"]
+SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location"]
 
 # Cross-validation settings
 FOLDS = [0, 1, 2, 3, 4]  # 5-fold CV
