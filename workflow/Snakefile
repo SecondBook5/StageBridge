@@ -181,13 +181,16 @@ rule harmonize_cell_types:
     """
     Add dual-reference cell type labels to snRNA data.
 
-    Adds both HLCA and LuCA labels from cell_types.parquet:
+    Reads separate HLCA and LuCA label parquets, adds both to h5ad:
     - cell_type: HLCA labels (primary, for spatial deconvolution)
     - luca_cell_type: LuCA labels (for ablation experiments)
+
+    No compound labels - each column has single clean labels.
     """
     input:
         snrna = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
-        labels = f"{REF_GEOM}/cell_types.parquet"
+        hlca_labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet",
+        luca_labels = f"{REF_GEOM}/luca_mapping/luca_labels.parquet"
     output:
         snrna_with_celltypes = f"{PROCESSED}/snrna_with_celltypes.h5ad"
     threads: 4
@@ -200,7 +203,8 @@ rule harmonize_cell_types:
         """
         python workflow/scripts/harmonize_cell_types.py \
             --snrna {input.snrna} \
-            --labels {input.labels} \
+            --hlca-labels {input.hlca_labels} \
+            --luca-labels {input.luca_labels} \
             --output {output.snrna_with_celltypes} \
             2>&1 | tee {log}
         """

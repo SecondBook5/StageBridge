@@ -2,16 +2,17 @@
 """
 Add dual-reference cell type labels to snRNA data.
 
-This script adds both HLCA and LuCA cell type labels to the snRNA h5ad file,
-allowing the spatial benchmark to use either source via --label-source.
+Reads HLCA and LuCA labels from separate parquet files and adds both to the
+snRNA h5ad file. No compound labels - each column has single clean labels.
 
-The primary cell_type column uses HLCA labels (comprehensive, well-validated).
-LuCA labels are stored in luca_cell_type for ablation experiments.
+- cell_type: HLCA labels (primary, for spatial deconvolution)
+- luca_cell_type: LuCA labels (for ablation experiments)
 
 Usage:
     python harmonize_cell_types.py \
         --snrna /path/to/snrna.h5ad \
-        --labels /path/to/cell_types.parquet \
+        --hlca-labels /path/to/hlca_labels.parquet \
+        --luca-labels /path/to/luca_labels.parquet \
         --output /path/to/snrna_with_labels.h5ad
 """
 
@@ -24,7 +25,8 @@ import pandas as pd
 
 def add_dual_labels(
     snrna_path: Path,
-    labels_path: Path,
+    hlca_labels_path: Path,
+    luca_labels_path: Path,
     output_path: Path,
 ) -> None:
     """
@@ -32,63 +34,88 @@ def add_dual_labels(
 
     Args:
         snrna_path: Path to snRNA h5ad
-        labels_path: Path to cell_types.parquet with cell_type and luca_cell_type
+        hlca_labels_path: Path to hlca_labels.parquet
+        luca_labels_path: Path to luca_labels.parquet
         output_path: Output path for h5ad with both label columns
     """
     print(f"Loading snRNA data from {snrna_path}...")
     adata = ad.read_h5ad(snrna_path)
     print(f"  Shape: {adata.shape}")
 
-    print(f"\nLoading labels from {labels_path}...")
-    labels_df = pd.read_parquet(labels_path)
-    print(f"  Shape: {labels_df.shape}")
-    print(f"  Columns: {labels_df.columns.tolist()}")
+    # Load HLCA labels
+    print(f"\nLoading HLCA labels from {hlca_labels_path}...")
+    hlca_df = pd.read_parquet(hlca_labels_path)
+    print(f"  Shape: {hlca_df.shape}")
+    print(f"  Columns: {hlca_df.columns.tolist()}")
 
-    # Create mapping from cell_id to labels
-    if "cell_id" not in labels_df.columns:
-        raise ValueError("Labels parquet must have 'cell_id' column")
+    # Find the label column in HLCA
+    hlca_label_col = None
+    for col in ["cell_type", "hlca_label", "predicted_label"]:
+        if col in hlca_df.columns:
+            hlca_label_col = col
+            break
+    if hlca_label_col is None:
+        raise ValueError(f"No label column found in HLCA parquet. Columns: {hlca_df.columns.tolist()}")
 
-    # Add HLCA labels (primary cell_type column)
-    if "cell_type" in labels_df.columns:
-        hlca_map = dict(zip(labels_df["cell_id"], labels_df["cell_type"]))
-        adata.obs["cell_type"] = adata.obs.index.map(hlca_map)
-        unmapped = adata.obs["cell_type"].isna().sum()
-        if unmapped > 0:
-            print(f"  WARNING: {unmapped} cells without HLCA label")
-            adata.obs["cell_type"] = adata.obs["cell_type"].fillna("Unknown")
-        adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
-        print(f"  Added cell_type (HLCA): {adata.obs['cell_type'].nunique()} types")
-    else:
-        print("  WARNING: No 'cell_type' column in labels, skipping HLCA")
+    # Find the cell_id column
+    hlca_id_col = "cell_id" if "cell_id" in hlca_df.columns else hlca_df.index.name
+    if hlca_id_col is None or hlca_id_col not in hlca_df.columns:
+        # Use index as cell_id
+        hlca_df = hlca_df.reset_index()
+        hlca_id_col = hlca_df.columns[0]
 
-    # Add LuCA labels (for ablation)
-    if "luca_cell_type" in labels_df.columns:
-        luca_map = dict(zip(labels_df["cell_id"], labels_df["luca_cell_type"]))
-        adata.obs["luca_cell_type"] = adata.obs.index.map(luca_map)
-        unmapped = adata.obs["luca_cell_type"].isna().sum()
-        if unmapped > 0:
-            print(f"  WARNING: {unmapped} cells without LuCA label")
-            adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].fillna("Unknown")
-        adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype("category")
-        print(f"  Added luca_cell_type: {adata.obs['luca_cell_type'].nunique()} types")
-    else:
-        print("  WARNING: No 'luca_cell_type' column in labels, skipping LuCA")
+    hlca_map = dict(zip(hlca_df[hlca_id_col], hlca_df[hlca_label_col]))
+    adata.obs["cell_type"] = adata.obs.index.map(hlca_map)
+    unmapped = adata.obs["cell_type"].isna().sum()
+    if unmapped > 0:
+        print(f"  WARNING: {unmapped} cells without HLCA label")
+        adata.obs["cell_type"] = adata.obs["cell_type"].fillna("Unknown")
+    adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
+    print(f"  Added cell_type (HLCA): {adata.obs['cell_type'].nunique()} types")
+
+    # Load LuCA labels
+    print(f"\nLoading LuCA labels from {luca_labels_path}...")
+    luca_df = pd.read_parquet(luca_labels_path)
+    print(f"  Shape: {luca_df.shape}")
+    print(f"  Columns: {luca_df.columns.tolist()}")
+
+    # Find the label column in LuCA
+    luca_label_col = None
+    for col in ["cell_type", "luca_label", "predicted_label"]:
+        if col in luca_df.columns:
+            luca_label_col = col
+            break
+    if luca_label_col is None:
+        raise ValueError(f"No label column found in LuCA parquet. Columns: {luca_df.columns.tolist()}")
+
+    # Find the cell_id column
+    luca_id_col = "cell_id" if "cell_id" in luca_df.columns else luca_df.index.name
+    if luca_id_col is None or luca_id_col not in luca_df.columns:
+        luca_df = luca_df.reset_index()
+        luca_id_col = luca_df.columns[0]
+
+    luca_map = dict(zip(luca_df[luca_id_col], luca_df[luca_label_col]))
+    adata.obs["luca_cell_type"] = adata.obs.index.map(luca_map)
+    unmapped = adata.obs["luca_cell_type"].isna().sum()
+    if unmapped > 0:
+        print(f"  WARNING: {unmapped} cells without LuCA label")
+        adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].fillna("Unknown")
+    adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype("category")
+    print(f"  Added luca_cell_type: {adata.obs['luca_cell_type'].nunique()} types")
 
     # Summary
     print("\n=== Label Summary ===")
-    if "cell_type" in adata.obs.columns:
-        print(f"HLCA (cell_type): {adata.obs['cell_type'].nunique()} types")
-        print("Top 10:")
-        for label, count in adata.obs["cell_type"].value_counts().head(10).items():
-            pct = 100 * count / len(adata)
-            print(f"  {label}: {count:,} ({pct:.1f}%)")
+    print(f"HLCA (cell_type): {adata.obs['cell_type'].nunique()} types")
+    print("Top 10:")
+    for label, count in adata.obs["cell_type"].value_counts().head(10).items():
+        pct = 100 * count / len(adata)
+        print(f"  {label}: {count:,} ({pct:.1f}%)")
 
-    if "luca_cell_type" in adata.obs.columns:
-        print(f"\nLuCA (luca_cell_type): {adata.obs['luca_cell_type'].nunique()} types")
-        print("Top 10:")
-        for label, count in adata.obs["luca_cell_type"].value_counts().head(10).items():
-            pct = 100 * count / len(adata)
-            print(f"  {label}: {count:,} ({pct:.1f}%)")
+    print(f"\nLuCA (luca_cell_type): {adata.obs['luca_cell_type'].nunique()} types")
+    print("Top 10:")
+    for label, count in adata.obs["luca_cell_type"].value_counts().head(10).items():
+        pct = 100 * count / len(adata)
+        print(f"  {label}: {count:,} ({pct:.1f}%)")
 
     # Save
     print(f"\nSaving to {output_path}...")
@@ -99,13 +126,15 @@ def add_dual_labels(
 def main():
     parser = argparse.ArgumentParser(description="Add dual-reference cell type labels to snRNA")
     parser.add_argument("--snrna", required=True, help="Path to snRNA h5ad")
-    parser.add_argument("--labels", required=True, help="Path to cell_types.parquet")
+    parser.add_argument("--hlca-labels", required=True, help="Path to hlca_labels.parquet")
+    parser.add_argument("--luca-labels", required=True, help="Path to luca_labels.parquet")
     parser.add_argument("--output", required=True, help="Output h5ad path")
     args = parser.parse_args()
 
     add_dual_labels(
         snrna_path=Path(args.snrna),
-        labels_path=Path(args.labels),
+        hlca_labels_path=Path(args.hlca_labels),
+        luca_labels_path=Path(args.luca_labels),
         output_path=Path(args.output),
     )
 
