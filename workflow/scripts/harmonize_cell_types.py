@@ -57,15 +57,28 @@ def harmonize_labels(
     luca = luca_labels.loc[common_cells].copy()
 
     # Get confidence columns (might be named differently)
-    hlca_conf_col = 'confidence' if 'confidence' in hlca.columns else 'mapping_confidence'
-    luca_conf_col = 'confidence' if 'confidence' in luca.columns else 'mapping_confidence'
+    # Check common column names for confidence/probability
+    hlca_conf_candidates = ['confidence', 'mapping_confidence', 'hlca_max_prob', 'max_prob', 'prob']
+    luca_conf_candidates = ['confidence', 'mapping_confidence', 'luca_max_prob', 'max_prob', 'prob']
+
+    hlca_conf_col = None
+    for col in hlca_conf_candidates:
+        if col in hlca.columns:
+            hlca_conf_col = col
+            break
+
+    luca_conf_col = None
+    for col in luca_conf_candidates:
+        if col in luca.columns:
+            luca_conf_col = col
+            break
 
     # Handle missing confidence columns
-    if hlca_conf_col not in hlca.columns:
+    if hlca_conf_col is None:
         print("Warning: No confidence column in HLCA labels, using 1.0")
         hlca['confidence'] = 1.0
         hlca_conf_col = 'confidence'
-    if luca_conf_col not in luca.columns:
+    if luca_conf_col is None:
         print("Warning: No confidence column in LuCA labels, using 1.0")
         luca['confidence'] = 1.0
         luca_conf_col = 'confidence'
