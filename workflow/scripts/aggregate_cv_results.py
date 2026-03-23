@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Aggregate 5-fold CV × multi-seed results with bootstrap confidence intervals.
 
-This script is critical for Nature Methods publication - it produces the
-final metrics with proper uncertainty quantification.
+Produces final metrics with proper uncertainty quantification.
 
 Outputs:
 - cv_results.json: Full results from all fold/seed combinations

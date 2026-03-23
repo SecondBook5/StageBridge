@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate all publication figures for Nature Methods.
+"""Generate all publication figures.
 
 Snakemake script - uses snakemake.input and snakemake.output.
 

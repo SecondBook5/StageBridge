@@ -2,7 +2,7 @@
 # StageBridge V1 Publication Pipeline - Snakemake Workflow
 # =============================================================================
 #
-# A complete, reproducible pipeline for Nature Methods submission.
+# A complete, reproducible pipeline for StageBridge V1.
 #
 # Usage:
 #   # Dry run (see what would execute)
@@ -45,7 +45,7 @@ FIGURES = f"{RUNS}/publication_figures"
 # Spatial backends to run
 SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location"]
 
-# Cross-validation settings (P0 for Nature Methods)
+# Cross-validation settings
 FOLDS = [0, 1, 2, 3, 4]  # 5-fold CV
 SEEDS = [42, 123, 456]   # 3 seeds per fold for variance estimation
 

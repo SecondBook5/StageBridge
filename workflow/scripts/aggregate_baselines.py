@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Aggregate baseline ladder results and compare to StageBridge.
 
-This script produces the "baseline ladder" table for Nature Methods,
-demonstrating that receiver-centered niche conditioning improves performance.
+Produces the baseline comparison table demonstrating that receiver-centered
+niche conditioning improves performance.
 
 Outputs:
 - baseline_comparison.json: Full comparison data
