@@ -226,41 +226,105 @@ rule validate_markers:
 
 
 # =============================================================================
-# Stage 3: Spatial Backend Benchmark (4 backends in parallel)
+# Stage 3: Spatial Backend Benchmark (per-sample, then aggregate)
 # NOTE: Requires snRNA with cell types AND marker validation
 # =============================================================================
 
-rule spatial_backend:
+# Step 3a: Extract sample IDs from spatial data (checkpoint for dynamic samples)
+checkpoint extract_spatial_samples:
     input:
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",  # Has cell_type column
-        spatial = f"{PROCESSED}/spatial_merged.h5ad",
-        marker_check = f"{REF_GEOM}/marker_validation.json"  # Require marker QC
+        spatial = f"{PROCESSED}/spatial_merged.h5ad"
     output:
-        metrics = f"{SPATIAL}/{{backend}}/upstream_metrics.json",
-        proportions = f"{SPATIAL}/{{backend}}/cell_type_proportions.parquet"
+        manifest = f"{SPATIAL}/sample_manifest.json"
+    resources:
+        mem_mb = 128000,  # 128GB to load spatial file
+        runtime = 30
+    log:
+        f"{RUNS}/logs/extract_spatial_samples.log"
+    shell:
+        """
+        python workflow/scripts/extract_spatial_samples.py \
+            --spatial {input.spatial} \
+            --output {output.manifest} \
+            --sample-col sample_id \
+            2>&1 | tee {log}
+        """
+
+
+# Step 3b: Run backend on single sample
+rule spatial_backend_sample:
+    input:
+        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
+        spatial = f"{PROCESSED}/spatial_merged.h5ad",
+        marker_check = f"{REF_GEOM}/marker_validation.json",
+        manifest = f"{SPATIAL}/sample_manifest.json"
+    output:
+        metrics = f"{SPATIAL}/{{backend}}/samples/{{sample}}/upstream_metrics.json",
+        proportions = f"{SPATIAL}/{{backend}}/samples/{{sample}}/cell_type_proportions.parquet"
     wildcard_constraints:
         backend = "|".join(SPATIAL_BACKENDS)
-    threads: 8
+    threads: 4
     resources:
-        mem_mb = lambda wc: 512000 if wc.backend == "tacco" else 256000,  # 512GB for TACCO, 256GB others
-        runtime = lambda wc: 480 if wc.backend in ["cell2location", "tacco"] else 240,  # 8h for heavy, 4h others
+        mem_mb = 64000,  # 64GB per sample (much smaller)
+        runtime = 120,   # 2h per sample
         slurm_partition = "gpu",
         gpu = 1
-    params:
-        spatial_dir = SPATIAL
     log:
-        f"{RUNS}/logs/spatial_{{backend}}.log"
+        f"{RUNS}/logs/spatial_{{backend}}_{{sample}}.log"
     shell:
         """
         python -m stagebridge.pipelines.run_spatial_benchmark \
             --snrna {input.snrna} \
             --spatial {input.spatial} \
-            --output_dir {params.spatial_dir}/{wildcards.backend} \
+            --output_dir {SPATIAL}/{wildcards.backend}/samples/{wildcards.sample} \
             --backends {wildcards.backend} \
+            --sample {wildcards.sample} \
+            --sample-col sample_id \
             2>&1 | tee {log}
         """
 
 
+def get_all_sample_outputs(wildcards):
+    """Get all per-sample output files for a backend after checkpoint."""
+    checkpoint_output = checkpoints.extract_spatial_samples.get(**wildcards).output.manifest
+    import json
+    with open(checkpoint_output) as f:
+        manifest = json.load(f)
+    samples = manifest["samples"]
+    return expand(
+        f"{SPATIAL}/{wildcards.backend}/samples/{{sample}}/upstream_metrics.json",
+        sample=samples
+    )
+
+
+# Step 3c: Aggregate per-sample results into backend summary
+rule spatial_backend_aggregate:
+    input:
+        sample_metrics = get_all_sample_outputs,
+        manifest = f"{SPATIAL}/sample_manifest.json"
+    output:
+        metrics = f"{SPATIAL}/{{backend}}/upstream_metrics.json",
+        proportions = f"{SPATIAL}/{{backend}}/cell_type_proportions.parquet"
+    wildcard_constraints:
+        backend = "|".join(SPATIAL_BACKENDS)
+    threads: 2
+    resources:
+        mem_mb = 32000,
+        runtime = 30
+    log:
+        f"{RUNS}/logs/spatial_{{backend}}_aggregate.log"
+    shell:
+        """
+        python workflow/scripts/aggregate_spatial_samples.py \
+            --backend {wildcards.backend} \
+            --sample-dir {SPATIAL}/{wildcards.backend}/samples \
+            --output-dir {SPATIAL}/{wildcards.backend} \
+            --manifest {input.manifest} \
+            2>&1 | tee {log}
+        """
+
+
+# Step 3d: Compare backends (unchanged, uses aggregated results)
 rule spatial_comparison:
     input:
         expand(SPATIAL + "/{backend}/upstream_metrics.json", backend=SPATIAL_BACKENDS)

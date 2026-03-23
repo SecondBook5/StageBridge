@@ -44,6 +44,8 @@ def run_backend_comparison(
     output_dir: Path,
     backends: list[str] = None,
     quick: bool = False,
+    sample: str | None = None,
+    sample_col: str = "sample_id",
 ) -> dict:
     """
     Run comparison of all spatial backends.
@@ -54,6 +56,8 @@ def run_backend_comparison(
         output_dir: Where to save results
         backends: List of backend names or None for all
         quick: Use reduced epochs for faster testing
+        sample: If provided, filter spatial data to this sample only
+        sample_col: Column name for sample IDs in spatial.obs
 
     Returns:
         Dictionary with comparison results
@@ -65,6 +69,16 @@ def run_backend_comparison(
     log.info("Loading data...")
     snrna = ad.read_h5ad(snrna_path)
     spatial = ad.read_h5ad(spatial_path)
+
+    # Filter to single sample if specified
+    if sample is not None:
+        if sample_col not in spatial.obs.columns:
+            raise ValueError(f"Sample column '{sample_col}' not found in spatial.obs")
+        n_before = spatial.n_obs
+        spatial = spatial[spatial.obs[sample_col] == sample].copy()
+        log.info("Filtered spatial to sample '%s': %d -> %d spots", sample, n_before, spatial.n_obs)
+        if spatial.n_obs == 0:
+            raise ValueError(f"No spots found for sample '{sample}'")
 
     log.info("  snRNA: %d cells x %d genes", snrna.shape[0], snrna.shape[1])
     log.info("  Spatial: %d spots x %d genes", spatial.shape[0], spatial.shape[1])
@@ -442,6 +456,12 @@ def main():
     parser.add_argument(
         "--quick", action="store_true", help="Use reduced epochs for quick testing"
     )
+    parser.add_argument(
+        "--sample", type=str, default=None, help="Run on single sample (filters spatial data)"
+    )
+    parser.add_argument(
+        "--sample-col", type=str, default="sample_id", help="Column name for sample IDs"
+    )
     args = parser.parse_args()
 
     comparison = run_backend_comparison(
@@ -450,6 +470,8 @@ def main():
         output_dir=Path(args.output_dir),
         backends=args.backends,
         quick=args.quick,
+        sample=args.sample,
+        sample_col=getattr(args, "sample_col", "sample_id"),
     )
 
     # Print recommendation
