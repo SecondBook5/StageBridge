@@ -12,17 +12,9 @@ import logging
 
 log = logging.getLogger(__name__)
 
-# Stage colors (consistent with project)
-STAGE_COLORS = {
-    "Normal": "#00BA38",
-    "AAH": "#F8766D",
-    "AIS": "#619CFF",
-    "MIA": "#E58700",
-    "LUAD": "#A3A500",
-    "Unknown": "#999999",
-}
-
-STAGE_ORDER = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+# Stage colors - LungPCA canonical palette (Peng et al. Nature 2024)
+# Import from authoritative source for consistency
+from stagebridge.viz.lungpca_style import STAGE_COLORS, STAGE_ORDER
 
 
 def _setup_style():

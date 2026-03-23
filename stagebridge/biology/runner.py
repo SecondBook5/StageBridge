@@ -286,5 +286,6 @@ def run_biological_analysis(
 
 
 if __name__ == "__main__":
-    print("Biology runner module loaded.")
-    print("Usage: from stagebridge.biology.runner import run_biological_analysis")
+    logging.basicConfig(level=logging.INFO)
+    log.info("Biology runner module loaded.")
+    log.info("Usage: from stagebridge.biology.runner import run_biological_analysis")

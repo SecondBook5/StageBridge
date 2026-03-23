@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Spatial Backend Benchmark
+Spatial Backend Benchmark.
 
 Compare Tangram, DestVI, and TACCO on the same LUAD dataset.
 
@@ -15,14 +15,20 @@ This script:
 Purpose: Justify spatial backend choice with quantitative evidence (V1 requirement).
 """
 
+from __future__ import annotations
+
 import argparse
-from pathlib import Path
 import json
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import anndata as ad
+import logging
 import time
+from pathlib import Path
+
+import anndata as ad
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+log = logging.getLogger(__name__)
 
 from stagebridge.spatial_backends import (
     TangramBackend,
@@ -56,22 +62,22 @@ def run_backend_comparison(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Load data
-    print("Loading data...")
+    log.info("Loading data...")
     snrna = ad.read_h5ad(snrna_path)
     spatial = ad.read_h5ad(spatial_path)
 
-    print(f"  snRNA: {snrna.shape[0]} cells × {snrna.shape[1]} genes")
-    print(f"  Spatial: {spatial.shape[0]} spots × {spatial.shape[1]} genes")
-    print(f"  Cell types: {snrna.obs['cell_type'].nunique()}")
+    log.info("  snRNA: %d cells x %d genes", snrna.shape[0], snrna.shape[1])
+    log.info("  Spatial: %d spots x %d genes", spatial.shape[0], spatial.shape[1])
+    log.info("  Cell types: %d", snrna.obs["cell_type"].nunique())
 
     backends_to_run = backends or ["tangram", "destvi", "tacco", "cell2location"]
     results = {}
 
     # Run each backend
     for backend_name in backends_to_run:
-        print(f"\n{'=' * 80}")
-        print(f"Running {backend_name.upper()}")
-        print(f"{'=' * 80}")
+        log.info("=" * 80)
+        log.info("Running %s", backend_name.upper())
+        log.info("=" * 80)
 
         backend_dir = output_dir / backend_name
         backend_dir.mkdir(exist_ok=True)
@@ -111,10 +117,10 @@ def run_backend_comparison(
                 "error": None,
             }
 
-            print(f" {backend_name} completed in {runtime:.1f}s")
+            log.info("%s completed in %.1fs", backend_name, runtime)
 
         except Exception as e:
-            print(f" {backend_name} failed: {e}")
+            log.error("%s failed: %s", backend_name, e)
             results[backend_name] = {
                 "result": None,
                 "runtime_seconds": time.time() - start_time,
@@ -123,9 +129,9 @@ def run_backend_comparison(
             }
 
     # Generate comparison report
-    print(f"\n{'=' * 80}")
-    print("GENERATING COMPARISON REPORT")
-    print(f"{'=' * 80}")
+    log.info("=" * 80)
+    log.info("GENERATING COMPARISON REPORT")
+    log.info("=" * 80)
 
     comparison = compare_backends(results, output_dir)
 
@@ -133,7 +139,7 @@ def run_backend_comparison(
     with open(output_dir / "backend_comparison.json", "w") as f:
         json.dump(comparison, f, indent=2)
 
-    print(f"\n Benchmark complete. Results saved to {output_dir}")
+    log.info("Benchmark complete. Results saved to %s", output_dir)
 
     return comparison
 

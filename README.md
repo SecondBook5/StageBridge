@@ -71,10 +71,10 @@ Each spatial niche is encoded as a **9-token sequence**:
 
 | Token | Source | Description |
 |-------|--------|-------------|
-| Receiver | Cell identity | Target cell expression + learned state embedding |
-| Ring 1–4 | Spatial neighborhood | Cell-type composition at increasing radii |
-| HLCA | Reference atlas | Similarity to healthy lung cell types |
-| LuCA | Tumor atlas | Similarity to tumor-aware cell states |
+| Receiver | Cell identity | Target (focal) cell expression + learned state embedding |
+| Ring 1-4 | Spatial neighborhood | Cell-type composition at increasing radii |
+| HLCA | Reference atlas | Embedding similarity to healthy lung (HLCA) reference |
+| LuCA | Tumor atlas | Embedding similarity to disease-aware (LuCA) reference |
 | Pathway | Gene programs | Ligand-receptor and pathway activity summary |
 | Stats | Neighborhood | Local density, entropy, and composition statistics |
 
@@ -96,13 +96,13 @@ The first publication scope:
 | Component | Status | Description |
 |-----------|--------|-------------|
 | Raw Data Pipeline | Complete | `stagebridge data-prep` orchestration |
-| Spatial Backend Benchmark | In progress | Tangram/DestVI/TACCO comparison |
-| Dual-Reference Latent | In progress | HLCA + LuCA alignment |
-| Local Niche Encoder | Complete | 9-token transformer (from EA-MIST) |
-| Set Transformer | Complete | ISAB/SAB/PMA hierarchy (from EA-MIST) |
-| Flow Matching | In progress | OT-CFM with Sinkhorn coupling |
+| Spatial Backend Benchmark | Complete | Tangram/DestVI/TACCO/Cell2Location comparison |
+| Dual-Reference Latent | Complete | HLCA + LuCA alignment via scArches surgery |
+| Local Niche Encoder | Complete | Receiver-centered niche transformer |
+| Set Transformer | Complete | ISAB/SAB/PMA hierarchy |
+| Flow Matching | Complete | OT-CFM with Sinkhorn coupling |
 | Evolutionary Compatibility | Complete | WES-derived constraints |
-| Donor-Held-Out Evaluation | Planned | With uncertainty quantification |
+| Donor-Held-Out Evaluation | Complete | With uncertainty quantification |
 
 ### V2/V3 Roadmap (Deferred)
 
@@ -187,7 +187,7 @@ from stagebridge.notebook_api import compose_config, run_data_prep
 # Data preparation
 result = run_data_prep()
 
-# Configure training (coming soon)
+# Configure training
 cfg = compose_config(overrides=["model=flow_matching"])
 ```
 
@@ -253,13 +253,16 @@ pytest tests/test_flow_matching.py
 If you use StageBridge in your research, please cite:
 
 ```bibtex
-@software{book2026stagebridge,
-  author = {Book, AJ},
-  title = {StageBridge: Stochastic transition modeling for cell-state progression},
+@article{book2026stagebridge,
+  author = {Book, AJ and Chaunt, Tyler},
+  title = {StageBridge: Receiver-Centered Niche Modeling for Cell-State Progression in Spatial and Single-Cell Omics},
+  journal = {[Journal TBD]},
   year = {2026},
-  url = {https://github.com/SecondBook5/StageBridge}
+  note = {Manuscript in preparation}
 }
 ```
+
+**Note:** Citation will be updated upon publication.
 
 ## License
 

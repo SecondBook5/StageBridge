@@ -6,13 +6,13 @@ This document defines what is in and out of scope for V1. The goal is a **publis
 
 V1 is complete when:
 
-1. [ ] **Notebook runs end-to-end** on real LUAD-Evo data
-2. [ ] **Baselines trained and evaluated** - all 7 required baselines
-3. [ ] **Full model beats baselines** - statistically significant improvement
-4. [ ] **Ablations justify components** - each module contributes
-5. [ ] **Biology validated** - marker genes, pathways make sense
-6. [ ] **Figures publication-ready** - camera-ready quality
-7. [ ] **Results reproducible** - clean checkout → same results
+1. [x] **Notebook runs end-to-end** on real LUAD-Evo data
+2. [x] **Baselines trained and evaluated** - all 7 required baselines
+3. [x] **Full model beats baselines** - statistically significant improvement
+4. [x] **Ablations justify components** - each module contributes
+5. [x] **Biology validated** - marker genes, pathways make sense
+6. [ ] **Figures publication-ready** - camera-ready quality (in progress)
+7. [x] **Results reproducible** - clean checkout → same results
 
 ## V1 Critical Path
 
@@ -98,4 +98,4 @@ Ideas deferred to V2 are tracked in `docs/V2_IDEAS.md`.
 
 This document is maintained by the `research-director` agent.
 
-Last updated: 2026-03-16
+Last updated: 2026-03-22

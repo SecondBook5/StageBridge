@@ -81,8 +81,8 @@ def plot_benchmark_bars(
 
     # Set up publication-quality figure
     fig, ax = plt.subplots(figsize=(11, 6.5), dpi=150)
-    ax.set_facecolor("#FAFAFA")
-    fig.patch.set_facecolor("white")
+    ax.set_facecolor("#FFFFFF")  # Pure white for publication
+    fig.patch.set_facecolor("#FFFFFF")
 
     # Determine if lower is better (typical for distance metrics)
     lower_is_better = any(

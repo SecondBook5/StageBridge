@@ -730,13 +730,11 @@ def run_data_prep(
                 n_spots_before = adata_backed.n_obs
                 n_genes_before = adata_backed.n_vars
                 var_names = adata_backed.var_names.copy()
-                adata_backed.obs_names.copy()
+                obs_names = adata_backed.obs_names.copy()  # noqa: F841
 
                 # Get sample IDs if available for chunk boundaries
                 if "sample_id" in adata_backed.obs.columns:
-                    adata_backed.obs["sample_id"].values
-                else:
-                    pass
+                    sample_ids = adata_backed.obs["sample_id"].values  # noqa: F841
 
                 adata_backed.file.close()
                 del adata_backed

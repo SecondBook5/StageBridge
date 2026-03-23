@@ -63,7 +63,7 @@ def plot_method_schematic(output_path: Path) -> None:
     ax.set_title("Panel A: Transformer-First StageBridge Pipeline", fontsize=14, pad=12)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=220)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
     if output_path.suffix.lower() != ".pdf":
         fig.savefig(output_path.with_suffix(".pdf"))
     plt.close(fig)
@@ -105,7 +105,7 @@ def plot_transition_trajectory(eval_df: pd.DataFrame, output_path: Path) -> None
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=220)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
     if output_path.suffix.lower() != ".pdf":
         fig.savefig(output_path.with_suffix(".pdf"))
     plt.close(fig)
@@ -266,15 +266,8 @@ def plot_metric_heatmap(
 # Visium / spatial spot plots
 # ---------------------------------------------------------------------------
 
-# Stage colors — color-blind friendly palette
-_STAGE_COLORS: dict[str, str] = {
-    "Normal": "#00BA38",  # green (healthy) - colorblind safe
-    "AAH": "#F8766D",  # coral (early precursor)
-    "AIS": "#619CFF",  # blue (intermediate precursor)
-    "MIA": "#E58700",  # orange (late precursor)
-    "LUAD": "#A3A500",  # olive (invasive)
-    "Unknown": "#999999",  # gray
-}
+# Stage colors - LungPCA canonical palette
+from .lungpca_style import STAGE_COLORS as _STAGE_COLORS
 
 
 def _get_spot_coords(adata: Any) -> np.ndarray:

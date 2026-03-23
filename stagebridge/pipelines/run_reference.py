@@ -30,10 +30,14 @@ Output:
 from __future__ import annotations
 
 import argparse
+import logging
+import uuid
 from pathlib import Path
 from typing import Any, Literal
-import uuid
+
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 def calibrate_confidence_percentile(
@@ -193,25 +197,25 @@ def extract_hlca_reference_from_hub(hub_cache: Path, output_path: Path) -> Path:
     """Extract HLCA reference h5ad from HubModel cache."""
     from scvi.hub import HubModel
 
-    print("Loading HLCA reference from HubModel cache...")
+    log.info("Loading HLCA reference from HubModel cache...")
     hubmodel = HubModel.pull_from_huggingface_hub(
         "scvi-tools/human-lung-cell-atlas-scanvi",
         cache_dir=hub_cache,
     )
 
     ref_adata = hubmodel.adata
-    print(f"  Reference cells: {ref_adata.n_obs:,}")
-    print(f"  Reference genes: {ref_adata.n_vars:,}")
+    log.info("  Reference cells: %s", f"{ref_adata.n_obs:,}")
+    log.info("  Reference genes: %s", f"{ref_adata.n_vars:,}")
 
     # Ensure latent embedding exists
     if "X_scanvi_emb" not in ref_adata.obsm:
-        print("  Computing latent embeddings...")
+        log.info("  Computing latent embeddings...")
         ref_latent = hubmodel.model.get_latent_representation(ref_adata)
         ref_adata.obsm["X_scanvi_emb"] = ref_latent
 
     # Reindex to gene symbols if feature_name column exists
     if "feature_name" in ref_adata.var.columns:
-        print("  Reindexing to gene symbols (feature_name)...")
+        log.info("  Reindexing to gene symbols (feature_name)...")
         # Store original ENSG IDs
         ref_adata.var["ensembl_id"] = ref_adata.var_names.copy()
         # Get symbols and drop the column to avoid conflict
@@ -221,9 +225,9 @@ def extract_hlca_reference_from_hub(hub_cache: Path, output_path: Path) -> Path:
         ref_adata.var_names = symbols
         # Handle duplicates by making unique
         ref_adata.var_names_make_unique()
-        print(f"  Gene names: {list(ref_adata.var_names[:5])}")
+        log.info("  Gene names: %s", list(ref_adata.var_names[:5]))
 
-    print(f"  Saving reference to: {output_path}")
+    log.info("  Saving reference to: %s", output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ref_adata.write_h5ad(output_path)
 
@@ -238,11 +242,11 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
     import anndata
 
     file_size_gb = ref_path.stat().st_size / (1024**3)
-    print(f"Checking gene format in {ref_path.name} ({file_size_gb:.1f} GB)...")
+    log.info("Checking gene format in %s (%.1f GB)...", ref_path.name, file_size_gb)
 
     # For large files, just check and warn - don't rewrite
     if file_size_gb > max_size_gb:
-        print("  Large file - checking with backed mode...")
+        log.info("  Large file - checking with backed mode...")
         try:
             adata = anndata.read_h5ad(ref_path, backed='r')
             first_gene = str(adata.var_names[0])
@@ -256,12 +260,12 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
                         "gene_symbol": adata.var["feature_name"].astype(str),
                     })
                     gene_map.to_parquet(mapping_path)
-                    print(f"  Created gene mapping: {mapping_path}")
-                print("  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching.")
+                    log.info("  Created gene mapping: %s", mapping_path)
+                log.info("  NOTE: Large file uses ENSG IDs. Pipeline will use feature_name for matching.")
             adata.file.close()
         except (ValueError, OSError) as e:
             # h5py version incompatibility - skip check and proceed
-            print(f"  Warning: Could not read in backed mode ({e.__class__.__name__}), skipping gene format check")
+            log.warning("Could not read in backed mode (%s), skipping gene format check", e.__class__.__name__)
         return ref_path
 
     adata = anndata.read_h5ad(ref_path)
@@ -269,31 +273,31 @@ def reindex_reference_to_symbols(ref_path: Path, max_size_gb: float = 5.0) -> Pa
     # Check if already using symbols (not ENSG)
     first_gene = str(adata.var_names[0])
     if not first_gene.startswith("ENSG"):
-        print(f"  Already using gene symbols: {first_gene}")
+        log.info("  Already using gene symbols: %s", first_gene)
         return ref_path
 
     # Check for feature_name column
     if "feature_name" not in adata.var.columns:
-        print("  WARNING: No feature_name column, keeping ENSG IDs")
+        log.warning("  No feature_name column, keeping ENSG IDs")
         return ref_path
 
-    print("  Reindexing from ENSG to gene symbols...")
+    log.info("  Reindexing from ENSG to gene symbols...")
     adata.var["ensembl_id"] = adata.var_names.copy()
     adata.var_names = adata.var["feature_name"].astype(str)
     adata.var_names_make_unique()
 
     # Save back
     adata.write_h5ad(ref_path)
-    print(f"  Done. Gene names: {list(adata.var_names[:5])}")
+    log.info("  Done. Gene names: %s", list(adata.var_names[:5]))
 
     return ref_path
 
 
 def run_reference(cfg: Any) -> dict[str, Any]:
-    """Compatibility wrapper for old API.
+    """Deprecated compatibility wrapper for old API.
 
-    TODO: Implement proper config-based reference mapping.
-    For now, this is a stub to fix imports.
+    This function is intentionally deprecated. Use the specific mapping
+    functions instead for proper control over the reference pipeline.
     """
     raise NotImplementedError(
         "run_reference() is deprecated. Use run_hpc_reference_mapping() or run_dual_reference_mapping() directly."
@@ -331,37 +335,37 @@ def run_hpc_reference_mapping(
     use_luca = mode in ("both", "luca_only") and luca_path is not None
 
     if not use_hlca and not use_luca:
-        print("ERROR: No references available for the selected mode.")
+        log.error("No references available for the selected mode.")
         return 1
 
-    print()
-    print("=" * 60)
-    print("HPC Dual-Reference Mapping (Chunked/Streaming)")
-    print("=" * 60)
-    print(f"  Run ID: {run_id}")
-    print(f"  Mode: {mode}")
-    print(f"  Query: {query_path}")
-    print(f"  HLCA: {hlca_path if use_hlca else 'disabled'}")
-    print(f"  LuCA: {luca_path if use_luca else 'disabled'}")
-    print(f"  Output: {output_dir}")
-    print(f"  k-neighbors: {k_neighbors}")
-    print(f"  Chunk size: {chunk_size:,}")
+    log.info("")
+    log.info("=" * 60)
+    log.info("HPC Dual-Reference Mapping (Chunked/Streaming)")
+    log.info("=" * 60)
+    log.info("  Run ID: %s", run_id)
+    log.info("  Mode: %s", mode)
+    log.info("  Query: %s", query_path)
+    log.info("  HLCA: %s", hlca_path if use_hlca else "disabled")
+    log.info("  LuCA: %s", luca_path if use_luca else "disabled")
+    log.info("  Output: %s", output_dir)
+    log.info("  k-neighbors: %d", k_neighbors)
+    log.info("  Chunk size: %s", f"{chunk_size:,}")
     if smoke_mode:
-        print("  SMOKE MODE: Using 1000 cells only")
-    print()
+        log.info("  SMOKE MODE: Using 1000 cells only")
+    log.info("")
 
     t0 = time.perf_counter()
 
     # Load query data in backed mode to avoid memory explosion
     # 787K cells x 15K genes in dense = 47GB - keep sparse/on-disk
-    print("Loading query data (backed mode)...")
+    log.info("Loading query data (backed mode)...")
     try:
         query_adata = anndata.read_h5ad(query_path, backed='r')
     except Exception as e:
         # Fallback to non-backed mode for older anndata versions
-        print(f"  Warning: Backed mode failed ({e.__class__.__name__}), loading fully into memory...")
+        log.warning("Backed mode failed (%s), loading fully into memory...", e.__class__.__name__)
         query_adata = anndata.read_h5ad(query_path)
-    print(f"  Query: {query_adata.n_obs:,} cells, {query_adata.n_vars:,} genes")
+    log.info("  Query: %s cells, %s genes", f"{query_adata.n_obs:,}", f"{query_adata.n_vars:,}")
 
     if smoke_mode:
         n_smoke = min(1000, query_adata.n_obs)
@@ -370,17 +374,17 @@ def run_hpc_reference_mapping(
         query_adata_full = anndata.read_h5ad(query_path)
         query_adata = query_adata_full[idx].copy()
         del query_adata_full
-        print(f"  Smoke mode: subsampled to {query_adata.n_obs} cells")
+        log.info("  Smoke mode: subsampled to {query_adata.n_obs} cells")
 
     # Determine model paths (for model-based mapping)
     # Use explicit paths if provided, otherwise auto-detect
     if hlca_model_path and hlca_model_path.exists() and (hlca_model_path / "model.pt").exists():
-        print(f"  Using explicit HLCA model path: {hlca_model_path}")
+        log.info("  Using explicit HLCA model path: {hlca_model_path}")
     else:
         hlca_model_path = None  # Reset to trigger auto-detection
 
     if luca_model_path and luca_model_path.exists() and (luca_model_path / "model.pt").exists():
-        print(f"  Using explicit LuCA model path: {luca_model_path}")
+        log.info("  Using explicit LuCA model path: {luca_model_path}")
     else:
         luca_model_path = None  # Reset to trigger auto-detection
 
@@ -396,15 +400,15 @@ def run_hpc_reference_mapping(
                 model_repo_dir = hub_cache / "models--scvi-tools--human-lung-cell-atlas-scanvi"
                 if model_repo_dir.exists():
                     hlca_model_path = hub_cache  # Pass hub_cache, HubModel handles the rest
-                    print(f"  Found HLCA hub cache: {hub_cache}")
+                    log.info("  Found HLCA hub cache: {hub_cache}")
                 else:
-                    print("  HLCA hub_cache exists but model repo not found. Will pull from HuggingFace.")
+                    log.info("  HLCA hub_cache exists but model repo not found. Will pull from HuggingFace.")
                     hlca_model_path = hub_cache  # Still use it - HubModel will download
             else:
                 # No hub_cache, but we can still try - HubModel will download
                 hub_cache.mkdir(parents=True, exist_ok=True)
                 hlca_model_path = hub_cache
-                print(f"  Created HLCA hub cache: {hub_cache} (will download model)")
+                log.info("  Created HLCA hub cache: {hub_cache} (will download model)")
 
     if use_model_based and use_luca and luca_model_path is None:
         # Check for LuCA scANVI model (extracted from core_atlas_scanvi_model.tar.gz)
@@ -421,7 +425,7 @@ def run_hpc_reference_mapping(
             for candidate in candidates:
                 if candidate.exists() and (candidate / "model.pt").exists():
                     luca_model_path = candidate
-                    print(f"  Found LuCA scANVI model: {luca_model_path}")
+                    log.info("  Found LuCA scANVI model: {luca_model_path}")
                     break
 
     # Run model-based mapping using existing hlca_mapper.py (canonical implementation)
@@ -440,7 +444,7 @@ def run_hpc_reference_mapping(
 
     # HLCA mapping using canonical hlca_mapper.py
     if use_hlca and use_model_based and hlca_model_path:
-        print("  Using HLCA mapping from hlca_mapper.py (canonical implementation)")
+        log.info("  Using HLCA mapping from hlca_mapper.py (canonical implementation)")
         from stagebridge.reference.hlca_mapper import map_full_snrna_with_hlca
 
         # Setup output paths for hlca_mapper
@@ -513,7 +517,7 @@ def run_hpc_reference_mapping(
 
     # LuCA mapping using canonical luca_mapper.py
     if use_luca and use_model_based and luca_model_path:
-        print("  Using LuCA mapping from luca_mapper.py (canonical implementation)")
+        log.info("  Using LuCA mapping from luca_mapper.py (canonical implementation)")
         from stagebridge.reference.luca_mapper import map_full_snrna_with_luca
 
         # Setup output paths for luca_mapper
@@ -1054,15 +1058,8 @@ def _generate_reference_figures(
     import matplotlib.pyplot as plt
     from sklearn.decomposition import PCA
 
-    # Stage colors
-    STAGE_COLORS = {
-        "Normal": "#00BA38",
-        "AAH": "#F8766D",
-        "AIS": "#619CFF",
-        "MIA": "#E58700",
-        "LUAD": "#A3A500",
-        "Unknown": "#999999",
-    }
+    # Stage colors - LungPCA canonical palette
+    from stagebridge.viz.lungpca_style import STAGE_COLORS
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     fig.suptitle("Dual-Reference Mapping Results (Calibrated Confidence)", fontsize=14, fontweight='bold')

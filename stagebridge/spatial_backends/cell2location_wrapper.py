@@ -272,8 +272,8 @@ class Cell2locationBackend(SpatialBackend):
         """Plot cell type abundances spatially using squidpy."""
         try:
             import squidpy as sq
-        except ImportError:
-            raise ImportError("squidpy required for plotting: pip install squidpy")
+        except ImportError as err:
+            raise ImportError("squidpy required for plotting: pip install squidpy") from err
 
         abundances = self.get_abundance_estimates()
         if abundances is None:

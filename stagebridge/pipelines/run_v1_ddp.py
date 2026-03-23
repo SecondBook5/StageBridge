@@ -452,7 +452,7 @@ def create_dataloaders(
                 if 'stage' in cells_df.columns:
                     stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
                     stage_to_idx = {s: i for i, s in enumerate(stage_order)}
-                    cells_df['stage'].map(stage_to_idx).fillna(0).astype(int).values
+                    stage_indices = cells_df['stage'].map(stage_to_idx).fillna(0).astype(int).values  # noqa: F841
 
                     # z_source = current embedding, z_target = shifted embedding (next stage cells)
                     z_source = embeddings

@@ -111,7 +111,12 @@ def plot_spatial_maps_comparison(
     plt.tight_layout()
 
     if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        output_path = Path(output_path)
+        # Save at publication quality (300 DPI) in both PNG and PDF
+        fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
+        # Also save PDF for vector graphics
+        if output_path.suffix.lower() != ".pdf":
+            fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
 
     return fig
 
@@ -212,7 +217,12 @@ def plot_metrics_comparison(
     plt.tight_layout()
 
     if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        output_path = Path(output_path)
+        # Save at publication quality (300 DPI) in both PNG and PDF
+        fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
+        # Also save PDF for vector graphics
+        if output_path.suffix.lower() != ".pdf":
+            fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
 
     return fig
 
@@ -272,7 +282,12 @@ def plot_confidence_distributions(
     plt.tight_layout()
 
     if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        output_path = Path(output_path)
+        # Save at publication quality (300 DPI) in both PNG and PDF
+        fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
+        # Also save PDF for vector graphics
+        if output_path.suffix.lower() != ".pdf":
+            fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
 
     return fig
 
@@ -349,7 +364,12 @@ def plot_donor_robustness(
     plt.tight_layout()
 
     if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        output_path = Path(output_path)
+        # Save at publication quality (300 DPI) in both PNG and PDF
+        fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
+        # Also save PDF for vector graphics
+        if output_path.suffix.lower() != ".pdf":
+            fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
 
     return fig
 
@@ -412,7 +432,12 @@ def plot_entropy_comparison(
     plt.tight_layout()
 
     if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        output_path = Path(output_path)
+        # Save at publication quality (300 DPI) in both PNG and PDF
+        fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
+        # Also save PDF for vector graphics
+        if output_path.suffix.lower() != ".pdf":
+            fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
 
     return fig
 
@@ -530,7 +555,12 @@ def create_comparison_summary_figure(
     plt.suptitle("Spatial Backend Comparison Summary", fontsize=14, fontweight="bold", y=0.98)
 
     if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        output_path = Path(output_path)
+        # Save at publication quality (300 DPI) in both PNG and PDF
+        fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor="white")
+        # Also save PDF for vector graphics
+        if output_path.suffix.lower() != ".pdf":
+            fig.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
 
     return fig
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-V1 Synthetic Data Pipeline
+V1 Synthetic Data Pipeline.
 
 End-to-end test of StageBridge V1 architecture on synthetic data.
 
@@ -15,15 +15,21 @@ This script:
 Purpose: Validate implementation before HPC deployment on real data.
 """
 
+from __future__ import annotations
+
 import argparse
+import json
+import logging
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from pathlib import Path
-import json
-import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
+
+log = logging.getLogger(__name__)
 
 # StageBridge imports
 from stagebridge.data.synthetic import generate_synthetic_dataset
@@ -587,7 +593,7 @@ def visualize_transitions(
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    print(f"Saved visualization to: {save_path}")
+    log.info("Saved visualization to: %s", save_path)
 
 
 def main():
@@ -615,12 +621,17 @@ def main():
 
     device = torch.device(args.device)
 
-    print("=" * 80)
-    print("StageBridge V1 Synthetic Data Pipeline")
-    print("=" * 80)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    log.info("=" * 80)
+    log.info("StageBridge V1 Synthetic Data Pipeline")
+    log.info("=" * 80)
 
     # Step 1: Generate synthetic data
-    print("\n[1/6] Generating synthetic dataset...")
+    log.info("[1/6] Generating synthetic dataset...")
     data_dir = generate_synthetic_dataset(
         output_dir="data/processed/synthetic",
         n_cells=args.n_cells,
@@ -630,7 +641,7 @@ def main():
     )
 
     # Step 2: Create dataloaders
-    print("\n[2/6] Creating dataloaders...")
+    log.info("[2/6] Creating dataloaders...")
     train_loader = get_dataloader_optimized(
         data_dir=data_dir,
         fold=0,
@@ -658,12 +669,12 @@ def main():
         shuffle=False,
     )
 
-    print(f"  Train batches: {len(train_loader)}")
-    print(f"  Val batches: {len(val_loader)}")
-    print(f"  Test batches: {len(test_loader)}")
+    log.info("  Train batches: %d", len(train_loader))
+    log.info("  Val batches: %d", len(val_loader))
+    log.info("  Test batches: %d", len(test_loader))
 
     # Step 3: Initialize model
-    print("\n[3/6] Initializing model...")
+    log.info("[3/6] Initializing model...")
     model = StageBridgeV1Model(
         latent_dim=args.latent_dim,
         niche_hidden_dim=64,
@@ -672,17 +683,17 @@ def main():
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"  Total parameters: {n_params:,}")
+    log.info("  Total parameters: %s", f"{n_params:,}")
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.n_epochs)
 
     # Step 4: Training loop
-    print(f"\n[4/6] Training for {args.n_epochs} epochs...")
+    log.info("[4/6] Training for %d epochs...", args.n_epochs)
     history = {"train": [], "val": []}
 
     for epoch in range(args.n_epochs):
-        print(f"\nEpoch {epoch + 1}/{args.n_epochs}")
+        log.info("Epoch %d/%d", epoch + 1, args.n_epochs)
 
         # Train
         train_metrics = train_epoch(
@@ -694,23 +705,29 @@ def main():
         val_metrics = evaluate(model, val_loader, device)
         history["val"].append(val_metrics)
 
-        print(f"  Train Loss: {train_metrics['loss']:.4f} | Val Loss: {val_metrics['loss']:.4f}")
-        print(
-            f"  Val MSE: {val_metrics['mse']:.4f} | Val W-dist: {val_metrics['wasserstein']:.4f}"
+        log.info(
+            "  Train Loss: %.4f | Val Loss: %.4f",
+            train_metrics["loss"],
+            val_metrics["loss"],
+        )
+        log.info(
+            "  Val MSE: %.4f | Val W-dist: %.4f",
+            val_metrics["mse"],
+            val_metrics["wasserstein"],
         )
 
         scheduler.step()
 
     # Step 5: Test evaluation
-    print("\n[5/6] Testing...")
+    log.info("[5/6] Testing...")
     test_metrics = evaluate(model, test_loader, device)
 
-    print(f"  Test Loss: {test_metrics['loss']:.4f}")
-    print(f"  Test MSE: {test_metrics['mse']:.4f}")
-    print(f"  Test W-dist: {test_metrics['wasserstein']:.4f}")
+    log.info("  Test Loss: %.4f", test_metrics["loss"])
+    log.info("  Test MSE: %.4f", test_metrics["mse"])
+    log.info("  Test W-dist: %.4f", test_metrics["wasserstein"])
 
     # Step 6: Visualizations
-    print("\n[6/6] Generating visualizations...")
+    log.info("[6/6] Generating visualizations...")
     visualize_transitions(
         model, test_loader, device, save_path=output_dir / "transitions_visualization.png"
     )
@@ -728,10 +745,10 @@ def main():
     # Save model
     torch.save(model.state_dict(), output_dir / "model.pt")
 
-    print("\n" + "=" * 80)
-    print(" Pipeline complete!")
-    print(f"  Results saved to: {output_dir}")
-    print("=" * 80)
+    log.info("=" * 80)
+    log.info("Pipeline complete!")
+    log.info("Results saved to: %s", output_dir)
+    log.info("=" * 80)
 
 
 if __name__ == "__main__":

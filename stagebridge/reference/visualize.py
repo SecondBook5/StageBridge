@@ -167,8 +167,12 @@ def plot_reference_structure(
     plt.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
-        log.info("Saved reference structure plot to %s", save_path)
+        save_path = Path(save_path)
+        # Save at publication quality (300 DPI) in both PNG and PDF
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+        if save_path.suffix.lower() != ".pdf":
+            fig.savefig(save_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
+        log.info("Saved reference structure plot to %s (PNG + PDF)", save_path)
 
     return fig
 

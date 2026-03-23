@@ -48,9 +48,9 @@ This directory contains all pipeline scripts for the StageBridge V1 workflow.
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  run_spatial_benchmark.py                                                    │
-│  Compare Tangram vs DestVI vs TACCO, select canonical backend               │
+│  Compare Tangram vs DestVI vs TACCO vs Cell2Location, select canonical      │
 │  Output: spatial_benchmark/comparison_report.json                           │
-│          spatial_benchmark/{tangram,destvi,tacco}/cell_type_proportions.parquet │
+│          spatial_benchmark/{backend}/cell_type_proportions.parquet          │
 └─────────────────────────────────────────────────────────────────────────────┘
                                         │
                                         ▼

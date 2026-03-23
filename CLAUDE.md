@@ -25,7 +25,7 @@ Before implementing anything, answer these questions:
 3. add_ensembl_ids.py            (gene ID prep for model-based mapping)
 4. run_reference.py --hlca-only  (HLCA mapping first)
 5. run_reference.py --luca-only  (LuCA mapping, may need pandas 1.5.x env)
-6. run_spatial_benchmark.py      (Tangram/DestVI/TACCO)
+6. run_spatial_benchmark.py      (Tangram/DestVI/TACCO/Cell2Location)
 7. complete_data_prep.py         (canonical format)
 8. run_v1_complete.py            (training)
 ```

@@ -4,12 +4,18 @@ Main benchmark pipeline for spatial backend comparison.
 Provides end-to-end pipeline for running, comparing, and selecting spatial backends.
 """
 
+from __future__ import annotations
+
+import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
-import json
-import numpy as np
+
 import anndata as ad
+import numpy as np
+
+log = logging.getLogger(__name__)
 
 from .base import SpatialBackend
 from .tangram_wrapper import TangramBackend
@@ -179,7 +185,7 @@ def run_spatial_benchmark(
             n_spots=config.smoke_n_spots,
             seed=config.random_seed,
         )
-        print(f"Smoke mode: {len(snrna)} cells, {len(spatial)} spots")
+        log.info("Smoke mode: %d cells, %d spots", len(snrna), len(spatial))
 
     # Save benchmark config
     _save_config(config, output_dir)
@@ -322,7 +328,7 @@ def _initialize_backends(
             backend_config = config.get_backend_config(name_lower)
             backends[name] = backend_classes[name_lower](**backend_config)
         else:
-            print(f"Warning: Unknown backend '{name}', skipping")
+            log.warning("Unknown backend '%s', skipping", name)
 
     return backends
 
@@ -344,7 +350,7 @@ def _generate_benchmark_plots(
             results[name] = result.standardized
 
     if not results:
-        print("No successful results to plot")
+        log.warning("No successful results to plot")
         return
 
     # Plot 1: Spatial maps comparison
@@ -356,7 +362,7 @@ def _generate_benchmark_plots(
                 output_path=plots_dir / "spatial_maps_comparison.png",
             )
         except Exception as e:
-            print(f"Warning: Failed to generate spatial maps: {e}")
+            log.warning("Failed to generate spatial maps: %s", e)
 
     # Plot 2: Metrics comparison
     if comparison.comparison_table is not None:
@@ -366,7 +372,7 @@ def _generate_benchmark_plots(
                 output_path=plots_dir / "metrics_comparison.png",
             )
         except Exception as e:
-            print(f"Warning: Failed to generate metrics comparison: {e}")
+            log.warning("Failed to generate metrics comparison: %s", e)
 
     # Plot 3: Confidence distributions
     try:
@@ -375,7 +381,7 @@ def _generate_benchmark_plots(
             output_path=plots_dir / "confidence_distributions.png",
         )
     except Exception as e:
-        print(f"Warning: Failed to generate confidence distributions: {e}")
+        log.warning("Failed to generate confidence distributions: %s", e)
 
     # Plot 4: Summary figure
     if spatial_coords is not None:
@@ -387,7 +393,7 @@ def _generate_benchmark_plots(
                 output_path=plots_dir / "comparison_summary.png",
             )
         except Exception as e:
-            print(f"Warning: Failed to generate summary figure: {e}")
+            log.warning("Failed to generate summary figure: %s", e)
 
 
 def run_smoke_benchmark(

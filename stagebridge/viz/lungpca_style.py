@@ -647,8 +647,8 @@ def plot_sankey_diagram(
             target_colors = STAGE_COLORS
 
         node_colors = (
-            [source_colors.get(l, "#d9d9d9") for l in source_labels] +
-            [target_colors.get(l, "#d9d9d9") for l in target_labels]
+            [source_colors.get(label, "#d9d9d9") for label in source_labels] +
+            [target_colors.get(label, "#d9d9d9") for label in target_labels]
         )
 
         fig = go.Figure(data=[go.Sankey(

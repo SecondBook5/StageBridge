@@ -19,17 +19,8 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 
-# Publication style settings
-STAGE_COLORS = {
-    "Normal": "#00BA38",
-    "AAH": "#F8766D",
-    "AIS": "#619CFF",
-    "MIA": "#E58700",
-    "LUAD": "#A3A500",
-    "Unknown": "#999999",
-}
-
-STAGE_ORDER = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+# Publication style settings - LungPCA canonical palette
+from stagebridge.viz.lungpca_style import STAGE_COLORS, STAGE_ORDER
 
 NICHE_COLORS = {
     "Normal-like": "#66c2a5",

@@ -89,11 +89,19 @@ workflow/
 ├── Snakefile           # Main workflow definition
 ├── config.yaml         # Pipeline configuration
 ├── README.md           # This file
-├── scripts/            # Helper scripts
-│   ├── compare_spatial_backends.py
-│   ├── fuse_embeddings.py
+├── scripts/            # Helper scripts called by Snakemake rules
+│   ├── aggregate_baselines.py        # Aggregate baseline comparison results
+│   ├── aggregate_cv_results.py       # Aggregate cross-validation results
+│   ├── compare_spatial_backends.py   # Compare spatial backend outputs
+│   ├── fuse_embeddings.py            # Fuse HLCA + LuCA embeddings
 │   ├── generate_publication_figures.py
-│   └── summarize_ablations.py
+│   ├── generate_semi_synthetic.py    # Generate semi-synthetic benchmark data
+│   ├── merge_cell_types.py           # Merge cell type annotations
+│   ├── plot_training_curves.py       # Plot training loss/metrics
+│   ├── summarize_ablations.py        # Summarize ablation study results
+│   ├── validate_markers.py           # Validate marker gene expression
+│   ├── validate_splits.py            # Validate train/val/test splits
+│   └── visualize_attention.py        # Visualize attention weights
 └── slurm/              # SLURM cluster configuration
     ├── config.yaml     # Snakemake SLURM profile
     └── status.py       # Job status checker

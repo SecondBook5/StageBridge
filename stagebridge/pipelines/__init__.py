@@ -1,4 +1,24 @@
-"""Canonical pipeline namespace for the StageBridge rebuild."""
+"""
+Pipeline entrypoints for StageBridge.
+
+This module provides the canonical pipeline execution order for StageBridge:
+
+1. run_data_prep.py          - QC/merge snRNA and spatial data
+2. download_references.py    - Fetch HLCA/LuCA reference atlases
+3. run_reference.py          - Model-based dual-reference mapping
+4. run_spatial_benchmark.py  - Spatial backend comparison (Tangram/DestVI/TACCO)
+5. complete_data_prep.py     - Prepare canonical training format
+6. run_v1_complete.py        - Full training pipeline
+
+Individual pipelines can be imported and run directly:
+    >>> from stagebridge.pipelines import run_data_prep
+    >>> run_data_prep.main(data_root="/path/to/data")
+
+Or use the unified CLI:
+    $ python -m stagebridge step data_prep --data-root /path/to/data
+
+See stagebridge/pipelines/README.md for detailed documentation.
+"""
 
 from __future__ import annotations
 

@@ -264,12 +264,13 @@ The master notebook (`StageBridge_V1_Master.ipynb`) integrates all these tools:
 
 If you use these analysis tools, please cite:
 
-```
-@article{stagebridge2026,
-  title={StageBridge: Interpretable Cell-State Transitions via Transformer-Based Niche Conditioning},
-  author={...},
-  journal={bioRxiv},
-  year={2026}
+```bibtex
+@article{book2026stagebridge,
+  author = {Book, AJ and Chaunt, Tyler},
+  title = {StageBridge: Receiver-Centered Niche Modeling for Cell-State Progression in Spatial and Single-Cell Omics},
+  journal = {[Journal TBD]},
+  year = {2026},
+  note = {Manuscript in preparation}
 }
 ```
 

@@ -1,4 +1,25 @@
-"""Set Transformer components used by StageBridge context encoding."""
+"""Set Transformer components for StageBridge context encoding (Layer C).
+
+Implements the hierarchical set transformer for permutation-invariant aggregation
+of cell neighborhoods into lesion/sample-level embeddings. Based on the Set
+Transformer architecture (Lee et al., ICML 2019) with modifications for
+spatial transcriptomics.
+
+Key components:
+- SAB: Self-Attention Block - standard transformer attention
+- ISAB: Induced Set Attention Block - O(N*M) complexity via inducing points
+- PMA: Pooling by Multihead Attention - aggregates sets to fixed-size output
+- FeedForwardBlock: Standard transformer FFN with GELU activation
+
+Architecture flow:
+    Niche Embeddings (B, N, D)
+           |
+    [ISAB layers] - Inducing point attention, O(N*M) complexity
+           |
+    [PMA] - Pool to fixed-size output
+           |
+    Lesion Embedding (B, D)
+"""
 
 from __future__ import annotations
 

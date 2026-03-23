@@ -2,8 +2,8 @@
 
 ## Publication-Ready Technical Specification
 
-**Last Updated:** 2026-03-15
-**Status:** V1-Minimal Scope
+**Last Updated:** 2026-03-22
+**Status:** V1 Complete
 **Target:** First publication
 
 ---
@@ -24,7 +24,7 @@ Cross-sectional stage transitions become more identifiable when modeled in:
 
 V1 consists of exactly these components:
 - Raw data pipeline (Step 0)
-- Spatial backend benchmark (Tangram/DestVI/TACCO)
+- Spatial backend benchmark (Tangram/DestVI/TACCO/Cell2Location)
 - Dual-reference latent mapping (HLCA + LuCA, Euclidean)
 - Local niche encoder (EA-MIST Layer B)
 - Hierarchical set transformer (EA-MIST Layer C)

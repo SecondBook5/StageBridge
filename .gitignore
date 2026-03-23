@@ -98,3 +98,13 @@ CLAUDE.md
 
 # Large result files (generated, not for git)
 results/reference_mapping/
+
+# Logs directory (runtime logs)
+logs/
+
+# Data directory (local data files)
+data/
+
+# SLURM output files
+slurm-*.out
+*.err

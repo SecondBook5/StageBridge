@@ -1,4 +1,29 @@
-"""StageBridge: transformer-first stage transition modeling for lung progression."""
+"""
+StageBridge: Receiver-centered niche modeling for lung cancer progression.
+
+StageBridge models cell state transitions during LUAD progression using a
+receiver-centered attention architecture that captures how local niche context
+influences cell behavior. The framework integrates:
+
+- Dual-reference mapping (HLCA + LuCA) for positioning cells in healthy vs. cancer space
+- Receiver-centered niche encoding with distance-aware attention
+- SSL pretraining via masked receiver reconstruction
+- Flow matching transition model for progression dynamics
+- Biological interpretation layer linking attention to L-R signaling
+
+Key biological insight: IL1B+ macrophage niches drive early LUAD progression
+(Peng et al. 2020 Cancer Cell). StageBridge provides tools to quantify and
+interpret these niche interactions at single-cell resolution.
+
+Example:
+    >>> from stagebridge.pipelines import run_v1_complete
+    >>> run_v1_complete.main(data_dir="path/to/data", output_dir="results/")
+
+For pipeline orchestration, use the notebook API:
+    >>> import stagebridge
+    >>> cfg = stagebridge.compose_config(data_root="path/to/data")
+    >>> stagebridge.run_pipeline(cfg)
+"""
 
 __version__ = "0.1.0"
 

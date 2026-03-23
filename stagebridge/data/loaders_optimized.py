@@ -1,27 +1,32 @@
 """
-OPTIMIZED Data loaders for StageBridge V1
+Optimized data loaders for StageBridge V1.
 
 Performance improvements over original loaders.py:
-1. Pre-extract latent embeddings as numpy arrays (10× faster)
-2. Pre-compute niche tokens and cache in memory (10× faster)
-3. Fast cell_id → index mapping (O(1) lookups)
+1. Pre-extract latent embeddings as numpy arrays (10x faster)
+2. Pre-compute niche tokens and cache in memory (10x faster)
+3. Fast cell_id to index mapping (O(1) lookups)
 4. Vectorized WES feature extraction
 5. Memory-efficient column loading
 
-Expected speedup: 5-10× faster training throughput
+Expected speedup: 5-10x faster training throughput.
 """
 
-import pandas as pd
-import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
-import json
-from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+import torch
+from torch.utils.data import DataLoader, Dataset
 
 from ..utils.data_cache import get_data_cache
 
+log = logging.getLogger(__name__)
 
 @dataclass
 class StageBridgeBatch:
@@ -97,7 +102,7 @@ class StageBridgeDatasetOptimized(Dataset):
         self.latent_dim = latent_dim
         self.load_wes = load_wes
 
-        print(f"Loading OPTIMIZED dataset (fold={fold}, split={split})...")
+        log.info("Loading OPTIMIZED dataset (fold=%d, split=%s)...", fold, split)
 
         # Use data cache for parquet loading
         cache = get_data_cache() if use_cache else None
@@ -142,43 +147,45 @@ class StageBridgeDatasetOptimized(Dataset):
         ].reset_index(drop=True)
 
         # OPTIMIZATION 2: Pre-extract latent embeddings as numpy arrays
-        print("  Pre-extracting latent embeddings...")
+        log.info("  Pre-extracting latent embeddings...")
         self.latent_matrix = self.cells[latent_cols].values.astype(np.float32)
-        print(
-            f"    Latent matrix: {self.latent_matrix.shape} ({self.latent_matrix.nbytes / 1024 / 1024:.1f} MB)"
+        log.info(
+            "    Latent matrix: %s (%.1f MB)",
+            self.latent_matrix.shape,
+            self.latent_matrix.nbytes / 1024 / 1024,
         )
 
         # OPTIMIZATION 3: Pre-extract WES features
         if load_wes and "tmb" in self.cells.columns:
-            print("  Pre-extracting WES features...")
+            log.info("  Pre-extracting WES features...")
             wes_cols_actual = [c for c in wes_cols if c in self.cells.columns]
             self.wes_matrix = self.cells[wes_cols_actual].fillna(0).values.astype(np.float32)
             self.has_wes_array = (self.cells["tmb"] > 0).values
-            print(f"    WES matrix: {self.wes_matrix.shape}")
+            log.info("    WES matrix: %s", self.wes_matrix.shape)
         else:
             self.wes_matrix = None
             self.has_wes_array = None
 
-        # OPTIMIZATION 4: Fast cell_id → row index mapping
-        print("  Building fast lookup indices...")
+        # OPTIMIZATION 4: Fast cell_id to row index mapping
+        log.info("  Building fast lookup indices...")
         self.cell_id_to_row = {cell_id: idx for idx, cell_id in enumerate(self.cells["cell_id"])}
         self.nhood_cell_to_row = {
             cell_id: idx for idx, cell_id in enumerate(self.neighborhoods["cell_id"])
         }
 
         # OPTIMIZATION 5: Pre-compute niche tokens
-        print("  Pre-computing niche tokens...")
+        log.info("  Pre-computing niche tokens...")
         self._precompute_niche_tokens()
 
         # Build edge index
-        print("  Building edge index...")
+        log.info("  Building edge index...")
         self._build_edge_index()
 
-        print(f"  ✓ Loaded {split} split (fold {fold}):")
-        print(f"    Cells: {len(self.cells):,}")
-        print(f"    Donors: {self.cells['donor_id'].nunique()}")
-        print(f"    Valid transitions: {len(self.edge_to_cells)}")
-        print(f"    Total samples: {len(self.samples):,}")
+        log.info("  Loaded %s split (fold %d):", split, fold)
+        log.info("    Cells: %s", f"{len(self.cells):,}")
+        log.info("    Donors: %d", self.cells["donor_id"].nunique())
+        log.info("    Valid transitions: %d", len(self.edge_to_cells))
+        log.info("    Total samples: %s", f"{len(self.samples):,}")
 
     def _precompute_niche_tokens(self):
         """Pre-compute and cache all niche token representations."""
@@ -230,7 +237,7 @@ class StageBridgeDatasetOptimized(Dataset):
             self.niche_tokens_cache[cell_id] = niche_array
             self.niche_masks_cache[cell_id] = mask
 
-        print(f"    Cached {len(self.niche_tokens_cache):,} niche token sets")
+        log.info("    Cached %s niche token sets", f"{len(self.niche_tokens_cache):,}")
 
     def _build_edge_index(self):
         """Build index mapping stage edges to source cells."""
@@ -429,10 +436,11 @@ def get_dataloader(*args, optimized: bool = True, **kwargs):
 
 
 if __name__ == "__main__":
-    print("Optimized DataLoader module loaded")
-    print("\nPerformance improvements:")
-    print("  1. Pre-extracted latent matrices (10× faster)")
-    print("  2. Pre-computed niche tokens (10× faster)")
-    print("  3. Fast cell_id lookups (O(1))")
-    print("  4. Selective column loading (2-10× less memory)")
-    print("  5. Vectorized operations throughout")
+    logging.basicConfig(level=logging.INFO)
+    log.info("Optimized DataLoader module loaded")
+    log.info("Performance improvements:")
+    log.info("  1. Pre-extracted latent matrices (10x faster)")
+    log.info("  2. Pre-computed niche tokens (10x faster)")
+    log.info("  3. Fast cell_id lookups (O(1))")
+    log.info("  4. Selective column loading (2-10x less memory)")
+    log.info("  5. Vectorized operations throughout")

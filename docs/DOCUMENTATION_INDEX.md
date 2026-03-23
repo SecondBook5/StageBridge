@@ -1,6 +1,6 @@
 # StageBridge V1 Documentation Index
 
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-03-22
 **Status:** Publication-Ready
 **Purpose:** Central navigation hub for all StageBridge V1 documentation
 
@@ -577,20 +577,22 @@ docs/
 ### 6.4 Implementation Status
 
 **Complete:**
--  Layer B (Local Niche Encoder)
--  Layer C (Set Transformer)
+-  Step 0 (Data pipeline)
+-  Layer A (Reference alignment - HLCA/LuCA via scArches)
+-  Layer B (Receiver-centered Niche Encoder)
+-  Layer C (Set Transformer - ISAB/SAB/PMA)
+-  Layer D (Flow matching - OT-CFM)
+-  Layer F (Evolutionary Compatibility)
+-  Spatial backend integration (Tangram/DestVI/TACCO/Cell2Location)
+-  Training infrastructure (SSL + Transition)
+-  Evaluation harness
 -  Documentation (all)
 
-**In Progress:**
--  Layer A (Reference alignment)
--  Layer D (Flow matching)
--  Layer F (Compatibility)
--  Step 0 (Data pipeline)
-
-**Planned:**
--  Spatial backend integration
--  Training infrastructure
--  Evaluation harness
+**V2 Roadmap:**
+-  Non-Euclidean geometry (hyperbolic/spherical)
+-  Neural SDE backend
+-  Phase portrait decoder
+-  Cohort transport layer
 
 ---
 
