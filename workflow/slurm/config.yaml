@@ -12,19 +12,19 @@ default-resources:
 # Request H100 GPUs when gpu resource is specified
 set-resources:
   spatial_backend:
-    slurm_extra: "'--constraint=h100'"
+    constraint: "h100"
   training:
-    slurm_extra: "'--constraint=h100'"
+    constraint: "h100"
   baseline:
-    slurm_extra: "'--constraint=h100'"
+    constraint: "h100"
   ablation:
-    slurm_extra: "'--constraint=h100'"
+    constraint: "h100"
   hpo:
-    slurm_extra: "'--constraint=h100'"
+    constraint: "h100"
   hlca_mapping:
-    slurm_extra: "'--constraint=h100'"
+    constraint: "h100"
   luca_mapping:
-    slurm_extra: "'--constraint=h100'"
+    constraint: "h100"
 
 jobs: 20
 latency-wait: 120
