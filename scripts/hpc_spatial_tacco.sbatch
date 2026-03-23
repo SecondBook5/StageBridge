@@ -178,7 +178,7 @@ OUTPUT_DIR = Path(os.environ.get('OUTPUT_DIR', f'{DATA}/runs/spatial_benchmark/t
 start_time = time.time()
 
 try:
-    from stagebridge.spatial_backends import TACCOBackend
+    from stagebridge.spatial_mapping import TACCOBackend
 
     print("Loading data...")
     snrna = ad.read_h5ad(SNRNA)

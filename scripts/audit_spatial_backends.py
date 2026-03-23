@@ -220,7 +220,7 @@ def audit_backend_structure():
     viz_imports = check_imports(base_dir / "viz_utils.py")
     circular = False
     for imp in viz_imports["imports"]:
-        if "viz_utils" in imp and "spatial_backends" in imp:
+        if "viz_utils" in imp and "spatial_mapping" in imp:
             print(f"   ⚠ Potential circular import: {imp}")
             circular = True
 

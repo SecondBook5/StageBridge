@@ -180,7 +180,7 @@ OUTPUT_DIR = Path(os.environ.get('OUTPUT_DIR', f'{DATA}/runs/spatial_benchmark/d
 start_time = time.time()
 
 try:
-    from stagebridge.spatial_backends import DestVIBackend
+    from stagebridge.spatial_mapping import DestVIBackend
 
     print("Loading data...")
     snrna = ad.read_h5ad(SNRNA)

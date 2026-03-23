@@ -195,7 +195,7 @@ OUTPUT_DIR = Path(os.environ.get('OUTPUT_DIR', f'{DATA}/runs/spatial_benchmark/c
 start_time = time.time()
 
 try:
-    from stagebridge.spatial_backends import Cell2locationBackend
+    from stagebridge.spatial_mapping import Cell2locationBackend
 
     print("Loading data...")
     snrna = ad.read_h5ad(SNRNA)
