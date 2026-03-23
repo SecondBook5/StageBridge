@@ -32,8 +32,9 @@ class TACCOBackend(SpatialBackend):
     - method: TACCO method ('OT', 'NMFreg', or 'NNLS')
     - epsilon: Entropic regularization for OT
     - lamb: Regularization parameter
-    - max_cells: Max cells to use from reference (subsampling). Default 50000.
+    - max_cells: Max cells to use from reference (subsampling). Default 150000.
                  Set to None to disable. Helps avoid MKL 32-bit integer overflow.
+                 With per-sample spatial (~11k spots), 150k cells is safe.
     """
 
     def __init__(
@@ -41,7 +42,7 @@ class TACCOBackend(SpatialBackend):
         method: str = "OT",
         epsilon: float = 5e-3,
         lamb: float = 0.1,
-        max_cells: int | None = 50000,
+        max_cells: int | None = 150000,  # Safe for ~11k spots per sample
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -68,10 +69,10 @@ class TACCOBackend(SpatialBackend):
         except ImportError:
             raise ImportError("TACCO not installed. Install with: pip install tacco") from None
 
-        # Subsample reference to avoid MKL 32-bit integer overflow
-        # Matrix size = n_cells * n_spots * n_genes can exceed 2^31
+        # Subsample reference if needed to avoid MKL 32-bit integer overflow
+        # With per-sample spatial (~11k spots), 150k cells is safe (150k * 11k = 1.65B < 2^31)
         if self.max_cells is not None and len(snrna) > self.max_cells:
-            print(f"Subsampling snRNA from {len(snrna)} to {self.max_cells} cells (stratified by cell_type)")
+            print(f"TACCO: Subsampling snRNA from {len(snrna)} to {self.max_cells} cells (stratified by cell_type)")
             # Stratified subsampling to preserve cell type proportions
             from sklearn.model_selection import train_test_split
             indices = np.arange(len(snrna))

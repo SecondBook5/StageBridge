@@ -140,6 +140,7 @@ class Cell2locationBackend(SpatialBackend):
             raise RuntimeError("Reference model did not produce signatures")
 
         # Free GPU memory from reference model before Stage 2
+        # Precautionary with per-sample processing (~11k spots), critical with merged data
         import torch
         del self.ref_model
         self.ref_model = None
