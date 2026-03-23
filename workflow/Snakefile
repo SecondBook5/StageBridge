@@ -179,22 +179,20 @@ rule fuse_embeddings:
 
 rule harmonize_cell_types:
     """
-    Create harmonized cell type labels from dual references (HLCA + LuCA).
+    Add dual-reference cell type labels to snRNA data.
 
-    This is the scientifically correct approach for studying progression:
-    - Uses HLCA labels for cells mapping to normal lung
-    - Uses LuCA labels for cells mapping to cancer states
-    - Flags transitional cells that map well to both
+    Adds both HLCA and LuCA labels from cell_types.parquet:
+    - cell_type: HLCA labels (primary, for spatial deconvolution)
+    - luca_cell_type: LuCA labels (for ablation experiments)
     """
     input:
         snrna = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
-        hlca_labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet",
-        luca_labels = f"{REF_GEOM}/luca_mapping/luca_labels.parquet"
+        labels = f"{REF_GEOM}/cell_types.parquet"
     output:
         snrna_with_celltypes = f"{PROCESSED}/snrna_with_celltypes.h5ad"
     threads: 4
     resources:
-        mem_mb = 180000,  # Need memory for dual label merge
+        mem_mb = 180000,
         runtime = 60
     log:
         f"{RUNS}/logs/harmonize_cell_types.log"
@@ -202,11 +200,8 @@ rule harmonize_cell_types:
         """
         python workflow/scripts/harmonize_cell_types.py \
             --snrna {input.snrna} \
-            --hlca-labels {input.hlca_labels} \
-            --luca-labels {input.luca_labels} \
+            --labels {input.labels} \
             --output {output.snrna_with_celltypes} \
-            --confidence-threshold 0.5 \
-            --ambiguity-threshold 0.3 \
             2>&1 | tee {log}
         """
 
