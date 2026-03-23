@@ -266,7 +266,7 @@ If you use these analysis tools, please cite:
 
 ```bibtex
 @article{book2026stagebridge,
-  author = {Book, AJ and Chaunt, Tyler},
+  author = {Book, AJ and others},
   title = {StageBridge: Receiver-Centered Niche Modeling for Cell-State Progression in Spatial and Single-Cell Omics},
   journal = {[Journal TBD]},
   year = {2026},

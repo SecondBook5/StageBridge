@@ -351,7 +351,7 @@ If you use StageBridge in your research, please cite:
 
 ```bibtex
 @article{book2026stagebridge,
-  author = {Book, AJ and Chaunt, Tyler},
+  author = {Book, AJ and others},
   title = {StageBridge: Receiver-Centered Niche Modeling for Cell-State Progression in Spatial and Single-Cell Omics},
   journal = {[Journal TBD]},
   year = {2026},
@@ -359,7 +359,7 @@ If you use StageBridge in your research, please cite:
 }
 ```
 
-**Note:** Citation will be updated upon publication.
+**Note:** Author order and citation details will be finalized upon publication.
 
 ## License
 
