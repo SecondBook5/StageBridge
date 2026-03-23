@@ -1,10 +1,11 @@
 """
-Tangram spatial mapping backend wrapper using scvi-tools integration.
+Tangram spatial mapping backend wrapper using standalone tangram-sc.
 
-Tangram via scvi-tools: Model-based spatial mapping with GPU acceleration and
-integrated Squidpy visualizations for spatial analysis.
+Tangram: Deep learning-based spatial mapping of single-cell transcriptomes
+to spatial transcriptomics data.
 
-Reference: https://docs.scvi-tools.org/en/stable/tutorials/notebooks/spatial/Tangram_scvi_tools.html
+Reference: Biancalani et al., Nature Methods 2021
+https://github.com/broadinstitute/Tangram
 """
 
 from pathlib import Path
@@ -13,6 +14,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 import scanpy as sc
+import torch
 
 from .backend_base import (
     SpatialBackend,
@@ -24,40 +26,43 @@ from .backend_base import (
 
 class TangramBackend(SpatialBackend):
     """
-    Tangram spatial mapping wrapper using scvi.external.Tangram.
-
-    Uses scvi-tools integrated Tangram with MuData for better performance
-    and integration with the scvi-tools ecosystem.
+    Tangram spatial mapping wrapper using standalone tangram-sc.
 
     Configuration options:
-    - constrained: Use constrained mode (requires density priors)
+    - mode: 'clusters' (cell type level) or 'cells' (single cell level)
     - marker_genes: List of marker genes or 'auto' for automatic selection
     - n_epochs: Training epochs (default 1000)
-    - target_count: Target cell count for constrained mode
+    - density_prior: 'uniform' or 'rna_count_based'
+    - device: 'cuda:0' or 'cpu'
     """
 
     def __init__(
         self,
-        mode: str = "clusters",  # Kept for API compatibility but uses constrained mode
+        mode: str = "clusters",
         marker_genes: str | list[str] = "auto",
-        constrained: bool = True,
         n_epochs: int = 1000,
-        target_count: int | None = None,
+        density_prior: str = "uniform",
+        device: str | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
-        self.mode = mode  # For compatibility
+        self.mode = mode
         self.marker_genes = marker_genes
-        self.constrained = constrained
         self.n_epochs = n_epochs
-        self.target_count = target_count
+        self.density_prior = density_prior
 
-        # Store trained model for visualizations
-        self.model = None
+        # Auto-detect device
+        if device is None:
+            self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        else:
+            self.device = device
+
+        # Store for later use
         self._snrna_ref = None
         self._spatial_ref = None
         self._mapper = None
+        self._ad_map = None
 
     def map(
         self,
@@ -65,111 +70,86 @@ class TangramBackend(SpatialBackend):
         spatial: ad.AnnData,
         output_dir: Path | None = None,
     ) -> BackendMappingResult:
-        """Run Tangram mapping using scvi-tools."""
+        """Run Tangram mapping using standalone tangram-sc."""
         # Validate and preprocess
         self.validate_inputs(snrna, spatial)
         snrna, spatial = self.preprocess(snrna, spatial)
 
-        # Import scvi-tools Tangram
+        # Import tangram
         try:
-            from scvi.external import Tangram
-            import mudata
+            import tangram as tg
         except ImportError as e:
             raise ImportError(
-                "scvi-tools not installed. Install with: pip install scvi-tools>=1.1.0"
+                "tangram-sc not installed. Install with: pip install tangram-sc"
             ) from e
 
         # Select marker genes if needed
         if self.marker_genes == "auto":
             marker_genes = self._select_marker_genes(snrna)
         else:
-            marker_genes = self.marker_genes
+            marker_genes = list(self.marker_genes)
 
-        # Subset to marker genes
+        # Get common genes
         common_genes = list(set(marker_genes) & set(snrna.var_names) & set(spatial.var_names))
-        snrna_train = snrna[:, common_genes].copy()
-        spatial_train = spatial[:, common_genes].copy()
+        if len(common_genes) < 50:
+            raise ValueError(f"Only {len(common_genes)} common marker genes, need at least 50")
 
-        print(f"Tangram (scvi-tools): Using {len(common_genes)} marker genes")
+        print(f"Tangram: Using {len(common_genes)} marker genes, device={self.device}")
 
-        # Create MuData
-        mdata = mudata.MuData(
-            {
-                "sc": snrna_train,
-                "sp": spatial_train,
-            }
-        )
+        # Make copies to avoid modifying originals
+        snrna_pp = snrna.copy()
+        spatial_pp = spatial.copy()
 
-        # Compute density priors if using constrained mode
-        if self.constrained:
-            # Uniform density as default (can be enhanced with cell segmentation)
-            spatial_train.obs["uniform_density"] = 1.0 / spatial_train.n_obs
-            density_prior_key = "uniform_density"
+        # Preprocess for Tangram
+        tg.pp_adatas(snrna_pp, spatial_pp, genes=common_genes)
 
-            # Target count defaults to number of spots if not specified
-            if self.target_count is None:
-                self.target_count = spatial_train.n_obs
-
-            print(f"  Constrained mode: target_count={self.target_count}")
-        else:
-            density_prior_key = None
-            self.target_count = None
-
-        # Setup MuData for Tangram
-        Tangram.setup_mudata(
-            mdata,
-            density_prior_key=density_prior_key,
-            modalities={
-                "density_prior_key": "sp",
-                "sc_layer": "sc",
-                "sp_layer": "sp",
-            },
-        )
-
-        # Create and train model
-        print(f"  Training Tangram model ({self.n_epochs} epochs, early stopping enabled)...")
-        model = Tangram(
-            mdata,
-            constrained=self.constrained,
-            target_count=self.target_count,
-        )
-
-        model.train(
-            max_epochs=self.n_epochs,
-            train_size=0.9,  # 10% validation for early stopping
-            early_stopping=True,
-            early_stopping_patience=15,
-        )
-
-        # Get mapper matrix
-        mapper = model.get_mapper_matrix()
-
-        # Store model and data for visualizations
-        self.model = model
-        self._snrna_ref = snrna
-        self._spatial_ref = spatial
-        self._mapper = mapper
-
-        # Project cell type annotations
-        if "cell_type" in snrna.obs.columns:
+        # Get cell type key
+        if "cell_type" in snrna_pp.obs.columns:
             cell_type_key = "cell_type"
-        elif "celltype" in snrna.obs.columns:
+        elif "celltype" in snrna_pp.obs.columns:
             cell_type_key = "celltype"
         else:
             raise ValueError("No cell_type column found in snRNA obs")
 
-        ct_pred = model.project_cell_annotations(
-            mdata.mod["sc"],
-            mdata.mod["sp"],
-            mapper,
-            mdata.mod["sc"].obs[cell_type_key],
+        # Run mapping
+        print(f"  Training Tangram model ({self.n_epochs} epochs, mode={self.mode})...")
+        ad_map = tg.map_cells_to_space(
+            snrna_pp,
+            spatial_pp,
+            mode=self.mode,
+            cluster_label=cell_type_key,
+            density_prior=self.density_prior,
+            num_epochs=self.n_epochs,
+            device=self.device,
         )
 
-        # Convert to cell type proportions DataFrame
-        cell_type_proportions = pd.DataFrame(
-            ct_pred,
-            index=spatial.obs_names,
-        )
+        # Store results
+        self._snrna_ref = snrna
+        self._spatial_ref = spatial
+        self._ad_map = ad_map
+        self._mapper = ad_map.X  # (n_cells, n_spots)
+
+        # Project cell type annotations
+        tg.project_cell_annotations(ad_map, spatial_pp, annotation=cell_type_key)
+
+        # Extract cell type proportions from spatial_pp.obsm['tangram_ct_pred']
+        if "tangram_ct_pred" in spatial_pp.obsm:
+            ct_pred = spatial_pp.obsm["tangram_ct_pred"]
+            if isinstance(ct_pred, pd.DataFrame):
+                cell_type_proportions = ct_pred
+            else:
+                # It's a numpy array, need to get column names
+                cell_types = snrna_pp.obs[cell_type_key].cat.categories.tolist()
+                cell_type_proportions = pd.DataFrame(
+                    ct_pred,
+                    index=spatial_pp.obs_names,
+                    columns=cell_types,
+                )
+        else:
+            raise RuntimeError("Tangram did not produce cell type predictions")
+
+        # Ensure index matches original spatial
+        cell_type_proportions.index = spatial.obs_names
 
         # Compute confidence (based on entropy of predictions)
         confidence = self._compute_mapping_confidence(cell_type_proportions)
@@ -190,8 +170,8 @@ class TangramBackend(SpatialBackend):
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save mapper matrix
-            np.save(output_dir / "tangram_mapper.npy", mapper)
+            # Save mapper matrix (sparse to save space)
+            np.save(output_dir / "tangram_mapper.npy", self._mapper)
 
             # Save cell type predictions
             cell_type_proportions.to_csv(output_dir / "tangram_cell_type_props.csv")
@@ -203,12 +183,6 @@ class TangramBackend(SpatialBackend):
                 spatial_annotated.obs[f"tangram_{ct}"] = cell_type_proportions[ct].values
             spatial_annotated.write_h5ad(output_dir / "tangram_spatial_annotated.h5ad")
 
-            # Save MuData for Squidpy visualizations
-            try:
-                mdata.write(output_dir / "tangram_mudata.h5mu")
-            except Exception:
-                pass  # MuData write optional
-
             print(f"  Tangram outputs saved to {output_dir}")
 
         result = BackendMappingResult(
@@ -216,11 +190,12 @@ class TangramBackend(SpatialBackend):
             confidence=confidence,
             upstream_metrics=upstream_metrics,
             metadata={
-                "backend": "tangram_scvi",
-                "constrained": self.constrained,
+                "backend": "tangram",
+                "mode": self.mode,
                 "n_marker_genes": len(common_genes),
                 "n_epochs": self.n_epochs,
-                "target_count": self.target_count,
+                "density_prior": self.density_prior,
+                "device": self.device,
             },
         )
 
@@ -308,9 +283,12 @@ class TangramBackend(SpatialBackend):
 
         cell_type_key = "cell_type" if "cell_type" in snrna.obs.columns else "celltype"
 
+        # Make a copy to avoid modifying original
+        snrna_copy = snrna.copy()
+
         # Rank genes per cell type
         sc.tl.rank_genes_groups(
-            snrna,
+            snrna_copy,
             groupby=cell_type_key,
             method="wilcoxon",
             n_genes=n_genes,
@@ -319,8 +297,8 @@ class TangramBackend(SpatialBackend):
 
         # Extract top genes per group
         marker_genes = set()
-        for group in snrna.uns["rank_genes_groups"]["names"].dtype.names:
-            genes = snrna.uns["rank_genes_groups"]["names"][group][:n_genes]
+        for group in snrna_copy.uns["rank_genes_groups"]["names"].dtype.names:
+            genes = snrna_copy.uns["rank_genes_groups"]["names"][group][:n_genes]
             marker_genes.update(genes)
 
         return list(marker_genes)
@@ -397,7 +375,7 @@ class TangramBackend(SpatialBackend):
             aggregate: If True, sum across genes
 
         Returns:
-            DataFrame of projected expression (spots × genes or spots × 1 if aggregate)
+            DataFrame of projected expression (spots x genes or spots x 1 if aggregate)
         """
         if self._mapper is None or self._snrna_ref is None or self._spatial_ref is None:
             raise RuntimeError("Must run map() before projecting genes")
@@ -412,8 +390,9 @@ class TangramBackend(SpatialBackend):
         if hasattr(gene_expr, "toarray"):
             gene_expr = gene_expr.toarray()
 
-        # Project using mapper: spatial_expr = mapper @ cell_expr
-        projected = self._mapper @ gene_expr  # (n_spots, n_genes)
+        # Project using mapper: spatial_expr = mapper.T @ cell_expr
+        # mapper shape: (n_cells, n_spots), so transpose for (n_spots, n_cells)
+        projected = self._mapper.T @ gene_expr  # (n_spots, n_genes)
 
         if aggregate:
             projected = projected.sum(axis=1, keepdims=True)
@@ -429,68 +408,6 @@ class TangramBackend(SpatialBackend):
 
         return result
 
-    def plot_projected_genes(
-        self,
-        gene_names: list[str],
-        aggregate: bool = True,
-        cmap: str = "Reds",
-        save_path: Path | None = None,
-    ):
-        """
-        Project and visualize gene expression in spatial coordinates.
-
-        Args:
-            gene_names: Genes to project
-            aggregate: If True, sum genes (useful for gene sets)
-            cmap: Matplotlib colormap
-            save_path: If provided, saves figure to this path
-        """
-        if self._spatial_ref is None:
-            raise RuntimeError("Must run map() before plotting")
-
-        try:
-            import matplotlib.pyplot as plt
-        except ImportError as e:
-            raise ImportError("matplotlib required for plotting") from e
-
-        # Project genes
-        projected = self.project_genes(gene_names, aggregate=aggregate)
-
-        # Get spatial coordinates
-        coords = self._spatial_ref.obsm["spatial"]
-
-        # Get values
-        if aggregate:
-            values = np.log1p(1e4 * projected.values.flatten())
-            title = f"Projected: {', '.join(gene_names[:3])}"
-            if len(gene_names) > 3:
-                title += f" (+{len(gene_names) - 3} more)"
-        else:
-            # Plot first gene only
-            values = np.log1p(1e4 * projected.iloc[:, 0].values)
-            title = f"Projected: {projected.columns[0]}"
-
-        # Plot
-        fig, ax = plt.subplots(figsize=(8, 8))
-        scatter = ax.scatter(
-            coords[:, 0],
-            coords[:, 1],
-            c=values,
-            cmap=cmap,
-            s=20,
-        )
-        plt.colorbar(scatter, ax=ax)
-        ax.set_title(title)
-        ax.set_xlabel("Spatial X")
-        ax.set_ylabel("Spatial Y")
-
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        else:
-            plt.show()
-
-        plt.close()
-
     def compute_spatial_statistics(
         self,
         cell_types: list[str] | None = None,
@@ -499,8 +416,7 @@ class TangramBackend(SpatialBackend):
         """
         Compute spatial statistics using Squidpy.
 
-        Includes spatial autocorrelation (Moran's I), co-occurrence,
-        and neighborhood enrichment.
+        Includes spatial autocorrelation (Moran's I).
 
         Args:
             cell_types: Cell types to analyze. If None, uses all.
@@ -548,9 +464,6 @@ class TangramBackend(SpatialBackend):
 
         results["morans_i"] = morans_i
 
-        # Co-occurrence and enrichment would require discrete cell type assignments
-        # These are optional advanced features
-
         return results
 
 
@@ -588,39 +501,6 @@ def run_tangram(
     # Save result
     result.save(output_dir)
 
-    print(f" Tangram mapping complete. Results saved to {output_dir}")
+    print(f"Tangram mapping complete. Results saved to {output_dir}")
 
     return result
-
-
-if __name__ == "__main__":
-    # Test with synthetic data
-    print("Testing Tangram backend with synthetic data...")
-
-    # Create dummy data
-    n_cells = 1000
-    n_spots = 500
-    n_genes = 100
-
-    snrna = ad.AnnData(
-        X=np.random.randn(n_cells, n_genes),
-        obs=pd.DataFrame({"cell_type": np.random.choice(["A", "B", "C"], n_cells)}),
-        var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)]),
-    )
-
-    spatial = ad.AnnData(
-        X=np.random.randn(n_spots, n_genes),
-        obs=pd.DataFrame(index=[f"spot_{i}" for i in range(n_spots)]),
-        var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_genes)]),
-        obsm={"spatial": np.random.rand(n_spots, 2)},
-    )
-
-    # Run mapping
-    backend = TangramBackend(mode="clusters", n_epochs=10)
-    result = backend.map(snrna, spatial)
-
-    print(f"Proportions shape: {result.cell_type_proportions.shape}")
-    print(f"Confidence range: [{result.confidence.min():.3f}, {result.confidence.max():.3f}]")
-    print(f"Metrics: {result.upstream_metrics}")
-
-    print("\n Tangram backend test passed!")
