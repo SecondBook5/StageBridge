@@ -265,8 +265,8 @@ rule spatial_backend_sample:
         backend = "|".join(SPATIAL_BACKENDS)
     threads: 4
     resources:
-        mem_mb = 64000,  # 64GB per sample (much smaller)
-        runtime = 120,   # 2h per sample
+        mem_mb = 180000,  # 180GB needed to load 51GB spatial + snRNA files
+        runtime = 120,    # 2h per sample
         slurm_partition = "gpu",
         gpu = 1
     log:
