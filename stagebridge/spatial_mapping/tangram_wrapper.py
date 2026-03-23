@@ -136,9 +136,9 @@ class TangramBackend(SpatialBackend):
 
         model.train(
             max_epochs=self.n_epochs,
+            train_size=0.9,  # 10% validation for early stopping
             early_stopping=True,
             early_stopping_patience=15,
-            early_stopping_monitor="elbo_validation",
         )
 
         # Get mapper matrix

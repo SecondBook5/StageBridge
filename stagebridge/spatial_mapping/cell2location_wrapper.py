@@ -45,7 +45,7 @@ class Cell2locationBackend(SpatialBackend):
         max_epochs_ref: int = 250,
         max_epochs_spatial: int = 30000,
         batch_size: int = 2500,
-        use_gpu: bool = True,
+        accelerator: str = "auto",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -55,7 +55,7 @@ class Cell2locationBackend(SpatialBackend):
         self.max_epochs_ref = max_epochs_ref
         self.max_epochs_spatial = max_epochs_spatial
         self.batch_size = batch_size
-        self.use_gpu = use_gpu
+        self.accelerator = accelerator
 
         # Store trained models
         self.ref_model = None
@@ -119,9 +119,9 @@ class Cell2locationBackend(SpatialBackend):
         self.ref_model.train(
             max_epochs=self.max_epochs_ref,
             batch_size=self.batch_size,
-            train_size=1,
+            train_size=0.9,  # 10% validation for early stopping
             lr=0.002,
-            use_gpu=self.use_gpu,
+            accelerator=self.accelerator,
             early_stopping=True,
             early_stopping_patience=15,
         )
@@ -132,7 +132,6 @@ class Cell2locationBackend(SpatialBackend):
             sample_kwargs={
                 "num_samples": 1000,
                 "batch_size": self.batch_size,
-                "use_gpu": self.use_gpu,
             },
         )
 
@@ -164,8 +163,8 @@ class Cell2locationBackend(SpatialBackend):
         self.spatial_model.train(
             max_epochs=self.max_epochs_spatial,
             batch_size=None,  # Use full batch for spatial
-            train_size=1,
-            use_gpu=self.use_gpu,
+            train_size=0.9,  # 10% validation for early stopping
+            accelerator=self.accelerator,
             early_stopping=True,
             early_stopping_patience=15,
         )
@@ -176,7 +175,6 @@ class Cell2locationBackend(SpatialBackend):
             sample_kwargs={
                 "num_samples": 1000,
                 "batch_size": self.batch_size if self.batch_size else spatial_sub.n_obs,
-                "use_gpu": self.use_gpu,
             },
         )
 
