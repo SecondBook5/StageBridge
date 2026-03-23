@@ -43,7 +43,7 @@ class Cell2locationBackend(SpatialBackend):
         n_cells_per_location: int = 30,
         detection_alpha: float = 20.0,
         max_epochs_ref: int = 250,
-        max_epochs_spatial: int = 30000,
+        max_epochs_spatial: int = 2500,  # Reduced from 30k (no early stopping available)
         batch_size: int = 2500,
         accelerator: str = "auto",
         **kwargs,
@@ -116,14 +116,12 @@ class Cell2locationBackend(SpatialBackend):
         self.ref_model = RegressionModel(snrna_sub)
 
         # Train reference model
+        # Note: Cell2location doesn't implement validation_step, so no early stopping
         self.ref_model.train(
             max_epochs=self.max_epochs_ref,
             batch_size=self.batch_size,
-            train_size=0.9,  # 10% validation for early stopping
             lr=0.002,
             accelerator=self.accelerator,
-            early_stopping=True,
-            early_stopping_patience=15,
         )
 
         # Export estimated cell type signatures
@@ -160,13 +158,11 @@ class Cell2locationBackend(SpatialBackend):
         )
 
         # Train spatial model
+        # Note: Cell2location doesn't implement validation_step, so no early stopping
         self.spatial_model.train(
             max_epochs=self.max_epochs_spatial,
             batch_size=None,  # Use full batch for spatial
-            train_size=0.9,  # 10% validation for early stopping
             accelerator=self.accelerator,
-            early_stopping=True,
-            early_stopping_patience=15,
         )
 
         # Export posterior estimates
