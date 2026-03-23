@@ -177,24 +177,36 @@ rule fuse_embeddings:
 # Stage 2c: Merge Cell Types into snRNA (clean Snakemake dependency)
 # =============================================================================
 
-rule merge_cell_types:
+rule harmonize_cell_types:
+    """
+    Create harmonized cell type labels from dual references (HLCA + LuCA).
+
+    This is the scientifically correct approach for studying progression:
+    - Uses HLCA labels for cells mapping to normal lung
+    - Uses LuCA labels for cells mapping to cancer states
+    - Flags transitional cells that map well to both
+    """
     input:
         snrna = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
-        labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet"
+        hlca_labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet",
+        luca_labels = f"{REF_GEOM}/luca_mapping/luca_labels.parquet"
     output:
         snrna_with_celltypes = f"{PROCESSED}/snrna_with_celltypes.h5ad"
     threads: 4
     resources:
-        mem_mb = 128000,
-        runtime = 30
+        mem_mb = 180000,  # Need memory for dual label merge
+        runtime = 60
     log:
-        f"{RUNS}/logs/merge_cell_types.log"
+        f"{RUNS}/logs/harmonize_cell_types.log"
     shell:
         """
-        python workflow/scripts/merge_cell_types.py \
+        python workflow/scripts/harmonize_cell_types.py \
             --snrna {input.snrna} \
-            --labels {input.labels} \
+            --hlca-labels {input.hlca_labels} \
+            --luca-labels {input.luca_labels} \
             --output {output.snrna_with_celltypes} \
+            --confidence-threshold 0.5 \
+            --ambiguity-threshold 0.3 \
             2>&1 | tee {log}
         """
 
