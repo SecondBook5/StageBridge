@@ -197,7 +197,11 @@ class TACCOBackend(SpatialBackend):
             raise ValueError("No spots remaining after low-count filtering")
 
         # Run TACCO annotation (profiles already built)
-        # Disable platform normalization to avoid creating zero-sum observations
+        # Key settings to avoid "observations without non-zero variables" error:
+        # - platform_iterations=0: Disable platform normalization (the culprit)
+        #   Platform normalization subtracts reconstructed counts, clamping negatives
+        #   to zero, which can create all-zero rows that fail on rescaling
+        # - remove_zero_cells=True: Safety net to auto-remove any zero-sum rows
         method_used = self.method
         try:
             tc.tl.annotate(
@@ -208,7 +212,8 @@ class TACCOBackend(SpatialBackend):
                 method=method_used,
                 epsilon=self.epsilon if method_used == "OT" else None,
                 lamb=self.lamb if method_used == "NMFreg" else None,
-                platform_iterations=0,  # Disable platform normalization
+                platform_iterations=0,
+                remove_zero_cells=True,
             )
         except Exception as e:
             print(f"TACCO: {method_used} failed ({e}), falling back to NMFreg")
@@ -220,7 +225,8 @@ class TACCOBackend(SpatialBackend):
                 result_key="tacco_celltype",
                 method=method_used,
                 lamb=self.lamb,
-                platform_iterations=0,  # Disable platform normalization
+                platform_iterations=0,
+                remove_zero_cells=True,
             )
 
         # Extract cell type proportions
