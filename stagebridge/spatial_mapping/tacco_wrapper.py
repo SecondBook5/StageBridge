@@ -217,6 +217,7 @@ class TACCOBackend(SpatialBackend):
                 epsilon=self.epsilon if method_used == "OT" else None,
                 lamb=self.lamb if method_used == "NMFreg" else None,
                 platform_iterations=0,
+                bisections=0,  # Disable bisection boost - it subtracts counts creating zero rows
                 remove_zero_cells=True,
             )
         except Exception as e:
@@ -231,6 +232,7 @@ class TACCOBackend(SpatialBackend):
                 result_key="tacco_celltype",
                 method=method_used,
                 platform_iterations=0,
+                bisections=0,
                 remove_zero_cells=True,
             )
 
