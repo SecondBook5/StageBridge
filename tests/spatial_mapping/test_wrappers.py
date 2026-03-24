@@ -52,13 +52,11 @@ def test_destvi_backend_initialization():
         n_latent=5,
         n_epochs_condsc=50,
         n_epochs_destvi=100,
-        vamp_prior_p=25,
     )
 
     assert backend.n_latent == 5
     assert backend.n_epochs_condsc == 50
     assert backend.n_epochs_destvi == 100
-    assert backend.vamp_prior_p == 25
     assert backend.sc_model is None  # Not trained yet
     assert backend.spatial_model is None
 
