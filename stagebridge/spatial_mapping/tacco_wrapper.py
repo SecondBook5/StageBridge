@@ -203,6 +203,10 @@ class TACCOBackend(SpatialBackend):
         #   to zero, which can create all-zero rows that fail on rescaling
         # - remove_zero_cells=True: Safety net to auto-remove any zero-sum rows
         method_used = self.method
+
+        # Save a copy for fallback - TACCO modifies spatial in-place
+        spatial_backup = spatial.copy()
+
         try:
             tc.tl.annotate(
                 spatial,
@@ -218,6 +222,8 @@ class TACCOBackend(SpatialBackend):
         except Exception as e:
             print(f"TACCO: {method_used} failed ({e}), falling back to NMFreg")
             method_used = "NMFreg"
+            # Use fresh copy since OT modified the original
+            spatial = spatial_backup.copy()
             tc.tl.annotate(
                 spatial,
                 snrna,
