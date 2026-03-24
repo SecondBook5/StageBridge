@@ -279,6 +279,7 @@ rule spatial_backend_sample:
     wildcard_constraints:
         backend = "|".join(SPATIAL_BACKENDS),
         label_source = "|".join(LABEL_SOURCES)
+    group: "spatial_array"  # Groups 9 samples into SLURM array jobs
     threads: 4
     resources:
         mem_mb = 180000,  # 180GB needed to load 51GB spatial + snRNA files

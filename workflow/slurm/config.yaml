@@ -32,3 +32,8 @@ keep-going: true
 printshellcmds: true
 rerun-incomplete: true
 local-cores: 1
+
+# Group jobs into SLURM arrays for efficient scheduling
+# Groups jobs that differ only by 'sample' wildcard into array jobs
+group-components:
+  spatial_array: 9  # 9 samples per array job
