@@ -45,9 +45,9 @@ for SRC in "${SOURCES[@]}"; do
     JOB_TG=$(sbatch --parsable \
         --job-name=smoke_tangram_${SRC} \
         --partition=gpu \
-        --gres=gpu:1 \
+        --gres=gpu:2 \
         --time=4:00:00 \
-        --mem=128G \
+        --mem=256G \
         --cpus-per-task=8 \
         --output="${LOGS}/smoke_tangram_${SRC}_%j.log" \
         --error="${LOGS}/smoke_tangram_${SRC}_%j.err" \
@@ -73,7 +73,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
         --partition=gpu \
         --gres=gpu:2 \
         --time=4:00:00 \
-        --mem=192G \
+        --mem=256G \
         --cpus-per-task=8 \
         --output="${LOGS}/smoke_destvi_${SRC}_%j.log" \
         --error="${LOGS}/smoke_destvi_${SRC}_%j.err" \
@@ -124,7 +124,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
         --job-name=smoke_tacco_${SRC} \
         --partition=cpu \
         --time=2:00:00 \
-        --mem=128G \
+        --mem=256G \
         --cpus-per-task=16 \
         --output="${LOGS}/smoke_tacco_${SRC}_%j.log" \
         --error="${LOGS}/smoke_tacco_${SRC}_%j.err" \
