@@ -28,6 +28,20 @@ from .backend_base import (
 )
 
 
+def _setup_torch_for_performance():
+    """Configure PyTorch for optimal GPU performance."""
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('medium')
+
+
+def _ensure_counts(adata: ad.AnnData) -> ad.AnnData:
+    """Ensure adata.X contains raw counts (not normalized data)."""
+    if "counts" in adata.layers:
+        print(f"  Using raw counts from layers['counts']")
+        adata.X = adata.layers["counts"].copy()
+    return adata
+
+
 class TangramBackend(SpatialBackend):
     """
     Tangram spatial mapping wrapper with fallback support.
@@ -90,6 +104,9 @@ class TangramBackend(SpatialBackend):
         """
         print("Tangram: Starting map()...")
         print(f"  snRNA shape: {snrna.shape}, spatial shape: {spatial.shape}")
+
+        # Configure PyTorch for GPU performance (Tensor Cores)
+        _setup_torch_for_performance()
 
         # Validate and preprocess
         self.validate_inputs(snrna, spatial)

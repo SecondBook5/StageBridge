@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import anndata as ad
+import torch
 
 from .backend_base import (
     SpatialBackend,
@@ -24,6 +25,21 @@ from .backend_base import (
     compute_cell_type_entropy,
     compute_sparsity,
 )
+
+
+def _setup_torch_for_performance():
+    """Configure PyTorch for optimal GPU performance."""
+    # Use Tensor Cores on supported GPUs (L40S, A100, H100, etc.)
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('medium')
+
+
+def _ensure_counts(adata: ad.AnnData) -> ad.AnnData:
+    """Ensure adata.X contains raw counts (not normalized data)."""
+    if "counts" in adata.layers:
+        print(f"  Using raw counts from layers['counts']")
+        adata.X = adata.layers["counts"].copy()
+    return adata
 
 
 def _check_scvi_version():
@@ -100,6 +116,13 @@ class DestVIBackend(SpatialBackend):
         self.validate_inputs(snrna, spatial)
         snrna, spatial = self.preprocess(snrna, spatial)
 
+        # Ensure raw counts (scvi-tools requires unnormalized data)
+        snrna = _ensure_counts(snrna)
+        spatial = _ensure_counts(spatial)
+
+        # Configure PyTorch for GPU performance (Tensor Cores)
+        _setup_torch_for_performance()
+
         # Import scvi-tools (lazy import)
         try:
             from scvi.model import CondSCVI, DestVI
@@ -132,6 +155,7 @@ class DestVIBackend(SpatialBackend):
             train_size=0.9,  # 10% validation for early stopping
             early_stopping=True,
             early_stopping_patience=15,
+            datamodule_kwargs={"num_workers": 4},
         )
 
         # Train DestVI on spatial

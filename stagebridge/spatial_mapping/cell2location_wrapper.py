@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import anndata as ad
+import torch
 
 from .backend_base import (
     SpatialBackend,
@@ -20,6 +21,20 @@ from .backend_base import (
     compute_cell_type_entropy,
     compute_sparsity,
 )
+
+
+def _setup_torch_for_performance():
+    """Configure PyTorch for optimal GPU performance."""
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('medium')
+
+
+def _ensure_counts(adata: ad.AnnData) -> ad.AnnData:
+    """Ensure adata.X contains raw counts (not normalized data)."""
+    if "counts" in adata.layers:
+        print(f"  Using raw counts from layers['counts']")
+        adata.X = adata.layers["counts"].copy()
+    return adata
 
 
 class Cell2locationBackend(SpatialBackend):
@@ -73,6 +88,9 @@ class Cell2locationBackend(SpatialBackend):
         # Validate and preprocess
         self.validate_inputs(snrna, spatial)
         snrna, spatial = self.preprocess(snrna, spatial)
+
+        # Configure PyTorch for GPU performance (Tensor Cores)
+        _setup_torch_for_performance()
 
         # Import cell2location
         try:
@@ -129,6 +147,7 @@ class Cell2locationBackend(SpatialBackend):
             batch_size=self.batch_size,
             lr=0.002,
             accelerator=self.accelerator,
+            datamodule_kwargs={"num_workers": 4},
         )
 
         # Export estimated cell type signatures
@@ -185,6 +204,7 @@ class Cell2locationBackend(SpatialBackend):
             max_epochs=self.max_epochs_spatial,
             batch_size=None,  # Use full batch for spatial
             accelerator=self.accelerator,
+            datamodule_kwargs={"num_workers": 4},
         )
 
         # Export posterior estimates
