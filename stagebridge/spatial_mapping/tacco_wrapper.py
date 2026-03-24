@@ -180,15 +180,28 @@ class TACCOBackend(SpatialBackend):
         print(f"TACCO: Final shapes - {len(snrna)} cells, {len(spatial)} spots, {snrna.n_vars} genes")
 
         # Run TACCO annotation (profiles already built)
-        tc.tl.annotate(
-            spatial,
-            snrna,
-            annotation_key="cell_type",
-            result_key="tacco_celltype",
-            method=self.method,
-            epsilon=self.epsilon if self.method == "OT" else None,
-            lamb=self.lamb if self.method == "NMFreg" else None,
-        )
+        # Try requested method first, fall back to NNLS if it fails
+        method_used = self.method
+        try:
+            tc.tl.annotate(
+                spatial,
+                snrna,
+                annotation_key="cell_type",
+                result_key="tacco_celltype",
+                method=method_used,
+                epsilon=self.epsilon if method_used == "OT" else None,
+                lamb=self.lamb if method_used == "NMFreg" else None,
+            )
+        except Exception as e:
+            print(f"TACCO: {method_used} failed ({e}), falling back to NNLS")
+            method_used = "NNLS"
+            tc.tl.annotate(
+                spatial,
+                snrna,
+                annotation_key="cell_type",
+                result_key="tacco_celltype",
+                method=method_used,
+            )
 
         # Extract cell type proportions
         # TACCO stores proportions in .obsm['tacco_celltype']
