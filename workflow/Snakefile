@@ -497,7 +497,7 @@ rule data_preparation:
             --snrna {input.snrna} \
             --spatial {input.spatial} \
             --wes {input.wes} \
-            --spatial_backend_dir {params.spatial_dir} \
+            --spatial_backend_dir {params.spatial_dir}/canonical \
             --output_dir {params.canonical_dir} \
             2>&1 | tee {log}
         """
