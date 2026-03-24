@@ -19,8 +19,11 @@ luca:
 # Spatial backend parameters
 spatial:
   backends:
-    - destvi  # Skip benchmark - HCA abstract deadline
-  canonical_selection: "destvi"  # Force DestVI for gamma/cell-type-specific expression
+    - tangram
+    - destvi
+    - tacco
+    - cell2location
+  canonical_selection: "auto"  # or specify: "tangram"
 
 # Training parameters
 training:

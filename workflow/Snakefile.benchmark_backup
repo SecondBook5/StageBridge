@@ -47,7 +47,7 @@ ABLATIONS = f"{RUNS}/ablations"
 FIGURES = f"{RUNS}/publication_figures"
 
 # Spatial backends to run
-SPATIAL_BACKENDS = ["destvi"]  # Skip benchmark for HCA deadline - restore from Snakefile.benchmark_backup later
+SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location"]
 
 # Label sources for spatial deconvolution ablation (HLCA vs LuCA cell types)
 LABEL_SOURCES = ["hlca", "luca"]
@@ -282,10 +282,9 @@ rule spatial_backend_sample:
     threads: 8
     resources:
         mem_mb = 256000,  # 256GB for 35GB spatial + 19GB snRNA
-        runtime = 240,  # 4 hours for DestVI
+        runtime = lambda wildcards: 480 if wildcards.backend == "cell2location" else 240,
         slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
+        gpu = 2
     log:
         f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
     shell:
@@ -396,11 +395,10 @@ rule canonical_backend_sample:
         proportions = f"{SPATIAL}/canonical/samples/{{sample}}/cell_type_proportions.parquet"
     threads: 8
     resources:
-        mem_mb = 256000,  # 256GB
-        runtime = 240,  # 4 hours for DestVI
+        mem_mb = 256000,  # 256GB for 35GB spatial + 19GB snRNA
+        runtime = 480,  # 8 hours (cell2location worst case)
         slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
+        gpu = 2
     log:
         f"{RUNS}/logs/spatial/canonical/{{sample}}.log"
     shell:
@@ -632,7 +630,7 @@ rule training:
         runtime = 720,  # 12 hours (SSL ~6h + transition ~3h + buffer)
         slurm_partition = "gpu",
         gpu = 4,
-        constraint = "h100"
+        slurm_extra = "'--constraint=h100'"
     log:
         f"{RUNS}/logs/training/fold{{fold}}_seed{{seed}}.log"
     shell:
