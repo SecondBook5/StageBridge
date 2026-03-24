@@ -344,7 +344,8 @@ rule spatial_backend_aggregate:
 
 
 # Step 3d: Compare backends across label sources (HLCA vs LuCA ablation)
-rule spatial_comparison:
+# This is a checkpoint because canonical_backend_sample needs to read its output
+checkpoint spatial_comparison:
     input:
         # All backends x all label sources
         expand(
@@ -371,14 +372,107 @@ rule spatial_comparison:
 
 
 # =============================================================================
+# Stage 3e: Run Canonical Backend on Full Cohort (all samples)
+# =============================================================================
+# After benchmarking 9 stratified samples, run the winning backend on ALL samples.
+# This uses the same array job pattern as the benchmark, but only for the canonical backend.
+
+# Helper to read canonical backend choice
+def get_canonical_backend(wildcards):
+    """Read canonical backend from benchmark results."""
+    import json
+    canonical_file = checkpoints.spatial_comparison.get(**wildcards).output.canonical
+    with open(canonical_file) as f:
+        return json.load(f)
+
+rule canonical_backend_sample:
+    input:
+        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
+        spatial = f"{PROCESSED}/spatial_merged.h5ad",
+        canonical_choice = f"{SPATIAL}/canonical_backend.json",
+        manifest = f"{SPATIAL}/sample_manifest.json"
+    output:
+        metrics = f"{SPATIAL}/canonical/samples/{{sample}}/upstream_metrics.json",
+        proportions = f"{SPATIAL}/canonical/samples/{{sample}}/cell_type_proportions.parquet"
+    group: "canonical_array"  # Groups all samples into SLURM array
+    threads: 4
+    resources:
+        mem_mb = 180000,
+        runtime = 480,  # 8 hours (cell2location worst case)
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/canonical_{{sample}}.log"
+    shell:
+        """
+        # Read canonical backend from benchmark results
+        BACKEND=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['backend'])")
+        LABEL_SOURCE=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['label_source'])")
+
+        echo "Running $BACKEND ($LABEL_SOURCE) on {wildcards.sample}"
+
+        python -m stagebridge.pipelines.run_spatial_benchmark \
+            --snrna {input.snrna} \
+            --spatial {input.spatial} \
+            --output_dir {SPATIAL}/canonical/samples/{wildcards.sample} \
+            --backends $BACKEND \
+            --sample {wildcards.sample} \
+            --sample-col sample_id \
+            --label-source $LABEL_SOURCE \
+            2>&1 | tee {log}
+        """
+
+
+def get_all_canonical_outputs(wildcards):
+    """Get all per-sample outputs for canonical backend after checkpoint."""
+    checkpoint_output = checkpoints.extract_spatial_samples.get(**wildcards).output.manifest
+    import json
+    with open(checkpoint_output) as f:
+        manifest = json.load(f)
+    samples = manifest["samples"]
+    return expand(
+        f"{SPATIAL}/canonical/samples/{{sample}}/upstream_metrics.json",
+        sample=samples
+    )
+
+
+rule canonical_backend_aggregate:
+    input:
+        sample_metrics = get_all_canonical_outputs,
+        manifest = f"{SPATIAL}/sample_manifest.json",
+        canonical_choice = f"{SPATIAL}/canonical_backend.json"
+    output:
+        proportions = f"{SPATIAL}/canonical/cell_type_proportions.parquet",
+        metrics = f"{SPATIAL}/canonical/upstream_metrics.json"
+    threads: 2
+    resources:
+        mem_mb = 32000,
+        runtime = 30
+    log:
+        f"{RUNS}/logs/canonical_aggregate.log"
+    shell:
+        """
+        BACKEND=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['backend'])")
+
+        python workflow/scripts/aggregate_spatial_samples.py \
+            --backend $BACKEND \
+            --sample-dir {SPATIAL}/canonical/samples \
+            --output-dir {SPATIAL}/canonical \
+            --manifest {input.manifest} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
 # Stage 4: Complete Data Preparation
 # =============================================================================
 
 rule data_preparation:
     input:
         fused = f"{REF_GEOM}/fused_embedding.parquet",
-        spatial_comparison = f"{SPATIAL}/backend_comparison.json",
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",  # Use file with cell types
+        canonical_props = f"{SPATIAL}/canonical/cell_type_proportions.parquet",  # From canonical_backend_aggregate
+        canonical_metrics = f"{SPATIAL}/canonical/upstream_metrics.json",
+        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
         spatial = f"{PROCESSED}/spatial_merged.h5ad",
         wes = f"{PROCESSED}/wes_features.parquet"
     output:
