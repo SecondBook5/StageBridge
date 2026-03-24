@@ -262,11 +262,24 @@ class TACCOBackend(SpatialBackend):
                 columns=cell_types,
             )
 
-        # Compute confidence
-        confidence = self.estimate_confidence(snrna, spatial, None)
+        # Compute confidence from proportions
+        confidence = pd.Series(
+            cell_type_proportions.max(axis=1).values,
+            index=cell_type_proportions.index,
+            name="confidence",
+        )
 
-        # Compute upstream metrics
-        upstream_metrics = self.compute_upstream_metrics(snrna, spatial, None)
+        # Compute upstream metrics directly from proportions
+        entropy = compute_cell_type_entropy(cell_type_proportions)
+        sparsity = compute_sparsity(cell_type_proportions)
+        upstream_metrics = {
+            "mean_entropy": float(entropy.mean()),
+            "std_entropy": float(entropy.std()),
+            "sparsity": float(sparsity),
+            "coverage": float((confidence > 0.5).mean()),
+            "n_spots": len(spatial),
+            "n_celltypes": cell_type_proportions.shape[1],
+        }
 
         # Save if output_dir provided
         if output_dir:
