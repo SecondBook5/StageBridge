@@ -14,7 +14,7 @@ import anndata as ad
 # Force scipy backend to avoid MKL 32-bit integer overflow on large matrices
 # This must be set BEFORE importing tacco/POT/numpy with MKL
 os.environ.setdefault("MKL_THREADING_LAYER", "GNU")
-os.environ.setdefault("MKL_INTERFACE_LAYER", "LP64")
+os.environ.setdefault("MKL_INTERFACE_LAYER", "LP64")  # Not "LP64,GNU" - just LP64
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 from .backend_base import (
@@ -224,7 +224,6 @@ class TACCOBackend(SpatialBackend):
                 annotation_key="cell_type",
                 result_key="tacco_celltype",
                 method=method_used,
-                lamb=self.lamb,
                 platform_iterations=0,
                 remove_zero_cells=True,
             )
