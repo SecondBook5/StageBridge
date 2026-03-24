@@ -251,7 +251,7 @@ checkpoint extract_spatial_samples:
     output:
         manifest = f"{SPATIAL}/sample_manifest.json"
     resources:
-        mem_mb = 128000,  # 128GB to load spatial file
+        mem_mb = 256000,  # 256GB to load 35GB spatial file safely
         runtime = 30
     log:
         f"{RUNS}/logs/extract_spatial_samples.log"
@@ -280,12 +280,12 @@ rule spatial_backend_sample:
         backend = "|".join(SPATIAL_BACKENDS),
         label_source = "|".join(LABEL_SOURCES)
     group: "spatial_array"  # Groups 9 samples into SLURM array jobs
-    threads: 4
+    threads: 8
     resources:
-        mem_mb = 180000,  # 180GB needed to load 51GB spatial + snRNA files
+        mem_mb = 256000,  # 256GB for 35GB spatial + 19GB snRNA
         runtime = lambda wildcards: 480 if wildcards.backend == "cell2location" else 240,
         slurm_partition = "gpu",
-        gpu = 1
+        gpu = 2
     log:
         f"{RUNS}/logs/spatial_{{label_source}}_{{backend}}_{{sample}}.log"
     shell:
@@ -395,12 +395,12 @@ rule canonical_backend_sample:
         metrics = f"{SPATIAL}/canonical/samples/{{sample}}/upstream_metrics.json",
         proportions = f"{SPATIAL}/canonical/samples/{{sample}}/cell_type_proportions.parquet"
     group: "canonical_array"  # Groups all samples into SLURM array
-    threads: 4
+    threads: 8
     resources:
-        mem_mb = 180000,
+        mem_mb = 256000,  # 256GB for 35GB spatial + 19GB snRNA
         runtime = 480,  # 8 hours (cell2location worst case)
         slurm_partition = "gpu",
-        gpu = 1
+        gpu = 2
     log:
         f"{RUNS}/logs/canonical_{{sample}}.log"
     shell:
