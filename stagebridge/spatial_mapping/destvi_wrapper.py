@@ -148,8 +148,11 @@ class DestVIBackend(SpatialBackend):
 
         # Setup anndata for scvi with batch correction
         # IMPORTANT: layer="counts" is required - without it scvi uses .X which may be normalized
+        # Note: Only setup CondSCVI - DestVI.from_rna_model handles spatial setup internally
         CondSCVI.setup_anndata(snrna, layer="counts", labels_key="cell_type", batch_key=snrna_batch)
-        DestVI.setup_anndata(spatial, layer="counts", batch_key=spatial_batch)
+
+        # Determine accelerator once
+        accelerator = "gpu" if torch.cuda.is_available() else "cpu"
 
         # Train conditional scVI on snRNA (without reweighting)
         # IMPORTANT: prior="normal" is required for DestVI.from_rna_model compatibility
@@ -159,6 +162,8 @@ class DestVIBackend(SpatialBackend):
         sc_model = CondSCVI(snrna, n_latent=self.n_latent, weight_obs=False, prior="normal")
         sc_model.train(
             max_epochs=self.n_epochs_condsc,
+            accelerator=accelerator,
+            devices=1,
             batch_size=128,
             plan_kwargs={"lr": self.lr},
         )
@@ -168,6 +173,8 @@ class DestVIBackend(SpatialBackend):
         spatial_model = DestVI.from_rna_model(spatial, sc_model, vamp_prior_p=0)
         spatial_model.train(
             max_epochs=self.n_epochs_destvi,
+            accelerator=accelerator,
+            devices=1,
             batch_size=128,
             plan_kwargs={"lr": self.lr},
         )
