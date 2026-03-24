@@ -155,7 +155,6 @@ class DestVIBackend(SpatialBackend):
             train_size=0.9,  # 10% validation for early stopping
             early_stopping=True,
             early_stopping_patience=15,
-            datamodule_kwargs={"num_workers": 4},
         )
 
         # Train DestVI on spatial
