@@ -147,8 +147,11 @@ class DestVIBackend(SpatialBackend):
         DestVI.setup_anndata(spatial, batch_key=spatial_batch)
 
         # Train conditional scVI on snRNA (without reweighting)
+        # IMPORTANT: prior="normal" is required for DestVI.from_rna_model compatibility
+        # Without explicit prior, CondSCVI doesn't set the 'prior' key in init_args,
+        # causing KeyError when DestVI tries to read it
         print(f"  Training CondSCVI for {self.n_epochs_condsc} epochs (early stopping enabled)...")
-        sc_model = CondSCVI(snrna, n_latent=self.n_latent, weight_obs=False)
+        sc_model = CondSCVI(snrna, n_latent=self.n_latent, weight_obs=False, prior="normal")
         sc_model.train(
             max_epochs=self.n_epochs_condsc,
             lr=self.lr,
@@ -158,16 +161,7 @@ class DestVIBackend(SpatialBackend):
         )
 
         # Train DestVI on spatial
-        # IMPORTANT: Patch for scvi-tools >= 1.0 'prior' KeyError
-        # DestVI.from_rna_model checks for 'prior' in CondSCVI's module init_args,
-        # but CondSCVI doesn't set this key by default. We manually add it.
         print(f"  Training DestVI for {self.n_epochs_destvi} epochs (early stopping enabled)...")
-
-        # Patch: ensure 'prior' key exists in model's init_args to avoid KeyError
-        if hasattr(sc_model.module, '_init_args'):
-            if 'prior' not in sc_model.module._init_args:
-                sc_model.module._init_args['prior'] = None
-
         spatial_model = DestVI.from_rna_model(spatial, sc_model, vamp_prior_p=0)
         spatial_model.train(
             max_epochs=self.n_epochs_destvi,
