@@ -142,9 +142,14 @@ class DestVIBackend(SpatialBackend):
         if spatial_batch:
             print(f"  Using batch_key='{spatial_batch}' for spatial ({spatial.obs[spatial_batch].nunique()} batches)")
 
+        # Ensure counts layer exists
+        snrna = _ensure_counts(snrna)
+        spatial = _ensure_counts(spatial)
+
         # Setup anndata for scvi with batch correction
-        CondSCVI.setup_anndata(snrna, labels_key="cell_type", batch_key=snrna_batch)
-        DestVI.setup_anndata(spatial, batch_key=spatial_batch)
+        # IMPORTANT: layer="counts" is required - without it scvi uses .X which may be normalized
+        CondSCVI.setup_anndata(snrna, layer="counts", labels_key="cell_type", batch_key=snrna_batch)
+        DestVI.setup_anndata(spatial, layer="counts", batch_key=spatial_batch)
 
         # Train conditional scVI on snRNA (without reweighting)
         # IMPORTANT: prior="normal" is required for DestVI.from_rna_model compatibility
