@@ -159,7 +159,7 @@ class DestVIBackend(SpatialBackend):
         # Without explicit prior, CondSCVI doesn't set the 'prior' key in init_args,
         # causing KeyError when DestVI tries to read it
         print(f"  Training CondSCVI for {self.n_epochs_condsc} epochs (early stopping enabled)...")
-        sc_model = CondSCVI(snrna, n_latent=self.n_latent, weight_obs=False, prior="normal")
+        sc_model = CondSCVI(snrna, n_latent=self.n_latent, weight_obs=False, prior="mog")
         sc_model.train(
             max_epochs=self.n_epochs_condsc,
             accelerator=accelerator,
@@ -170,7 +170,7 @@ class DestVIBackend(SpatialBackend):
 
         # Train DestVI on spatial
         print(f"  Training DestVI for {self.n_epochs_destvi} epochs (early stopping enabled)...")
-        spatial_model = DestVI.from_rna_model(spatial, sc_model, vamp_prior_p=0)
+        spatial_model = DestVI.from_rna_model(spatial, sc_model, vamp_prior_p=8)
         spatial_model.train(
             max_epochs=self.n_epochs_destvi,
             accelerator=accelerator,
