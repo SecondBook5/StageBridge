@@ -119,9 +119,30 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
 ")
     echo "Cell2location (${SRC^^}) submitted: ${JOB_C2L}"
 
-    # TACCO disabled - has internal bugs with zero-sum observations
-    # JOB_TC=$(sbatch ... --backends tacco ...)
-    echo "TACCO (${SRC^^}) skipped - known issues with TACCO internal code"
+    # TACCO (CPU only)
+    JOB_TC=$(sbatch --parsable \
+        --job-name=smoke_tacco_${SRC} \
+        --partition=cpu \
+        --time=2:00:00 \
+        --mem=128G \
+        --cpus-per-task=16 \
+        --output="${LOGS}/smoke_tacco_${SRC}_%j.log" \
+        --error="${LOGS}/smoke_tacco_${SRC}_%j.err" \
+        --wrap="
+module load miniforge3
+eval \"\$(conda shell.bash hook)\"
+conda activate ${ENV}
+cd /home/booka/StageBridge
+python -m stagebridge.pipelines.run_spatial_benchmark \
+    --snrna ${SNRNA} \
+    --spatial ${SPATIAL} \
+    --output_dir ${OUTPUT} \
+    --sample ${SAMPLE} \
+    --sample-col sample_id \
+    --backends tacco \
+    ${LABEL_ARGS}
+")
+    echo "TACCO (${SRC^^}) submitted: ${JOB_TC}"
     echo ""
 done
 
