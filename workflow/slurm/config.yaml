@@ -33,8 +33,5 @@ printshellcmds: true
 rerun-incomplete: true
 local-cores: 1
 
-# Group jobs into SLURM arrays for efficient scheduling
-# Groups jobs that differ only by 'sample' wildcard into array jobs
-group-components:
-  spatial_array: 9    # Benchmark: 9 stratified samples (1+2+2+2+2 by stage)
-  canonical_array: 56  # Full cohort: 56 Visium samples
+# Note: Job grouping disabled - each spatial job needs 256GB + 2 GPUs
+# which can't be grouped on a single node
