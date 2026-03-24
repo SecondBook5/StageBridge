@@ -78,7 +78,7 @@ for SRC in "${SOURCES[@]}"; do
         --output="${LOGS}/smoke_tangram_${SRC}_%j.log" \
         --error="${LOGS}/smoke_tangram_${SRC}_%j.err" \
         --wrap="
-module load miniforge3
+module load miniforge3 2>/dev/null
 eval \"\$(conda shell.bash hook)\"
 conda activate ${ENV}
 cd /home/booka/StageBridge
@@ -104,7 +104,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
         --output="${LOGS}/smoke_destvi_${SRC}_%j.log" \
         --error="${LOGS}/smoke_destvi_${SRC}_%j.err" \
         --wrap="
-module load miniforge3
+module load miniforge3 2>/dev/null
 eval \"\$(conda shell.bash hook)\"
 conda activate ${ENV}
 cd /home/booka/StageBridge
@@ -130,7 +130,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
         --output="${LOGS}/smoke_cell2loc_${SRC}_%j.log" \
         --error="${LOGS}/smoke_cell2loc_${SRC}_%j.err" \
         --wrap="
-module load miniforge3
+module load miniforge3 2>/dev/null
 eval \"\$(conda shell.bash hook)\"
 conda activate ${ENV}
 cd /home/booka/StageBridge
@@ -155,7 +155,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
         --output="${LOGS}/smoke_tacco_${SRC}_%j.log" \
         --error="${LOGS}/smoke_tacco_${SRC}_%j.err" \
         --wrap="
-module load miniforge3
+module load miniforge3 2>/dev/null
 eval \"\$(conda shell.bash hook)\"
 conda activate ${ENV}
 cd /home/booka/StageBridge
