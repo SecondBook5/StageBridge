@@ -147,7 +147,6 @@ class Cell2locationBackend(SpatialBackend):
             batch_size=self.batch_size,
             lr=0.002,
             accelerator=self.accelerator,
-            datamodule_kwargs={"num_workers": 4},
         )
 
         # Export estimated cell type signatures
@@ -204,7 +203,6 @@ class Cell2locationBackend(SpatialBackend):
             max_epochs=self.max_epochs_spatial,
             batch_size=None,  # Use full batch for spatial
             accelerator=self.accelerator,
-            datamodule_kwargs={"num_workers": 4},
         )
 
         # Export posterior estimates
