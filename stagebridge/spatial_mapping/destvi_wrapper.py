@@ -155,6 +155,7 @@ class DestVIBackend(SpatialBackend):
         sc_model.train(
             max_epochs=self.n_epochs_condsc,
             lr=self.lr,
+            batch_size=128,
             train_size=0.9,  # 10% validation for early stopping
             early_stopping=True,
             early_stopping_patience=15,
@@ -166,6 +167,7 @@ class DestVIBackend(SpatialBackend):
         spatial_model.train(
             max_epochs=self.n_epochs_destvi,
             lr=self.lr,
+            batch_size=128,
             train_size=0.9,  # 10% validation for early stopping
             early_stopping=True,
             early_stopping_patience=15,
