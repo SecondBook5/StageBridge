@@ -100,7 +100,7 @@ rule hlca_mapping:
         slurm_partition = "gpu",
         gpu = 1
     log:
-        f"{RUNS}/logs/hlca_mapping.log"
+        f"{RUNS}/logs/reference/hlca_mapping.log"
     shell:
         """
         python -m stagebridge.pipelines.run_reference \
@@ -139,7 +139,7 @@ rule luca_mapping:
         slurm_partition = "gpu",
         gpu = 1
     log:
-        f"{RUNS}/logs/luca_mapping.log"
+        f"{RUNS}/logs/reference/luca_mapping.log"
     shell:
         """
         python -m stagebridge.pipelines.run_reference \
@@ -171,7 +171,7 @@ rule fuse_embeddings:
         mem_mb = 64000,
         runtime = 30
     log:
-        f"{RUNS}/logs/fuse_embeddings.log"
+        f"{RUNS}/logs/reference/fuse_embeddings.log"
     script:
         "scripts/fuse_embeddings.py"
 
@@ -201,7 +201,7 @@ rule add_cell_type_labels:
         mem_mb = 180000,
         runtime = 60
     log:
-        f"{RUNS}/logs/add_cell_type_labels.log"
+        f"{RUNS}/logs/reference/add_cell_type_labels.log"
     shell:
         """
         python workflow/scripts/add_cell_type_labels.py \
@@ -228,7 +228,7 @@ rule validate_markers:
         mem_mb = 64000,
         runtime = 30
     log:
-        f"{RUNS}/logs/validate_markers.log"
+        f"{RUNS}/logs/reference/validate_markers.log"
     shell:
         """
         python workflow/scripts/validate_markers.py \
@@ -254,7 +254,7 @@ checkpoint extract_spatial_samples:
         mem_mb = 256000,  # 256GB to load 35GB spatial file safely
         runtime = 30
     log:
-        f"{RUNS}/logs/extract_spatial_samples.log"
+        f"{RUNS}/logs/spatial/extract_samples.log"
     shell:
         """
         python workflow/scripts/extract_spatial_samples.py \
@@ -287,7 +287,7 @@ rule spatial_backend_sample:
         slurm_partition = "gpu",
         gpu = 2
     log:
-        f"{RUNS}/logs/spatial_{{label_source}}_{{backend}}_{{sample}}.log"
+        f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
     shell:
         """
         python -m stagebridge.pipelines.run_spatial_benchmark \
@@ -331,7 +331,7 @@ rule spatial_backend_aggregate:
         mem_mb = 32000,
         runtime = 30
     log:
-        f"{RUNS}/logs/spatial_{{label_source}}_{{backend}}_aggregate.log"
+        f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}_aggregate.log"
     shell:
         """
         python workflow/scripts/aggregate_spatial_samples.py \
@@ -366,7 +366,7 @@ checkpoint spatial_comparison:
         mem_mb = 16000,
         runtime = 15
     log:
-        f"{RUNS}/logs/spatial_comparison.log"
+        f"{RUNS}/logs/spatial/comparison.log"
     script:
         "scripts/compare_spatial_backends.py"
 
@@ -402,7 +402,7 @@ rule canonical_backend_sample:
         slurm_partition = "gpu",
         gpu = 2
     log:
-        f"{RUNS}/logs/canonical_{{sample}}.log"
+        f"{RUNS}/logs/spatial/canonical/{{sample}}.log"
     shell:
         """
         # Read canonical backend from benchmark results
@@ -449,7 +449,7 @@ rule canonical_backend_aggregate:
         mem_mb = 32000,
         runtime = 30
     log:
-        f"{RUNS}/logs/canonical_aggregate.log"
+        f"{RUNS}/logs/spatial/canonical_aggregate.log"
     shell:
         """
         BACKEND=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['backend'])")
@@ -634,7 +634,7 @@ rule training:
         gpu = 4,
         slurm_extra = "'--constraint=h100'"
     log:
-        f"{RUNS}/logs/training_fold{{fold}}_seed{{seed}}.log"
+        f"{RUNS}/logs/training/fold{{fold}}_seed{{seed}}.log"
     shell:
         """
         echo "=============================================="
@@ -737,7 +737,7 @@ rule baseline:
         slurm_partition = "gpu",
         gpu = 1
     log:
-        f"{RUNS}/logs/baseline_{{baseline}}_fold{{fold}}_seed{{seed}}.log"
+        f"{RUNS}/logs/baselines/{{baseline}}/fold{{fold}}_seed{{seed}}.log"
     shell:
         """
         python -m stagebridge.baselines.evaluate \
@@ -811,7 +811,7 @@ rule ablation:
         slurm_partition = "gpu",
         gpu = 1
     log:
-        f"{RUNS}/logs/ablation_{{ablation}}.log"
+        f"{RUNS}/logs/ablations/{{ablation}}.log"
     shell:
         """
         python -m stagebridge.pipelines.run_ablations \
