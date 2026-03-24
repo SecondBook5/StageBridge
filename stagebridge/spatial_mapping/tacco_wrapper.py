@@ -136,27 +136,32 @@ class TACCOBackend(SpatialBackend):
 
         print(f"Running TACCO with method={self.method}, {len(snrna)} cells, {len(spatial)} spots...")
 
-        # Pre-run TACCO preprocessing to identify genes it will keep
-        # This lets us filter zero-sum spots BEFORE annotation crashes
-        print("TACCO: Running preprocessing to identify final gene set...")
-        tc.pp.normalize(spatial)
-        tc.pp.normalize(snrna)
+        # Filter genes with zero variance in either dataset
+        # TACCO will filter these anyway, causing zero-sum spots
+        print("TACCO: Filtering zero-variance genes...")
 
-        # Build reference profiles (this is what TACCO does internally)
-        if "cell_type" not in snrna.varm:
-            tc.pp.construct_reference_profiles(snrna, annotation_key="cell_type")
+        # Get gene variance in snRNA
+        if hasattr(snrna.X, "toarray"):
+            snrna_var = np.array(snrna.X.toarray().var(axis=0)).flatten()
+        else:
+            snrna_var = np.array(snrna.X.var(axis=0)).flatten()
 
-        # Get genes that will be used (intersection of both datasets after TACCO processing)
-        ref_genes = set(snrna.var_names)
-        spatial_genes = set(spatial.var_names)
-        final_genes = list(ref_genes & spatial_genes)
+        # Get gene variance in spatial
+        if hasattr(spatial.X, "toarray"):
+            spatial_var = np.array(spatial.X.toarray().var(axis=0)).flatten()
+        else:
+            spatial_var = np.array(spatial.X.var(axis=0)).flatten()
 
-        if len(final_genes) < len(spatial.var_names):
-            print(f"TACCO: Preprocessing reduced genes from {len(spatial.var_names)} to {len(final_genes)}")
-            spatial = spatial[:, final_genes].copy()
-            snrna = snrna[:, final_genes].copy()
+        # Keep genes with non-zero variance in BOTH datasets
+        keep_genes_mask = (snrna_var > 0) & (spatial_var > 0)
+        n_filtered = (~keep_genes_mask).sum()
+        if n_filtered > 0:
+            keep_genes = snrna.var_names[keep_genes_mask].tolist()
+            print(f"TACCO: Filtered {n_filtered} zero-variance genes, keeping {len(keep_genes)}")
+            snrna = snrna[:, keep_genes].copy()
+            spatial = spatial[:, keep_genes].copy()
 
-            # Filter zero-sum spots AGAIN after TACCO's gene filtering
+            # Filter zero-sum spots AGAIN
             if hasattr(spatial.X, "toarray"):
                 row_sums = np.array(spatial.X.sum(axis=1)).flatten()
             else:
@@ -165,10 +170,10 @@ class TACCOBackend(SpatialBackend):
             nonzero_mask = row_sums > 0
             n_zero = (~nonzero_mask).sum()
             if n_zero > 0:
-                print(f"TACCO: Filtering out {n_zero} spots after preprocessing gene reduction")
+                print(f"TACCO: Filtering out {n_zero} spots after zero-variance gene removal")
                 spatial = spatial[nonzero_mask].copy()
 
-        print(f"TACCO: Final data shapes - {len(snrna)} cells, {len(spatial)} spots, {len(final_genes)} genes")
+        print(f"TACCO: Final shapes - {len(snrna)} cells, {len(spatial)} spots, {snrna.n_vars} genes")
 
         # Run TACCO annotation
         tc.tl.annotate(
