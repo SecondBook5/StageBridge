@@ -44,6 +44,7 @@ def run_backend_comparison(
     output_dir: Path,
     backends: list[str] = None,
     quick: bool = False,
+    debug: bool = False,
     sample: str | None = None,
     sample_col: str = "sample_id",
     label_source: str = "hlca",
@@ -58,6 +59,7 @@ def run_backend_comparison(
         output_dir: Where to save results
         backends: List of backend names or None for all
         quick: Use reduced epochs for faster testing
+        debug: Use minimal epochs (2-5) just to verify code runs
         sample: If provided, filter spatial data to this sample only
         sample_col: Column name for sample IDs in spatial.obs
         label_source: Which reference to use for cell type labels ('hlca' or 'luca')
@@ -136,21 +138,39 @@ def run_backend_comparison(
 
         try:
             if backend_name == "tangram":
+                if debug:
+                    n_epochs = 2
+                elif quick:
+                    n_epochs = 10
+                else:
+                    n_epochs = 1000
                 backend = TangramBackend(
                     mode="clusters",
-                    n_epochs=10 if quick else 1000,
+                    n_epochs=n_epochs,
                 )
             elif backend_name == "destvi":
+                if debug:
+                    n_condsc, n_destvi = 3, 5
+                elif quick:
+                    n_condsc, n_destvi = 20, 50
+                else:
+                    n_condsc, n_destvi = 200, 2500
                 backend = DestVIBackend(
-                    n_epochs_condsc=20 if quick else 200,
-                    n_epochs_destvi=50 if quick else 2500,
+                    n_epochs_condsc=n_condsc,
+                    n_epochs_destvi=n_destvi,
                 )
             elif backend_name == "tacco":
                 backend = TACCOBackend(method="OT")
             elif backend_name == "cell2location":
+                if debug:
+                    n_ref, n_spatial = 3, 5
+                elif quick:
+                    n_ref, n_spatial = 50, 500
+                else:
+                    n_ref, n_spatial = 250, 2500
                 backend = Cell2locationBackend(
-                    max_epochs_ref=50 if quick else 250,
-                    max_epochs_spatial=500 if quick else 2500,  # Reduced from 30k
+                    max_epochs_ref=n_ref,
+                    max_epochs_spatial=n_spatial,
                 )
             else:
                 raise ValueError(f"Unknown backend: {backend_name}")
@@ -503,6 +523,9 @@ def main():
         "--quick", action="store_true", help="Use reduced epochs for quick testing"
     )
     parser.add_argument(
+        "--debug", action="store_true", help="Use minimal epochs (2-5) just to verify code runs"
+    )
+    parser.add_argument(
         "--sample", type=str, default=None, help="Run on single sample (filters spatial data)"
     )
     parser.add_argument(
@@ -529,6 +552,7 @@ def main():
         output_dir=Path(args.output_dir),
         backends=args.backends,
         quick=args.quick,
+        debug=args.debug,
         sample=args.sample,
         sample_col=getattr(args, "sample_col", "sample_id"),
         label_source=args.label_source,

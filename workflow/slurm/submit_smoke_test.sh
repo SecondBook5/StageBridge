@@ -1,7 +1,9 @@
 #!/bin/bash
 # Submit smoke test jobs for all 4 spatial backends
 # Supports label source ablation (HLCA vs LuCA)
-# Usage: ./workflow/slurm/submit_smoke_test.sh [hlca|luca|both]
+# Usage: ./workflow/slurm/submit_smoke_test.sh [hlca|luca|both] [--debug]
+#
+# --debug: Use minimal epochs (2-5) just to verify code runs (~5 min per backend)
 
 set -e
 
@@ -14,13 +16,37 @@ LABELS="${DATA}/processed/luad_evo/reference_geometry/cell_types.parquet"
 SAMPLE="GSM9226174_P4_Normal"
 LOGS="${DATA}/runs/logs"
 
-# Parse label source argument
-LABEL_SOURCE="${1:-hlca}"  # Default to hlca
+# Parse arguments
+DEBUG_FLAG=""
+LABEL_SOURCE="hlca"
+
+for arg in "$@"; do
+    case $arg in
+        --debug)
+            DEBUG_FLAG="--debug"
+            echo "DEBUG MODE: Using minimal epochs (2-5)"
+            ;;
+        hlca|luca|both)
+            LABEL_SOURCE="$arg"
+            ;;
+    esac
+done
 
 if [[ "$LABEL_SOURCE" == "both" ]]; then
     SOURCES=("hlca" "luca")
 else
     SOURCES=("$LABEL_SOURCE")
+fi
+
+# Set time limits based on mode
+if [[ -n "$DEBUG_FLAG" ]]; then
+    TIME_GPU="0:30:00"    # 30 min for debug
+    TIME_C2L="0:30:00"    # 30 min for debug
+    TIME_CPU="0:30:00"    # 30 min for debug
+else
+    TIME_GPU="4:00:00"    # 4 hours for full
+    TIME_C2L="6:00:00"    # 6 hours for cell2location
+    TIME_CPU="2:00:00"    # 2 hours for TACCO
 fi
 
 mkdir -p "${LOGS}"
@@ -46,7 +72,7 @@ for SRC in "${SOURCES[@]}"; do
         --job-name=smoke_tangram_${SRC} \
         --partition=gpu \
         --gres=gpu:2 \
-        --time=4:00:00 \
+        --time=${TIME_GPU} \
         --mem=256G \
         --cpus-per-task=8 \
         --output="${LOGS}/smoke_tangram_${SRC}_%j.log" \
@@ -63,7 +89,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
     --sample ${SAMPLE} \
     --sample-col sample_id \
     --backends tangram \
-    ${LABEL_ARGS}
+    ${LABEL_ARGS} ${DEBUG_FLAG}
 ")
     echo "Tangram (${SRC^^}) submitted: ${JOB_TG}"
 
@@ -72,7 +98,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
         --job-name=smoke_destvi_${SRC} \
         --partition=gpu \
         --gres=gpu:2 \
-        --time=4:00:00 \
+        --time=${TIME_GPU} \
         --mem=256G \
         --cpus-per-task=8 \
         --output="${LOGS}/smoke_destvi_${SRC}_%j.log" \
@@ -89,7 +115,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
     --sample ${SAMPLE} \
     --sample-col sample_id \
     --backends destvi \
-    ${LABEL_ARGS}
+    ${LABEL_ARGS} ${DEBUG_FLAG}
 ")
     echo "DestVI (${SRC^^}) submitted: ${JOB_DV}"
 
@@ -98,7 +124,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
         --job-name=smoke_cell2loc_${SRC} \
         --partition=gpu \
         --gres=gpu:2 \
-        --time=6:00:00 \
+        --time=${TIME_C2L} \
         --mem=256G \
         --cpus-per-task=8 \
         --output="${LOGS}/smoke_cell2loc_${SRC}_%j.log" \
@@ -115,7 +141,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
     --sample ${SAMPLE} \
     --sample-col sample_id \
     --backends cell2location \
-    ${LABEL_ARGS}
+    ${LABEL_ARGS} ${DEBUG_FLAG}
 ")
     echo "Cell2location (${SRC^^}) submitted: ${JOB_C2L}"
 
@@ -123,7 +149,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
     JOB_TC=$(sbatch --parsable \
         --job-name=smoke_tacco_${SRC} \
         --partition=cpu \
-        --time=2:00:00 \
+        --time=${TIME_CPU} \
         --mem=256G \
         --cpus-per-task=16 \
         --output="${LOGS}/smoke_tacco_${SRC}_%j.log" \
@@ -140,7 +166,7 @@ python -m stagebridge.pipelines.run_spatial_benchmark \
     --sample ${SAMPLE} \
     --sample-col sample_id \
     --backends tacco \
-    ${LABEL_ARGS}
+    ${LABEL_ARGS} ${DEBUG_FLAG}
 ")
     echo "TACCO (${SRC^^}) submitted: ${JOB_TC}"
     echo ""
