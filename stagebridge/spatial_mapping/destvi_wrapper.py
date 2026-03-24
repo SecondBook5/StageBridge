@@ -159,11 +159,8 @@ class DestVIBackend(SpatialBackend):
         sc_model = CondSCVI(snrna, n_latent=self.n_latent, weight_obs=False, prior="normal")
         sc_model.train(
             max_epochs=self.n_epochs_condsc,
-            lr=self.lr,
             batch_size=128,
-            train_size=0.9,  # 10% validation for early stopping
-            early_stopping=True,
-            early_stopping_patience=15,
+            plan_kwargs={"lr": self.lr},
         )
 
         # Train DestVI on spatial
@@ -171,11 +168,8 @@ class DestVIBackend(SpatialBackend):
         spatial_model = DestVI.from_rna_model(spatial, sc_model, vamp_prior_p=0)
         spatial_model.train(
             max_epochs=self.n_epochs_destvi,
-            lr=self.lr,
             batch_size=128,
-            train_size=0.9,  # 10% validation for early stopping
-            early_stopping=True,
-            early_stopping_patience=15,
+            plan_kwargs={"lr": self.lr},
         )
 
         # Store models and data for advanced queries
