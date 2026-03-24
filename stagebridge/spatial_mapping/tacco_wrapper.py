@@ -179,8 +179,25 @@ class TACCOBackend(SpatialBackend):
 
         print(f"TACCO: Final shapes - {len(snrna)} cells, {len(spatial)} spots, {snrna.n_vars} genes")
 
+        # Additional safety filter: remove spots with very low total counts
+        # TACCO's internal normalization can create zeros from low-count spots
+        if hasattr(spatial.X, "toarray"):
+            row_sums = np.array(spatial.X.sum(axis=1)).flatten()
+        else:
+            row_sums = np.array(spatial.X.sum(axis=1)).flatten()
+
+        min_counts = 100  # Spots with <100 total counts are likely to become zero after normalization
+        low_count_mask = row_sums >= min_counts
+        n_low = (~low_count_mask).sum()
+        if n_low > 0:
+            print(f"TACCO: Filtering {n_low} spots with <{min_counts} total counts (pre-normalization safety)")
+            spatial = spatial[low_count_mask].copy()
+
+        if len(spatial) == 0:
+            raise ValueError("No spots remaining after low-count filtering")
+
         # Run TACCO annotation (profiles already built)
-        # Try requested method first, fall back to NMFreg if OT fails
+        # Disable platform normalization to avoid creating zero-sum observations
         method_used = self.method
         try:
             tc.tl.annotate(
@@ -191,6 +208,7 @@ class TACCOBackend(SpatialBackend):
                 method=method_used,
                 epsilon=self.epsilon if method_used == "OT" else None,
                 lamb=self.lamb if method_used == "NMFreg" else None,
+                platform_iterations=0,  # Disable platform normalization
             )
         except Exception as e:
             print(f"TACCO: {method_used} failed ({e}), falling back to NMFreg")
@@ -202,6 +220,7 @@ class TACCOBackend(SpatialBackend):
                 result_key="tacco_celltype",
                 method=method_used,
                 lamb=self.lamb,
+                platform_iterations=0,  # Disable platform normalization
             )
 
         # Extract cell type proportions
