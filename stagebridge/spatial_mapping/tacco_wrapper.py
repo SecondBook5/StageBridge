@@ -136,6 +136,40 @@ class TACCOBackend(SpatialBackend):
 
         print(f"Running TACCO with method={self.method}, {len(snrna)} cells, {len(spatial)} spots...")
 
+        # Pre-run TACCO preprocessing to identify genes it will keep
+        # This lets us filter zero-sum spots BEFORE annotation crashes
+        print("TACCO: Running preprocessing to identify final gene set...")
+        tc.pp.normalize(spatial)
+        tc.pp.normalize(snrna)
+
+        # Build reference profiles (this is what TACCO does internally)
+        if "cell_type" not in snrna.varm:
+            tc.pp.construct_reference_profiles(snrna, annotation_key="cell_type")
+
+        # Get genes that will be used (intersection of both datasets after TACCO processing)
+        ref_genes = set(snrna.var_names)
+        spatial_genes = set(spatial.var_names)
+        final_genes = list(ref_genes & spatial_genes)
+
+        if len(final_genes) < len(spatial.var_names):
+            print(f"TACCO: Preprocessing reduced genes from {len(spatial.var_names)} to {len(final_genes)}")
+            spatial = spatial[:, final_genes].copy()
+            snrna = snrna[:, final_genes].copy()
+
+            # Filter zero-sum spots AGAIN after TACCO's gene filtering
+            if hasattr(spatial.X, "toarray"):
+                row_sums = np.array(spatial.X.sum(axis=1)).flatten()
+            else:
+                row_sums = np.array(spatial.X.sum(axis=1)).flatten()
+
+            nonzero_mask = row_sums > 0
+            n_zero = (~nonzero_mask).sum()
+            if n_zero > 0:
+                print(f"TACCO: Filtering out {n_zero} spots after preprocessing gene reduction")
+                spatial = spatial[nonzero_mask].copy()
+
+        print(f"TACCO: Final data shapes - {len(snrna)} cells, {len(spatial)} spots, {len(final_genes)} genes")
+
         # Run TACCO annotation
         tc.tl.annotate(
             spatial,
@@ -145,7 +179,6 @@ class TACCOBackend(SpatialBackend):
             method=self.method,
             epsilon=self.epsilon if self.method == "OT" else None,
             lamb=self.lamb if self.method == "NMFreg" else None,
-            remove_zero_cells=True,  # Handle zero-sum observations after gene filtering
         )
 
         # Extract cell type proportions
