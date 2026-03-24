@@ -32,9 +32,8 @@ class TACCOBackend(SpatialBackend):
     - method: TACCO method ('OT', 'NMFreg', or 'NNLS')
     - epsilon: Entropic regularization for OT
     - lamb: Regularization parameter
-    - max_cells: Max cells to use from reference (subsampling). Default 150000.
-                 Set to None to disable. Helps avoid MKL 32-bit integer overflow.
-                 With per-sample spatial (~11k spots), 150k cells is safe.
+    - max_cells: Max cells to use from reference (subsampling). Default 50000.
+                 Set to None to disable. Smaller = faster + fewer edge cases.
     """
 
     def __init__(
@@ -42,7 +41,7 @@ class TACCOBackend(SpatialBackend):
         method: str = "OT",
         epsilon: float = 5e-3,
         lamb: float = 0.1,
-        max_cells: int | None = 150000,  # Safe for ~11k spots per sample
+        max_cells: int | None = 50000,  # Smaller = fewer edge cases
         min_cells_per_type: int = 5,  # Filter rare cell types to avoid stratification errors
         **kwargs,
     ):
