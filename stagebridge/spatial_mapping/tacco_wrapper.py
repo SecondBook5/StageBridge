@@ -14,6 +14,7 @@ import anndata as ad
 # Force scipy backend to avoid MKL 32-bit integer overflow on large matrices
 # This must be set BEFORE importing tacco/POT/numpy with MKL
 os.environ.setdefault("MKL_THREADING_LAYER", "GNU")
+os.environ.setdefault("MKL_INTERFACE_LAYER", "LP64")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 from .backend_base import (
@@ -179,7 +180,7 @@ class TACCOBackend(SpatialBackend):
         print(f"TACCO: Final shapes - {len(snrna)} cells, {len(spatial)} spots, {snrna.n_vars} genes")
 
         # Run TACCO annotation (profiles already built)
-        # Try requested method first, fall back to NNLS if it fails
+        # Try requested method first, fall back to NMFreg if OT fails
         method_used = self.method
         try:
             tc.tl.annotate(
@@ -192,14 +193,15 @@ class TACCOBackend(SpatialBackend):
                 lamb=self.lamb if method_used == "NMFreg" else None,
             )
         except Exception as e:
-            print(f"TACCO: {method_used} failed ({e}), falling back to NNLS")
-            method_used = "NNLS"
+            print(f"TACCO: {method_used} failed ({e}), falling back to NMFreg")
+            method_used = "NMFreg"
             tc.tl.annotate(
                 spatial,
                 snrna,
                 annotation_key="cell_type",
                 result_key="tacco_celltype",
                 method=method_used,
+                lamb=self.lamb,
             )
 
         # Extract cell type proportions
