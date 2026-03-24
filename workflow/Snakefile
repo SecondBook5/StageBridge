@@ -49,6 +49,9 @@ FIGURES = f"{RUNS}/publication_figures"
 # Spatial backends to run
 SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location"]
 
+# Label sources for spatial deconvolution ablation (HLCA vs LuCA cell types)
+LABEL_SOURCES = ["hlca", "luca"]
+
 # Cross-validation settings
 FOLDS = [0, 1, 2, 3, 4]  # 5-fold CV
 SEEDS = [42, 123, 456]   # 3 seeds per fold for variance estimation
@@ -262,87 +265,100 @@ checkpoint extract_spatial_samples:
         """
 
 
-# Step 3b: Run backend on single sample
+# Step 3b: Run backend on single sample with specific label source
 rule spatial_backend_sample:
     input:
         snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
         spatial = f"{PROCESSED}/spatial_merged.h5ad",
         marker_check = f"{REF_GEOM}/marker_validation.json",
-        manifest = f"{SPATIAL}/sample_manifest.json"
+        manifest = f"{SPATIAL}/sample_manifest.json",
+        labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet"  # For LuCA, uses luca_cell_type col
     output:
-        metrics = f"{SPATIAL}/{{backend}}/samples/{{sample}}/upstream_metrics.json",
-        proportions = f"{SPATIAL}/{{backend}}/samples/{{sample}}/cell_type_proportions.parquet"
+        metrics = f"{SPATIAL}/{{label_source}}/{{backend}}/samples/{{sample}}/upstream_metrics.json",
+        proportions = f"{SPATIAL}/{{label_source}}/{{backend}}/samples/{{sample}}/cell_type_proportions.parquet"
     wildcard_constraints:
-        backend = "|".join(SPATIAL_BACKENDS)
+        backend = "|".join(SPATIAL_BACKENDS),
+        label_source = "|".join(LABEL_SOURCES)
     threads: 4
     resources:
         mem_mb = 180000,  # 180GB needed to load 51GB spatial + snRNA files
-        runtime = 240,    # 4h per sample (cell2location can be slow)
+        runtime = lambda wildcards: 480 if wildcards.backend == "cell2location" else 240,
         slurm_partition = "gpu",
         gpu = 1
     log:
-        f"{RUNS}/logs/spatial_{{backend}}_{{sample}}.log"
+        f"{RUNS}/logs/spatial_{{label_source}}_{{backend}}_{{sample}}.log"
     shell:
         """
         python -m stagebridge.pipelines.run_spatial_benchmark \
             --snrna {input.snrna} \
             --spatial {input.spatial} \
-            --output_dir {SPATIAL}/{wildcards.backend}/samples/{wildcards.sample} \
+            --output_dir {SPATIAL}/{wildcards.label_source}/{wildcards.backend}/samples/{wildcards.sample} \
             --backends {wildcards.backend} \
             --sample {wildcards.sample} \
             --sample-col sample_id \
+            --label-source {wildcards.label_source} \
             2>&1 | tee {log}
         """
 
 
 def get_all_sample_outputs(wildcards):
-    """Get all per-sample output files for a backend after checkpoint."""
+    """Get all per-sample output files for a backend/label_source after checkpoint."""
     checkpoint_output = checkpoints.extract_spatial_samples.get(**wildcards).output.manifest
     import json
     with open(checkpoint_output) as f:
         manifest = json.load(f)
     samples = manifest["samples"]
     return expand(
-        f"{SPATIAL}/{wildcards.backend}/samples/{{sample}}/upstream_metrics.json",
+        f"{SPATIAL}/{wildcards.label_source}/{wildcards.backend}/samples/{{sample}}/upstream_metrics.json",
         sample=samples
     )
 
 
-# Step 3c: Aggregate per-sample results into backend summary
+# Step 3c: Aggregate per-sample results into backend summary (per label source)
 rule spatial_backend_aggregate:
     input:
         sample_metrics = get_all_sample_outputs,
         manifest = f"{SPATIAL}/sample_manifest.json"
     output:
-        metrics = f"{SPATIAL}/{{backend}}/upstream_metrics.json",
-        proportions = f"{SPATIAL}/{{backend}}/cell_type_proportions.parquet"
+        metrics = f"{SPATIAL}/{{label_source}}/{{backend}}/upstream_metrics.json",
+        proportions = f"{SPATIAL}/{{label_source}}/{{backend}}/cell_type_proportions.parquet"
     wildcard_constraints:
-        backend = "|".join(SPATIAL_BACKENDS)
+        backend = "|".join(SPATIAL_BACKENDS),
+        label_source = "|".join(LABEL_SOURCES)
     threads: 2
     resources:
         mem_mb = 32000,
         runtime = 30
     log:
-        f"{RUNS}/logs/spatial_{{backend}}_aggregate.log"
+        f"{RUNS}/logs/spatial_{{label_source}}_{{backend}}_aggregate.log"
     shell:
         """
         python workflow/scripts/aggregate_spatial_samples.py \
             --backend {wildcards.backend} \
-            --sample-dir {SPATIAL}/{wildcards.backend}/samples \
-            --output-dir {SPATIAL}/{wildcards.backend} \
+            --sample-dir {SPATIAL}/{wildcards.label_source}/{wildcards.backend}/samples \
+            --output-dir {SPATIAL}/{wildcards.label_source}/{wildcards.backend} \
             --manifest {input.manifest} \
             2>&1 | tee {log}
         """
 
 
-# Step 3d: Compare backends (unchanged, uses aggregated results)
+# Step 3d: Compare backends across label sources (HLCA vs LuCA ablation)
 rule spatial_comparison:
     input:
-        expand(SPATIAL + "/{backend}/upstream_metrics.json", backend=SPATIAL_BACKENDS)
+        # All backends x all label sources
+        expand(
+            SPATIAL + "/{label_source}/{backend}/upstream_metrics.json",
+            label_source=LABEL_SOURCES, backend=SPATIAL_BACKENDS
+        )
     output:
         comparison = f"{SPATIAL}/backend_comparison.json",
         canonical = f"{SPATIAL}/canonical_backend.json",
-        figure = f"{SPATIAL}/backend_comparison.png"
+        figure = f"{SPATIAL}/backend_comparison.png",
+        label_ablation = f"{SPATIAL}/label_source_ablation.json"
+    params:
+        spatial_dir = SPATIAL,
+        label_sources = LABEL_SOURCES,
+        backends = SPATIAL_BACKENDS
     threads: 2
     resources:
         mem_mb = 16000,
