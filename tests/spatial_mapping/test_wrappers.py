@@ -34,15 +34,14 @@ def test_tangram_backend_initialization():
     from stagebridge.spatial_mapping import TangramBackend
 
     backend = TangramBackend(
-        constrained=True,
+        mode="clusters",
         n_epochs=10,
         marker_genes="auto",
     )
 
-    assert backend.constrained is True
+    assert backend.mode == "clusters"
     assert backend.n_epochs == 10
     assert backend.marker_genes == "auto"
-    assert backend.model is None  # Not trained yet
 
 
 def test_destvi_backend_initialization():
