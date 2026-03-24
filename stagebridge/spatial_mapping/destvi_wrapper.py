@@ -195,11 +195,25 @@ class DestVIBackend(SpatialBackend):
             columns=cell_types,
         )
 
-        # Compute confidence from proportion variance
-        confidence = self.estimate_confidence(snrna, spatial, None)
+        # Compute confidence from proportions (max proportion per spot)
+        confidence = pd.Series(
+            cell_type_proportions.max(axis=1).values,
+            index=cell_type_proportions.index,
+            name="confidence",
+        )
 
-        # Compute upstream metrics
-        upstream_metrics = self.compute_upstream_metrics(snrna, spatial, None)
+        # Compute upstream metrics directly from proportions
+        from .backend_base import compute_cell_type_entropy, compute_sparsity
+        entropy = compute_cell_type_entropy(cell_type_proportions)
+        sparsity = compute_sparsity(cell_type_proportions)
+        upstream_metrics = {
+            "mean_entropy": float(entropy.mean()),
+            "std_entropy": float(entropy.std()),
+            "sparsity": float(sparsity),
+            "coverage": float((confidence > 0.5).mean()),
+            "n_spots": spatial.n_obs,
+            "n_celltypes": len(cell_types),
+        }
 
         # Save outputs if output_dir provided
         if output_dir:
