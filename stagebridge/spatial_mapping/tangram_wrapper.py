@@ -42,6 +42,7 @@ class TangramBackend(SpatialBackend):
     - density_prior: 'uniform' or 'rna_count_based'
     - device: 'cuda:0' or 'cpu'
     - prefer_scvi: If True, try scvi-tools first (default False)
+    - max_cells: Max cells for marker gene selection (default 100000)
     """
 
     def __init__(
@@ -52,11 +53,13 @@ class TangramBackend(SpatialBackend):
         density_prior: str = "uniform",
         device: str | None = None,
         prefer_scvi: bool = False,
+        max_cells: int = 100000,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
         self.mode = mode
+        self.max_cells = max_cells
         self.marker_genes = marker_genes
         self.n_epochs = n_epochs
         self.density_prior = density_prior
@@ -93,13 +96,28 @@ class TangramBackend(SpatialBackend):
         snrna, spatial = self.preprocess(snrna, spatial)
         print(f"  After preprocess: snRNA {snrna.shape}, spatial {spatial.shape}")
 
+        # Subsample for marker gene selection (memory intensive)
+        if self.max_cells is not None and len(snrna) > self.max_cells:
+            print(f"  Subsampling snRNA from {len(snrna)} to {self.max_cells} for marker selection...")
+            from sklearn.model_selection import train_test_split
+            indices = np.arange(len(snrna))
+            _, subsample_idx = train_test_split(
+                indices,
+                test_size=self.max_cells / len(snrna),
+                stratify=snrna.obs["cell_type"],
+                random_state=42,
+            )
+            snrna_for_markers = snrna[subsample_idx].copy()
+        else:
+            snrna_for_markers = snrna
+
         # Select marker genes if needed
         if self.marker_genes == "auto":
-            print("  Selecting marker genes (this may take 10-30 min with large references)...")
+            print(f"  Selecting marker genes on {len(snrna_for_markers)} cells...")
             import scanpy as sc
             old_verbosity = sc.settings.verbosity
             sc.settings.verbosity = 2  # Show progress info
-            marker_genes = self._select_marker_genes(snrna)
+            marker_genes = self._select_marker_genes(snrna_for_markers)
             sc.settings.verbosity = old_verbosity
             print(f"  Selected {len(marker_genes)} marker genes")
         else:
