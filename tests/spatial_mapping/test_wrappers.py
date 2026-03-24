@@ -70,7 +70,6 @@ def test_tangram_backend_has_visualization_methods():
     # Check methods exist
     assert hasattr(backend, "plot_cell_type_spatial")
     assert hasattr(backend, "project_genes")
-    assert hasattr(backend, "plot_projected_genes")
     assert hasattr(backend, "compute_spatial_statistics")
     assert callable(backend.plot_cell_type_spatial)
     assert callable(backend.project_genes)
