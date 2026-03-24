@@ -36,5 +36,5 @@ local-cores: 1
 # Group jobs into SLURM arrays for efficient scheduling
 # Groups jobs that differ only by 'sample' wildcard into array jobs
 group-components:
-  spatial_array: 9   # 9 benchmark samples per array job
-  canonical_array: 56  # All samples for canonical backend (adjust if different)
+  spatial_array: 9    # Benchmark: 9 stratified samples (1+2+2+2+2 by stage)
+  canonical_array: 56  # Full cohort: 56 Visium samples
