@@ -169,6 +169,10 @@ class DestVIBackend(SpatialBackend):
             early_stopping=True,
             early_stopping_patience=15,
         )
+        condscvi_history = dict(sc_model.history) if hasattr(sc_model, 'history') else {}
+        # Get epoch count from any available key (scvi-tools uses various key names)
+        condscvi_epochs_run = max((len(v) for v in condscvi_history.values() if hasattr(v, '__len__')), default=0)
+        print(f"  CondSCVI finished after {condscvi_epochs_run} epochs (keys: {list(condscvi_history.keys())[:3]})")
 
         # Train DestVI on spatial
         print(f"  Training DestVI for {self.n_epochs_destvi} epochs (early stopping enabled)...")
@@ -182,10 +186,18 @@ class DestVIBackend(SpatialBackend):
             early_stopping=True,
             early_stopping_patience=20,
         )
+        destvi_history = dict(spatial_model.history) if hasattr(spatial_model, 'history') else {}
+        # Get epoch count from any available key (scvi-tools uses various key names)
+        destvi_epochs_run = max((len(v) for v in destvi_history.values() if hasattr(v, '__len__')), default=0)
+        print(f"  DestVI finished after {destvi_epochs_run} epochs (keys: {list(destvi_history.keys())[:3]})")
 
-        # Store models and data for advanced queries
+        # Store models, history, epoch counts, and data for advanced queries
         self.sc_model = sc_model
         self.spatial_model = spatial_model
+        self._condscvi_history = condscvi_history
+        self._destvi_history = destvi_history
+        self._condscvi_epochs_run = condscvi_epochs_run
+        self._destvi_epochs_run = destvi_epochs_run
         self._snrna_ref = snrna
         self._spatial_ref = spatial
 
@@ -228,6 +240,14 @@ class DestVIBackend(SpatialBackend):
             sc_model.save(output_dir / "condscvi_model", overwrite=True)
             spatial_model.save(output_dir / "destvi_model", overwrite=True)
 
+            # Save training history / loss curves
+            if self._condscvi_history:
+                condscvi_hist_df = pd.DataFrame(self._condscvi_history)
+                condscvi_hist_df.to_csv(output_dir / "condscvi_training_history.csv", index=False)
+            if self._destvi_history:
+                destvi_hist_df = pd.DataFrame(self._destvi_history)
+                destvi_hist_df.to_csv(output_dir / "destvi_training_history.csv", index=False)
+
             # Save proportions
             cell_type_proportions.to_csv(output_dir / "destvi_cell_type_props.csv")
 
@@ -252,8 +272,12 @@ class DestVIBackend(SpatialBackend):
             metadata={
                 "backend": "destvi",
                 "n_latent": self.n_latent,
-                "n_epochs_condsc": self.n_epochs_condsc,
-                "n_epochs_destvi": self.n_epochs_destvi,
+                "n_epochs_condsc_max": self.n_epochs_condsc,
+                "n_epochs_destvi_max": self.n_epochs_destvi,
+                "n_epochs_condsc_actual": self._condscvi_epochs_run,
+                "n_epochs_destvi_actual": self._destvi_epochs_run,
+                "early_stopping_triggered_condscvi": self._condscvi_epochs_run < self.n_epochs_condsc,
+                "early_stopping_triggered_destvi": self._destvi_epochs_run < self.n_epochs_destvi,
                 "lr": self.lr,
                 "vamp_prior_p": 8,  # VAMP prior for better deconvolution
                 "n_cell_types": len(cell_types),
