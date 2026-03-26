@@ -166,6 +166,8 @@ class DestVIBackend(SpatialBackend):
             devices=1,
             batch_size=128,
             plan_kwargs={"lr": self.lr},
+            early_stopping=True,
+            early_stopping_patience=15,
         )
 
         # Train DestVI on spatial
@@ -177,6 +179,8 @@ class DestVIBackend(SpatialBackend):
             devices=1,
             batch_size=128,
             plan_kwargs={"lr": self.lr},
+            early_stopping=True,
+            early_stopping_patience=20,
         )
 
         # Store models and data for advanced queries
