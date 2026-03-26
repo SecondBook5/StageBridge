@@ -70,9 +70,9 @@ class DestVIBackend(SpatialBackend):
     - lr: Learning rate (default 0.01)
     - batch_key: Column name for batch correction (default 'sample_id')
 
-    Note: VAMP prior is disabled (vamp_prior_p=0) to avoid 'prior' KeyError
-    in scvi-tools >= 1.0. This is a known compatibility issue where
-    DestVI.from_rna_model expects 'prior' in CondSCVI's module_kwargs.
+    Note: Uses vamp_prior_p=8 for better deconvolution quality.
+    Requires prior="mog" in CondSCVI to avoid 'prior' KeyError
+    in scvi-tools >= 1.0 (DestVI.from_rna_model expects 'prior' in module_kwargs).
     """
 
     def __init__(
@@ -155,7 +155,7 @@ class DestVIBackend(SpatialBackend):
         accelerator = "gpu" if torch.cuda.is_available() else "cpu"
 
         # Train conditional scVI on snRNA (without reweighting)
-        # IMPORTANT: prior="normal" is required for DestVI.from_rna_model compatibility
+        # IMPORTANT: prior="mog" (mixture of gaussians) is required for DestVI.from_rna_model
         # Without explicit prior, CondSCVI doesn't set the 'prior' key in init_args,
         # causing KeyError when DestVI tries to read it
         print(f"  Training CondSCVI for {self.n_epochs_condsc} epochs (early stopping enabled)...")
@@ -255,7 +255,7 @@ class DestVIBackend(SpatialBackend):
                 "n_epochs_condsc": self.n_epochs_condsc,
                 "n_epochs_destvi": self.n_epochs_destvi,
                 "lr": self.lr,
-                "vamp_prior_p": 0,  # Fixed at 0 to avoid scvi-tools compatibility issues
+                "vamp_prior_p": 8,  # VAMP prior for better deconvolution
                 "n_cell_types": len(cell_types),
             },
         )
@@ -612,14 +612,31 @@ class DestVIBackend(SpatialBackend):
         pca = PCA(n_components=2)
         gamma_pca = pca.fit_transform(gamma_values)
 
-        # Find genes enriched along each PC
-        # Project single-cell embeddings onto spatial PCs
-        sc_embeddings = self.sc_model.get_latent_representation()
-        ct_mask = self._snrna_ref.obs["cell_type"] == cell_type
-        sc_embeddings[ct_mask]
+        # Find genes associated with each PC by correlating PC scores with imputed expression
+        enriched_genes = {}
+        try:
+            # Get cell-type-specific imputed expression for spots in this analysis
+            ct_expression = self.get_cell_type_specific_expression(cell_type, indices=indices)
+            gene_names = ct_expression.columns.tolist()
 
-        # For gene enrichment, we'd need to correlate PC loadings with gene expression
-        # This is a simplified version - full implementation would use gene-PC correlation
+            from scipy.stats import spearmanr
+            for pc_idx in range(2):
+                pc_scores = gamma_pca[:, pc_idx]
+                correlations = []
+                for gene in gene_names:
+                    gene_expr = ct_expression[gene].values
+                    if gene_expr.std() > 0:
+                        corr, pval = spearmanr(pc_scores, gene_expr)
+                        correlations.append((gene, corr, pval))
+                # Sort by absolute correlation
+                correlations.sort(key=lambda x: abs(x[1]), reverse=True)
+                enriched_genes[f"PC{pc_idx + 1}"] = [
+                    {"gene": g, "correlation": c, "pval": p}
+                    for g, c, p in correlations[:20]
+                ]
+        except Exception as e:
+            # If imputation fails, skip gene enrichment
+            enriched_genes = {"error": str(e)}
 
         result = {
             "gamma_pca": gamma_pca,
@@ -628,6 +645,7 @@ class DestVIBackend(SpatialBackend):
             "spatial_coords": coords,
             "spot_indices": indices,
             "cell_type": cell_type,
+            "enriched_genes": enriched_genes,
         }
 
         # Visualization if requested
