@@ -131,8 +131,13 @@ def run_backend_comparison(
         log.info("Running %s", backend_name.upper())
         log.info("=" * 80)
 
-        backend_dir = output_dir / backend_name
-        backend_dir.mkdir(exist_ok=True)
+        # Only add backend subdirectory when running multiple backends (standalone mode)
+        # When called from Snakemake with single backend, output_dir already includes backend name
+        if len(backends_to_run) > 1:
+            backend_dir = output_dir / backend_name
+        else:
+            backend_dir = output_dir
+        backend_dir.mkdir(exist_ok=True, parents=True)
 
         start_time = time.time()
 
