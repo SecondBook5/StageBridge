@@ -166,6 +166,7 @@ class DestVIBackend(SpatialBackend):
             devices=1,
             batch_size=128,
             plan_kwargs={"lr": self.lr},
+            train_size=0.9,  # 90% train, 10% validation for early stopping
             early_stopping=True,
             early_stopping_patience=15,
         )
@@ -183,6 +184,7 @@ class DestVIBackend(SpatialBackend):
             devices=1,
             batch_size=128,
             plan_kwargs={"lr": self.lr},
+            train_size=0.9,  # 90% train, 10% validation for early stopping
             early_stopping=True,
             early_stopping_patience=20,
         )
