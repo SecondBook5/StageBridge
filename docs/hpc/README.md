@@ -1,12 +1,18 @@
 # StageBridge HPC Guide
 
-Complete guide for running StageBridge on High Performance Computing clusters.
+Complete guide for running StageBridge on High Performance Computing clusters using Snakemake.
 
-**Contents:**
-1. [Prerequisites](#prerequisites)
-2. [Environment Setup](#environment-setup)
-3. [Pipeline Execution](#pipeline-execution)
-4. [Troubleshooting](#troubleshooting)
+---
+
+## Quick Start
+
+```bash
+# Dry run (see what would execute)
+snakemake -n --profile workflow/slurm
+
+# Full execution with SLURM
+snakemake --profile workflow/slurm --jobs 20
+```
 
 ---
 
@@ -14,19 +20,19 @@ Complete guide for running StageBridge on High Performance Computing clusters.
 
 ### Required Data
 
-Download from GEO and place in `data/raw/`:
+Download from GEO and place in `$DATA/raw/`:
 
 ```bash
 # snRNA-seq (GSE308103)
-wget -O data/raw/GSE308103_RAW.tar \
+wget -O $DATA/raw/GSE308103_RAW.tar \
     "ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE308nnn/GSE308103/suppl/GSE308103_RAW.tar"
 
 # Visium spatial (GSE307534)
-wget -O data/raw/GSE307534_RAW.tar \
+wget -O $DATA/raw/GSE307534_RAW.tar \
     "ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE307nnn/GSE307534/suppl/GSE307534_RAW.tar"
 
 # WES (GSE307529)
-wget -O data/raw/GSE307529_RAW.tar \
+wget -O $DATA/raw/GSE307529_RAW.tar \
     "ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE307nnn/GSE307529/suppl/GSE307529_RAW.tar"
 ```
 
@@ -34,128 +40,80 @@ wget -O data/raw/GSE307529_RAW.tar \
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
-| GPU | 1x V100 16GB | 4x A100 40GB |
+| GPU | 1x V100 16GB | 4x A100/H100 |
 | RAM | 64GB | 128GB |
 | CPU | 8 cores | 16+ cores |
 | Storage | 200GB | 500GB |
-| Time | 24h | 48-72h |
 
 ---
 
 ## Environment Setup
 
-### Iris HPC (Miniforge)
-
-Iris uses `miniforge3` (not Anaconda due to licensing).
-
 ```bash
-# SSH to Iris
-ssh your_username@iris.mskcc.org
+# Clone repository
+git clone https://github.com/SecondBook5/StageBridge.git
+cd StageBridge
 
-# Load miniforge module
-module load miniforge3
+# Create conda environment
+micromamba env create -f environment.yml
+micromamba activate stagebridge
 
-# Create environment (use /data/ for large envs)
-conda env create -f envs/environment.yaml \
-    --prefix /data/your_labname/envs/stagebridge
+# Install package
+pip install -e ".[all]"
 
-# Activate
-conda activate /data/your_labname/envs/stagebridge
-
-# Register Jupyter kernel
-python -m ipykernel install --user --name stagebridge
-```
-
-### Generic HPC (Conda)
-
-```bash
-# Create environment
-conda env create -f envs/environment.yaml -n stagebridge
-
-# Activate
-conda activate stagebridge
-```
-
-### Transfer Code to HPC
-
-```bash
-# From local machine
-rsync -avz --progress \
-    --exclude='outputs/' \
-    --exclude='data/raw/' \
-    --exclude='.git/' \
-    --exclude='__pycache__/' \
-    /path/to/StageBridge/ \
-    USERNAME@hpc-login:~/StageBridge/
+# Set data root
+export STAGEBRIDGE_DATA_ROOT=/path/to/your/data
 ```
 
 ---
 
-## Pipeline Execution
+## Pipeline Execution with Snakemake
 
-### Quick Start
+### Configuration
+
+Edit `workflow/config.yaml`:
+
+```yaml
+data_root: "/scratch/your_username/stagebridge"
+```
+
+### Run Pipeline
 
 ```bash
-# Submit entire pipeline with SLURM dependencies
-sbatch scripts/hpc/hpc_v1_master_pipeline.sbatch
-```
-
-### Pipeline Stages
-
-```
-Stage 1: HLCA Mapping (6h, 1 GPU)
-    ↓
-Stage 2: LuCA Mapping (6h, 1 GPU)
-    ↓
-Stage 3: Spatial Benchmark - per sample jobs (4-8h each, 1 GPU, H100)
-         - 4 backends × 2 label sources × 56 samples = 448 jobs
-         - Tangram: ~1h, DestVI: 2-4h, TACCO: ~30min, Cell2location: 2-4h
-         - DestVI/Cell2location have early stopping for faster convergence
-    ↓
-Stage 4: Data Preparation (4h, 1 GPU)
-    ↓
-Stage 5: Training - SSL + Transition (12h, 4 GPU)
-         - 5-fold CV × 3 seeds = 15 training runs
-    ↓
-Stage 6: Baselines + Ablations (3-6h each, 1 GPU)
-    ↓
-Stage 7: Publication Figures (1h, 1 GPU)
-```
-
-**Recommended execution with Snakemake:**
-```bash
-# Use Snakemake profile for automatic job management
+# Full pipeline
 snakemake --profile workflow/slurm --jobs 20
 
-# Snakemake handles:
-# - Job dependencies
-# - Automatic retry on failure
-# - Parallel execution where possible
+# Specific target
+snakemake publication_figures --profile workflow/slurm
+
+# Dry run
+snakemake -n --profile workflow/slurm
 ```
 
-### Manual Execution
+### Pipeline DAG
 
-```bash
-# Stage 1: HLCA mapping
-sbatch scripts/hpc/hpc_step1_hlca.sbatch
-
-# Stage 2: LuCA mapping (after Stage 1)
-sbatch --dependency=afterok:$HLCA_JOB scripts/hpc/hpc_step2_luca_mapping.sbatch
-
-# Stage 3: Spatial benchmark (parallel with 1-2)
-sbatch scripts/hpc/hpc_step3_spatial_benchmark.sbatch
-
-# Stage 4: Data prep (after 1, 2, 3)
-sbatch --dependency=afterok:$LUCA_JOB:$SPATIAL_JOB scripts/hpc/hpc_step4_complete_data_prep.sbatch
-
-# Stage 5: Training (after Stage 4)
-sbatch --dependency=afterok:$PREP_JOB scripts/hpc/hpc_step5_training.sbatch
-
-# Stage 6: Evaluation (ablations)
-sbatch --dependency=afterok:$TRAIN_JOB scripts/hpc/hpc_step6_ablations.sbatch
-
-# Stage 7: Figures
-sbatch --dependency=afterok:$EVAL_JOB scripts/hpc/hpc_step7_figures.sbatch
+```
+hlca_mapping ──┬──> add_cell_type_labels ──> validate_markers
+               │              │
+               │              v
+               └──> fuse_embeddings   spatial_backend_sample (448 jobs)
+                          │                    │
+luca_mapping ─────────────┘                    v
+                               spatial_comparison ──> data_preparation
+                                                           │
+                                           ┌───────────────┼───────────────┐
+                                           v               v               v
+                                    training (15×)   baselines (60×)     hpo
+                                           │               │
+                                           v               v
+                                     aggregate_cv    aggregate_baselines
+                                           │               │
+                                           └───────┬───────┘
+                                                   v
+                                            ablation (14×)
+                                                   │
+                                                   v
+                                         publication_figures
 ```
 
 ### Monitor Jobs
@@ -164,11 +122,11 @@ sbatch --dependency=afterok:$EVAL_JOB scripts/hpc/hpc_step7_figures.sbatch
 # Check queue
 squeue -u $USER
 
-# View logs
-tail -f logs/stagebridge_*.log
+# Watch progress
+watch -n 30 'squeue -u $USER'
 
-# Check GPU usage
-nvidia-smi
+# View Snakemake logs
+tail -f $DATA/runs/logs/*.log
 ```
 
 ---
@@ -178,42 +136,22 @@ nvidia-smi
 ### CUDA Issues
 
 ```bash
-# Verify CUDA
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 python -c "import torch; print(torch.cuda.is_available())"
-```
-
-### Memory Issues
-
-```bash
-# Request more memory in sbatch
-#SBATCH --mem=128G
-
-# Or use chunked processing
-python -m stagebridge.pipelines.run_reference --hpc --chunk-size 10000
-```
-
-### Module Conflicts
-
-```bash
-# Clear and reload
-module purge
-module load miniforge3 cuda/12.4
 ```
 
 ### Common Errors
 
 | Error | Solution |
 |-------|----------|
-| `CUDA out of memory` | Reduce batch size or use `--hpc` flag |
+| `CUDA out of memory` | Snakemake profiles set appropriate batch sizes |
 | `Module not found` | Activate conda environment |
-| `Permission denied` | Check file permissions on /data/ |
-| `Job killed` | Request more time/memory in sbatch |
+| `Job killed` | Check `workflow/slurm/config.yaml` for resource settings |
 
 ---
 
 ## Reference
 
-- **Pipeline README**: `stagebridge/pipelines/README.md`
-- **SLURM scripts**: `scripts/hpc/*.sbatch`
-- **Environment file**: `envs/environment.yaml`
+- **Workflow config**: `workflow/config.yaml`
+- **SLURM profile**: `workflow/slurm/config.yaml`
+- **Pipeline README**: `workflow/README.md`

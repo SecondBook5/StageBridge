@@ -19,11 +19,11 @@ APPROACH 2: SLURM manages GPU processes (one task per GPU)
 This script uses APPROACH 1 which is simpler for scvi-tools.
 
 Usage:
-    # On HPC with SLURM
-    sbatch retrain_luca.sbatch
-
-    # Or direct (auto-detects GPUs)
+    # Direct invocation (auto-detects GPUs)
     python scripts/retrain_luca_multigpu.py --atlas /path/to/luca_core_atlas.h5ad --output /path/to/output
+
+    # With SLURM (create sbatch script as needed)
+    srun python scripts/retrain_luca_multigpu.py --atlas /path/to/atlas.h5ad --output /path/to/output
 """
 
 from __future__ import annotations

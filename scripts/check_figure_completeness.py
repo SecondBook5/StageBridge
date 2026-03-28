@@ -255,7 +255,7 @@ def main():
         if not all_sources_ok:
             print("  1. Run prerequisite pipeline stages to generate missing source data")
         if total_missing > 0:
-            print("  2. Run figure generation: sbatch scripts/hpc_step7_figures.sbatch")
+            print("  2. Run figure generation: snakemake publication_figures --profile workflow/slurm")
         if total_partial > 0:
             print("  3. For partial figures, delete all formats and regenerate:")
             print("     rm $DATA/runs/publication_figures/main/<figure_id>.*")
