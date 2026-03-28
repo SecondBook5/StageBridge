@@ -76,21 +76,18 @@ docs/
 ├── V2_IDEAS.md                   ← Future planning
 │
 ├── specs/                        ← Core doctrine
-│   ├── PROJECT_DOCTRINE.md       ← Non-negotiable principles
-│   ├── REPRESENTATION_LEARNING_RULES.md
-│   ├── NICHE_ENCODER_SPEC.md
-│   └── V1_SCOPE.md
+│   ├── V1_DOCTRINE.md            ← Principles + scope (consolidated)
+│   └── REPRESENTATION_LEARNING_RULES.md
 │
 ├── methods/                      ← Technical specification
 │   ├── v1_methods_overview.md    ← **PRIMARY METHODS DOC**
 │   ├── data_model_specification.md
 │   └── evaluation_protocol.md
 │
-├── paper/                        ← Paper drafts and planning
+├── paper/                        ← Paper planning
 │   ├── paper_outline.md          ← **PRIMARY PAPER DOC**
 │   ├── figure_table_specifications.md
 │   ├── evidence_matrix.md
-│   ├── drafts/ (*.md, *.tex)
 │   └── figures/
 │
 ├── architecture/                 ← Layer designs
@@ -101,9 +98,8 @@ docs/
 │   └── ...
 │
 ├── biology/                      ← Biological context
-│   ├── luad_initiation_problem.md
-│   ├── niche_gating_hypothesis.md
-│   └── ...
+│   ├── biological_context.md     ← LUAD problem + niche hypothesis (consolidated)
+│   └── wes_regularization_rationale.md
 │
 ├── hpc/                          ← HPC execution guide
 │   └── README.md                 ← Consolidated HPC docs
