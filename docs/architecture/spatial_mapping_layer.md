@@ -15,34 +15,63 @@ Spatial mapping connects single-cell identities to physical tissue locations. It
 
 Deep learning-based mapping that optimizes a cell-to-spot assignment matrix:
 - Input: snRNA-seq AnnData (with cell-type labels), spatial AnnData
-- Optimization: gradient descent maximizing cosine similarity of mapped expression
+- Optimization: gradient descent (1000 epochs) maximizing cosine similarity
 - Output: spot × cell-type probability matrix
+- Runtime: ~1 hour per sample
+- Early stopping: Not available (fixed iterations)
 
 ### TACCO
 
 Optimal transport-based annotation transfer:
-- Uses OT to transfer annotations from reference to spatial data
+- Uses Sinkhorn OT to transfer annotations from reference to spatial data
 - Probabilistic cell-type assignments per spot
-- Computationally efficient
+- Single-pass optimization (no iterative training)
+- Runtime: ~30 minutes per sample
+- Early stopping: N/A (not iterative)
 
 ### DestVI
 
-Variational inference deconvolution:
-- Generative model for spot expression
-- Infers cell-type proportions as latent variables
-- Captures uncertainty in assignments
+Variational inference deconvolution (scvi-tools):
+- Two-stage training: CondSCVI (200 epochs) + DestVI (2500 epochs)
+- Generative model for spot expression with cell-type proportions as latent
+- Captures uncertainty via posterior sampling
+- Supports gamma latent space for intra-cell-type variation
+- Runtime: 2-4 hours per sample (with early stopping)
+- Early stopping: Yes (patience=15/20, requires train_size=0.9 for validation set)
 
-## V1 Benchmark Requirement
+### Cell2location
 
-The V1 publication **must** include a spatial backend benchmark:
+Bayesian hierarchical model for absolute cell abundance:
+- Two-stage: Reference signature model (250 epochs) + Spatial model (2500 epochs)
+- Estimates absolute cell counts per location, not just proportions
+- Accounts for detection efficiency and platform effects
+- Runtime: 2-4 hours per sample
+- Early stopping: Not available (no validation_step implementation)
+
+## V1 Benchmark Design
+
+The V1 publication includes a **4-backend × 2-label-source** spatial benchmark:
+
+### Backends
+All four backends (Tangram, DestVI, TACCO, Cell2location) run on each sample.
+
+### Label Source Ablation
+Each backend runs twice:
+- **HLCA labels**: Cell types from Human Lung Cell Atlas (healthy reference)
+- **LuCA labels**: Cell types from Lung Cancer Atlas (disease reference)
+
+This tests whether disease-aware cell typing improves spatial deconvolution.
+
+### Metrics
 
 | Metric | Description |
 |--------|-------------|
-| Reconstruction error | How well do inferred compositions explain spot expression? |
-| Consistency | Do methods agree on dominant cell types? |
-| Downstream impact | Does transition model performance vary by backend? |
+| Coverage | Fraction of spots with confident (>0.5) assignments |
+| Mean entropy | Diversity of cell type predictions per spot |
+| Sparsity | Fraction of near-zero proportions |
+| Consistency | Agreement between backends on dominant cell types |
 
-A robust result should be **backend-agnostic** — transition findings should hold across Tangram, TACCO, and DestVI.
+A robust result should be **backend-agnostic** — transition findings should hold across all four backends.
 
 ## From Spatial Scores to Niche Tokens
 
@@ -54,15 +83,24 @@ A robust result should be **backend-agnostic** — transition findings should ho
 
 ## What Goes In
 
-- HLCA-labeled snRNA-seq AnnData
-- Spatial AnnData with spot coordinates and expression
-- Gene marker lists for mapping
+- snRNA-seq AnnData with cell type labels (from HLCA or LuCA mapping)
+- Spatial AnnData with spot coordinates and raw counts
+- Sample manifest (for per-sample processing)
 
 ## What Comes Out
 
-- Spatial AnnData with composition scores in `.obsm`
-- Niche token features (parquet or stored in AnnData)
-- Mapping quality report (JSON)
+Per sample, per backend:
+- `cell_type_proportions.parquet` — spot × cell-type probability matrix
+- `upstream_metrics.json` — coverage, entropy, sparsity scores
+- Backend-specific outputs:
+  - Tangram: `tangram_mapper.npy`, `tangram_spatial_annotated.h5ad`
+  - DestVI: `condscvi_model/`, `destvi_model/`, `destvi_gamma_*.csv`, training history CSVs
+  - TACCO: `tacco_annotated_spatial.h5ad`
+  - Cell2location: `cell_abundances.parquet`
+
+Aggregated:
+- `backend_comparison.json` — cross-backend metrics
+- `canonical_backend.json` — selected backend + label source for downstream
 
 ## Key Design Decisions
 

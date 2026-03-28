@@ -31,7 +31,7 @@ The framework integrates three data modalities—10x Visium spatial transcriptom
 - **Niche conditioning**: Transitions depend on local neighborhood context
 - **Dual-reference geometry**: Cells are embedded relative to healthy (HLCA) and tumor (LuCA) atlases using model-based scArches surgery
 - **Evolutionary constraints**: WES-derived features enforce biologically plausible transitions
-- **Spatial backend agnostic**: Benchmarked across Tangram, TACCO, and DestVI
+- **Spatial backend agnostic**: Benchmarked across Tangram, DestVI, TACCO, and Cell2location
 
 ---
 

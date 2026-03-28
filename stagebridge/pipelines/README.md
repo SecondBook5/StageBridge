@@ -146,12 +146,18 @@ python -m stagebridge.pipelines.run_reference \
     --snrna $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad \
     --luca $DATA/references/luca/luca_core_atlas.h5ad
 
-# 5. Spatial backend benchmark (Tangram/DestVI/TACCO)
-#    Uses raw spatial_merged.h5ad - backends do their own normalization
+# 5. Spatial backend benchmark (Tangram/DestVI/TACCO/Cell2location)
+#    RECOMMENDED: Use Snakemake for per-sample job management
+#    snakemake --profile workflow/slurm --jobs 20
+#
+#    Manual single-sample execution:
 python -m stagebridge.pipelines.run_spatial_benchmark \
-    --snrna $DATA/processed/luad_evo/snrna_qc_normalized.h5ad \
+    --snrna $DATA/processed/luad_evo/snrna_with_celltypes.h5ad \
     --spatial $DATA/processed/luad_evo/spatial_merged.h5ad \
-    --output_dir $DATA/processed/luad_evo/spatial_benchmark
+    --output_dir $DATA/runs/spatial_benchmark/hlca/tangram/samples/SAMPLE_ID \
+    --backends tangram \
+    --sample SAMPLE_ID \
+    --label-source hlca
 
 # 6. Complete data prep (canonical format)
 python -m stagebridge.pipelines.complete_data_prep \
@@ -209,10 +215,21 @@ $DATA/
 │   ├── snrna_qc_normalized.h5ad
 │   ├── spatial_qc_normalized.h5ad
 │   ├── wes_features.parquet
-│   ├── spatial_benchmark/      # Backend comparison results
-│   │   ├── tangram/
-│   │   ├── destvi/
-│   │   └── tacco/
+├── runs/
+│   └── spatial_benchmark/      # Backend comparison results
+│       ├── hlca/               # Using HLCA cell type labels
+│       │   ├── tangram/samples/*/
+│       │   ├── destvi/samples/*/
+│       │   ├── tacco/samples/*/
+│       │   └── cell2location/samples/*/
+│       ├── luca/               # Using LuCA cell type labels (ablation)
+│       │   ├── tangram/samples/*/
+│       │   ├── destvi/samples/*/
+│       │   ├── tacco/samples/*/
+│       │   └── cell2location/samples/*/
+│       ├── canonical/samples/*/ # Best backend on all samples
+│       ├── backend_comparison.json
+│       └── canonical_backend.json
 │   └── canonical/              # Training-ready format
 │       ├── cells.parquet
 │       ├── neighborhoods.parquet

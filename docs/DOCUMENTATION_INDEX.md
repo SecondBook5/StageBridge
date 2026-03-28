@@ -1,6 +1,6 @@
 # StageBridge V1 Documentation Index
 
-**Last Updated:** 2026-03-22
+**Last Updated:** 2026-03-28
 **Status:** Publication-Ready
 **Purpose:** Central navigation hub for all StageBridge V1 documentation
 
@@ -413,9 +413,10 @@ docs/
 #### spatial_mapping_layer.md
 **Purpose:** Spatial backend benchmark
 **Key Content:**
-- Tangram/DestVI/TACCO comparison
-- Robustness requirement
-- Backend selection criteria
+- Four backends: Tangram, DestVI, TACCO, Cell2location
+- HLCA vs LuCA label source ablation
+- Per-sample processing via Snakemake
+- Backend selection criteria and robustness requirement
 
 ---
 

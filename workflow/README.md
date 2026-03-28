@@ -40,28 +40,46 @@ snakemake --profile workflow/slurm -s workflow/Snakefile --jobs 20
 ## Pipeline DAG
 
 ```
-  hlca_mapping ─────┬──► spatial_backend (4x parallel) ──┐
-       │            │    tangram, destvi, tacco, c2l     │
-       │            │                                     │
-       └──► fuse_embeddings ◄── luca_mapping (parallel)  │
-                   │                                      │
-                   └────────────────┬─────────────────────┘
-                                    ▼
-                           data_preparation
-                                    │
-                                    ▼
-                           training (4-GPU DDP)
-                           - SSL Pretraining (100 epochs)
-                           - Transition Model (50 epochs)
-                                    │
-                                    ▼
-                           ablation (14x parallel)
-                                    │
-                                    ▼
-                         publication_figures
+  hlca_mapping ─────┬──► add_cell_type_labels ──► validate_markers
+       │            │              │
+       │            │              ▼
+       └──► fuse_embeddings   spatial_backend_sample (4 backends × 2 label sources × 56 samples)
+                   │           tangram, destvi, tacco, cell2location
+                   │           × hlca labels, luca labels
+  luca_mapping ────┘                    │
+                                        ▼
+                              spatial_backend_aggregate (per backend)
+                                        │
+                                        ▼
+                              spatial_comparison ──► canonical_backend.json
+                                        │
+                                        ▼
+                              canonical_backend_sample (56 samples)
+                                        │
+                                        ▼
+                                 data_preparation
+                                        │
+                         ┌──────────────┼──────────────┐
+                         ▼              ▼              ▼
+                  training (15×)   baselines (60×)   hpo
+                  5 folds × 3 seeds  4 baselines
+                         │              │
+                         ▼              ▼
+                  aggregate_cv    aggregate_baselines
+                         │              │
+                         └──────┬───────┘
+                                ▼
+                         ablation (14×)
+                                │
+                                ▼
+                      publication_figures
 ```
 
-**Key insight:** Spatial backends need cell types from HLCA, so they run AFTER hlca_mapping but IN PARALLEL with luca_mapping.
+**Key insights:**
+- Spatial backends run per-sample (56 samples) for memory efficiency
+- Each backend runs with BOTH HLCA and LuCA cell type labels (ablation)
+- After benchmarking, the canonical backend runs on all samples
+- Training uses 5-fold CV × 3 seeds = 15 runs for robust statistics
 
 ## Configuration
 

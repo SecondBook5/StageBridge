@@ -106,17 +106,31 @@ sbatch scripts/hpc/hpc_v1_master_pipeline.sbatch
 Stage 1: HLCA Mapping (6h, 1 GPU)
     ↓
 Stage 2: LuCA Mapping (6h, 1 GPU)
-    ↓                              Stage 3: Spatial Benchmark (24h, 1 GPU)
-    ↓                                  ↓
-    +----------------------------------+
-                   ↓
+    ↓
+Stage 3: Spatial Benchmark - per sample jobs (4-8h each, 1 GPU, H100)
+         - 4 backends × 2 label sources × 56 samples = 448 jobs
+         - Tangram: ~1h, DestVI: 2-4h, TACCO: ~30min, Cell2location: 2-4h
+         - DestVI/Cell2location have early stopping for faster convergence
+    ↓
 Stage 4: Data Preparation (4h, 1 GPU)
-                   ↓
+    ↓
 Stage 5: Training - SSL + Transition (12h, 4 GPU)
-                   ↓
-Stage 6: Evaluation (2h, 1 GPU)
-                   ↓
+         - 5-fold CV × 3 seeds = 15 training runs
+    ↓
+Stage 6: Baselines + Ablations (3-6h each, 1 GPU)
+    ↓
 Stage 7: Publication Figures (1h, 1 GPU)
+```
+
+**Recommended execution with Snakemake:**
+```bash
+# Use Snakemake profile for automatic job management
+snakemake --profile workflow/slurm --jobs 20
+
+# Snakemake handles:
+# - Job dependencies
+# - Automatic retry on failure
+# - Parallel execution where possible
 ```
 
 ### Manual Execution
