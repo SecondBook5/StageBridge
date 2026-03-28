@@ -1,7 +1,7 @@
 """Receiver-centered local niche encoder per StageBridge doctrine.
 
 This module implements the local neighborhood encoder as specified in
-docs/NICHE_ENCODER_SPEC.md. The key principle is RECEIVER-CENTERING:
+docs/architecture/typed_niche_context_model.md. The key principle is RECEIVER-CENTERING:
 the focal cell (receiver) is the query, neighbors are keys/values,
 and information flows TO the receiver.
 
@@ -342,7 +342,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
     by using the receiver cell as the attention query and neighbors as
     keys/values, with explicit distance modulation and sparsity regularization.
 
-    Implements all requirements from NICHE_ENCODER_SPEC.md:
+    Implements all requirements from typed_niche_context_model.md:
     - Receiver-centered architecture
     - Distance-aware attention
     - Sparsity/entropy regularization

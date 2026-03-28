@@ -6,10 +6,8 @@ Core specifications and doctrine documents for StageBridge V1.
 
 | Document | Purpose |
 |----------|---------|
-| [PROJECT_DOCTRINE.md](PROJECT_DOCTRINE.md) | Non-negotiable scientific principles |
+| [V1_DOCTRINE.md](V1_DOCTRINE.md) | Non-negotiable principles and V1 scope definition |
 | [REPRESENTATION_LEARNING_RULES.md](REPRESENTATION_LEARNING_RULES.md) | Core representation learning guidelines |
-| [NICHE_ENCODER_SPEC.md](NICHE_ENCODER_SPEC.md) | Local niche encoder design specification |
-| [V1_SCOPE.md](V1_SCOPE.md) | V1 scope definition and checklist |
 
 ## Key Principles
 

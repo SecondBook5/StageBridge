@@ -1,6 +1,6 @@
 """Tests for receiver-centered niche encoder per doctrine.
 
-These tests verify compliance with docs/NICHE_ENCODER_SPEC.md:
+These tests verify compliance with docs/architecture/typed_niche_context_model.md:
 1. Receiver-centered architecture (receiver as query)
 2. Distance-aware attention
 3. Sparsity/entropy regularization
@@ -84,7 +84,7 @@ def encoder(input_dim, hidden_dim):
 
 
 class TestDoctrineCompliance:
-    """Verify encoder meets all NICHE_ENCODER_SPEC.md requirements."""
+    """Verify encoder meets all typed_niche_context_model.md requirements."""
 
     def test_receiver_is_query_not_part_of_set(self, encoder, sample_data):
         """Doctrine: Receiver must be the attention query, not mixed with neighbors."""

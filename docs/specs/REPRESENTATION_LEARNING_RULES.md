@@ -87,5 +87,5 @@ Before merging any code, verify:
 ## References
 
 - AGENTS.md Section 3: Scientific thesis
-- docs/PROJECT_DOCTRINE.md: Full doctrine
-- docs/NICHE_ENCODER_SPEC.md: Niche encoder details
+- docs/specs/V1_DOCTRINE.md: Full doctrine and V1 scope
+- docs/architecture/typed_niche_context_model.md: Niche encoder details

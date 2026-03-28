@@ -427,30 +427,13 @@ docs/
 
 ### 3.6 Biology Documentation
 
-#### luad_initiation_problem.md
-**Purpose:** Biological motivation
+#### biological_context.md (Consolidated)
+**Purpose:** Complete biological context for StageBridge
 **Key Content:**
-- LUAD precursor progression
-- Cell-state transition focus
-- Clinical relevance
-
----
-
-#### niche_gating_hypothesis.md
-**Purpose:** Niche influence hypothesis
-**Key Content:**
-- Microenvironment gates transitions
-- AT2 plasticity under stress
-- CAF/immune influence
-
----
-
-#### tissue_dynamics_outputs.md
-**Purpose:** Biological interpretations
-**Key Content:**
-- Transition quality as primary output
-- Niche influence patterns
-- Stage-specific dynamics
+- LUAD initiation problem and stage ladder
+- Niche gating hypothesis
+- Expected dynamical outputs
+- StageBridge approach
 
 ---
 
@@ -525,7 +508,7 @@ docs/
 | **Methods** | 3 | ~39,000 | ~100 |
 | **Publication** | 3 | ~33,000 | ~80 |
 | **Architecture** | 7 | ~15,000 | ~40 |
-| **Biology** | 4 | ~8,000 | ~20 |
+| **Biology** | 2 | ~5,000 | ~12 |
 | **Implementation** | 2 | ~22,000 | ~55 |
 | **Total** | **21** | **~137,000** | **~345** |
 
