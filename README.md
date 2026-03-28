@@ -282,7 +282,7 @@ $DATA/
 ### Pipeline DAG
 
 ```
-hlca_mapping ──┬──→ merge_cell_types ──→ validate_markers ──→ spatial_backend (4x)
+hlca_mapping ──┬──→ add_cell_type_labels ──→ validate_markers ──→ spatial_backend (4x)
                │                                                       │
                └──→ fuse_embeddings ←── luca_mapping                   │
                            │                                           │

@@ -108,13 +108,15 @@ workflow/
 ├── config.yaml         # Pipeline configuration
 ├── README.md           # This file
 ├── scripts/            # Helper scripts called by Snakemake rules
+│   ├── add_cell_type_labels.py       # Add HLCA + LuCA cell type labels
 │   ├── aggregate_baselines.py        # Aggregate baseline comparison results
 │   ├── aggregate_cv_results.py       # Aggregate cross-validation results
+│   ├── aggregate_spatial_samples.py  # Aggregate spatial backend per-sample outputs
 │   ├── compare_spatial_backends.py   # Compare spatial backend outputs
+│   ├── extract_spatial_samples.py    # Extract per-sample spatial data
 │   ├── fuse_embeddings.py            # Fuse HLCA + LuCA embeddings
 │   ├── generate_publication_figures.py
 │   ├── generate_semi_synthetic.py    # Generate semi-synthetic benchmark data
-│   ├── merge_cell_types.py           # Merge cell type annotations
 │   ├── plot_training_curves.py       # Plot training loss/metrics
 │   ├── summarize_ablations.py        # Summarize ablation study results
 │   ├── validate_markers.py           # Validate marker gene expression
