@@ -47,7 +47,9 @@ ABLATIONS = f"{RUNS}/ablations"
 FIGURES = f"{RUNS}/publication_figures"
 
 # Spatial backends to run
-SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location"]
+# Current: 4 original + marker_scoring baseline (5 total)
+# TODO: Add RCTD, CARD, SPOTlight wrappers
+SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location", "marker_scoring"]
 
 # Label sources for spatial deconvolution ablation (HLCA vs LuCA cell types)
 LABEL_SOURCES = ["hlca", "luca"]

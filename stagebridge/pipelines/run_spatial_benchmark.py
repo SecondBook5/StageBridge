@@ -34,6 +34,7 @@ from stagebridge.spatial_mapping import (
     TACCOBackend,
     Cell2locationBackend,
 )
+from stagebridge.spatial_mapping.marker_scoring_wrapper import MarkerScoringBackend
 
 log = logging.getLogger(__name__)
 
@@ -177,6 +178,16 @@ def run_backend_comparison(
                     max_epochs_ref=n_ref,
                     max_epochs_spatial=n_spatial,
                 )
+            elif backend_name == "marker_scoring":
+                # Simple baseline - derive markers from reference
+                backend = MarkerScoringBackend(
+                    use_reference_markers=True,
+                    n_markers=50,
+                )
+            elif backend_name in ["rctd", "card", "spotlight"]:
+                # TODO: Implement wrappers for these backends
+                log.warning(f"Backend '{backend_name}' not yet implemented, skipping")
+                continue
             else:
                 raise ValueError(f"Unknown backend: {backend_name}")
 

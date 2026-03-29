@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """
-Add dual-reference cell type labels to snRNA data.
+Add dual-reference cell type labels to snRNA data with cycling states.
 
 Reads HLCA and LuCA labels from separate parquet files and adds both to the
-snRNA h5ad file. No compound labels - each column has single clean labels.
+snRNA h5ad file. Then scores cycling on the query cells directly and adds
+"_cycling" suffix to proliferating cells.
 
-- cell_type: HLCA labels (primary, for spatial deconvolution)
-- luca_cell_type: LuCA labels (for ablation experiments)
+- cell_type: HLCA labels with cycling variants (primary, for spatial deconvolution)
+- luca_cell_type: LuCA labels with cycling variants (for ablation experiments)
+
+Cycling is scored directly on query cells (not inferred from reference) because:
+1. Cycling is a cell STATE, not an identity
+2. Query cells should be assessed for their own proliferation status
+3. This is more accurate than inferring cycling from reference proximity
 
 Usage:
-    python harmonize_cell_types.py \
+    python add_cell_type_labels.py \
         --snrna /path/to/snrna.h5ad \
         --hlca-labels /path/to/hlca_labels.parquet \
         --luca-labels /path/to/luca_labels.parquet \
@@ -17,10 +23,16 @@ Usage:
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 import anndata as ad
 import pandas as pd
+import scanpy as sc
+
+# Add project root for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from stagebridge.spatial_mapping.lung_markers import S_PHASE_GENES, G2M_PHASE_GENES
 
 
 def add_dual_labels(
@@ -103,13 +115,69 @@ def add_dual_labels(
     adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype("category")
     print(f"  Added luca_cell_type: {adata.obs['luca_cell_type'].nunique()} types")
 
+    # ==========================================================================
+    # Score cycling on query cells directly
+    # ==========================================================================
+    print("\n=== Scoring Cycling States ===")
+
+    # Filter to genes present in data
+    s_genes_present = [g for g in S_PHASE_GENES if g in adata.var_names]
+    g2m_genes_present = [g for g in G2M_PHASE_GENES if g in adata.var_names]
+    print(f"  S phase genes: {len(s_genes_present)}/{len(S_PHASE_GENES)} present")
+    print(f"  G2M phase genes: {len(g2m_genes_present)}/{len(G2M_PHASE_GENES)} present")
+
+    if len(s_genes_present) < 5 or len(g2m_genes_present) < 5:
+        print("  WARNING: Too few cell cycle genes - skipping cycling annotation")
+    else:
+        # Score cell cycle
+        sc.tl.score_genes_cell_cycle(
+            adata,
+            s_genes=s_genes_present,
+            g2m_genes=g2m_genes_present,
+        )
+
+        # Identify cycling cells (threshold: score > 0.2)
+        score_threshold = 0.2
+        cycling_mask = (
+            (adata.obs['S_score'] > score_threshold) |
+            (adata.obs['G2M_score'] > score_threshold)
+        )
+        n_cycling = cycling_mask.sum()
+        print(f"  Identified {n_cycling:,} cycling cells ({100*n_cycling/len(adata):.1f}%)")
+
+        # Add cycling suffix to cell types
+        # HLCA labels
+        adata.obs["cell_type"] = adata.obs["cell_type"].astype(str)
+        adata.obs.loc[cycling_mask, "cell_type"] = (
+            adata.obs.loc[cycling_mask, "cell_type"] + "_cycling"
+        )
+        adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
+
+        # LuCA labels
+        adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype(str)
+        adata.obs.loc[cycling_mask, "luca_cell_type"] = (
+            adata.obs.loc[cycling_mask, "luca_cell_type"] + "_cycling"
+        )
+        adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype("category")
+
+        print(f"  Added '_cycling' suffix to {n_cycling:,} cells in both label columns")
+
     # Summary
-    print("\n=== Label Summary ===")
+    print("\n=== Label Summary (with cycling) ===")
     print(f"HLCA (cell_type): {adata.obs['cell_type'].nunique()} types")
     print("Top 10:")
     for label, count in adata.obs["cell_type"].value_counts().head(10).items():
         pct = 100 * count / len(adata)
         print(f"  {label}: {count:,} ({pct:.1f}%)")
+
+    # Count cycling types
+    cycling_types = [t for t in adata.obs["cell_type"].unique() if "_cycling" in str(t)]
+    if cycling_types:
+        print(f"\nCycling cell types ({len(cycling_types)}):")
+        cycling_counts = adata.obs["cell_type"].value_counts()
+        for ct in sorted(cycling_types):
+            if ct in cycling_counts.index:
+                print(f"  {ct}: {cycling_counts[ct]:,}")
 
     print(f"\nLuCA (luca_cell_type): {adata.obs['luca_cell_type'].nunique()} types")
     print("Top 10:")
