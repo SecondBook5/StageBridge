@@ -580,7 +580,7 @@ def plot_backend_comparison_spatial(
         ax.set_facecolor("white")
 
         if cell_type not in props.columns:
-            ax.text(0.5, 0.5, f"Cell type\nnot available",
+            ax.text(0.5, 0.5, "Cell type\nnot available",
                    ha="center", va="center", transform=ax.transAxes,
                    fontsize=10, color="#666666")
             _setup_spatial_ax(ax, coords, backend_name.upper())
@@ -740,60 +740,115 @@ def plot_cell_type_colocalization(
 def plot_dominant_cell_type_map(
     spatial_adata,
     proportions: pd.DataFrame,
-    min_proportion: float = 0.2,
-    figsize: tuple[float, float] = (10, 10),
+    min_proportion: float = 0.25,
+    spot_size: float | None = None,
+    palette: str = "tab20",
+    figsize: tuple[float, float] = (8, 8),
+    legend_ncol: int = 1,
     save_path: Path | None = None,
 ):
     """
     Plot spatial map colored by dominant cell type per spot.
 
-    Each spot is colored by its most abundant cell type, with spots
-    below min_proportion shown in gray (ambiguous/mixed).
+    Creates a publication-ready categorical spatial map where each spot is
+    colored by its most abundant cell type. Spots below the confidence
+    threshold are shown in gray (ambiguous/mixed niche).
 
     Args:
         spatial_adata: AnnData with spatial coordinates
         proportions: DataFrame with cell type proportions
-        min_proportion: Minimum proportion to be considered dominant
+        min_proportion: Minimum proportion to be considered dominant (default: 25%)
+        spot_size: Point size (auto-calculated if None)
+        palette: Matplotlib/seaborn palette name (tab20 for many categories)
         figsize: Figure size
-        save_path: If provided, saves figure
+        legend_ncol: Number of columns in legend
+        save_path: If provided, saves figure (PNG + PDF)
     """
     coords = spatial_adata.obsm["spatial"]
+
+    # Auto-calculate spot size
+    if spot_size is None:
+        coord_range = np.ptp(coords, axis=0).max()
+        spot_size = max(2, min(20, 6000 / len(coords) * (coord_range / 1000)))
 
     # Find dominant cell type per spot
     dominant_ct = proportions.idxmax(axis=1)
     max_prop = proportions.max(axis=1)
 
-    # Mark spots below threshold as "Mixed"
+    # Mark uncertain spots as "Mixed/Uncertain"
     dominant_ct = dominant_ct.where(max_prop >= min_proportion, "Mixed")
 
+    # Count cell types to order legend by frequency
+    ct_counts = dominant_ct.value_counts()
+    cell_types = [ct for ct in ct_counts.index if ct != "Mixed"]
+
     # Create color palette
-    cell_types = sorted(proportions.columns.tolist())
-    n_colors = len(cell_types) + 1  # +1 for Mixed
-    palette = sns.color_palette("husl", n_colors)
-    color_map = {ct: palette[i] for i, ct in enumerate(cell_types)}
-    color_map["Mixed"] = (0.7, 0.7, 0.7)  # Gray for mixed
+    n_types = len(cell_types)
+    if n_types <= 10:
+        colors = sns.color_palette("tab10", n_types)
+    elif n_types <= 20:
+        colors = sns.color_palette("tab20", n_types)
+    else:
+        colors = sns.color_palette("husl", n_types)
 
-    colors = [color_map[ct] for ct in dominant_ct]
+    color_map = {ct: colors[i] for i, ct in enumerate(cell_types)}
+    color_map["Mixed"] = (0.85, 0.85, 0.85)  # Light gray for mixed
 
-    fig, ax = plt.subplots(figsize=figsize)
+    spot_colors = [color_map[ct] for ct in dominant_ct]
 
-    ax.scatter(coords[:, 0], coords[:, 1], c=colors, s=20, alpha=0.8)
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize, facecolor="white")
+    ax.set_facecolor("white")
 
-    # Create legend
-    handles = [plt.Line2D([0], [0], marker='o', color='w',
-               markerfacecolor=color_map[ct], markersize=10, label=ct)
-               for ct in cell_types + ["Mixed"]]
-    ax.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.02, 1),
-              title="Dominant Cell Type")
+    ax.scatter(
+        coords[:, 0], coords[:, 1],
+        c=spot_colors, s=spot_size,
+        edgecolors="none",
+        rasterized=True,
+    )
+    ax.invert_yaxis()
 
-    ax.set_title(f"Dominant Cell Type Map (threshold={min_proportion:.0%})")
+    # Publication-quality legend
+    handles = []
+    labels = []
+    for ct in cell_types:
+        count = ct_counts.get(ct, 0)
+        pct = 100 * count / len(dominant_ct)
+        handles.append(plt.Line2D([0], [0], marker='o', color='w',
+                       markerfacecolor=color_map[ct], markersize=8,
+                       markeredgecolor="none"))
+        labels.append(f"{ct} ({pct:.1f}%)")
+
+    # Add Mixed if present
+    if "Mixed" in ct_counts.index:
+        count = ct_counts["Mixed"]
+        pct = 100 * count / len(dominant_ct)
+        handles.append(plt.Line2D([0], [0], marker='o', color='w',
+                       markerfacecolor=color_map["Mixed"], markersize=8,
+                       markeredgecolor="none"))
+        labels.append(f"Mixed ({pct:.1f}%)")
+
+    legend = ax.legend(
+        handles, labels,
+        loc='upper left', bbox_to_anchor=(1.02, 1),
+        fontsize=8, frameon=True, fancybox=False,
+        edgecolor="#666666", ncol=legend_ncol,
+        title="Dominant Type", title_fontsize=9,
+    )
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_linewidth(0.8)
+
+    ax.set_title(f"Dominant Cell Type (threshold > {min_proportion:.0%})",
+                fontsize=11, fontweight="bold", pad=10)
     ax.axis("equal")
     ax.axis("off")
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        save_path = Path(save_path)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+        plt.savefig(save_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
     else:
         plt.show()
     plt.close()
@@ -802,23 +857,23 @@ def plot_dominant_cell_type_map(
 def plot_cell_type_pie_summary(
     proportions: pd.DataFrame,
     spatial_adata=None,
-    top_n: int = 10,
-    figsize: tuple[float, float] = (14, 6),
+    top_n: int = 8,
+    figsize: tuple[float, float] = (12, 5),
     save_path: Path | None = None,
 ):
     """
-    Plot overall cell type composition as pie chart with spatial context.
+    Plot overall cell type composition as donut chart with spatial entropy map.
 
-    Shows two panels:
-    1. Pie chart of average cell type proportions
-    2. If spatial_adata provided, spatial scatter colored by total cell density
+    Two-panel publication figure:
+    1. Donut chart showing average cell type composition (cleaner than pie)
+    2. Spatial map colored by Shannon entropy (mixture complexity)
 
     Args:
         proportions: DataFrame with cell type proportions
         spatial_adata: Optional AnnData with spatial coordinates
         top_n: Number of top cell types to show (rest grouped as "Other")
         figsize: Figure size
-        save_path: If provided, saves figure
+        save_path: If provided, saves figure (PNG + PDF)
     """
     # Calculate mean proportions
     mean_props = proportions.mean().sort_values(ascending=False)
@@ -830,42 +885,64 @@ def plot_cell_type_pie_summary(
         top_cts = pd.concat([top_cts, pd.Series({"Other": other_sum})])
 
     n_panels = 2 if spatial_adata is not None else 1
-    fig, axes = plt.subplots(1, n_panels, figsize=figsize)
+    fig, axes = plt.subplots(1, n_panels, figsize=figsize, facecolor="white")
     if n_panels == 1:
         axes = [axes]
 
-    # Panel 1: Pie chart
+    # Panel 1: Donut chart (cleaner than pie)
     ax = axes[0]
-    colors = sns.color_palette("husl", len(top_cts))
+    ax.set_facecolor("white")
+    colors = sns.color_palette("tab10" if len(top_cts) <= 10 else "tab20", len(top_cts))
+
+    # Create donut chart (more modern than pie)
     wedges, texts, autotexts = ax.pie(
         top_cts.values,
-        labels=top_cts.index,
-        autopct=lambda p: f'{p:.1f}%' if p > 3 else '',
         colors=colors,
+        autopct=lambda p: f'{p:.1f}%' if p > 5 else '',
         pctdistance=0.75,
+        wedgeprops=dict(width=0.5, edgecolor='white', linewidth=1),
+        textprops=dict(fontsize=9),
     )
-    ax.set_title("Average Cell Type Composition", fontsize=12)
+    for autotext in autotexts:
+        autotext.set_fontsize(8)
+        autotext.set_fontweight("bold")
 
-    # Panel 2: Spatial density (if available)
+    # Legend instead of labels (cleaner)
+    ax.legend(wedges, top_cts.index, loc="center left", bbox_to_anchor=(0.9, 0.5),
+             fontsize=8, frameon=False)
+    ax.set_title("Cell Type Composition", fontsize=11, fontweight="bold", pad=10)
+
+    # Panel 2: Spatial entropy map (more informative than density)
     if spatial_adata is not None and len(axes) > 1:
         ax = axes[1]
+        ax.set_facecolor("white")
         coords = spatial_adata.obsm["spatial"]
-        # Total "confidence" or sum of top proportions as density proxy
-        density = proportions[mean_props.head(top_n).index].sum(axis=1)
 
+        # Calculate Shannon entropy per spot (mixture complexity)
+        p = proportions.values + 1e-10
+        p = p / p.sum(axis=1, keepdims=True)
+        entropy = -np.sum(p * np.log2(p), axis=1)
+        max_entropy = np.log2(proportions.shape[1])
+        normalized_entropy = entropy / max_entropy
+
+        spot_size = max(2, min(15, 5000 / len(coords)))
         scatter = ax.scatter(
             coords[:, 0], coords[:, 1],
-            c=density, cmap="viridis", s=15, alpha=0.8
+            c=normalized_entropy, cmap="plasma", s=spot_size,
+            edgecolors="none", rasterized=True,
         )
-        plt.colorbar(scatter, ax=ax, label="Cell Type Confidence")
-        ax.set_title("Spatial Cell Type Density", fontsize=12)
+        ax.invert_yaxis()
+        _add_clean_colorbar(fig, ax, scatter, label="Entropy (normalized)")
+        ax.set_title("Niche Heterogeneity", fontsize=11, fontweight="bold", pad=10)
         ax.axis("equal")
         ax.axis("off")
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        save_path = Path(save_path)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+        plt.savefig(save_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
     else:
         plt.show()
     plt.close()
@@ -874,20 +951,35 @@ def plot_cell_type_pie_summary(
 def plot_multi_backend_radar(
     backend_metrics: dict[str, dict[str, float]],
     metrics_to_show: list[str] | None = None,
-    figsize: tuple[float, float] = (8, 8),
+    metric_labels: dict[str, str] | None = None,
+    figsize: tuple[float, float] = (7, 7),
+    fill_alpha: float = 0.15,
+    line_width: float = 2.5,
     save_path: Path | None = None,
 ):
     """
-    Plot radar chart comparing multiple backends across metrics.
+    Plot publication-quality radar chart comparing backends across metrics.
 
-    Like the backend_comparison radar but with more customization options.
+    Creates a clean radar/spider chart suitable for comparing spatial deconvolution
+    backends across multiple quality metrics (correlation, RMSE, entropy, etc.).
 
     Args:
         backend_metrics: Dict of {backend_name: {metric_name: value}}
         metrics_to_show: Subset of metrics to plot. If None, uses all.
+        metric_labels: Dict mapping metric names to display labels (e.g., abbrevations)
         figsize: Figure size
-        save_path: If provided, saves figure
+        fill_alpha: Transparency for filled areas
+        line_width: Line width for radar plot
+        save_path: If provided, saves figure (PNG + PDF)
     """
+    # Backend colors (consistent with scvi-tools docs)
+    _BACKEND_COLORS = {
+        "tangram": "#1f77b4",    # Blue
+        "destvi": "#ff7f0e",     # Orange
+        "tacco": "#2ca02c",      # Green
+        "cell2location": "#d62728",  # Red
+    }
+
     # Get all metrics
     all_metrics = set()
     for metrics in backend_metrics.values():
@@ -896,32 +988,65 @@ def plot_multi_backend_radar(
     if metrics_to_show is None:
         metrics_to_show = sorted(all_metrics)
 
-    # Create angles for radar
     n_metrics = len(metrics_to_show)
+    if n_metrics < 3:
+        raise ValueError("Radar chart requires at least 3 metrics")
+
+    # Create angles for radar
     angles = np.linspace(0, 2 * np.pi, n_metrics, endpoint=False).tolist()
     angles += angles[:1]  # Close the polygon
 
-    fig, ax = plt.subplots(figsize=figsize, subplot_kw=dict(projection='polar'))
+    fig, ax = plt.subplots(figsize=figsize, subplot_kw=dict(projection='polar'),
+                           facecolor="white")
+    ax.set_facecolor("white")
 
-    colors = sns.color_palette("husl", len(backend_metrics))
+    # Style the radar grid
+    ax.set_theta_offset(np.pi / 2)  # Start at top
+    ax.set_theta_direction(-1)  # Clockwise
+    ax.spines['polar'].set_color('#CCCCCC')
+    ax.spines['polar'].set_linewidth(0.5)
 
-    for idx, (backend_name, metrics) in enumerate(backend_metrics.items()):
+    # Radial grid styling
+    ax.set_rlabel_position(30)
+    ax.tick_params(axis='y', labelsize=8, colors='#666666')
+    ax.set_ylim(0, 1)
+    ax.set_yticks([0.25, 0.5, 0.75, 1.0])
+    ax.yaxis.grid(True, color='#CCCCCC', linestyle='--', linewidth=0.5, alpha=0.7)
+    ax.xaxis.grid(True, color='#CCCCCC', linestyle='-', linewidth=0.5, alpha=0.7)
+
+    # Plot each backend
+    for backend_name, metrics in backend_metrics.items():
         values = [metrics.get(m, 0) for m in metrics_to_show]
         values += values[:1]  # Close the polygon
 
-        ax.plot(angles, values, 'o-', linewidth=2, label=backend_name, color=colors[idx])
-        ax.fill(angles, values, alpha=0.25, color=colors[idx])
+        # Get color (use preset if available, otherwise generate)
+        color = _BACKEND_COLORS.get(backend_name.lower(),
+                                    sns.color_palette("husl", len(backend_metrics))[
+                                        list(backend_metrics.keys()).index(backend_name)])
 
+        ax.plot(angles, values, 'o-', linewidth=line_width, label=backend_name.upper(),
+               color=color, markersize=6, markeredgecolor="white", markeredgewidth=0.5)
+        ax.fill(angles, values, alpha=fill_alpha, color=color)
+
+    # Labels
+    labels = [metric_labels.get(m, m) if metric_labels else m for m in metrics_to_show]
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(metrics_to_show, size=10)
-    ax.set_ylim(0, 1)
-    ax.set_title("Backend Comparison", fontsize=14, pad=20)
-    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+    ax.set_xticklabels(labels, fontsize=10, fontweight="bold")
+    # Publication-quality legend
+    legend = ax.legend(
+        loc='upper right', bbox_to_anchor=(1.35, 1.05),
+        fontsize=10, frameon=True, fancybox=False,
+        edgecolor="#666666",
+    )
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_linewidth(0.8)
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        save_path = Path(save_path)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+        plt.savefig(save_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
     else:
         plt.show()
     plt.close()
@@ -933,29 +1058,41 @@ def plot_spatial_gene_signature(
     genes: list[str] | None = None,
     cell_type: str | None = None,
     aggregate: bool = True,
-    cmap: str = "Reds",
-    figsize: tuple[float, float] = (8, 8),
+    cmap: str | None = None,
+    spot_size: float | None = None,
+    figsize: tuple[float, float] = (6, 6),
     title: str | None = None,
     save_path: Path | None = None,
 ):
     """
     Plot gene signature score in spatial coordinates.
 
-    Can plot from cell-type-specific imputed expression (DestVI style)
-    or from the spatial adata directly.
+    Publication-quality spatial gene expression map. Can visualize:
+    - DestVI cell-type-specific imputed expression
+    - Raw spatial gene expression from AnnData
+    - Multi-gene signature scores (aggregated)
 
     Args:
         spatial_adata: AnnData with spatial coordinates
         gene_expression: Optional DataFrame with imputed expression
         genes: List of genes to aggregate as signature
-        cell_type: Cell type name (for title)
+        cell_type: Cell type name (for title context)
         aggregate: If True, sum genes; if False, plot first gene
-        cmap: Colormap
+        cmap: Colormap (default: YlOrRd for expression)
+        spot_size: Point size (auto-calculated if None)
         figsize: Figure size
         title: Custom title
-        save_path: If provided, saves figure
+        save_path: If provided, saves figure (PNG + PDF)
     """
+    if cmap is None:
+        cmap = _PUBLICATION_CMAPS["expression"]
+
     coords = spatial_adata.obsm["spatial"]
+
+    # Auto-calculate spot size
+    if spot_size is None:
+        coord_range = np.ptp(coords, axis=0).max()
+        spot_size = max(2, min(20, 6000 / len(coords) * (coord_range / 1000)))
 
     if gene_expression is not None and genes is not None:
         # Use imputed expression
@@ -986,25 +1123,31 @@ def plot_spatial_gene_signature(
     else:
         raise ValueError("Must provide either gene_expression DataFrame or genes list")
 
-    fig, ax = plt.subplots(figsize=figsize)
-
-    # Background spots
-    ax.scatter(coords[:, 0], coords[:, 1], c='lightgray', s=5, alpha=0.3)
+    fig, ax = plt.subplots(figsize=figsize, facecolor="white")
+    ax.set_facecolor("white")
 
     # Gene signature
     scatter = ax.scatter(
         coords[:, 0], coords[:, 1],
-        c=values, cmap=cmap, s=20, alpha=0.8,
+        c=values, cmap=cmap, s=spot_size,
+        edgecolors="none", rasterized=True,
     )
-    plt.colorbar(scatter, ax=ax, label="log(expression)")
+    ax.invert_yaxis()
+    _add_clean_colorbar(fig, ax, scatter, label="log(expr + 1)")
 
+    # Title
     if title:
-        ax.set_title(title, fontsize=12)
+        ax.set_title(title, fontsize=11, fontweight="bold", pad=10)
     elif cell_type and genes:
-        gene_str = ", ".join(genes[:3])
-        if len(genes) > 3:
-            gene_str += f" (+{len(genes)-3})"
-        ax.set_title(f"{cell_type}: {gene_str}", fontsize=12)
+        gene_str = ", ".join(available_genes[:3])
+        if len(available_genes) > 3:
+            gene_str += f" (+{len(available_genes)-3})"
+        ax.set_title(f"{cell_type}: {gene_str}", fontsize=11, fontweight="bold", pad=10)
+    elif genes:
+        gene_str = ", ".join(available_genes[:3])
+        if len(available_genes) > 3:
+            gene_str += f" (+{len(available_genes)-3})"
+        ax.set_title(gene_str, fontsize=11, fontweight="bold", pad=10)
 
     ax.axis("equal")
     ax.axis("off")
@@ -1012,7 +1155,9 @@ def plot_spatial_gene_signature(
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        save_path = Path(save_path)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+        plt.savefig(save_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
     else:
         plt.show()
     plt.close()
@@ -1024,76 +1169,113 @@ def create_publication_figure_panel(
     cell_types: list[str],
     output_path: Path,
     include_legend: bool = True,
-    cmap: str = "Reds",
+    cmap: str | None = None,
     n_cols: int = 4,
+    panel_size: float = 2.5,
+    spot_size: float | None = None,
+    suptitle: str | None = None,
 ):
     """
     Create publication-ready multi-panel figure of cell type spatial distributions.
 
-    Produces a clean figure suitable for Nature Methods with:
-    - Consistent coloring across panels
-    - Proper aspect ratios
-    - Optional shared legend
+    Produces a clean, Nature Methods-quality figure with:
+    - Consistent color scaling across all panels (crucial for comparison)
+    - Auto-calculated spot sizing for tissue density
+    - Shared colorbar with proper labeling
+    - Rasterized scatter for efficient PDF/SVG export
+    - White backgrounds and clean typography
 
     Args:
         spatial_adata: AnnData with spatial coordinates
         proportions: DataFrame with cell type proportions
         cell_types: List of cell types to include
-        output_path: Path to save figure (PNG and PDF)
+        output_path: Path to save figure (saves both PNG and PDF)
         include_legend: Whether to add a shared colorbar
-        cmap: Colormap
+        cmap: Colormap (default: magma for proportions)
         n_cols: Number of columns
+        panel_size: Size of each panel in inches
+        spot_size: Point size (auto-calculated if None)
+        suptitle: Optional figure title
     """
+    if cmap is None:
+        cmap = _PUBLICATION_CMAPS["proportion"]
+
     n_cts = len(cell_types)
     n_rows = int(np.ceil(n_cts / n_cols))
 
     # Calculate figure size
-    panel_size = 3
-    fig_width = panel_size * n_cols + (1.5 if include_legend else 0)
-    fig_height = panel_size * n_rows
+    fig_width = panel_size * n_cols + (1.2 if include_legend else 0)
+    fig_height = panel_size * n_rows + (0.5 if suptitle else 0)
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(fig_width, fig_height))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(fig_width, fig_height),
+                             facecolor="white")
     axes = np.atleast_2d(axes)
 
     coords = spatial_adata.obsm["spatial"]
 
-    # Global normalization for consistent colors
-    vmax = proportions[cell_types].values.max()
-    vmax = min(vmax, np.quantile(proportions[cell_types].values.flatten(), 0.99))
+    # Auto-calculate spot size
+    if spot_size is None:
+        coord_range = np.ptp(coords, axis=0).max()
+        spot_size = max(1, min(15, 4000 / len(coords) * (coord_range / 1000)))
 
+    # Global normalization for consistent colors across panels
+    valid_cts = [ct for ct in cell_types if ct in proportions.columns]
+    all_values = proportions[valid_cts].values.flatten()
+    vmax = np.quantile(all_values, 0.98)
+    vmax = max(vmax, 0.01)  # Prevent zero vmax
+
+    last_scatter = None
     for idx, ct in enumerate(cell_types):
         row, col = divmod(idx, n_cols)
         ax = axes[row, col]
+        ax.set_facecolor("white")
+
+        if ct not in proportions.columns:
+            ax.text(0.5, 0.5, "N/A", ha="center", va="center",
+                   transform=ax.transAxes, fontsize=10, color="#999999")
+            ax.set_title(ct, fontsize=9, fontweight='bold', pad=4)
+            ax.axis("off")
+            continue
 
         values = proportions[ct].values
         scatter = ax.scatter(
             coords[:, 0], coords[:, 1],
-            c=values, cmap=cmap, s=8,
+            c=values, cmap=cmap, s=spot_size,
             vmin=0, vmax=vmax,
-            rasterized=True,  # Better PDF rendering
+            edgecolors="none",
+            rasterized=True,
         )
-        ax.set_title(ct, fontsize=10, fontweight='bold')
+        ax.invert_yaxis()
+        ax.set_title(ct, fontsize=9, fontweight='bold', pad=4)
         ax.axis("equal")
         ax.axis("off")
+        last_scatter = scatter
 
     # Hide unused panels
     for idx in range(n_cts, n_rows * n_cols):
         row, col = divmod(idx, n_cols)
         axes[row, col].axis("off")
 
-    # Add shared colorbar
-    if include_legend:
-        cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    # Add shared colorbar (positioned cleanly)
+    if include_legend and last_scatter is not None:
+        cbar_ax = fig.add_axes([0.93, 0.2, 0.015, 0.6])
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(0, vmax))
         sm.set_array([])
         cbar = fig.colorbar(sm, cax=cbar_ax)
-        cbar.set_label("Proportion", fontsize=10)
+        cbar.set_label("Proportion", fontsize=9)
+        cbar.ax.tick_params(labelsize=8)
+        cbar.outline.set_linewidth(0.5)
 
-    plt.tight_layout(rect=[0, 0, 0.9 if include_legend else 1, 1])
+    # Suptitle if provided
+    if suptitle:
+        fig.suptitle(suptitle, fontsize=12, fontweight="bold", y=0.98)
+
+    plt.tight_layout(rect=[0, 0, 0.91 if include_legend else 1, 0.96 if suptitle else 1])
 
     # Save both PNG and PDF
     output_path = Path(output_path)
-    plt.savefig(output_path.with_suffix('.png'), dpi=300, bbox_inches='tight')
-    plt.savefig(output_path.with_suffix('.pdf'), bbox_inches='tight')
-    print(f"Saved publication figure to {output_path.with_suffix('.png')} and .pdf")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path.with_suffix('.png'), dpi=300, bbox_inches='tight', facecolor="white")
+    plt.savefig(output_path.with_suffix('.pdf'), bbox_inches='tight', facecolor="white")
+    print(f"Saved: {output_path.with_suffix('.png')} and .pdf")
     plt.close()
