@@ -35,8 +35,7 @@ docs/
 │   ├── typed_niche_context_model.md   # Layer B
 │   ├── eamist_block_diagram.md        # Layer C
 │   ├── stochastic_transition_model.md # Layer D
-│   ├── spatial_mapping_layer.md       # Spatial backends
-│   └── rescue_ablation_design.md      # Ablations
+│   └── spatial_mapping_layer.md       # Spatial backends
 │
 ├── biology/                  # Biological context
 │   ├── biological_context.md         # LUAD + niche hypothesis
@@ -46,7 +45,6 @@ docs/
 │   └── README.md
 │
 ├── system_architecture.md    # Infrastructure details
-├── implementation_roadmap.md # Status tracking
 └── V2_IDEAS.md               # Future work
 ```
 
@@ -63,7 +61,6 @@ docs/
 ### For Implementation
 1. **system_architecture.md** - Full technical infrastructure
 2. **methods/data_model_specification.md** - Data schemas and APIs
-3. **implementation_roadmap.md** - What's done, what's needed
 
 ### For Understanding the Science
 1. **specs/V1_DOCTRINE.md** - Non-negotiable principles

@@ -158,7 +158,7 @@ class DestVIBackend(SpatialBackend):
         # IMPORTANT: prior="mog" (mixture of gaussians) is required for DestVI.from_rna_model
         # Without explicit prior, CondSCVI doesn't set the 'prior' key in init_args,
         # causing KeyError when DestVI tries to read it
-        print(f"  Training CondSCVI for {self.n_epochs_condsc} epochs (early stopping enabled)...")
+        print(f"  Training CondSCVI for up to {self.n_epochs_condsc} epochs (early stopping enabled)...")
         sc_model = CondSCVI(snrna, n_latent=self.n_latent, weight_obs=False, prior="mog")
         sc_model.train(
             max_epochs=self.n_epochs_condsc,
@@ -168,7 +168,9 @@ class DestVIBackend(SpatialBackend):
             plan_kwargs={"lr": self.lr},
             train_size=0.9,  # 90% train, 10% validation for early stopping
             early_stopping=True,
+            early_stopping_monitor="elbo_validation",
             early_stopping_patience=15,
+            check_val_every_n_epoch=1,
         )
         condscvi_history = dict(sc_model.history) if hasattr(sc_model, 'history') else {}
         # Get epoch count from any available key (scvi-tools uses various key names)
@@ -176,7 +178,9 @@ class DestVIBackend(SpatialBackend):
         print(f"  CondSCVI finished after {condscvi_epochs_run} epochs (keys: {list(condscvi_history.keys())[:3]})")
 
         # Train DestVI on spatial
-        print(f"  Training DestVI for {self.n_epochs_destvi} epochs (early stopping enabled)...")
+        # NOTE: Official tutorial does NOT use early stopping for DestVI
+        # "reducing the number of epochs leads to decreased performance"
+        print(f"  Training DestVI for {self.n_epochs_destvi} epochs...")
         spatial_model = DestVI.from_rna_model(spatial, sc_model, vamp_prior_p=8)
         spatial_model.train(
             max_epochs=self.n_epochs_destvi,
@@ -184,9 +188,6 @@ class DestVIBackend(SpatialBackend):
             devices=1,
             batch_size=128,
             plan_kwargs={"lr": self.lr},
-            train_size=0.9,  # 90% train, 10% validation for early stopping
-            early_stopping=True,
-            early_stopping_patience=20,
         )
         destvi_history = dict(spatial_model.history) if hasattr(spatial_model, 'history') else {}
         # Get epoch count from any available key (scvi-tools uses various key names)
@@ -207,11 +208,21 @@ class DestVIBackend(SpatialBackend):
         proportions = spatial_model.get_proportions()
         cell_types = snrna.obs["cell_type"].cat.categories.tolist()
 
-        cell_type_proportions = pd.DataFrame(
-            proportions,
-            index=spatial.obs_names,
-            columns=cell_types,
-        )
+        # get_proportions() returns DataFrame with proper index and columns (per tutorial)
+        if isinstance(proportions, pd.DataFrame):
+            cell_type_proportions = proportions
+        elif isinstance(proportions, np.ndarray):
+            # Fallback for older scvi-tools versions that return array
+            cell_type_proportions = pd.DataFrame(
+                proportions,
+                index=spatial.obs_names,
+                columns=cell_types,
+            )
+        else:
+            raise TypeError(
+                f"Unexpected return type from get_proportions(): {type(proportions)}. "
+                f"Expected DataFrame or ndarray."
+            )
 
         # Compute confidence from proportions (max proportion per spot)
         confidence = pd.Series(
