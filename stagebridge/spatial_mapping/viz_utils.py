@@ -477,75 +477,138 @@ def create_comprehensive_report(
 
 
 # =============================================================================
-# Advanced Visualizations (inspired by scvi-tools tutorials)
+# Advanced Publication-Quality Visualizations (Nature Methods style)
 # =============================================================================
+#
+# These functions follow scvi-tools visual conventions and are designed for
+# high-impact journal publication. Key features:
+# - Clean, minimal aesthetic with white backgrounds
+# - Consistent colorscales across panels
+# - Proper point sizing for Visium spot density
+# - Colorblind-friendly palettes where applicable
+# - Rasterized scatter plots for PDF efficiency
+
+
+# Publication colormaps (scvi-tools style)
+_PUBLICATION_CMAPS = {
+    "proportion": "magma",      # Single cell-type abundance (dark = high)
+    "comparison": "RdYlBu_r",   # Diverging for comparisons
+    "correlation": "RdBu_r",    # Diverging for correlations
+    "density": "viridis",       # Sequential for density
+    "expression": "YlOrRd",     # Expression levels
+}
+
+
+def _setup_spatial_ax(ax, coords, title=None, title_fontsize=11):
+    """Configure axes for spatial plots (internal helper)."""
+    ax.set_facecolor("white")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    # Invert y-axis for histology convention (origin at top-left)
+    ax.invert_yaxis()
+    if title:
+        ax.set_title(title, fontsize=title_fontsize, fontweight="bold", pad=8)
+    return ax
+
+
+def _add_clean_colorbar(fig, ax, mappable, label="", shrink=0.6, pad=0.02):
+    """Add publication-quality colorbar (internal helper)."""
+    cbar = fig.colorbar(mappable, ax=ax, shrink=shrink, pad=pad, aspect=20)
+    cbar.ax.tick_params(labelsize=8)
+    cbar.outline.set_linewidth(0.5)
+    if label:
+        cbar.set_label(label, fontsize=9)
+    return cbar
 
 
 def plot_backend_comparison_spatial(
     spatial_adata,
     backend_results: dict[str, pd.DataFrame],
     cell_type: str,
-    cmap: str = "Reds",
-    figsize_per_plot: tuple[float, float] = (5, 5),
+    cmap: str | None = None,
+    spot_size: float | None = None,
+    figsize_per_plot: tuple[float, float] = (4.5, 4.5),
+    title_prefix: str = "",
     save_path: Path | None = None,
 ):
     """
     Compare cell type proportions across backends in spatial coordinates.
 
-    Shows the same tissue section with different backend predictions side by side,
-    making it easy to see where backends agree or disagree.
+    Creates a publication-ready panel comparing deconvolution results from
+    multiple backends (Tangram, DestVI, TACCO, Cell2location) for the same
+    cell type, with consistent color scaling for direct visual comparison.
 
     Args:
         spatial_adata: AnnData with spatial coordinates in obsm['spatial']
         backend_results: Dict mapping backend name to proportions DataFrame
         cell_type: Cell type to visualize
-        cmap: Matplotlib colormap
-        figsize_per_plot: Size per subplot
-        save_path: If provided, saves figure
+        cmap: Colormap (default: magma for proportions)
+        spot_size: Point size (auto-calculated from spot density if None)
+        figsize_per_plot: Size per subplot (default tuned for 4 backends)
+        title_prefix: Optional prefix for suptitle (e.g., sample ID)
+        save_path: If provided, saves figure (PNG + PDF)
     """
+    if cmap is None:
+        cmap = _PUBLICATION_CMAPS["proportion"]
+
     n_backends = len(backend_results)
     fig, axes = plt.subplots(
         1, n_backends,
         figsize=(figsize_per_plot[0] * n_backends, figsize_per_plot[1]),
+        facecolor="white",
     )
     if n_backends == 1:
         axes = [axes]
 
     coords = spatial_adata.obsm["spatial"]
 
-    # Find global min/max for consistent color scaling
+    # Auto-calculate spot size based on coordinate density
+    if spot_size is None:
+        coord_range = np.ptp(coords, axis=0).max()
+        spot_size = max(2, min(25, 8000 / len(coords) * (coord_range / 1000)))
+
+    # Find global min/max for consistent color scaling across backends
     all_values = []
     for props in backend_results.values():
         if cell_type in props.columns:
             all_values.extend(props[cell_type].values)
-    vmax = np.quantile(all_values, 0.99) if all_values else 1.0
+    vmax = np.quantile(all_values, 0.98) if all_values else 1.0
+    vmax = max(vmax, 0.01)  # Prevent zero vmax
 
     for idx, (backend_name, props) in enumerate(backend_results.items()):
         ax = axes[idx]
+        ax.set_facecolor("white")
 
         if cell_type not in props.columns:
-            ax.text(0.5, 0.5, f"{cell_type}\nnot in {backend_name}",
-                   ha="center", va="center", transform=ax.transAxes)
-            ax.set_title(backend_name.upper())
-            ax.axis("off")
+            ax.text(0.5, 0.5, f"Cell type\nnot available",
+                   ha="center", va="center", transform=ax.transAxes,
+                   fontsize=10, color="#666666")
+            _setup_spatial_ax(ax, coords, backend_name.upper())
             continue
 
         values = props[cell_type].values
         scatter = ax.scatter(
             coords[:, 0], coords[:, 1],
-            c=values, cmap=cmap, s=15,
+            c=values, cmap=cmap, s=spot_size,
             vmin=0, vmax=vmax,
+            edgecolors="none",
+            rasterized=True,  # Better PDF rendering
         )
-        plt.colorbar(scatter, ax=ax, fraction=0.046, pad=0.04)
-        ax.set_title(f"{backend_name.upper()}\n{cell_type}")
-        ax.axis("equal")
-        ax.axis("off")
+        _setup_spatial_ax(ax, coords, backend_name.upper())
 
-    plt.suptitle(f"Backend Comparison: {cell_type}", fontsize=14, y=1.02)
+        # Add colorbar only to last panel
+        if idx == n_backends - 1:
+            _add_clean_colorbar(fig, ax, scatter, label="Proportion")
+
+    # Suptitle
+    suptitle = f"{title_prefix} {cell_type}".strip() if title_prefix else cell_type
+    fig.suptitle(suptitle, fontsize=13, fontweight="bold", y=1.02)
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        save_path = Path(save_path)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+        plt.savefig(save_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
     else:
         plt.show()
     plt.close()
@@ -555,54 +618,120 @@ def plot_cell_type_colocalization(
     proportions: pd.DataFrame,
     cell_types: list[str] | None = None,
     method: str = "spearman",
-    cmap: str = "RdBu_r",
-    figsize: tuple[float, float] = (10, 8),
+    cmap: str | None = None,
+    figsize: tuple[float, float] | None = None,
+    annotate: bool = True,
+    cluster: bool = True,
     save_path: Path | None = None,
 ):
     """
     Plot cell type co-localization correlation matrix.
 
     Shows which cell types tend to appear together in the same spots.
-    Positive correlation = co-localization, negative = mutual exclusion.
+    Positive correlation (red) = co-localization, negative (blue) = mutual exclusion.
+    Hierarchical clustering reveals functional cell type modules.
 
     Args:
         proportions: DataFrame with cell type proportions (spots x cell_types)
         cell_types: Subset of cell types. If None, uses all.
-        method: Correlation method ('spearman' or 'pearson')
-        cmap: Colormap (diverging recommended)
-        figsize: Figure size
-        save_path: If provided, saves figure
+        method: Correlation method ('spearman' recommended for proportions)
+        cmap: Colormap (default: RdBu_r diverging)
+        figsize: Figure size (auto-calculated if None)
+        annotate: Whether to show correlation values in cells
+        cluster: Whether to hierarchically cluster cell types
+        save_path: If provided, saves figure (PNG + PDF)
     """
+    if cmap is None:
+        cmap = _PUBLICATION_CMAPS["correlation"]
+
     if cell_types is None:
         cell_types = proportions.columns.tolist()
 
-    prop_subset = proportions[cell_types]
+    # Filter to requested cell types
+    prop_subset = proportions[[ct for ct in cell_types if ct in proportions.columns]]
+    n_types = len(prop_subset.columns)
+
+    # Auto-size figure based on number of cell types
+    if figsize is None:
+        base_size = max(6, n_types * 0.5)
+        figsize = (base_size, base_size * 0.85)
+
     corr_matrix = prop_subset.corr(method=method)
 
-    fig, ax = plt.subplots(figsize=figsize)
+    if cluster and n_types > 2:
+        # Use clustermap for hierarchical clustering
+        from scipy.cluster.hierarchy import linkage
+        from scipy.spatial.distance import squareform
 
+        # Convert correlation to distance
+        dist_matrix = 1 - corr_matrix.abs()
+        np.fill_diagonal(dist_matrix.values, 0)
+
+        try:
+            linkage_matrix = linkage(squareform(dist_matrix), method="ward")
+            g = sns.clustermap(
+                corr_matrix,
+                cmap=cmap,
+                center=0, vmin=-1, vmax=1,
+                linewidths=0.3,
+                linecolor="white",
+                figsize=figsize,
+                row_linkage=linkage_matrix,
+                col_linkage=linkage_matrix,
+                annot=annotate,
+                fmt=".2f" if annotate else None,
+                annot_kws={"size": 7} if annotate else None,
+                cbar_kws={"shrink": 0.6, "label": f"{method.title()} r"},
+                dendrogram_ratio=(0.1, 0.1),
+            )
+            g.ax_heatmap.set_facecolor("white")
+            g.fig.suptitle("Cell Type Co-localization", fontsize=12,
+                          fontweight="bold", y=1.02)
+
+            if save_path:
+                save_path = Path(save_path)
+                g.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+                g.savefig(save_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
+            else:
+                plt.show()
+            plt.close()
+            return
+        except Exception:
+            pass  # Fall back to regular heatmap
+
+    # Regular heatmap (no clustering or clustering failed)
+    fig, ax = plt.subplots(figsize=figsize, facecolor="white")
+    ax.set_facecolor("white")
+
+    # Lower triangle mask
     mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
 
     sns.heatmap(
         corr_matrix,
         mask=mask,
         cmap=cmap,
-        center=0,
-        vmin=-1, vmax=1,
+        center=0, vmin=-1, vmax=1,
         square=True,
-        linewidths=0.5,
-        cbar_kws={"shrink": 0.8, "label": f"{method.title()} Correlation"},
-        annot=True,
-        fmt=".2f",
-        annot_kws={"size": 8},
+        linewidths=0.3,
+        linecolor="white",
+        cbar_kws={"shrink": 0.6, "label": f"{method.title()} r"},
+        annot=annotate,
+        fmt=".2f" if annotate else None,
+        annot_kws={"size": 7} if annotate else None,
         ax=ax,
     )
+    ax.set_title("Cell Type Co-localization", fontsize=12, fontweight="bold", pad=10)
 
-    ax.set_title("Cell Type Co-localization", fontsize=14)
+    # Rotate labels for readability
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right", fontsize=9)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=9)
+
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        save_path = Path(save_path)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+        plt.savefig(save_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
     else:
         plt.show()
     plt.close()
