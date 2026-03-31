@@ -13,7 +13,7 @@ from typing import Dict, List, Literal
 
 def score_markers_scanpy(
     spatial_adata,
-    marker_dict: Dict[str, List[str]],
+    marker_dict: dict[str, list[str]],
     use_raw: bool = False,
     normalize: bool = True,
 ) -> pd.DataFrame:
@@ -70,7 +70,7 @@ def score_markers_scanpy(
 
 def score_markers_bootstrap(
     spatial_adata,
-    marker_dict: Dict[str, List[str]],
+    marker_dict: dict[str, list[str]],
     n_bootstrap: int = 10000,
     presence_threshold_pval: float = 0.05,
     return_proportions: bool = True,
@@ -169,7 +169,7 @@ def get_markers_from_reference(
     n_markers: int = 50,
     method: Literal["wilcoxon", "t-test"] = "wilcoxon",
     log_fc_threshold: float = 0.5,
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Extract top marker genes from reference scRNA-seq data.
 
@@ -214,11 +214,11 @@ def get_markers_from_reference(
 
 
 def get_markers_from_database(
-    cell_types: List[str],
+    cell_types: list[str],
     database: Literal["panglaodb", "cellmarker", "custom"] = "panglaodb",
     species: str = "human",
     tissue: str = "lung",
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Get marker genes from public databases.
 
@@ -265,7 +265,7 @@ class MarkerScoringBackend:
 
     def __init__(
         self,
-        marker_dict: Dict[str, List[str]] | None = None,
+        marker_dict: dict[str, list[str]] | None = None,
         method: Literal["scanpy", "bootstrap"] = "scanpy",
         **kwargs
     ):

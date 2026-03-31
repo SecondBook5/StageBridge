@@ -299,4 +299,4 @@ def add_cycling_cell_states(
 
     n_cycling = cycling_mask.sum()
     print(f"Identified {n_cycling} cycling cells ({100*n_cycling/len(adata):.1f}%)")
-    print(f"Added 'cell_state' column with cycling variants")
+    print("Added 'cell_state' column with cycling variants")

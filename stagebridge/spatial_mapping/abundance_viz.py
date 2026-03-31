@@ -13,7 +13,7 @@ from .abundance_metrics import AbundanceStratification
 
 
 def plot_backend_comparison_boxplot(
-    backend_results: Dict[str, pd.DataFrame],
+    backend_results: dict[str, pd.DataFrame],
     stratification: AbundanceStratification,
     figsize: tuple = (12, 6),
     save_path: str | None = None,
@@ -89,7 +89,7 @@ def plot_backend_comparison_boxplot(
 
 
 def plot_backend_comparison_heatmap(
-    backend_results: Dict[str, pd.DataFrame],
+    backend_results: dict[str, pd.DataFrame],
     stratification: AbundanceStratification,
     metric: str = "correlation",
     figsize: tuple = (10, 6),
@@ -200,8 +200,8 @@ def plot_backend_comparison_heatmap(
 
 
 def plot_progression_specific_comparison(
-    backend_results: Dict[str, pd.DataFrame],
-    stage_order: List[str],
+    backend_results: dict[str, pd.DataFrame],
+    stage_order: list[str],
     figsize: tuple = (14, 10),
     save_path: str | None = None,
 ) -> plt.Figure:
