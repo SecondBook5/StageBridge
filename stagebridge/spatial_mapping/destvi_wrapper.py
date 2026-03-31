@@ -82,6 +82,7 @@ class DestVIBackend(SpatialBackend):
         n_epochs_destvi: int = 2500,
         lr: float = 0.01,
         batch_key: str | None = "sample_id",
+        min_cells_per_type: int = 5,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -91,6 +92,7 @@ class DestVIBackend(SpatialBackend):
         self.n_epochs_destvi = n_epochs_destvi
         self.lr = lr
         self.batch_key = batch_key
+        self.min_cells_per_type = min_cells_per_type
 
         # Store trained models for advanced queries
         self.sc_model = None
@@ -115,6 +117,17 @@ class DestVIBackend(SpatialBackend):
         # Validate and preprocess
         self.validate_inputs(snrna, spatial)
         snrna, spatial = self.preprocess(snrna, spatial)
+
+        # Filter rare cell types to avoid CondSCVI training issues
+        if self.min_cells_per_type > 0:
+            cell_type_counts = snrna.obs["cell_type"].value_counts()
+            rare_types = cell_type_counts[cell_type_counts < self.min_cells_per_type].index.tolist()
+            if rare_types:
+                print(f"  Filtering {len(rare_types)} rare cell types with < {self.min_cells_per_type} cells: {rare_types}")
+                mask = ~snrna.obs["cell_type"].isin(rare_types)
+                snrna = snrna[mask].copy()
+                snrna.obs["cell_type"] = snrna.obs["cell_type"].cat.remove_unused_categories()
+                print(f"  {len(snrna)} cells remaining with {snrna.obs['cell_type'].nunique()} cell types")
 
         # Ensure raw counts (scvi-tools requires unnormalized data)
         snrna = _ensure_counts(snrna)
