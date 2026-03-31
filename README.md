@@ -31,7 +31,7 @@ The framework integrates three data modalities—10x Visium spatial transcriptom
 - **Niche conditioning**: Transitions depend on local neighborhood context
 - **Dual-reference geometry**: Cells are embedded relative to healthy (HLCA) and tumor (LuCA) atlases using model-based scArches surgery
 - **Evolutionary constraints**: WES-derived features enforce biologically plausible transitions
-- **Spatial backend agnostic**: Benchmarked across Tangram, DestVI, TACCO, and Cell2location
+- **Spatial backend agnostic**: Benchmarked across Tangram, DestVI, TACCO, Cell2location, and marker scoring
 
 ---
 
@@ -96,7 +96,7 @@ The first publication scope:
 | Component | Status | Description |
 |-----------|--------|-------------|
 | Raw Data Pipeline | Complete | `stagebridge data-prep` orchestration |
-| Spatial Backend Benchmark | Complete | Tangram/DestVI/TACCO/Cell2Location comparison |
+| Spatial Backend Benchmark | Complete | Tangram/DestVI/TACCO/Cell2location/MarkerScoring comparison |
 | Dual-Reference Latent | Complete | HLCA + LuCA alignment via scArches surgery |
 | Local Niche Encoder | Complete | Receiver-centered niche transformer |
 | Set Transformer | Complete | ISAB/SAB/PMA hierarchy |
@@ -134,6 +134,8 @@ StageBridge integrates multi-modal data from public GEO repositories:
 - [Tangram](https://www.nature.com/articles/s41592-021-01264-7) — deep learning-based spatial mapping
 - [TACCO](https://www.nature.com/articles/s41587-023-01657-3) — optimal transport-based annotation transfer
 - [DestVI](https://www.nature.com/articles/s41587-022-01272-8) — variational inference deconvolution
+- [Cell2location](https://www.nature.com/articles/s41587-021-01139-4) — Bayesian deconvolution with hierarchical priors
+- Marker scoring — reference-free baseline using marker gene signatures
 
 ---
 
@@ -221,7 +223,7 @@ stagebridge/
 ├── pipelines/              # End-to-end workflow orchestration
 │   └── run_data_prep.py             # Step 0 data pipeline
 ├── reference/              # HLCA/LuCA atlas alignment
-├── spatial_mapping/        # Tangram, TACCO, DestVI backends
+├── spatial_mapping/        # Tangram, TACCO, DestVI, Cell2location, MarkerScoring backends
 ├── evaluation/             # Metrics and ablations
 └── viz/                    # Publication figures
 
@@ -282,7 +284,7 @@ $DATA/
 ### Pipeline DAG
 
 ```
-hlca_mapping ──┬──→ add_cell_type_labels ──→ validate_markers ──→ spatial_backend (4x)
+hlca_mapping ──┬──→ add_cell_type_labels ──→ validate_markers ──→ spatial_backend (5x)
                │                                                       │
                └──→ fuse_embeddings ←── luca_mapping                   │
                            │                                           │
