@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from scipy.stats import norm
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 
 def score_markers_scanpy(
