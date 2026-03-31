@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Add dual-reference cell type labels to snRNA data with cycling states.
+Add dual-reference cell type labels to snRNA data with cell cycle scores.
 
 Reads HLCA and LuCA labels from separate parquet files and adds both to the
-snRNA h5ad file. Then scores cycling on the query cells directly and adds
-"_cycling" suffix to proliferating cells.
+snRNA h5ad file. Also scores cell cycle on query cells as continuous features.
 
-- cell_type: HLCA labels with cycling variants (primary, for spatial deconvolution)
-- luca_cell_type: LuCA labels with cycling variants (for ablation experiments)
+- cell_type: HLCA labels (primary, for spatial deconvolution)
+- luca_cell_type: LuCA labels (for ablation experiments)
+- S_score, G2M_score, phase: Cell cycle as continuous features (not cell types)
 
-Cycling is scored directly on query cells (not inferred from reference) because:
-1. Cycling is a cell STATE, not an identity
-2. Query cells should be assessed for their own proliferation status
-3. This is more accurate than inferring cycling from reference proximity
+Cell cycle is scored as continuous features following Sun et al. 2026 (Nature):
+- Cycling is a cell STATE, not an identity
+- Cell cycle should be scored directly on spatial spots, not deconvolved as types
+- Continuous scores allow flexible downstream analysis
 
 Usage:
     python add_cell_type_labels.py \
@@ -116,9 +116,9 @@ def add_dual_labels(
     print(f"  Added luca_cell_type: {adata.obs['luca_cell_type'].nunique()} types")
 
     # ==========================================================================
-    # Score cycling on query cells directly
+    # Score cell cycle as continuous features (Sun et al. 2026 approach)
     # ==========================================================================
-    print("\n=== Scoring Cycling States ===")
+    print("\n=== Scoring Cell Cycle (Continuous Features) ===")
 
     # Filter to genes present in data
     s_genes_present = [g for g in S_PHASE_GENES if g in adata.var_names]
@@ -127,75 +127,36 @@ def add_dual_labels(
     print(f"  G2M phase genes: {len(g2m_genes_present)}/{len(G2M_PHASE_GENES)} present")
 
     if len(s_genes_present) < 5 or len(g2m_genes_present) < 5:
-        print("  WARNING: Too few cell cycle genes - skipping cycling annotation")
+        print("  WARNING: Too few cell cycle genes - skipping cell cycle scoring")
     else:
-        # Score cell cycle
+        # Score cell cycle (adds S_score, G2M_score, phase columns)
         sc.tl.score_genes_cell_cycle(
             adata,
             s_genes=s_genes_present,
             g2m_genes=g2m_genes_present,
         )
 
-        # Identify cycling cells (threshold: score > 0.2)
-        score_threshold = 0.2
-        min_cells_per_type = 50  # Don't create cycling type if < 50 cells
+        # Report cell cycle distribution
+        print("  Cell cycle phase distribution:")
+        for phase, count in adata.obs['phase'].value_counts().items():
+            pct = 100 * count / len(adata)
+            print(f"    {phase}: {count:,} ({pct:.1f}%)")
 
-        cycling_mask = (
-            (adata.obs['S_score'] > score_threshold) |
-            (adata.obs['G2M_score'] > score_threshold)
-        )
-        n_cycling = cycling_mask.sum()
-        print(f"  Identified {n_cycling:,} cycling cells ({100*n_cycling/len(adata):.1f}%)")
+        # Report score statistics
+        print(f"  S_score: mean={adata.obs['S_score'].mean():.3f}, max={adata.obs['S_score'].max():.3f}")
+        print(f"  G2M_score: mean={adata.obs['G2M_score'].mean():.3f}, max={adata.obs['G2M_score'].max():.3f}")
 
-        # Add cycling suffix only if resulting type has >= min_cells_per_type
-        # This prevents ultra-rare types (e.g., 1 cell) that break downstream tools
-
-        # HLCA labels
-        adata.obs["cell_type"] = adata.obs["cell_type"].astype(str)
-        hlca_cycling_counts = adata.obs.loc[cycling_mask, "cell_type"].value_counts()
-        hlca_valid_types = hlca_cycling_counts[hlca_cycling_counts >= min_cells_per_type].index.tolist()
-        hlca_valid_mask = cycling_mask & adata.obs["cell_type"].isin(hlca_valid_types)
-        adata.obs.loc[hlca_valid_mask, "cell_type"] = (
-            adata.obs.loc[hlca_valid_mask, "cell_type"] + "_cycling"
-        )
-        adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
-        print(f"  HLCA: Added cycling to {len(hlca_valid_types)} types ({hlca_valid_mask.sum():,} cells)")
-
-        # LuCA labels
-        adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype(str)
-        luca_cycling_counts = adata.obs.loc[cycling_mask, "luca_cell_type"].value_counts()
-        luca_valid_types = luca_cycling_counts[luca_cycling_counts >= min_cells_per_type].index.tolist()
-        luca_valid_mask = cycling_mask & adata.obs["luca_cell_type"].isin(luca_valid_types)
-        adata.obs.loc[luca_valid_mask, "luca_cell_type"] = (
-            adata.obs.loc[luca_valid_mask, "luca_cell_type"] + "_cycling"
-        )
-        adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype("category")
-        print(f"  LuCA: Added cycling to {len(luca_valid_types)} types ({luca_valid_mask.sum():,} cells)")
-
-        # Report skipped types
-        hlca_skipped = set(hlca_cycling_counts.index) - set(hlca_valid_types)
-        luca_skipped = set(luca_cycling_counts.index) - set(luca_valid_types)
-        if hlca_skipped:
-            print(f"  HLCA skipped (< {min_cells_per_type} cells): {sorted(hlca_skipped)}")
-        if luca_skipped:
-            print(f"  LuCA skipped (< {min_cells_per_type} cells): {sorted(luca_skipped)}")
+    # NOTE: Cell cycle is NOT added to cell type names.
+    # Following Sun et al. 2026: cycling is a state, not an identity.
+    # Cell cycle should be scored directly on spatial spots for analysis.
 
     # Summary
-    print("\n=== Label Summary (with cycling) ===")
+    print("\n=== Label Summary ===")
     print(f"HLCA (cell_type): {adata.obs['cell_type'].nunique()} types")
     print("Top 10:")
     for label, count in adata.obs["cell_type"].value_counts().head(10).items():
         pct = 100 * count / len(adata)
         print(f"  {label}: {count:,} ({pct:.1f}%)")
-
-    # Count cycling types
-    cycling_types = [t for t in adata.obs["cell_type"].unique() if "_cycling" in str(t)]
-    if cycling_types:
-        print(f"\nCycling cell types ({len(cycling_types)}):")
-        cycling_counts = adata.obs["cell_type"].value_counts()
-        for ct in sorted(cycling_types):
-            if ct in cycling_counts.index:
-                print(f"  {ct}: {cycling_counts[ct]:,}")
 
     print(f"\nLuCA (luca_cell_type): {adata.obs['luca_cell_type'].nunique()} types")
     print("Top 10:")
