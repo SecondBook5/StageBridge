@@ -68,12 +68,14 @@ class TangramBackend(SpatialBackend):
         device: str | None = None,
         prefer_scvi: bool = False,
         max_cells: int = 100000,
+        min_cells_per_type: int = 5,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
         self.mode = mode
         self.max_cells = max_cells
+        self.min_cells_per_type = min_cells_per_type
         self.marker_genes = marker_genes
         self.n_epochs = n_epochs
         self.density_prior = density_prior
@@ -112,6 +114,18 @@ class TangramBackend(SpatialBackend):
         self.validate_inputs(snrna, spatial)
         snrna, spatial = self.preprocess(snrna, spatial)
         print(f"  After preprocess: snRNA {snrna.shape}, spatial {spatial.shape}")
+
+        # Filter rare cell types to avoid stratified sampling errors
+        # (sklearn requires at least 2 samples per class for stratification)
+        if self.min_cells_per_type > 0:
+            cell_type_counts = snrna.obs["cell_type"].value_counts()
+            rare_types = cell_type_counts[cell_type_counts < self.min_cells_per_type].index.tolist()
+            if rare_types:
+                print(f"  Filtering {len(rare_types)} rare cell types with < {self.min_cells_per_type} cells: {rare_types}")
+                mask = ~snrna.obs["cell_type"].isin(rare_types)
+                snrna = snrna[mask].copy()
+                snrna.obs["cell_type"] = snrna.obs["cell_type"].cat.remove_unused_categories()
+                print(f"  {len(snrna)} cells remaining with {snrna.obs['cell_type'].nunique()} cell types")
 
         # Subsample for marker gene selection (memory intensive)
         if self.max_cells is not None and len(snrna) > self.max_cells:

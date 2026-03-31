@@ -204,6 +204,16 @@ class DestVIBackend(SpatialBackend):
         self._snrna_ref = snrna
         self._spatial_ref = spatial
 
+        # CRITICAL: Save models IMMEDIATELY after training before any post-processing
+        # This prevents losing 3+ hours of training if post-processing fails
+        if output_dir:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            print("  Saving trained models...")
+            sc_model.save(output_dir / "condscvi_model", overwrite=True)
+            spatial_model.save(output_dir / "destvi_model", overwrite=True)
+            print("  Models saved successfully")
+
         # Extract cell type proportions
         proportions = spatial_model.get_proportions()
         cell_types = snrna.obs["cell_type"].cat.categories.tolist()
@@ -244,22 +254,24 @@ class DestVIBackend(SpatialBackend):
             "n_celltypes": len(cell_types),
         }
 
-        # Save outputs if output_dir provided
+        # Save additional outputs if output_dir provided
+        # Note: Models already saved immediately after training above
         if output_dir:
-            output_dir = Path(output_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-            # Save models
-            sc_model.save(output_dir / "condscvi_model", overwrite=True)
-            spatial_model.save(output_dir / "destvi_model", overwrite=True)
-
             # Save training history / loss curves
+            # Filter out scalar values (like kl_weight) that break pd.DataFrame
+            def filter_history_lists(hist: dict) -> dict:
+                return {k: v for k, v in hist.items() if hasattr(v, '__len__') and len(v) > 0}
+
             if self._condscvi_history:
-                condscvi_hist_df = pd.DataFrame(self._condscvi_history)
-                condscvi_hist_df.to_csv(output_dir / "condscvi_training_history.csv", index=False)
+                hist_lists = filter_history_lists(self._condscvi_history)
+                if hist_lists:
+                    condscvi_hist_df = pd.DataFrame(hist_lists)
+                    condscvi_hist_df.to_csv(output_dir / "condscvi_training_history.csv", index=False)
             if self._destvi_history:
-                destvi_hist_df = pd.DataFrame(self._destvi_history)
-                destvi_hist_df.to_csv(output_dir / "destvi_training_history.csv", index=False)
+                hist_lists = filter_history_lists(self._destvi_history)
+                if hist_lists:
+                    destvi_hist_df = pd.DataFrame(hist_lists)
+                    destvi_hist_df.to_csv(output_dir / "destvi_training_history.csv", index=False)
 
             # Save proportions
             cell_type_proportions.to_csv(output_dir / "destvi_cell_type_props.csv")

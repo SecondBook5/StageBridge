@@ -138,6 +138,8 @@ def add_dual_labels(
 
         # Identify cycling cells (threshold: score > 0.2)
         score_threshold = 0.2
+        min_cells_per_type = 50  # Don't create cycling type if < 50 cells
+
         cycling_mask = (
             (adata.obs['S_score'] > score_threshold) |
             (adata.obs['G2M_score'] > score_threshold)
@@ -145,22 +147,38 @@ def add_dual_labels(
         n_cycling = cycling_mask.sum()
         print(f"  Identified {n_cycling:,} cycling cells ({100*n_cycling/len(adata):.1f}%)")
 
-        # Add cycling suffix to cell types
+        # Add cycling suffix only if resulting type has >= min_cells_per_type
+        # This prevents ultra-rare types (e.g., 1 cell) that break downstream tools
+
         # HLCA labels
         adata.obs["cell_type"] = adata.obs["cell_type"].astype(str)
-        adata.obs.loc[cycling_mask, "cell_type"] = (
-            adata.obs.loc[cycling_mask, "cell_type"] + "_cycling"
+        hlca_cycling_counts = adata.obs.loc[cycling_mask, "cell_type"].value_counts()
+        hlca_valid_types = hlca_cycling_counts[hlca_cycling_counts >= min_cells_per_type].index.tolist()
+        hlca_valid_mask = cycling_mask & adata.obs["cell_type"].isin(hlca_valid_types)
+        adata.obs.loc[hlca_valid_mask, "cell_type"] = (
+            adata.obs.loc[hlca_valid_mask, "cell_type"] + "_cycling"
         )
         adata.obs["cell_type"] = adata.obs["cell_type"].astype("category")
+        print(f"  HLCA: Added cycling to {len(hlca_valid_types)} types ({hlca_valid_mask.sum():,} cells)")
 
         # LuCA labels
         adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype(str)
-        adata.obs.loc[cycling_mask, "luca_cell_type"] = (
-            adata.obs.loc[cycling_mask, "luca_cell_type"] + "_cycling"
+        luca_cycling_counts = adata.obs.loc[cycling_mask, "luca_cell_type"].value_counts()
+        luca_valid_types = luca_cycling_counts[luca_cycling_counts >= min_cells_per_type].index.tolist()
+        luca_valid_mask = cycling_mask & adata.obs["luca_cell_type"].isin(luca_valid_types)
+        adata.obs.loc[luca_valid_mask, "luca_cell_type"] = (
+            adata.obs.loc[luca_valid_mask, "luca_cell_type"] + "_cycling"
         )
         adata.obs["luca_cell_type"] = adata.obs["luca_cell_type"].astype("category")
+        print(f"  LuCA: Added cycling to {len(luca_valid_types)} types ({luca_valid_mask.sum():,} cells)")
 
-        print(f"  Added '_cycling' suffix to {n_cycling:,} cells in both label columns")
+        # Report skipped types
+        hlca_skipped = set(hlca_cycling_counts.index) - set(hlca_valid_types)
+        luca_skipped = set(luca_cycling_counts.index) - set(luca_valid_types)
+        if hlca_skipped:
+            print(f"  HLCA skipped (< {min_cells_per_type} cells): {sorted(hlca_skipped)}")
+        if luca_skipped:
+            print(f"  LuCA skipped (< {min_cells_per_type} cells): {sorted(luca_skipped)}")
 
     # Summary
     print("\n=== Label Summary (with cycling) ===")
