@@ -91,11 +91,21 @@ class MarkerScoringBackend(SpatialBackend):
         # Normalize confidence to [0, 1]
         confidence = (confidence - confidence.min()) / (confidence.max() - confidence.min() + 1e-10)
 
+        # Compute upstream metrics
+        upstream_metrics = {
+            "n_spots": len(spatial),
+            "n_celltypes": len(markers),
+            "mean_entropy": float(compute_cell_type_entropy(proportions).mean()),
+            "sparsity": float(compute_sparsity(proportions)),
+            "coverage": float((confidence > 0.5).mean()),
+            "mean_confidence": float(confidence.mean()),
+        }
+
         # Create result
         result = BackendMappingResult(
             cell_type_proportions=proportions,
             confidence=confidence,
-            reconstructed_expression=None,  # Marker scoring doesn't reconstruct
+            upstream_metrics=upstream_metrics,
             metadata={
                 "backend": "marker_scoring",
                 "use_reference_markers": self.use_reference_markers,
