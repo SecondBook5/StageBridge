@@ -228,8 +228,14 @@ class DestVIBackend(SpatialBackend):
             print("  Models saved successfully")
 
         # Extract cell type proportions
+        print("  Extracting cell type proportions...")
         proportions = spatial_model.get_proportions()
+        print(f"  get_proportions() returned type: {type(proportions)}")
+        if hasattr(proportions, 'shape'):
+            print(f"  shape: {proportions.shape}")
+
         cell_types = snrna.obs["cell_type"].cat.categories.tolist()
+        print(f"  Cell types ({len(cell_types)}): {cell_types[:5]}...")
 
         # get_proportions() returns DataFrame with proper index and columns (per tutorial)
         if isinstance(proportions, pd.DataFrame):
@@ -246,6 +252,7 @@ class DestVIBackend(SpatialBackend):
                 f"Unexpected return type from get_proportions(): {type(proportions)}. "
                 f"Expected DataFrame or ndarray."
             )
+        print(f"  Proportions DataFrame: {cell_type_proportions.shape}")
 
         # Compute confidence from proportions (max proportion per spot)
         confidence = pd.Series(
@@ -271,28 +278,46 @@ class DestVIBackend(SpatialBackend):
         # Note: Models already saved immediately after training above
         if output_dir:
             # Save training history / loss curves
-            # Filter out scalar values (like kl_weight) that break pd.DataFrame
-            def filter_history_lists(hist: dict) -> dict:
-                return {k: v for k, v in hist.items() if hasattr(v, '__len__') and len(v) > 0}
+            # scvi-tools stores history as DataFrames (one column each), need to concat them
+            def history_to_dataframe(hist: dict) -> pd.DataFrame | None:
+                if not hist:
+                    return None
+                series_dict = {}
+                for k, v in hist.items():
+                    if isinstance(v, pd.DataFrame):
+                        # Extract first column as series
+                        series_dict[k] = v.iloc[:, 0].values
+                    elif isinstance(v, (list, np.ndarray)) and len(v) > 0:
+                        series_dict[k] = v
+                    # Skip scalars
+                if not series_dict:
+                    return None
+                return pd.DataFrame(series_dict)
 
             if self._condscvi_history:
-                hist_lists = filter_history_lists(self._condscvi_history)
-                if hist_lists:
-                    condscvi_hist_df = pd.DataFrame(hist_lists)
+                condscvi_hist_df = history_to_dataframe(self._condscvi_history)
+                if condscvi_hist_df is not None:
                     condscvi_hist_df.to_csv(output_dir / "condscvi_training_history.csv", index=False)
             if self._destvi_history:
-                hist_lists = filter_history_lists(self._destvi_history)
-                if hist_lists:
-                    destvi_hist_df = pd.DataFrame(hist_lists)
+                destvi_hist_df = history_to_dataframe(self._destvi_history)
+                if destvi_hist_df is not None:
                     destvi_hist_df.to_csv(output_dir / "destvi_training_history.csv", index=False)
 
             # Save proportions
             cell_type_proportions.to_csv(output_dir / "destvi_cell_type_props.csv")
 
             # Save gamma values (intra-cell-type variation)
-            gamma_dict = spatial_model.get_gamma()
-            for ct, gamma_df in gamma_dict.items():
-                gamma_df.to_csv(output_dir / f"destvi_gamma_{ct.replace(' ', '_')}.csv")
+            try:
+                gamma_dict = spatial_model.get_gamma()
+                for ct, gamma_val in gamma_dict.items():
+                    # Handle both DataFrame and ndarray returns (API varies by scvi-tools version)
+                    if isinstance(gamma_val, pd.DataFrame):
+                        gamma_val.to_csv(output_dir / f"destvi_gamma_{ct.replace(' ', '_')}.csv")
+                    elif isinstance(gamma_val, np.ndarray):
+                        gamma_df = pd.DataFrame(gamma_val, index=spatial.obs_names)
+                        gamma_df.to_csv(output_dir / f"destvi_gamma_{ct.replace(' ', '_')}.csv")
+            except Exception as e:
+                print(f"  Warning: Could not save gamma values: {e}")
 
             # Save annotated spatial data with proportions
             spatial_annotated = spatial.copy()
