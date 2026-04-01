@@ -47,8 +47,9 @@ ABLATIONS = f"{RUNS}/ablations"
 FIGURES = f"{RUNS}/publication_figures"
 
 # Spatial backends to run
-# Current: 4 original + marker_scoring baseline (5 total)
-# TODO: Add RCTD, CARD, SPOTlight wrappers
+# Python backends: tangram, destvi, tacco, cell2location, marker_scoring
+# R backends (Paper 3): rctd, card, spotlight (require R packages: spacexr, CARD, SPOTlight)
+# NOTE: R backends disabled for v1 - enable after installing R packages on HPC
 SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location", "marker_scoring"]
 
 # Label sources for spatial deconvolution ablation (HLCA vs LuCA cell types)
@@ -346,7 +347,7 @@ rule spatial_backend_aggregate:
 
 
 # Step 3d: Compare backends across label sources (HLCA vs LuCA ablation)
-# This is a checkpoint because canonical_backend_sample needs to read its output
+# This is a checkpoint because downstream rules need to read its output
 checkpoint spatial_comparison:
     input:
         # All backends x all label sources
@@ -374,75 +375,17 @@ checkpoint spatial_comparison:
 
 
 # =============================================================================
-# Stage 3e: Run Canonical Backend on Full Cohort (all samples)
+# Stage 3e: Create Canonical Backend Outputs (from existing benchmark results)
 # =============================================================================
-# After benchmarking 9 stratified samples, run the winning backend on ALL samples.
-# This uses the same array job pattern as the benchmark, but only for the canonical backend.
-
-# Helper to read canonical backend choice
-def get_canonical_backend(wildcards):
-    """Read canonical backend from benchmark results."""
-    import json
-    canonical_file = checkpoints.spatial_comparison.get(**wildcards).output.canonical
-    with open(canonical_file) as f:
-        return json.load(f)
-
-rule canonical_backend_sample:
-    input:
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
-        spatial = f"{PROCESSED}/spatial_merged.h5ad",
-        canonical_choice = f"{SPATIAL}/canonical_backend.json",
-        manifest = f"{SPATIAL}/sample_manifest.json"
-    output:
-        metrics = f"{SPATIAL}/canonical/samples/{{sample}}/upstream_metrics.json",
-        proportions = f"{SPATIAL}/canonical/samples/{{sample}}/cell_type_proportions.parquet"
-    threads: 8
-    resources:
-        mem_mb = 256000,  # 256GB for 35GB spatial + 19GB snRNA
-        runtime = 480,  # 8 hours (worst case)
-        slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
-    log:
-        f"{RUNS}/logs/spatial/canonical/{{sample}}.log"
-    shell:
-        """
-        # Read canonical backend from benchmark results
-        BACKEND=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['backend'])")
-        LABEL_SOURCE=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['label_source'])")
-
-        echo "Running $BACKEND ($LABEL_SOURCE) on {wildcards.sample}"
-
-        python -m stagebridge.pipelines.run_spatial_benchmark \
-            --snrna {input.snrna} \
-            --spatial {input.spatial} \
-            --output_dir {SPATIAL}/canonical/samples/{wildcards.sample} \
-            --backends $BACKEND \
-            --sample {wildcards.sample} \
-            --sample-col sample_id \
-            --label-source $LABEL_SOURCE \
-            2>&1 | tee {log}
-        """
-
-
-def get_all_canonical_outputs(wildcards):
-    """Get all per-sample outputs for canonical backend after checkpoint."""
-    checkpoint_output = checkpoints.extract_spatial_samples.get(**wildcards).output.manifest
-    import json
-    with open(checkpoint_output) as f:
-        manifest = json.load(f)
-    samples = manifest["samples"]
-    return expand(
-        f"{SPATIAL}/canonical/samples/{{sample}}/upstream_metrics.json",
-        sample=samples
-    )
-
+# Since we benchmark ALL samples with ALL backends, no need to rerun the winner.
+# Just copy/symlink the winning backend's results to canonical/ directory.
 
 rule canonical_backend_aggregate:
     input:
-        sample_metrics = get_all_canonical_outputs,
-        manifest = f"{SPATIAL}/sample_manifest.json",
-        canonical_choice = f"{SPATIAL}/canonical_backend.json"
+        # Depend on spatial_comparison which ensures all backends are done
+        comparison = f"{SPATIAL}/backend_comparison.json",
+        canonical_choice = f"{SPATIAL}/canonical_backend.json",
+        manifest = f"{SPATIAL}/sample_manifest.json"
     output:
         proportions = f"{SPATIAL}/canonical/cell_type_proportions.parquet",
         metrics = f"{SPATIAL}/canonical/upstream_metrics.json"
@@ -454,8 +397,21 @@ rule canonical_backend_aggregate:
         f"{RUNS}/logs/spatial/canonical_aggregate.log"
     shell:
         """
+        # Read winning backend and label source
         BACKEND=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['backend'])")
+        LABEL_SOURCE=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['label_source'])")
 
+        echo "Canonical backend: $BACKEND ($LABEL_SOURCE)"
+        echo "Copying results from existing benchmark (no rerun needed)"
+
+        # Create canonical/samples/ by symlinking from winning backend's results
+        mkdir -p {SPATIAL}/canonical/samples
+        for sample_dir in {SPATIAL}/$LABEL_SOURCE/$BACKEND/samples/*/; do
+            sample=$(basename "$sample_dir")
+            ln -sfn "$(realpath $sample_dir)" "{SPATIAL}/canonical/samples/$sample"
+        done
+
+        # Aggregate using existing script
         python workflow/scripts/aggregate_spatial_samples.py \
             --backend $BACKEND \
             --sample-dir {SPATIAL}/canonical/samples \
