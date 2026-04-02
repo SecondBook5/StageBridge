@@ -112,8 +112,6 @@ The first publication scope:
 - Cohort transport layer
 - Destination-conditioned transitions (brain metastasis)
 
-See [AGENTS.md](AGENTS.md) for detailed implementation plans.
-
 ---
 
 ## Data
