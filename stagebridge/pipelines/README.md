@@ -79,16 +79,16 @@ This directory contains all pipeline scripts for the StageBridge V1 workflow.
                               ====================
 
 ┌─────────────────────────────┐    ┌─────────────────────────────┐
-│  run_v1_synthetic.py        │    │  run_v1_full.py             │
-│  Synthetic data ONLY        │    │  Real data ONLY             │
-│  For testing/validation     │    │  Production components      │
+│  run_v1_full.py             │    │  pretrain_local.py          │
+│  Real data ONLY             │    │  Local SSL pretraining only │
+│  Production components      │    │  For development/debugging  │
 └─────────────────────────────┘    └─────────────────────────────┘
 
-┌─────────────────────────────┐    ┌─────────────────────────────┐
-│  run_full.py                │    │  pretrain_local.py          │
-│  OmegaConf-based orchestrator│   │  Local SSL pretraining only │
-│  Calls: run_reference →     │    │  For development/debugging  │
-│         run_spatial_mapping →│    └─────────────────────────────┘
+┌─────────────────────────────┐
+│  run_full.py                │
+│  OmegaConf-based orchestrator│
+│  Calls: run_reference →     │
+│         run_spatial_mapping →│
 │         run_context_model → │
 │         run_transition_model│
 └─────────────────────────────┘
@@ -106,7 +106,6 @@ This directory contains all pipeline scripts for the StageBridge V1 workflow.
 | `complete_data_prep.py` | Build canonical format | After spatial benchmark |
 | **`run_v1_complete.py`** | **Full training (both datasets)** | **Production runs** |
 | `run_v1_full.py` | Training (real data only) | Real data only |
-| `run_v1_synthetic.py` | Training (synthetic only) | Testing/validation |
 | `run_full.py` | OmegaConf orchestrator | Config-driven runs |
 
 ## HPC Execution Order
@@ -198,10 +197,9 @@ python -m stagebridge.pipelines.run_v1_complete \
 - `run_spatial_benchmark.py`: Compare ALL backends, select best
 - `run_spatial_mapping.py`: Run a SINGLE chosen backend
 
-### `run_v1_complete.py` vs `run_v1_full.py` vs `run_v1_synthetic.py`
+### `run_v1_complete.py` vs `run_v1_full.py`
 - `run_v1_complete.py`: Both datasets, comprehensive (RECOMMENDED)
 - `run_v1_full.py`: Real data only, production model
-- `run_v1_synthetic.py`: Synthetic only, for testing
 
 ## Artifact Locations
 
