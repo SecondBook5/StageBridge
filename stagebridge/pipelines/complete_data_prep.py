@@ -104,11 +104,35 @@ def generate_canonical_artifacts(
     print(f"  Generated {n_folds}-fold CV splits")
 
     # Generate feature_spec.yaml
-    print("\n[6/6] Generating feature_spec.yaml...")
+    print("\n[6/7] Generating feature_spec.yaml...")
     feature_spec = generate_feature_spec(cells_df, neighborhoods_df)
     with open(output_dir / "feature_spec.yaml", "w") as f:
         yaml.dump(feature_spec, f)
     print("  Saved feature specifications")
+
+    # Generate data_manifest.json
+    print("\n[7/7] Generating data_manifest.json...")
+    data_manifest = {
+        "n_cells": len(cells_df),
+        "n_snrna_cells": int((cells_df["modality"] == "snrna").sum()),
+        "n_spatial_spots": int((cells_df["modality"] == "spatial").sum()),
+        "n_neighborhoods": len(neighborhoods_df),
+        "n_donors": int(cells_df["donor_id"].nunique()),
+        "n_stages": int(cells_df["stage"].nunique()),
+        "n_cell_types": int(cells_df["cell_type"].nunique()),
+        "stages": sorted(cells_df["stage"].unique().tolist()),
+        "n_folds": n_folds,
+        "files": {
+            "cells": "cells.parquet",
+            "neighborhoods": "neighborhoods.parquet",
+            "stage_edges": "stage_edges.parquet",
+            "split_manifest": "split_manifest.json",
+            "feature_spec": "feature_spec.yaml",
+        },
+    }
+    with open(output_dir / "data_manifest.json", "w") as f:
+        json.dump(data_manifest, f, indent=2)
+    print(f"  Saved data manifest")
 
     print("\n" + "=" * 80)
     print(" Canonical artifacts complete!")
