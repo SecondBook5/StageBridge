@@ -14,23 +14,23 @@ Baselines:
 5. StageBridge - Receiver-centered niche + dual references (full model)
 
 Usage:
-    from stagebridge.baselines import run_baseline_comparison
+    from stagebridge.baselines import load_benchmark_tensors, train_baseline
 
-    results = run_baseline_comparison(
-        benchmark_dir=Path("data/benchmarks/granular_medium"),
-        output_dir=Path("results/baselines"),
-    )
+    tensors = load_benchmark_tensors(Path("data/canonical/benchmark"))
+    # Train and evaluate baselines on semi_synthetic.pt
 """
 
 from stagebridge.baselines.evaluate import (
-    run_baseline_comparison,
-    load_benchmark_world,
-    load_benchmark_split,
-    BenchmarkWorld,
+    load_benchmark_tensors,
+    create_splits,
     EvaluationMetrics,
+    PoolingMLPBaseline,
+    DeepSetsBaseline,
+    SetTransformerBaseline,
+    GraphSAGEBaseline,
+    train_baseline,
+    evaluate_baseline,
 )
-from stagebridge.baselines.graph_sage import GraphSAGEBaseline
-
 # Import existing baselines from other modules
 from stagebridge.context_model.baselines_lesion import (
     PooledLesionBaseline,
@@ -45,16 +45,20 @@ from stagebridge.transition_model.baselines import (
 
 __all__ = [
     # Evaluation
-    "run_baseline_comparison",
-    "load_benchmark_world",
-    "load_benchmark_split",
-    "BenchmarkWorld",
+    "load_benchmark_tensors",
+    "create_splits",
     "EvaluationMetrics",
-    # Baselines
+    "train_baseline",
+    "evaluate_baseline",
+    # Baselines (new simple implementations)
+    "PoolingMLPBaseline",
+    "DeepSetsBaseline",
+    "SetTransformerBaseline",
+    "GraphSAGEBaseline",
+    # Legacy baselines
     "PooledLesionBaseline",
     "DeepSetsLesionBaseline",
     "LesionSetTransformerBaseline",
-    "GraphSAGEBaseline",
     "DeepSetsFlowModel",
     "NoContextFlowModel",
     "LinearTransitionBaseline",
