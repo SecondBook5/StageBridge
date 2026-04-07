@@ -16,12 +16,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
-import anndata
+import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, Dataset
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
+from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 from stagebridge.logging_utils import get_logger
@@ -30,285 +32,288 @@ log = get_logger(__name__)
 
 
 @dataclass
-class BenchmarkWorld:
-    """Loaded semi-synthetic world for evaluation."""
-
-    world_id: str
-    split: Literal["train", "val", "test"]
-    expression: anndata.AnnData  # [n_cells, n_genes]
-    coordinates: pd.DataFrame  # columns: synthetic_cell_id, x, y
-    ground_truth: pd.DataFrame  # columns: stage, cell_group, is_interacting, etc.
-    metadata: dict
-
-
-@dataclass
 class EvaluationMetrics:
     """Evaluation metrics for a single baseline."""
 
     baseline_name: str
     split: str
-
-    # Stage prediction
-    stage_accuracy: float
-    stage_balanced_accuracy: float
-    stage_f1_macro: float
-
-    # Transition quality (if applicable)
-    transition_l2: float | None = None
-    transition_cosine: float | None = None
-
-    # Niche awareness (if applicable)
-    niche_consistency: float | None = None
-    interaction_detection_auc: float | None = None
+    accuracy: float
+    balanced_accuracy: float
+    f1_macro: float
 
 
-def load_benchmark_world(world_dir: Path) -> BenchmarkWorld:
-    """Load a single world from exported benchmark."""
-    import json
+def load_benchmark_tensors(benchmark_dir: Path) -> dict:
+    """Load benchmark from semi_synthetic.pt file.
 
-    # Load expression
-    expr_path = world_dir / "expression.h5ad"
-    if not expr_path.exists():
-        raise FileNotFoundError(f"Expression data not found: {expr_path}")
-    expression = anndata.read_h5ad(expr_path)
+    Args:
+        benchmark_dir: Path to benchmark directory containing semi_synthetic.pt
 
-    # Load coordinates
-    coords_path = world_dir / "coordinates.parquet"
-    coordinates = pd.read_parquet(coords_path)
+    Returns:
+        Dictionary with tensors: expression, positions, stage_idx, is_interacting, etc.
+    """
+    benchmark_path = benchmark_dir / "semi_synthetic.pt"
+    if not benchmark_path.exists():
+        raise FileNotFoundError(f"Benchmark file not found: {benchmark_path}")
 
-    # Load ground truth
-    gt_path = world_dir / "ground_truth.parquet"
-    ground_truth = pd.read_parquet(gt_path)
+    log.info(f"Loading benchmark from {benchmark_path}")
+    tensors = torch.load(benchmark_path, map_location="cpu", weights_only=False)
 
-    # Load metadata
-    meta_path = world_dir / "world_metadata.json"
-    with open(meta_path) as f:
-        metadata = json.load(f)
+    log.info(f"  Expression: {tensors['expression'].shape}")
+    log.info(f"  Stages: {tensors.get('stage_names', 'N/A')}")
 
-    # Infer world_id and split from path
-    world_id = world_dir.name
-    split = world_dir.parent.name
+    return tensors
 
-    return BenchmarkWorld(
-        world_id=world_id,
-        split=split,
-        expression=expression,
-        coordinates=coordinates,
-        ground_truth=ground_truth,
-        metadata=metadata,
+
+def create_splits(tensors: dict, val_ratio: float = 0.15, test_ratio: float = 0.15, seed: int = 42):
+    """Split benchmark tensors into train/val/test.
+
+    Args:
+        tensors: Dictionary from load_benchmark_tensors
+        val_ratio: Fraction for validation
+        test_ratio: Fraction for test
+        seed: Random seed
+
+    Returns:
+        Tuple of (train_data, val_data, test_data) TensorDatasets
+    """
+    expression = tensors["expression"]
+    positions = tensors["positions"]
+    stage_idx = tensors["stage_idx"]
+
+    n_samples = len(expression)
+    indices = np.arange(n_samples)
+
+    # First split: train+val vs test
+    train_val_idx, test_idx = train_test_split(
+        indices, test_size=test_ratio, random_state=seed, stratify=stage_idx.numpy()
     )
 
+    # Second split: train vs val
+    val_size = val_ratio / (1 - test_ratio)
+    train_idx, val_idx = train_test_split(
+        train_val_idx, test_size=val_size, random_state=seed,
+        stratify=stage_idx[train_val_idx].numpy()
+    )
 
-def load_benchmark_split(
-    benchmark_dir: Path, split: Literal["train", "val", "test"]
-) -> list[BenchmarkWorld]:
-    """Load all worlds from a split."""
-    split_dir = benchmark_dir / split
-    if not split_dir.exists():
-        raise FileNotFoundError(f"Split directory not found: {split_dir}")
+    log.info(f"Split sizes: train={len(train_idx)}, val={len(val_idx)}, test={len(test_idx)}")
 
-    worlds = []
-    for world_dir in sorted(split_dir.glob("world_*")):
-        try:
-            world = load_benchmark_world(world_dir)
-            worlds.append(world)
-        except Exception as e:
-            log.warning(f"Failed to load {world_dir.name}: {e}")
+    def make_dataset(idx):
+        return TensorDataset(
+            expression[idx],
+            positions[idx],
+            stage_idx[idx],
+        )
 
-    log.info(f"Loaded {len(worlds)} worlds from {split} split")
-    return worlds
+    return make_dataset(train_idx), make_dataset(val_idx), make_dataset(test_idx)
 
 
-class BenchmarkDataset(Dataset):
-    """PyTorch dataset wrapper for benchmark worlds."""
+class SimpleBaseline(nn.Module):
+    """Simple MLP baseline for stage classification."""
 
-    def __init__(self, worlds: list[BenchmarkWorld]):
-        self.worlds = worlds
+    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, n_classes),
+        )
 
-    def __len__(self) -> int:
-        return len(self.worlds)
+    def forward(self, x):
+        return self.net(x)
 
-    def __getitem__(self, idx: int) -> dict:
-        world = self.worlds[idx]
 
-        # Expression matrix
-        X = torch.from_numpy(world.expression.X).float()
+class PoolingMLPBaseline(nn.Module):
+    """Mean pooling + MLP baseline."""
 
-        # Coordinates
-        coords = torch.from_numpy(world.coordinates[["x", "y"]].values).float()
+    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, n_classes),
+        )
 
-        # Stage labels (if available)
-        if "stage" in world.ground_truth.columns:
-            # Map stage names to indices
-            stage_map = {"Normal": 0, "AAH": 1, "AIS": 2, "MIA": 3, "LUAD": 4}
-            stages = world.ground_truth["stage"].map(stage_map).values
-            stage_labels = torch.from_numpy(stages).long()
-        else:
-            stage_labels = torch.zeros(X.shape[0], dtype=torch.long)
+    def forward(self, x):
+        # x: [batch, features]
+        h = self.encoder(x)
+        return self.classifier(h)
 
-        # Interaction labels (if available)
-        if "is_interacting" in world.ground_truth.columns:
-            interactions = torch.from_numpy(world.ground_truth["is_interacting"].values).float()
-        else:
-            interactions = torch.zeros(X.shape[0])
 
-        return {
-            "expression": X,
-            "coordinates": coords,
-            "stage_labels": stage_labels,
-            "interactions": interactions,
-            "world_id": world.world_id,
-        }
+class DeepSetsBaseline(nn.Module):
+    """DeepSets-style baseline with permutation invariance."""
+
+    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5):
+        super().__init__()
+        self.phi = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.rho = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, n_classes),
+        )
+
+    def forward(self, x):
+        h = self.phi(x)
+        return self.rho(h)
+
+
+class SetTransformerBaseline(nn.Module):
+    """Simplified Set Transformer baseline."""
+
+    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5, n_heads: int = 4):
+        super().__init__()
+        self.embed = nn.Linear(input_dim, hidden_dim)
+        self.attn = nn.MultiheadAttention(hidden_dim, n_heads, batch_first=True)
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, n_classes),
+        )
+
+    def forward(self, x):
+        # x: [batch, features]
+        h = self.embed(x).unsqueeze(1)  # [batch, 1, hidden]
+        h, _ = self.attn(h, h, h)
+        h = h.squeeze(1)  # [batch, hidden]
+        return self.classifier(h)
+
+
+class GraphSAGEBaseline(nn.Module):
+    """Simplified GraphSAGE-style baseline (no actual graph, just spatial-aware)."""
+
+    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5):
+        super().__init__()
+        # Include position info
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim + 2, hidden_dim),  # +2 for x,y coords
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+        )
+        self.classifier = nn.Linear(hidden_dim, n_classes)
+
+    def forward(self, x, coords=None):
+        if coords is not None:
+            x = torch.cat([x, coords], dim=-1)
+        h = self.encoder(x)
+        return self.classifier(h)
+
+
+def train_baseline(
+    model: nn.Module,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    device: torch.device,
+    epochs: int = 50,
+    lr: float = 1e-3,
+    use_coords: bool = False,
+) -> nn.Module:
+    """Train a baseline model.
+
+    Args:
+        model: Baseline model
+        train_loader: Training data
+        val_loader: Validation data
+        device: Device
+        epochs: Number of epochs
+        lr: Learning rate
+        use_coords: Whether model uses coordinates
+
+    Returns:
+        Trained model
+    """
+    model = model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss()
+
+    best_val_acc = 0
+    best_state = None
+
+    for epoch in range(epochs):
+        # Training
+        model.train()
+        train_loss = 0
+        for batch in train_loader:
+            expr, coords, labels = [b.to(device) for b in batch]
+
+            optimizer.zero_grad()
+            if use_coords:
+                logits = model(expr, coords)
+            else:
+                logits = model(expr)
+            loss = criterion(logits, labels)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+
+        # Validation
+        model.eval()
+        val_preds, val_labels = [], []
+        with torch.no_grad():
+            for batch in val_loader:
+                expr, coords, labels = [b.to(device) for b in batch]
+                if use_coords:
+                    logits = model(expr, coords)
+                else:
+                    logits = model(expr)
+                val_preds.extend(logits.argmax(dim=-1).cpu().numpy())
+                val_labels.extend(labels.cpu().numpy())
+
+        val_acc = accuracy_score(val_labels, val_preds)
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_state = model.state_dict().copy()
+
+        if (epoch + 1) % 10 == 0:
+            log.info(f"  Epoch {epoch+1}: loss={train_loss/len(train_loader):.4f}, val_acc={val_acc:.4f}")
+
+    if best_state:
+        model.load_state_dict(best_state)
+
+    return model
 
 
 def evaluate_baseline(
-    model: torch.nn.Module,
+    model: nn.Module,
     dataloader: DataLoader,
-    split: str,
     device: torch.device,
-) -> EvaluationMetrics:
-    """Evaluate a baseline model on a dataloader.
-
-    Args:
-        model: Baseline model (must have forward method returning stage_logits)
-        dataloader: DataLoader of BenchmarkDataset
-        split: "train", "val", or "test"
-        device: Device to run on
+    use_coords: bool = False,
+) -> tuple[float, float, float]:
+    """Evaluate baseline on a dataloader.
 
     Returns:
-        EvaluationMetrics with all computed metrics
+        Tuple of (accuracy, balanced_accuracy, f1_macro)
     """
-    from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
-
     model.eval()
-    model.to(device)
-
-    all_preds = []
-    all_labels = []
+    all_preds, all_labels = [], []
 
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc=f"Evaluating on {split}"):
-            x = batch["expression"].to(device)
-            coords = batch["coordinates"].to(device)
-            labels = batch["stage_labels"].to(device)
-
-            # Forward pass (model-specific interface)
-            if hasattr(model, "forward"):
-                output = model(x.unsqueeze(0), coords.unsqueeze(0))  # Add batch dim
-                if isinstance(output, dict):
-                    logits = output["stage_logits"]
-                else:
-                    logits = output.stage_logits
+        for batch in dataloader:
+            expr, coords, labels = [b.to(device) for b in batch]
+            if use_coords:
+                logits = model(expr, coords)
             else:
-                raise AttributeError(f"Model {type(model)} has no forward method")
+                logits = model(expr)
+            all_preds.extend(logits.argmax(dim=-1).cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
 
-            preds = logits.argmax(dim=-1).cpu().numpy()
-            all_preds.extend(preds.flatten())
-            all_labels.extend(labels.cpu().numpy().flatten())
-
-    # Compute metrics
-    accuracy = accuracy_score(all_labels, all_preds)
-    balanced_acc = balanced_accuracy_score(all_labels, all_preds)
-    f1_macro = f1_score(all_labels, all_preds, average="macro")
-
-    return EvaluationMetrics(
-        baseline_name=model.__class__.__name__,
-        split=split,
-        stage_accuracy=accuracy,
-        stage_balanced_accuracy=balanced_acc,
-        stage_f1_macro=f1_macro,
+    return (
+        accuracy_score(all_labels, all_preds),
+        balanced_accuracy_score(all_labels, all_preds),
+        f1_score(all_labels, all_preds, average="macro", zero_division=0),
     )
-
-
-def run_baseline_comparison(
-    benchmark_dir: Path,
-    output_dir: Path,
-    device: torch.device | None = None,
-) -> pd.DataFrame:
-    """Run all baselines on benchmark and return comparison table.
-
-    Args:
-        benchmark_dir: Path to exported benchmark directory
-        output_dir: Where to save results
-        device: Device to run on (auto-detect if None)
-
-    Returns:
-        DataFrame with metrics for all baselines
-    """
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load benchmark
-    log.info(f"Loading benchmark from {benchmark_dir}")
-    train_worlds = load_benchmark_split(benchmark_dir, "train")
-    val_worlds = load_benchmark_split(benchmark_dir, "val")
-    test_worlds = load_benchmark_split(benchmark_dir, "test")
-
-    # Create dataloaders
-    DataLoader(BenchmarkDataset(train_worlds), batch_size=1, shuffle=False)
-    val_loader = DataLoader(BenchmarkDataset(val_worlds), batch_size=1, shuffle=False)
-    test_loader = DataLoader(BenchmarkDataset(test_worlds), batch_size=1, shuffle=False)
-
-    # Get input dimensions from first world
-    sample_world = train_worlds[0]
-    input_dim = sample_world.expression.shape[1]
-    log.info(f"Input dimension: {input_dim} genes")
-
-    # Initialize baselines
-    from stagebridge.context_model.baselines_lesion import (
-        PooledLesionBaseline,
-        DeepSetsLesionBaseline,
-        LesionSetTransformerBaseline,
-    )
-    from stagebridge.baselines.graph_sage import GraphSAGEBaseline
-
-    baselines = {
-        "PoolingMLP": PooledLesionBaseline(input_dim=input_dim, hidden_dim=128),
-        "DeepSets": DeepSetsLesionBaseline(input_dim=input_dim, hidden_dim=128),
-        "SetTransformer": LesionSetTransformerBaseline(input_dim=input_dim, hidden_dim=128),
-        "GraphSAGE": GraphSAGEBaseline(input_dim=input_dim, hidden_dim=128),
-    }
-
-    # Evaluate each baseline
-    results = []
-    for name, model in baselines.items():
-        log.info(f"\n{'=' * 60}")
-        log.info(f"Evaluating {name}")
-        log.info(f"{'=' * 60}")
-
-        # Evaluate on validation (for model selection)
-        val_metrics = evaluate_baseline(model, val_loader, "val", device)
-        results.append(val_metrics)
-
-        # Evaluate on test (for final results)
-        test_metrics = evaluate_baseline(model, test_loader, "test", device)
-        results.append(test_metrics)
-
-        log.info(f"{name} Val Accuracy: {val_metrics.stage_accuracy:.3f}")
-        log.info(f"{name} Test Accuracy: {test_metrics.stage_accuracy:.3f}")
-
-    # Create results DataFrame
-    results_df = pd.DataFrame(
-        [
-            {
-                "baseline": r.baseline_name,
-                "split": r.split,
-                "accuracy": r.stage_accuracy,
-                "balanced_accuracy": r.stage_balanced_accuracy,
-                "f1_macro": r.stage_f1_macro,
-            }
-            for r in results
-        ]
-    )
-
-    # Save results
-    results_path = output_dir / "baseline_comparison.csv"
-    results_df.to_csv(results_path, index=False)
-    log.info(f"\nResults saved to: {results_path}")
-
-    return results_df
 
 
 def main():
@@ -316,18 +321,21 @@ def main():
     import argparse
     import json
 
-    parser = argparse.ArgumentParser(description="Evaluate baselines on benchmark")
+    parser = argparse.ArgumentParser(description="Evaluate baselines on semi-synthetic benchmark")
     parser.add_argument("--data_dir", type=Path, required=True, help="Canonical data directory")
     parser.add_argument("--output_dir", type=Path, required=True, help="Output directory")
     parser.add_argument("--baseline", type=str, required=True,
                         choices=["pooling_mlp", "deep_sets", "set_transformer", "graph_sage"],
                         help="Baseline to evaluate")
-    parser.add_argument("--validation_fold", type=int, default=0, help="Validation fold")
+    parser.add_argument("--validation_fold", type=int, default=0, help="Validation fold (for seed variation)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--epochs", type=int, default=50, help="Training epochs")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
     args = parser.parse_args()
 
-    # Set seed
+    # Set seeds
     torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log.info(f"Using device: {device}")
@@ -336,46 +344,83 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load benchmark from canonical directory
+    # Load benchmark
     benchmark_dir = args.data_dir / "benchmark"
     if not benchmark_dir.exists():
         log.error(f"Benchmark directory not found: {benchmark_dir}")
         raise FileNotFoundError(f"Run semi_synthetic_benchmark rule first: {benchmark_dir}")
 
-    # Run comparison (simplified for single baseline)
-    results_df = run_baseline_comparison(
-        benchmark_dir=benchmark_dir,
-        output_dir=args.output_dir,
-        device=device,
+    tensors = load_benchmark_tensors(benchmark_dir)
+
+    # Create splits (use seed + fold for variation)
+    effective_seed = args.seed + args.validation_fold * 1000
+    train_data, val_data, test_data = create_splits(tensors, seed=effective_seed)
+
+    train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=args.batch_size)
+    test_loader = DataLoader(test_data, batch_size=args.batch_size)
+
+    # Get dimensions
+    input_dim = tensors["expression"].shape[1]
+    n_classes = len(tensors.get("stage_names", [])) or int(tensors["stage_idx"].max() + 1)
+    log.info(f"Input dim: {input_dim}, Classes: {n_classes}")
+
+    # Create baseline model
+    use_coords = args.baseline == "graph_sage"
+
+    if args.baseline == "pooling_mlp":
+        model = PoolingMLPBaseline(input_dim, n_classes=n_classes)
+    elif args.baseline == "deep_sets":
+        model = DeepSetsBaseline(input_dim, n_classes=n_classes)
+    elif args.baseline == "set_transformer":
+        model = SetTransformerBaseline(input_dim, n_classes=n_classes)
+    elif args.baseline == "graph_sage":
+        model = GraphSAGEBaseline(input_dim, n_classes=n_classes)
+    else:
+        raise ValueError(f"Unknown baseline: {args.baseline}")
+
+    log.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+    # Train
+    log.info("Training...")
+    model = train_baseline(
+        model, train_loader, val_loader, device,
+        epochs=args.epochs, use_coords=use_coords
     )
 
-    # Filter to requested baseline
-    baseline_map = {
-        "pooling_mlp": "PoolingMLP",
-        "deep_sets": "DeepSets",
-        "set_transformer": "SetTransformer",
-        "graph_sage": "GraphSAGE",
-    }
-    baseline_name = baseline_map[args.baseline]
-    baseline_results = results_df[results_df["baseline"] == baseline_name]
+    # Evaluate
+    log.info("Evaluating...")
+    val_acc, val_bal_acc, val_f1 = evaluate_baseline(model, val_loader, device, use_coords)
+    test_acc, test_bal_acc, test_f1 = evaluate_baseline(model, test_loader, device, use_coords)
 
-    # Save results JSON
-    test_row = baseline_results[baseline_results["split"] == "test"].iloc[0]
+    log.info(f"Validation: acc={val_acc:.4f}, bal_acc={val_bal_acc:.4f}, f1={val_f1:.4f}")
+    log.info(f"Test: acc={test_acc:.4f}, bal_acc={test_bal_acc:.4f}, f1={test_f1:.4f}")
+
+    # Save results
     results = {
         "baseline": args.baseline,
         "fold": args.validation_fold,
         "seed": args.seed,
-        "accuracy": float(test_row["accuracy"]),
-        "balanced_accuracy": float(test_row["balanced_accuracy"]),
-        "f1_macro": float(test_row["f1_macro"]),
+        "accuracy": float(test_acc),
+        "balanced_accuracy": float(test_bal_acc),
+        "f1_macro": float(test_f1),
+        "val_accuracy": float(val_acc),
+        "val_balanced_accuracy": float(val_bal_acc),
+        "val_f1_macro": float(val_f1),
     }
 
-    results_path = args.output_dir / "results.json"
-    with open(results_path, "w") as f:
+    with open(args.output_dir / "results.json", "w") as f:
         json.dump(results, f, indent=2)
 
     # Save metrics CSV
-    baseline_results.to_csv(args.output_dir / "metrics.csv", index=False)
+    metrics_df = pd.DataFrame([
+        {"split": "val", "accuracy": val_acc, "balanced_accuracy": val_bal_acc, "f1_macro": val_f1},
+        {"split": "test", "accuracy": test_acc, "balanced_accuracy": test_bal_acc, "f1_macro": test_f1},
+    ])
+    metrics_df.to_csv(args.output_dir / "metrics.csv", index=False)
+
+    # Save model checkpoint
+    torch.save(model.state_dict(), args.output_dir / "model.pt")
 
     log.info(f"Results saved to {args.output_dir}")
 
