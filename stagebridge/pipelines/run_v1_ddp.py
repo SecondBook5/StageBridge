@@ -541,27 +541,64 @@ def create_dataloaders(
             train_data = None
 
     # ==========================================================================
-    # Generate SEMI-SYNTHETIC benchmark data (with ground truth)
+    # Load SEMI-SYNTHETIC benchmark data (with ground truth)
     # ==========================================================================
+    benchmark_data = None
+    benchmark_ground_truth = None
     try:
-        from stagebridge.benchmarks import generate_benchmark, SmokeTestConfig
+        benchmark_path = Path(config.data_dir) / "benchmark" / "semi_synthetic.pt"
+        ground_truth_path = Path(config.data_dir) / "benchmark" / "ground_truth.json"
 
-        log("Generating semi-synthetic benchmark data (with ground truth)...")
-        benchmark_config = SmokeTestConfig()
-        benchmark_config.n_cells = 2000  # Smaller for validation
-        benchmark_report = generate_benchmark(config=benchmark_config, mode="hybrid")
+        if benchmark_path.exists():
+            log(f"Loading semi-synthetic benchmark from {benchmark_path}")
+            benchmark_tensors = torch.load(benchmark_path, map_location="cpu", weights_only=False)
 
-        if benchmark_report and "tensors" in benchmark_report:
-            tensors = benchmark_report["tensors"]
-            benchmark_data = TensorDataset(
-                tensors.get("niche_tokens", torch.randn(2000, 9, config.latent_dim)),
-                tensors.get("z_source", torch.randn(2000, config.latent_dim)),
-                tensors.get("z_target", torch.randn(2000, config.latent_dim)),
-            )
-            log(f"  Semi-synthetic benchmark: {len(benchmark_data)} samples")
+            # Extract tensors from pre-generated benchmark
+            expression = benchmark_tensors.get("expression")  # [N, n_genes]
+            positions = benchmark_tensors.get("positions")  # [N, 2]
+            is_interacting = benchmark_tensors.get("is_interacting")  # [N]
+            celltype_idx = benchmark_tensors.get("celltype_idx")  # [N]
+            stage_idx = benchmark_tensors.get("stage_idx")  # [N]
+            pathway_scores = benchmark_tensors.get("pathway_scores")  # [N, n_pathways]
+
+            log(f"  Expression shape: {expression.shape if expression is not None else 'None'}")
+            log(f"  Positions shape: {positions.shape if positions is not None else 'None'}")
+            log(f"  Pathway scores: {pathway_scores.shape if pathway_scores is not None else 'None'}")
+
+            # For now, create simple dataset with available tensors
+            # Full integration with niche tokens will come from canonical data prep
+            if expression is not None and positions is not None:
+                # Create mock niche tokens from expression (will be replaced by real niche encoding)
+                n_cells = expression.shape[0]
+                # Simple: repeat expression as 9 "tokens" for now
+                # In production, this comes from the canonical data prep with proper niche encoding
+                mock_niche = expression.unsqueeze(1).expand(-1, 9, -1)
+                if mock_niche.shape[-1] != config.latent_dim:
+                    # Project to latent dim
+                    mock_niche = mock_niche[..., :config.latent_dim]
+                    if mock_niche.shape[-1] < config.latent_dim:
+                        padding = torch.zeros(n_cells, 9, config.latent_dim - mock_niche.shape[-1])
+                        mock_niche = torch.cat([mock_niche, padding], dim=-1)
+
+                benchmark_data = TensorDataset(
+                    mock_niche.float(),
+                    expression[:, :config.latent_dim].float() if expression.shape[-1] >= config.latent_dim else torch.cat([expression, torch.zeros(n_cells, config.latent_dim - expression.shape[-1])], dim=-1).float(),
+                    expression[:, :config.latent_dim].float() if expression.shape[-1] >= config.latent_dim else torch.cat([expression, torch.zeros(n_cells, config.latent_dim - expression.shape[-1])], dim=-1).float(),
+                )
+                log(f"  Semi-synthetic benchmark: {len(benchmark_data)} samples")
+
+            # Load ground truth for evaluation
+            if ground_truth_path.exists():
+                with open(ground_truth_path) as f:
+                    benchmark_ground_truth = json.load(f)
+                log(f"  Ground truth loaded: {len(benchmark_ground_truth.get('de_gene_sets', []))} DE gene sets")
+        else:
+            log(f"Warning: Benchmark file not found at {benchmark_path}")
+
     except Exception as e:
-        log(f"Warning: Failed to generate semi-synthetic data: {e}")
-        benchmark_data = None
+        log(f"Warning: Failed to load semi-synthetic data: {e}")
+        import traceback
+        log(traceback.format_exc())
 
     # ==========================================================================
     # Fallback to pure synthetic if no real data
