@@ -125,6 +125,7 @@ def generate_canonical_artifacts(
         "n_cell_types": int(cells_df["cell_type"].nunique()),
         "stages": sorted(cells_df["stage"].unique().tolist()),
         "n_folds": n_folds,
+        "snrna_path": str(snrna_path.resolve()),  # For semi-synthetic benchmark
         "files": {
             "cells": "cells.parquet",
             "neighborhoods": "neighborhoods.parquet",

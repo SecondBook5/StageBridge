@@ -6,6 +6,7 @@ flexible framework that supports:
 - Fully synthetic mode (fast tests, known ground truth)
 - Semi-synthetic mode (real expression profiles)
 - Hybrid mode (real profiles with causal niche dynamics)
+- Expression-aware mode (proper semi-synthetic with DE gene ground truth)
 """
 
 from stagebridge.benchmarks.unified.config import (
@@ -25,6 +26,30 @@ from stagebridge.benchmarks.unified.ground_truth import (
     GroundTruth,
     GroundTruthRecovery,
 )
+from stagebridge.benchmarks.unified.expression_semisynthetic import (
+    ExpressionSemisyntheticConfig,
+    ExpressionSemisyntheticGenerator,
+    InteractionSpec,
+    DEGeneSet,
+    generate_expression_benchmark,
+    create_default_config as create_expression_config,
+)
+from stagebridge.benchmarks.unified.interaction_metrics import (
+    InteractionEvaluationReport,
+    DEGenePredictionMetrics,
+    SenderPredictionMetrics,
+    ReceiverPredictionMetrics,
+    PathwayPredictionMetrics,
+    StageEffectMetrics,
+    evaluate_de_gene_prediction,
+    evaluate_sender_prediction,
+    evaluate_receiver_prediction,
+    evaluate_interaction_benchmark,
+    evaluate_length_scale_recovery,
+    evaluate_pathway_prediction,
+    evaluate_stage_effect_recovery,
+    evaluate_pathway_benchmark,
+)
 
 __all__ = [
     # Config
@@ -41,4 +66,26 @@ __all__ = [
     # Ground truth
     "GroundTruth",
     "GroundTruthRecovery",
+    # Expression-aware semi-synthetic
+    "ExpressionSemisyntheticConfig",
+    "ExpressionSemisyntheticGenerator",
+    "InteractionSpec",
+    "DEGeneSet",
+    "generate_expression_benchmark",
+    "create_expression_config",
+    # Interaction metrics
+    "InteractionEvaluationReport",
+    "DEGenePredictionMetrics",
+    "SenderPredictionMetrics",
+    "ReceiverPredictionMetrics",
+    "PathwayPredictionMetrics",
+    "StageEffectMetrics",
+    "evaluate_de_gene_prediction",
+    "evaluate_sender_prediction",
+    "evaluate_receiver_prediction",
+    "evaluate_interaction_benchmark",
+    "evaluate_length_scale_recovery",
+    "evaluate_pathway_prediction",
+    "evaluate_stage_effect_recovery",
+    "evaluate_pathway_benchmark",
 ]
