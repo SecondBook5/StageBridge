@@ -112,10 +112,13 @@ def generate_canonical_artifacts(
 
     # Generate data_manifest.json
     print("\n[7/7] Generating data_manifest.json...")
+    # Count spatial vs snrna by cell_id prefix (spatial cells have "spatial_" prefix)
+    n_spatial = int(cells_df["cell_id"].str.startswith("spatial_").sum())
+    n_snrna = len(cells_df) - n_spatial
     data_manifest = {
         "n_cells": len(cells_df),
-        "n_snrna_cells": int((cells_df["modality"] == "snrna").sum()),
-        "n_spatial_spots": int((cells_df["modality"] == "spatial").sum()),
+        "n_snrna_cells": n_snrna,
+        "n_spatial_spots": n_spatial,
         "n_neighborhoods": len(neighborhoods_df),
         "n_donors": int(cells_df["donor_id"].nunique()),
         "n_stages": int(cells_df["stage"].nunique()),
