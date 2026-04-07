@@ -19,10 +19,9 @@ print("Generating Semi-Synthetic Benchmark")
 print("=" * 60)
 
 # Generate fully synthetic benchmark with ground truth
-# Use fallback_only=True to avoid loading real data (not available yet)
 config = SmokeTestConfig()
 config.n_cells = 10000  # Larger for proper evaluation
-report = generate_benchmark(config=config, mode='fully_synthetic', fallback_only=True)
+report = generate_benchmark(config=config, mode='fully_synthetic')
 
 # Save tensors
 if 'tensors' in report:
