@@ -389,6 +389,615 @@ def generate_rationale(ranking_df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def generate_all_benchmark_figures(
+    results: dict,
+    output_dir: Path,
+    spatial_adata: ad.AnnData | None = None,
+):
+    """
+    Generate comprehensive benchmark figures for publication.
+
+    Generates:
+    1. Loss curves (for backends with training history)
+    2. Spatial cell type plots (per-backend comparison)
+    3. Per-sample metric distributions
+    4. Group-level aggregations
+
+    Args:
+        results: Dictionary of backend results
+        output_dir: Where to save figures
+        spatial_adata: Spatial AnnData for coordinate-based plots
+    """
+    figures_dir = output_dir / "figures"
+    figures_dir.mkdir(exist_ok=True)
+
+    # 1. Loss curves
+    _plot_loss_curves(results, figures_dir)
+
+    # 2. Spatial cell type plots
+    if spatial_adata is not None:
+        _plot_spatial_compositions(results, spatial_adata, figures_dir)
+
+    # 3. Metric distributions
+    _plot_metric_distributions(results, figures_dir)
+
+    log.info("All benchmark figures saved to %s", figures_dir)
+
+
+def _plot_loss_curves(results: dict, figures_dir: Path):
+    """Plot training loss curves for backends that have them."""
+    # Check for training history
+    backends_with_history = []
+    for name, data in results.items():
+        if not data["success"] or data["result"] is None:
+            continue
+        meta = data["result"].metadata
+        if "training_history" in meta or "loss_history" in meta:
+            backends_with_history.append(name)
+
+    if not backends_with_history:
+        log.info("No backends with training history found, skipping loss curves")
+        return
+
+    n_backends = len(backends_with_history)
+    fig, axes = plt.subplots(1, n_backends, figsize=(5 * n_backends, 4))
+    if n_backends == 1:
+        axes = [axes]
+
+    for ax, name in zip(axes, backends_with_history):
+        meta = results[name]["result"].metadata
+        history = meta.get("training_history") or meta.get("loss_history")
+
+        if isinstance(history, dict):
+            # Multiple loss types
+            for loss_name, values in history.items():
+                if isinstance(values, (list, np.ndarray)) and len(values) > 0:
+                    ax.plot(values, label=loss_name)
+            ax.legend()
+        elif isinstance(history, (list, np.ndarray)):
+            ax.plot(history)
+
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Loss")
+        ax.set_title(f"{name.upper()} Training")
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(figures_dir / "loss_curves.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    log.info("Saved loss curves to %s", figures_dir / "loss_curves.png")
+
+
+def _plot_spatial_compositions(
+    results: dict,
+    spatial_adata: ad.AnnData,
+    figures_dir: Path,
+    n_types: int = 6,
+):
+    """Plot spatial cell type compositions side-by-side."""
+    successful = [name for name, data in results.items() if data["success"]]
+    if not successful:
+        return
+
+    # Get spatial coordinates
+    if "spatial" in spatial_adata.obsm:
+        coords = spatial_adata.obsm["spatial"]
+    elif "X_spatial" in spatial_adata.obsm:
+        coords = spatial_adata.obsm["X_spatial"]
+    else:
+        log.warning("No spatial coordinates found, skipping spatial plots")
+        return
+
+    # Find top cell types across all backends
+    all_proportions = []
+    for name in successful:
+        props = results[name]["result"].cell_type_proportions
+        all_proportions.append(props.mean(axis=0))
+
+    mean_props = pd.concat(all_proportions, axis=1).mean(axis=1)
+    top_types = mean_props.nlargest(n_types).index.tolist()
+
+    # Plot each top type across backends
+    for cell_type in top_types:
+        fig, axes = plt.subplots(1, len(successful), figsize=(5 * len(successful), 4))
+        if len(successful) == 1:
+            axes = [axes]
+
+        for ax, name in zip(axes, successful):
+            props = results[name]["result"].cell_type_proportions
+            if cell_type not in props.columns:
+                ax.set_title(f"{name}: N/A")
+                continue
+
+            values = props[cell_type].values
+            scatter = ax.scatter(
+                coords[:, 0], coords[:, 1],
+                c=values, cmap="viridis",
+                s=1, vmin=0, vmax=values.max()
+            )
+            ax.set_title(f"{name.upper()}")
+            ax.set_aspect("equal")
+            ax.axis("off")
+            plt.colorbar(scatter, ax=ax, shrink=0.5)
+
+        fig.suptitle(f"Cell Type: {cell_type}", fontsize=14)
+        plt.tight_layout()
+        safe_name = cell_type.replace("/", "_").replace(" ", "_")
+        plt.savefig(figures_dir / f"spatial_{safe_name}.png", dpi=150, bbox_inches="tight")
+        plt.close()
+
+    log.info("Saved spatial composition plots for %d cell types", len(top_types))
+
+
+def _plot_metric_distributions(results: dict, figures_dir: Path):
+    """Plot distributions of key metrics across backends."""
+    successful = [(name, data) for name, data in results.items() if data["success"]]
+    if not successful:
+        return
+
+    # Collect per-spot metrics for each backend
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+
+    # 1. Entropy distribution
+    ax = axes[0, 0]
+    for name, data in successful:
+        props = data["result"].cell_type_proportions
+        # Compute per-spot entropy
+        entropy = -(props * np.log(props + 1e-10)).sum(axis=1)
+        entropy_norm = entropy / np.log(props.shape[1])  # Normalize
+        ax.hist(entropy_norm, bins=50, alpha=0.5, label=name, density=True)
+    ax.set_xlabel("Normalized Entropy")
+    ax.set_ylabel("Density")
+    ax.set_title("Cell Type Entropy Distribution")
+    ax.legend()
+
+    # 2. Max proportion distribution
+    ax = axes[0, 1]
+    for name, data in successful:
+        props = data["result"].cell_type_proportions
+        max_props = props.max(axis=1)
+        ax.hist(max_props, bins=50, alpha=0.5, label=name, density=True)
+    ax.set_xlabel("Max Proportion")
+    ax.set_ylabel("Density")
+    ax.set_title("Dominance Distribution")
+    ax.legend()
+
+    # 3. Types per spot distribution
+    ax = axes[0, 2]
+    for name, data in successful:
+        props = data["result"].cell_type_proportions
+        types_per_spot = (props > 0.01).sum(axis=1)
+        ax.hist(types_per_spot, bins=range(0, props.shape[1] + 1), alpha=0.5, label=name, density=True)
+    ax.set_xlabel("Types per Spot (>1%)")
+    ax.set_ylabel("Density")
+    ax.set_title("Cell Type Richness")
+    ax.legend()
+
+    # 4. Confidence distribution
+    ax = axes[1, 0]
+    for name, data in successful:
+        conf = data["result"].confidence
+        ax.hist(conf, bins=50, alpha=0.5, label=name, density=True)
+    ax.set_xlabel("Confidence")
+    ax.set_ylabel("Density")
+    ax.set_title("Mapping Confidence")
+    ax.legend()
+
+    # 5. Per-type mean proportion
+    ax = axes[1, 1]
+    type_means = {}
+    for name, data in successful:
+        props = data["result"].cell_type_proportions
+        type_means[name] = props.mean(axis=0).sort_values(ascending=False)
+
+    # Plot top 10 types
+    if type_means:
+        first_backend = list(type_means.keys())[0]
+        top_types = type_means[first_backend].head(10).index
+        x = np.arange(len(top_types))
+        width = 0.8 / len(successful)
+        for i, (name, means) in enumerate(type_means.items()):
+            values = [means.get(t, 0) for t in top_types]
+            ax.bar(x + i * width, values, width, label=name, alpha=0.7)
+        ax.set_xticks(x + width * (len(successful) - 1) / 2)
+        ax.set_xticklabels(top_types, rotation=45, ha="right")
+        ax.set_ylabel("Mean Proportion")
+        ax.set_title("Top Cell Types by Mean Proportion")
+        ax.legend()
+
+    # 6. Gini coefficient per backend
+    ax = axes[1, 2]
+    gini_values = {}
+    for name, data in successful:
+        props = data["result"].cell_type_proportions.values
+        # Compute Gini per spot
+        gini_per_spot = []
+        for row in props:
+            row = row[row > 0]
+            if len(row) == 0:
+                continue
+            row = np.sort(row)
+            n = len(row)
+            index = np.arange(1, n + 1)
+            gini = (2 * np.sum(index * row) - (n + 1) * np.sum(row)) / (n * np.sum(row))
+            gini_per_spot.append(gini)
+        gini_values[name] = gini_per_spot
+
+    ax.boxplot(
+        [v for v in gini_values.values()],
+        labels=list(gini_values.keys())
+    )
+    ax.set_ylabel("Gini Coefficient")
+    ax.set_title("Proportion Inequality")
+
+    plt.tight_layout()
+    plt.savefig(figures_dir / "metric_distributions.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    log.info("Saved metric distributions to %s", figures_dir / "metric_distributions.png")
+
+
+def aggregate_sample_metrics(
+    benchmark_dir: Path,
+    backends: list[str] | None = None,
+    label_source: str = "hlca",
+) -> pd.DataFrame:
+    """
+    Aggregate metrics across all samples for group-level analysis.
+
+    Reads per-sample outputs and computes summary statistics.
+
+    Args:
+        benchmark_dir: Base benchmark directory (contains {label_source}/{backend}/samples/)
+        backends: List of backends to include (default: all found)
+        label_source: Which label source directory to use
+
+    Returns:
+        DataFrame with per-backend aggregated metrics
+    """
+    from stagebridge.spatial_mapping.metrics import compute_upstream_metrics
+    from stagebridge.spatial_mapping.backend_base import BackendMappingResult
+
+    base_dir = benchmark_dir / label_source
+    if not base_dir.exists():
+        log.warning("No benchmark results found at %s", base_dir)
+        return pd.DataFrame()
+
+    # Find all backends
+    if backends is None:
+        backends = [d.name for d in base_dir.iterdir() if d.is_dir()]
+
+    all_metrics = []
+
+    for backend in backends:
+        backend_dir = base_dir / backend / "samples"
+        if not backend_dir.exists():
+            continue
+
+        sample_dirs = [d for d in backend_dir.iterdir() if d.is_dir()]
+        log.info("Found %d samples for %s", len(sample_dirs), backend)
+
+        for sample_dir in sample_dirs:
+            sample_id = sample_dir.name
+            props_file = sample_dir / "cell_type_proportions.parquet"
+
+            if not props_file.exists():
+                continue
+
+            try:
+                props = pd.read_parquet(props_file)
+
+                # Load confidence if available
+                conf_file = sample_dir / "confidence.parquet"
+                if conf_file.exists():
+                    conf_df = pd.read_parquet(conf_file)
+                    conf = conf_df["confidence"].values
+                else:
+                    conf = props.max(axis=1).values
+
+                # Create minimal result for metrics computation
+                result = BackendMappingResult(
+                    cell_type_proportions=props,
+                    confidence=conf,
+                    metadata={"backend": backend},
+                )
+
+                # Compute comprehensive metrics
+                metrics = compute_upstream_metrics(result)
+                metrics["backend"] = backend
+                metrics["sample_id"] = sample_id
+                metrics["label_source"] = label_source
+
+                all_metrics.append(metrics)
+
+            except Exception as e:
+                log.warning("Failed to load %s/%s: %s", backend, sample_id, e)
+
+    if not all_metrics:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(all_metrics)
+    return df
+
+
+def plot_group_level_comparison(
+    metrics_df: pd.DataFrame,
+    output_dir: Path,
+):
+    """
+    Generate group-level comparison plots from aggregated sample metrics.
+
+    Args:
+        metrics_df: DataFrame from aggregate_sample_metrics()
+        output_dir: Where to save figures
+    """
+    figures_dir = output_dir / "figures"
+    figures_dir.mkdir(exist_ok=True)
+
+    if metrics_df.empty:
+        log.warning("No metrics to plot")
+        return
+
+    backends = metrics_df["backend"].unique()
+    n_backends = len(backends)
+
+    # Key metrics to compare
+    key_metrics = [
+        ("types_per_spot_mean", "Types per Spot", True),  # higher is better
+        ("effective_coverage", "Effective Coverage", True),
+        ("mean_entropy", "Mean Entropy", None),  # moderate is best
+        ("gini_coefficient_mean", "Gini Coefficient", False),  # lower is better (more even)
+        ("dominance_ratio_mean", "Dominance Ratio", False),  # lower means more mixed
+    ]
+
+    # 1. Box plots for each metric
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    axes = axes.flatten()
+
+    for i, (metric, label, higher_better) in enumerate(key_metrics):
+        if metric not in metrics_df.columns:
+            continue
+        ax = axes[i]
+
+        data = [metrics_df[metrics_df["backend"] == b][metric].dropna() for b in backends]
+        bp = ax.boxplot(data, labels=backends, patch_artist=True)
+
+        # Color by mean value
+        means = [d.mean() for d in data]
+        colors = plt.cm.RdYlGn(np.linspace(0.2, 0.8, n_backends))
+        if higher_better is False:
+            colors = colors[::-1]  # Reverse for "lower is better"
+
+        sorted_idx = np.argsort(means)
+        if higher_better is False:
+            sorted_idx = sorted_idx[::-1]
+
+        for j, patch in enumerate(bp["boxes"]):
+            rank = np.where(sorted_idx == j)[0][0]
+            patch.set_facecolor(colors[rank])
+
+        ax.set_ylabel(label)
+        ax.set_title(f"{label} by Backend")
+        ax.tick_params(axis="x", rotation=45)
+
+    # 6. Sample count
+    ax = axes[5]
+    sample_counts = metrics_df.groupby("backend").size()
+    ax.bar(sample_counts.index, sample_counts.values, color="steelblue")
+    ax.set_ylabel("Number of Samples")
+    ax.set_title("Samples per Backend")
+    ax.tick_params(axis="x", rotation=45)
+
+    plt.tight_layout()
+    plt.savefig(figures_dir / "group_level_comparison.png", dpi=150, bbox_inches="tight")
+    plt.close()
+
+    # 2. Summary table
+    summary = metrics_df.groupby("backend").agg({
+        "types_per_spot_mean": ["mean", "std"],
+        "effective_coverage": ["mean", "std"],
+        "mean_entropy": ["mean", "std"],
+        "gini_coefficient_mean": ["mean", "std"],
+        "n_spots": ["sum", "mean"],
+    }).round(3)
+
+    summary.to_csv(output_dir / "group_metrics_summary.csv")
+    log.info("Saved group-level summary to %s", output_dir / "group_metrics_summary.csv")
+
+    # 3. Backend ranking by multiple criteria
+    ranking_metrics = ["types_per_spot_mean", "effective_coverage", "global_type_coverage"]
+    ranking_df = metrics_df.groupby("backend")[ranking_metrics].mean()
+
+    # Composite score (all normalized to [0,1] and averaged)
+    for col in ranking_metrics:
+        col_min, col_max = ranking_df[col].min(), ranking_df[col].max()
+        if col_max > col_min:
+            ranking_df[f"{col}_norm"] = (ranking_df[col] - col_min) / (col_max - col_min)
+        else:
+            ranking_df[f"{col}_norm"] = 0.5
+
+    norm_cols = [c for c in ranking_df.columns if c.endswith("_norm")]
+    ranking_df["composite_score"] = ranking_df[norm_cols].mean(axis=1)
+    ranking_df = ranking_df.sort_values("composite_score", ascending=False)
+
+    ranking_df.to_csv(output_dir / "backend_ranking.csv")
+    log.info("Saved backend ranking to %s", output_dir / "backend_ranking.csv")
+
+    return ranking_df
+
+
+def select_canonical_from_metrics(
+    metrics_df: pd.DataFrame,
+    forced_backend: str | None = None,
+    weights: dict[str, float] | None = None,
+) -> dict:
+    """
+    Select canonical backend from aggregated sample metrics.
+
+    Uses the new comprehensive metrics for ranking:
+    - types_per_spot_mean: Higher is better (richer deconvolution)
+    - effective_coverage: Higher is better
+    - global_type_coverage: Higher is better
+    - gini_coefficient_mean: Lower is better (more even distribution)
+
+    Args:
+        metrics_df: DataFrame from aggregate_sample_metrics()
+        forced_backend: If provided, force this backend as canonical
+        weights: Optional custom weights
+
+    Returns:
+        Dictionary with selection details for JSON serialization
+    """
+    if weights is None:
+        weights = {
+            "types_per_spot_mean": 0.30,
+            "effective_coverage": 0.25,
+            "global_type_coverage": 0.20,
+            "mean_entropy": 0.15,
+            "gini_coefficient_mean": 0.10,  # Lower is better
+        }
+
+    backends = metrics_df["backend"].unique()
+    backend_scores = {}
+    backend_metrics = {}
+
+    for backend in backends:
+        mask = metrics_df["backend"] == backend
+        scores = {}
+
+        for metric, weight in weights.items():
+            if metric not in metrics_df.columns:
+                continue
+
+            values = metrics_df.loc[mask, metric].dropna()
+            if len(values) == 0:
+                continue
+
+            mean_val = values.mean()
+
+            # Normalize to [0, 1] using global min/max
+            global_min = metrics_df[metric].min()
+            global_max = metrics_df[metric].max()
+
+            if global_max > global_min:
+                norm_val = (mean_val - global_min) / (global_max - global_min)
+            else:
+                norm_val = 0.5
+
+            # For Gini, lower is better
+            if metric == "gini_coefficient_mean":
+                norm_val = 1 - norm_val
+
+            scores[metric] = {
+                "raw": float(mean_val),
+                "normalized": float(norm_val),
+                "weight": weight,
+            }
+
+        # Compute composite score
+        composite = sum(
+            s["normalized"] * s["weight"]
+            for s in scores.values()
+        )
+
+        backend_scores[backend] = composite
+        backend_metrics[backend] = scores
+
+    # Rank backends
+    ranked = sorted(backend_scores.items(), key=lambda x: x[1], reverse=True)
+
+    # Select canonical
+    if forced_backend and forced_backend in backends:
+        canonical = forced_backend
+        canonical_score = backend_scores.get(forced_backend, 0)
+        forced = True
+    else:
+        canonical = ranked[0][0]
+        canonical_score = ranked[0][1]
+        forced = False
+
+    # Build justification
+    justification_lines = [
+        f"# Canonical Backend Selection: {canonical.upper()}",
+        "",
+        f"**Selection Method:** {'Forced by user' if forced else 'Metric-based ranking'}",
+        f"**Composite Score:** {canonical_score:.4f}",
+        "",
+        "## Ranking (by comprehensive metrics)",
+        "",
+        "| Rank | Backend | Score |",
+        "|------|---------|-------|",
+    ]
+
+    for i, (backend, score) in enumerate(ranked, 1):
+        marker = " *" if backend == canonical else ""
+        justification_lines.append(f"| {i} | {backend.upper()}{marker} | {score:.4f} |")
+
+    justification_lines.extend([
+        "",
+        "## Metric Breakdown",
+        "",
+    ])
+
+    for metric, weight in weights.items():
+        if metric in metrics_df.columns:
+            justification_lines.append(f"**{metric}** (weight={weight:.0%}):")
+            for backend in backends:
+                if backend in backend_metrics and metric in backend_metrics[backend]:
+                    m = backend_metrics[backend][metric]
+                    justification_lines.append(
+                        f"  - {backend}: {m['raw']:.4f} (normalized: {m['normalized']:.3f})"
+                    )
+            justification_lines.append("")
+
+    if forced:
+        justification_lines.extend([
+            "## Note",
+            "",
+            f"Backend was forced to **{canonical.upper()}** by user request.",
+            "This overrides metric-based selection.",
+            "",
+            "**Rationale for forcing DestVI/Cell2location:**",
+            "- Provides uncertainty estimates (needed for downstream niche modeling)",
+            "- Richer per-cell-type outputs",
+            "- Bayesian/probabilistic framework aligns with project goals",
+        ])
+
+    return {
+        "canonical_backend": canonical,
+        "selection_score": float(canonical_score),
+        "forced": forced,
+        "justification": "\n".join(justification_lines),
+        "rankings": [{"backend": b, "score": float(s)} for b, s in ranked],
+        "alternatives": [b for b, _ in ranked if b != canonical],
+        "alternative_scores": {b: float(s) for b, s in ranked if b != canonical},
+        "metric_weights": weights,
+        "backend_metrics": {
+            b: {m: {"raw": d["raw"], "normalized": d["normalized"]}
+                for m, d in metrics.items()}
+            for b, metrics in backend_metrics.items()
+        },
+        "n_samples_per_backend": metrics_df.groupby("backend").size().to_dict(),
+    }
+
+
+def save_canonical_selection(selection_data: dict, output_dir: Path):
+    """Save canonical backend selection to JSON and markdown."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save JSON (machine-readable)
+    json_path = output_dir / "canonical_backend.json"
+    with open(json_path, "w") as f:
+        json.dump(selection_data, f, indent=2)
+
+    # Save markdown report (human-readable)
+    md_path = output_dir / "backend_selection_report.md"
+    with open(md_path, "w") as f:
+        f.write(selection_data["justification"])
+
+    return json_path
+
+
 def plot_backend_comparison(
     ranking_df: pd.DataFrame,
     output_dir: Path,
@@ -529,8 +1138,17 @@ def run_comprehensive_benchmark(
 
 def main():
     parser = argparse.ArgumentParser(description="Spatial Backend Benchmark")
-    parser.add_argument("--snrna", type=str, required=True, help="Path to snRNA h5ad")
-    parser.add_argument("--spatial", type=str, required=True, help="Path to spatial h5ad")
+
+    # Mode selection
+    parser.add_argument(
+        "--aggregate",
+        action="store_true",
+        help="Aggregate metrics across all completed samples (run after benchmark completes)",
+    )
+
+    # Standard benchmark arguments
+    parser.add_argument("--snrna", type=str, help="Path to snRNA h5ad")
+    parser.add_argument("--spatial", type=str, help="Path to spatial h5ad")
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory")
     parser.add_argument(
         "--backends", type=str, nargs="+", default=None, help="Backends to run (default: all)"
@@ -560,12 +1178,115 @@ def main():
         default=None,
         help="Path to cell_types.parquet (needed if --label-source=luca and luca_cell_type not in h5ad)",
     )
+    parser.add_argument(
+        "--force-backend",
+        type=str,
+        default=None,
+        choices=["tangram", "destvi", "tacco", "cell2location", "marker_scoring"],
+        help="Force a specific backend as canonical (overrides metric-based selection)",
+    )
     args = parser.parse_args()
+
+    output_dir = Path(args.output_dir)
+
+    # =========================================================================
+    # AGGREGATE MODE: Run after all samples complete
+    # =========================================================================
+    if args.aggregate:
+        log.info("=" * 80)
+        log.info("AGGREGATING METRICS ACROSS ALL SAMPLES")
+        log.info("=" * 80)
+
+        canonical_selections = {}
+
+        # Aggregate for both label sources
+        for label_source in ["hlca", "luca"]:
+            label_dir = output_dir / label_source
+            if not label_dir.exists():
+                continue
+
+            log.info("Processing %s label source...", label_source.upper())
+            metrics_df = aggregate_sample_metrics(
+                output_dir,
+                backends=args.backends,
+                label_source=label_source,
+            )
+
+            if not metrics_df.empty:
+                # Save raw metrics
+                metrics_df.to_csv(label_dir / "all_sample_metrics.csv", index=False)
+                log.info("Saved %d sample metrics to %s", len(metrics_df), label_dir / "all_sample_metrics.csv")
+
+                # Generate publication-quality figures
+                from stagebridge.visualization import SpatialBenchmarkFigures
+
+                figures_dir = label_dir / "publication_figures"
+                fig_gen = SpatialBenchmarkFigures(
+                    metrics_df=metrics_df,
+                    output_dir=figures_dir,
+                )
+                fig_gen.generate_all()
+
+                log.info("Publication figures saved to %s", figures_dir)
+
+                # Also generate basic diagnostic plots
+                ranking_df = plot_group_level_comparison(metrics_df, label_dir)
+
+                # ============================================================
+                # SELECT CANONICAL BACKEND
+                # ============================================================
+                if args.force_backend:
+                    # Forced selection
+                    best_backend = args.force_backend
+                    if best_backend not in metrics_df["backend"].unique():
+                        log.warning(
+                            "Forced backend '%s' not found in results. Available: %s",
+                            best_backend, list(metrics_df["backend"].unique())
+                        )
+                        best_backend = ranking_df.index[0] if ranking_df is not None else None
+                        log.info("Falling back to metric-based selection: %s", best_backend)
+                    else:
+                        log.info("FORCED SELECTION: %s", best_backend.upper())
+                elif ranking_df is not None and not ranking_df.empty:
+                    best_backend = ranking_df.index[0]
+                    best_score = ranking_df.iloc[0]["composite_score"]
+                    log.info(
+                        "%s RECOMMENDATION: %s (composite score: %.3f)",
+                        label_source.upper(), best_backend.upper(), best_score
+                    )
+                else:
+                    best_backend = None
+
+                # Save canonical backend decision
+                if best_backend:
+                    canonical_selections[label_source] = best_backend
+                    selection_data = select_canonical_from_metrics(
+                        metrics_df=metrics_df,
+                        forced_backend=args.force_backend,
+                    )
+                    save_canonical_selection(selection_data, label_dir)
+                    log.info("Canonical backend saved: %s", label_dir / "canonical_backend.json")
+
+        # Summary
+        print(f"\n{'=' * 80}")
+        print("AGGREGATION COMPLETE")
+        print(f"{'=' * 80}")
+        for label_source, backend in canonical_selections.items():
+            forced = " (FORCED)" if args.force_backend else ""
+            print(f"  {label_source.upper()}: {backend.upper()}{forced}")
+        print(f"\nResults saved to {output_dir}")
+        return
+
+    # =========================================================================
+    # STANDARD MODE: Run benchmark on samples
+    # =========================================================================
+    if not args.snrna or not args.spatial:
+        parser.error("--snrna and --spatial are required unless using --aggregate")
 
     comparison = run_backend_comparison(
         snrna_path=Path(args.snrna),
         spatial_path=Path(args.spatial),
-        output_dir=Path(args.output_dir),
+        output_dir=output_dir,
         backends=args.backends,
         quick=args.quick,
         debug=args.debug,
@@ -583,4 +1304,8 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
     main()

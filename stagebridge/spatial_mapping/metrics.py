@@ -105,16 +105,40 @@ def compute_upstream_metrics(
     held_out_genes: list[str] | None = None,
 ) -> dict[str, float]:
     """
-    Compute upstream quality metrics for a spatial mapping result.
+    Compute comprehensive upstream quality metrics for spatial mapping benchmarking.
 
     Metrics computed:
-    - mean_entropy: Average cell type entropy across spots (diversity)
-    - std_entropy: Standard deviation of entropy (homogeneity)
+
+    **Entropy/Diversity:**
+    - mean_entropy: Average cell type entropy across spots
+    - std_entropy: Standard deviation of entropy
+    - median_entropy: Median entropy (robust to outliers)
+    - entropy_iqr: Interquartile range of entropy
+
+    **Sparsity/Coverage:**
     - sparsity: Fraction of zero proportions
-    - coverage: Fraction of spots with confident mapping
-    - gene_reconstruction_error: MSE of reconstructed vs original genes (if available)
-    - max_proportion_mean: Average maximum proportion per spot
-    - n_dominant_types: Number of cell types that dominate any spot
+    - types_per_spot_mean/std/median: Cell types detected (>1%) per spot
+    - effective_coverage: types_per_spot / total_types
+    - global_type_coverage: Fraction of types with >1% mean
+    - coverage: Legacy metric (max proportion > 0.5)
+
+    **Proportion Distribution:**
+    - max_proportion_mean/std/median: Statistics on max proportion per spot
+    - gini_coefficient: Inequality of proportion distribution
+    - proportion_skewness: Skewness of non-zero proportions
+    - proportion_kurtosis: Kurtosis of non-zero proportions
+
+    **Dominance:**
+    - n_dominant_types: Types that dominate (>50%) any spot
+    - max_prop_concentration: Fraction of spots with max > 0.5
+    - dominance_ratio: Mean ratio of max to 2nd-max proportion
+
+    **Per-Type Statistics:**
+    - type_presence_rate_mean: Mean fraction of spots where type > 1%
+    - type_dominance_rate_mean: Mean fraction of spots where type dominates
+
+    **Uncertainty (if available):**
+    - uncertainty_mean/std: From backend uncertainty estimates
 
     Args:
         result: BackendMappingResult from a backend
@@ -124,35 +148,180 @@ def compute_upstream_metrics(
     Returns:
         Dictionary of metric name to value
     """
+    from scipy import stats as scipy_stats
+
     proportions = result.cell_type_proportions
     confidence = result.confidence
+    n_spots = len(proportions)
+    n_celltypes = proportions.shape[1]
 
-    # Cell type entropy
+    # =========================================================================
+    # ENTROPY / DIVERSITY METRICS
+    # =========================================================================
     entropy = compute_cell_type_entropy(proportions)
 
-    # Sparsity
+    entropy_metrics = {
+        "mean_entropy": float(entropy.mean()),
+        "std_entropy": float(entropy.std()),
+        "median_entropy": float(np.median(entropy)),
+        "entropy_iqr": float(np.percentile(entropy, 75) - np.percentile(entropy, 25)),
+        "entropy_min": float(entropy.min()),
+        "entropy_max": float(entropy.max()),
+    }
+
+    # =========================================================================
+    # SPARSITY / COVERAGE METRICS
+    # =========================================================================
     sparsity = compute_sparsity(proportions)
 
-    # Coverage (fraction with confident mapping)
-    coverage = (confidence > 0.5).mean()
+    # Types per spot: how many cell types are detected (>1%) per spot
+    types_per_spot = (proportions > 0.01).sum(axis=1)
+    types_per_spot_5pct = (proportions > 0.05).sum(axis=1)  # Stricter threshold
 
-    # Max proportion statistics
+    # Effective coverage: fraction of types per spot (normalized by total types)
+    effective_coverage = types_per_spot.mean() / n_celltypes if n_celltypes > 0 else 0.0
+
+    # Global type coverage: how many cell types have >1% mean across all spots
+    type_means = proportions.mean(axis=0)
+    global_type_coverage = (type_means > 0.01).sum() / n_celltypes if n_celltypes > 0 else 0.0
+
+    # Legacy coverage (kept for backward compatibility)
+    coverage_old = (confidence > 0.5).mean()
+
+    coverage_metrics = {
+        "sparsity": float(sparsity),
+        "coverage": float(coverage_old),  # Legacy
+        "types_per_spot_mean": float(types_per_spot.mean()),
+        "types_per_spot_std": float(types_per_spot.std()),
+        "types_per_spot_median": float(np.median(types_per_spot)),
+        "types_per_spot_5pct_mean": float(types_per_spot_5pct.mean()),  # Stricter
+        "effective_coverage": float(effective_coverage),
+        "global_type_coverage": float(global_type_coverage),
+        "n_spots": n_spots,
+        "n_celltypes": n_celltypes,
+    }
+
+    # =========================================================================
+    # PROPORTION DISTRIBUTION METRICS
+    # =========================================================================
     max_proportions = proportions.max(axis=1)
 
+    # Gini coefficient (measure of inequality)
+    # 0 = perfect equality, 1 = perfect inequality
+    def gini(arr):
+        arr = np.array(arr).flatten()
+        arr = arr[arr > 0]  # Only non-zero
+        if len(arr) == 0:
+            return 0.0
+        arr = np.sort(arr)
+        n = len(arr)
+        index = np.arange(1, n + 1)
+        return (2 * np.sum(index * arr) - (n + 1) * np.sum(arr)) / (n * np.sum(arr))
+
+    # Compute Gini per spot, then average
+    gini_per_spot = [gini(proportions.iloc[i].values) for i in range(n_spots)]
+
+    # Skewness and kurtosis of non-zero proportions
+    nonzero_props = proportions.values.flatten()
+    nonzero_props = nonzero_props[nonzero_props > 0]
+
+    if len(nonzero_props) > 3:
+        prop_skewness = float(scipy_stats.skew(nonzero_props))
+        prop_kurtosis = float(scipy_stats.kurtosis(nonzero_props))
+    else:
+        prop_skewness = np.nan
+        prop_kurtosis = np.nan
+
+    distribution_metrics = {
+        "max_proportion_mean": float(max_proportions.mean()),
+        "max_proportion_std": float(max_proportions.std()),
+        "max_proportion_median": float(np.median(max_proportions)),
+        "max_proportion_min": float(max_proportions.min()),
+        "max_proportion_max": float(max_proportions.max()),
+        "gini_coefficient_mean": float(np.mean(gini_per_spot)),
+        "gini_coefficient_std": float(np.std(gini_per_spot)),
+        "proportion_skewness": prop_skewness,
+        "proportion_kurtosis": prop_kurtosis,
+    }
+
+    # =========================================================================
+    # DOMINANCE METRICS
+    # =========================================================================
     # Dominant cell types (>50% in any spot)
     dominant_types = (proportions > 0.5).any(axis=0).sum()
 
-    metrics = {
-        "mean_entropy": float(entropy.mean()),
-        "std_entropy": float(entropy.std()),
-        "sparsity": float(sparsity),
-        "coverage": float(coverage),
-        "max_proportion_mean": float(max_proportions.mean()),
-        "max_proportion_std": float(max_proportions.std()),
+    # Concentration: fraction of spots with clear dominant type
+    max_prop_concentration = float((max_proportions > 0.5).mean())
+    max_prop_concentration_70 = float((max_proportions > 0.7).mean())
+
+    # Dominance ratio: how much does max exceed 2nd-max?
+    sorted_props = np.sort(proportions.values, axis=1)[:, ::-1]
+    second_max = sorted_props[:, 1] if n_celltypes > 1 else np.zeros(n_spots)
+    dominance_ratio = max_proportions / (second_max + 1e-10)
+
+    dominance_metrics = {
         "n_dominant_types": int(dominant_types),
-        "n_spots": len(proportions),
-        "n_celltypes": proportions.shape[1],
+        "max_prop_concentration": max_prop_concentration,
+        "max_prop_concentration_70": max_prop_concentration_70,
+        "dominance_ratio_mean": float(dominance_ratio.mean()),
+        "dominance_ratio_median": float(np.median(dominance_ratio)),
     }
+
+    # =========================================================================
+    # PER-TYPE STATISTICS
+    # =========================================================================
+    # Presence rate: fraction of spots where type > 1%
+    type_presence_rate = (proportions > 0.01).mean(axis=0)
+
+    # Dominance rate: fraction of spots where this type is dominant
+    dominant_type_per_spot = proportions.idxmax(axis=1)
+    type_dominance_counts = dominant_type_per_spot.value_counts()
+    type_dominance_rate = type_dominance_counts / n_spots
+
+    per_type_metrics = {
+        "type_presence_rate_mean": float(type_presence_rate.mean()),
+        "type_presence_rate_std": float(type_presence_rate.std()),
+        "type_presence_rate_min": float(type_presence_rate.min()),
+        "type_presence_rate_max": float(type_presence_rate.max()),
+        "type_dominance_rate_mean": float(type_dominance_rate.mean()),
+        "type_dominance_rate_std": float(type_dominance_rate.std()),
+        "n_types_never_present": int((type_presence_rate == 0).sum()),
+        "n_types_never_dominant": int(n_celltypes - len(type_dominance_counts)),
+    }
+
+    # =========================================================================
+    # UNCERTAINTY METRICS (if available)
+    # =========================================================================
+    uncertainty_metrics = {}
+    if result.uncertainty is not None:
+        unc = result.uncertainty
+        # Uncertainty can be per-spot or per-spot-per-type
+        if unc.ndim == 1:
+            uncertainty_metrics = {
+                "uncertainty_mean": float(unc.mean()),
+                "uncertainty_std": float(unc.std()),
+                "uncertainty_median": float(np.median(unc)),
+            }
+        else:
+            # Per-spot-per-type uncertainty
+            unc_per_spot = unc.mean(axis=1)
+            uncertainty_metrics = {
+                "uncertainty_mean": float(unc_per_spot.mean()),
+                "uncertainty_std": float(unc_per_spot.std()),
+                "uncertainty_median": float(np.median(unc_per_spot)),
+                "uncertainty_per_type_mean": float(unc.mean()),
+            }
+
+    # =========================================================================
+    # COMBINE ALL METRICS
+    # =========================================================================
+    metrics = {}
+    metrics.update(entropy_metrics)
+    metrics.update(coverage_metrics)
+    metrics.update(distribution_metrics)
+    metrics.update(dominance_metrics)
+    metrics.update(per_type_metrics)
+    metrics.update(uncertainty_metrics)
 
     # Gene reconstruction error (if possible)
     if result.reconstructed_expression is not None and spatial_expression is not None:

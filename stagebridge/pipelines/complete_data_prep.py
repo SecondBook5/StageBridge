@@ -145,6 +145,9 @@ def generate_cells_table(
 
     stages = list(stage_definitions.keys())
 
+    # Determine WES ID column (patient_id vs donor_id)
+    wes_id_col = "patient_id" if wes_df is not None and "patient_id" in wes_df.columns else "donor_id"
+
     # Process snRNA cells
     for idx, cell_id in enumerate(tqdm(snrna.obs_names, desc="Processing snRNA")):
         obs = snrna.obs.iloc[idx]
@@ -159,8 +162,8 @@ def generate_cells_table(
 
         # Get WES features if available
         wes_row = (
-            wes_df[wes_df["donor_id"] == donor_id].iloc[0]
-            if wes_df is not None and donor_id in wes_df["donor_id"].values
+            wes_df[wes_df[wes_id_col] == donor_id].iloc[0]
+            if wes_df is not None and donor_id in wes_df[wes_id_col].values
             else None
         )
 
@@ -206,8 +209,8 @@ def generate_cells_table(
 
         # Get WES features
         wes_row = (
-            wes_df[wes_df["donor_id"] == donor_id].iloc[0]
-            if wes_df is not None and donor_id in wes_df["donor_id"].values
+            wes_df[wes_df[wes_id_col] == donor_id].iloc[0]
+            if wes_df is not None and donor_id in wes_df[wes_id_col].values
             else None
         )
 
