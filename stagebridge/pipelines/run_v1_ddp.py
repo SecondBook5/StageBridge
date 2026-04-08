@@ -94,6 +94,9 @@ class TrainingConfig:
     num_workers: int = 4
     mixed_precision: bool = True
 
+    # Ablation flags
+    freeze_encoder: bool = False  # Freeze encoder during transition phase (for ablation)
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -407,6 +410,31 @@ class ProliferationHead(nn.Module):
         return self.head(x)
 
 
+class IL1BHead(nn.Module):
+    """Predict IL1B pathway activity (Peng/Kadara hypothesis test).
+
+    Direct test of the biological hypothesis: IL1B+ macrophages in niche
+    drive IL1B-IL1R1 signaling in epithelial cells. This is the most
+    important biological claim to validate.
+
+    IL1B is pathway index 4 in PROGENy (TNFa, NFkB, PI3K, JAK-STAT, IL1B...).
+    We extract it explicitly for focused supervision and interpretability.
+    """
+    def __init__(self, input_dim: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),  # Single IL1B activity score
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(x)
+
+
 def create_model(config: TrainingConfig, device: torch.device) -> nn.Module:
     """Create the StageBridge model."""
     try:
@@ -483,19 +511,43 @@ def create_dataloaders(
                 niche_tokens = embeddings.unsqueeze(1).expand(-1, 9, -1).clone()
 
                 # z_source and z_target for transition learning
-                # Use stage information to create pseudo-transitions
-                if "stage" in cells_df.columns:
-                    stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
-                    stage_to_idx = {s: i for i, s in enumerate(stage_order)}
-                    stage_indices = (
-                        cells_df["stage"].map(stage_to_idx).fillna(0).astype(int).values
-                    )  # noqa: F841
+                # Create REAL cross-stage transition pairs using stage information
+                stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+                stage_to_idx = {s: i for i, s in enumerate(stage_order)}
 
-                    # z_source = current embedding, z_target = shifted embedding (next stage cells)
+                if "stage" in cells_df.columns:
+                    stage_indices = torch.tensor(
+                        cells_df["stage"].map(stage_to_idx).fillna(0).astype(int).values,
+                        dtype=torch.long
+                    )
+                    log(f"  Stage distribution: {dict(zip(stage_order, [(stage_indices == i).sum().item() for i in range(5)]))}")
+
+                    # Create cross-stage transition pairs:
+                    # For each cell in stage N, find target cells in stage N+1
+                    # We'll compute z_target as mean of next-stage cells (per stage)
                     z_source = embeddings
-                    # For transition targets, use mean of next-stage cells as pseudo-target
-                    z_target = embeddings.clone()  # Placeholder - refine with actual transitions
+                    z_target = torch.zeros_like(embeddings)
+
+                    for stage_idx in range(4):  # 0-3 (Normal through MIA)
+                        source_mask = (stage_indices == stage_idx)
+                        target_mask = (stage_indices == stage_idx + 1)
+
+                        if source_mask.any() and target_mask.any():
+                            # Target is mean of next-stage cells (will be refined by OT in transition_forward)
+                            target_mean = embeddings[target_mask].mean(dim=0)
+                            z_target[source_mask] = target_mean
+                        elif source_mask.any():
+                            # No next stage available, use self (will be filtered in training)
+                            z_target[source_mask] = embeddings[source_mask]
+
+                    # For LUAD (stage 4), no progression target - use self
+                    luad_mask = (stage_indices == 4)
+                    z_target[luad_mask] = embeddings[luad_mask]
+
+                    log(f"  Cross-stage transition pairs created (OT refinement in training)")
                 else:
+                    log("  WARNING: No stage column, using self-transitions (degenerate)")
+                    stage_indices = torch.zeros(n_cells, dtype=torch.long)
                     z_source = embeddings
                     z_target = embeddings
 
@@ -593,12 +645,30 @@ def create_dataloaders(
                 train_prolif = prolif_targets[train_idx] if prolif_targets is not None else torch.zeros(len(train_idx), 1)
                 val_prolif = prolif_targets[val_idx] if prolif_targets is not None else torch.zeros(len(val_idx), 1)
 
+                # Include stage indices for cross-stage OT during transition training
+                train_stages = stage_indices[train_idx]
+                val_stages = stage_indices[val_idx]
+
+                # Extract donor IDs for donor-consistency analysis
+                if "donor_id" in cells_df.columns:
+                    donor_to_idx = {d: i for i, d in enumerate(cells_df["donor_id"].unique())}
+                    donor_indices = torch.tensor(
+                        cells_df["donor_id"].map(donor_to_idx).values, dtype=torch.long
+                    )
+                    train_donors_idx = donor_indices[train_idx]
+                    val_donors_idx = donor_indices[val_idx]
+                else:
+                    train_donors_idx = torch.zeros(len(train_idx), dtype=torch.long)
+                    val_donors_idx = torch.zeros(len(val_idx), dtype=torch.long)
+
                 train_data = TensorDataset(
                     niche_tokens[train_idx],
                     z_source[train_idx],
                     z_target[train_idx],
                     train_pathway,
                     train_prolif,
+                    train_stages,
+                    train_donors_idx,
                 )
                 val_data = TensorDataset(
                     niche_tokens[val_idx],
@@ -606,6 +676,8 @@ def create_dataloaders(
                     z_target[val_idx],
                     val_pathway,
                     val_prolif,
+                    val_stages,
+                    val_donors_idx,
                 )
 
                 log(f"  Train: {len(train_idx):,} cells")
@@ -750,6 +822,7 @@ def train_epoch(
     phase: str = "ssl",
     pathway_head: nn.Module | None = None,
     prolif_head: nn.Module | None = None,
+    il1b_head: nn.Module | None = None,
 ) -> dict:
     """Train for one epoch.
 
@@ -770,15 +843,21 @@ def train_epoch(
     # Track auxiliary losses
     total_pathway_loss = 0.0
     total_prolif_loss = 0.0
+    total_il1b_loss = 0.0  # Peng/Kadara hypothesis test
     n_aux_batches = 0
 
+    # Stage-stratified metrics tracking
+    stage_losses = {i: [] for i in range(5)}  # Normal=0, AAH=1, AIS=2, MIA=3, LUAD=4
+
     for batch in progress:
-        # Unpack batch (5 tensors: niche_tokens, z_source, z_target, pathway_targets, prolif_targets)
+        # Unpack batch (7 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
         z_target = batch[2].to(device, non_blocking=True)
         pathway_targets = batch[3].to(device, non_blocking=True) if len(batch) > 3 else None
         prolif_targets = batch[4].to(device, non_blocking=True) if len(batch) > 4 else None
+        stage_indices = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
+        donor_indices = batch[6].to(device, non_blocking=True) if len(batch) > 6 else None
 
         optimizer.zero_grad()
 
@@ -795,6 +874,15 @@ def train_epoch(
                     receiver = niche_tokens[:, 0, :]
                     outputs = actual_model.ssl_forward(niche_tokens, receiver)
                     loss = outputs["loss_reconstruction"]
+
+                    # Track stage-stratified SSL loss
+                    if stage_indices is not None:
+                        with torch.no_grad():
+                            for s in range(5):
+                                mask = (stage_indices == s)
+                                if mask.any():
+                                    stage_loss = torch.mean((outputs["receiver_pred"][mask] - receiver[mask]) ** 2)
+                                    stage_losses[s].append(stage_loss.item())
                 else:
                     # Fallback: predict receiver from neighbors
                     context = actual_model(
@@ -804,10 +892,40 @@ def train_epoch(
                     )
                     loss = torch.mean((context.context - niche_tokens[:, 0, :]) ** 2)
             else:
-                # STAGE 2: Transition - Learn flow from source to target state
+                # STAGE 2: Transition - Learn flow with CROSS-STAGE OT pairing
                 if hasattr(actual_model, "transition_forward"):
-                    outputs = actual_model.transition_forward(niche_tokens, z_source, z_target)
-                    loss = outputs["loss_transition"]
+                    # Encode niche context for transition
+                    context = actual_model.encode_niche(niche_tokens)
+
+                    # Use stage-aware OT: only pair cells across adjacent stages
+                    # Filter to cells that can transition (stages 0-3, not LUAD)
+                    if stage_indices is not None:
+                        can_transition = (stage_indices < 4)  # Not LUAD
+                        if can_transition.sum() >= 4:  # Need enough cells for OT
+                            # Create cross-stage batches for OT
+                            trans_z_source = z_source[can_transition]
+                            trans_z_target = z_target[can_transition]
+                            trans_context = context[can_transition]
+                            trans_stages = stage_indices[can_transition]
+
+                            outputs = actual_model.transition_forward(
+                                trans_z_source, trans_z_target, trans_context, use_ot=True
+                            )
+                            loss = outputs["loss_transition"]
+
+                            # Track stage-stratified transition loss
+                            with torch.no_grad():
+                                for s in range(4):  # Only 0-3 can transition
+                                    mask = (trans_stages == s)
+                                    if mask.any():
+                                        stage_losses[s].append(loss.item())  # Approximate
+                        else:
+                            # Fallback: use all cells
+                            outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True)
+                            loss = outputs["loss_transition"]
+                    else:
+                        outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True)
+                        loss = outputs["loss_transition"]
                 else:
                     # Fallback: predict target from context
                     context = actual_model(
@@ -850,8 +968,21 @@ def train_epoch(
                     )
                     total_prolif_loss += prolif_loss.item()
 
+            # IL1B-specific auxiliary loss (weight: 0.05) - Peng/Kadara hypothesis test
+            # IL1B is pathway index 4 in standard PROGENy ordering
+            # This is THE key biological claim: IL1B+ macrophages → epithelial IL1B-IL1R1 signaling
+            il1b_loss = torch.tensor(0.0, device=device)
+            if il1b_head is not None and pathway_targets is not None:
+                if pathway_targets.shape[1] > 4:  # Ensure IL1B index exists
+                    il1b_targets = pathway_targets[:, 4:5]  # Extract IL1B (index 4)
+                    if il1b_targets.abs().sum() > 0:
+                        il1b_pred = il1b_head(aux_repr)
+                        il1b_loss = torch.nn.functional.mse_loss(il1b_pred, il1b_targets)
+                        total_il1b_loss += il1b_loss.item()
+
             # Add auxiliary losses (weighted at 0.05 each as per doctrine)
-            loss = loss + 0.05 * pathway_loss + 0.05 * prolif_loss
+            # IL1B gets extra weight (0.10) as the key hypothesis test
+            loss = loss + 0.05 * pathway_loss + 0.05 * prolif_loss + 0.10 * il1b_loss
 
         # NaN/Inf detection - skip bad batches
         if torch.isnan(loss) or torch.isinf(loss):
@@ -892,6 +1023,14 @@ def train_epoch(
     if n_aux_batches > 0:
         metrics["train_pathway_loss"] = total_pathway_loss / n_aux_batches
         metrics["train_prolif_loss"] = total_prolif_loss / n_aux_batches
+        metrics["train_il1b_loss"] = total_il1b_loss / n_aux_batches  # Hypothesis test
+
+    # Add stage-stratified metrics (Task #5)
+    stage_names = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    for s, name in enumerate(stage_names):
+        if stage_losses[s]:
+            metrics[f"train_loss_{name}"] = sum(stage_losses[s]) / len(stage_losses[s])
+
     return metrics
 
 
@@ -904,6 +1043,7 @@ def validate(
     phase: str = "ssl",
     pathway_head: nn.Module | None = None,
     prolif_head: nn.Module | None = None,
+    il1b_head: nn.Module | None = None,
 ) -> dict:
     """Validate the model.
 
@@ -914,16 +1054,23 @@ def validate(
     total_loss = 0.0
     total_pathway_loss = 0.0
     total_prolif_loss = 0.0
+    total_il1b_loss = 0.0  # Peng/Kadara hypothesis test
     n_batches = 0
     n_aux_batches = 0
 
+    # Stage-stratified and donor-level metrics (Tasks #5, #6)
+    stage_losses = {i: [] for i in range(5)}
+    donor_losses = {}  # donor_idx -> list of losses
+
     for batch in val_loader:
-        # Unpack batch (5 tensors)
+        # Unpack batch (7 tensors)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
         z_target = batch[2].to(device, non_blocking=True)
         pathway_targets = batch[3].to(device, non_blocking=True) if len(batch) > 3 else None
         prolif_targets = batch[4].to(device, non_blocking=True) if len(batch) > 4 else None
+        stage_indices = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
+        donor_indices = batch[6].to(device, non_blocking=True) if len(batch) > 6 else None
 
         with torch.cuda.amp.autocast(enabled=config.mixed_precision):
             if hasattr(model, "module"):
@@ -937,6 +1084,26 @@ def validate(
                     receiver = niche_tokens[:, 0, :]
                     outputs = actual_model.ssl_forward(niche_tokens, receiver)
                     loss = outputs["loss_reconstruction"]
+
+                    # Stage-stratified validation loss
+                    if stage_indices is not None:
+                        for s in range(5):
+                            mask = (stage_indices == s)
+                            if mask.any():
+                                stage_loss = torch.mean((outputs["receiver_pred"][mask] - receiver[mask]) ** 2)
+                                stage_losses[s].append(stage_loss.item())
+
+                    # Donor-level validation loss (Task #6)
+                    if donor_indices is not None:
+                        unique_donors = donor_indices.unique()
+                        for d in unique_donors:
+                            d_idx = d.item()
+                            mask = (donor_indices == d)
+                            if mask.any():
+                                donor_loss = torch.mean((outputs["receiver_pred"][mask] - receiver[mask]) ** 2)
+                                if d_idx not in donor_losses:
+                                    donor_losses[d_idx] = []
+                                donor_losses[d_idx].append(donor_loss.item())
                 else:
                     context = actual_model(
                         receiver=niche_tokens[:, 0, :],
@@ -947,7 +1114,8 @@ def validate(
             else:
                 # Transition validation: flow prediction loss
                 if hasattr(actual_model, "transition_forward"):
-                    outputs = actual_model.transition_forward(niche_tokens, z_source, z_target)
+                    context = actual_model.encode_niche(niche_tokens)
+                    outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True)
                     loss = outputs["loss_transition"]
                 else:
                     context = actual_model(
@@ -958,9 +1126,7 @@ def validate(
                     loss = torch.mean((context.context - z_target) ** 2)
 
             # Auxiliary losses for validation metrics
-            if 'context' in dir() and hasattr(context, 'context'):
-                aux_repr = context.context
-            elif 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+            if 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
                 aux_repr = outputs['context']
             else:
                 aux_repr = niche_tokens[:, 0, :]
@@ -975,6 +1141,14 @@ def validate(
                 total_prolif_loss += torch.nn.functional.binary_cross_entropy_with_logits(
                     prolif_pred, prolif_targets
                 ).item()
+
+            # IL1B validation loss (Peng/Kadara hypothesis test)
+            if il1b_head is not None and pathway_targets is not None:
+                if pathway_targets.shape[1] > 4:
+                    il1b_targets = pathway_targets[:, 4:5]
+                    if il1b_targets.abs().sum() > 0:
+                        il1b_pred = il1b_head(aux_repr)
+                        total_il1b_loss += torch.nn.functional.mse_loss(il1b_pred, il1b_targets).item()
 
         total_loss += loss.item()
         n_batches += 1
@@ -992,6 +1166,23 @@ def validate(
     if n_aux_batches > 0:
         metrics["val_pathway_loss"] = total_pathway_loss / n_aux_batches
         metrics["val_prolif_loss"] = total_prolif_loss / n_aux_batches
+        metrics["val_il1b_loss"] = total_il1b_loss / n_aux_batches  # Hypothesis test
+
+    # Add stage-stratified validation metrics (Task #5)
+    stage_names = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    for s, name in enumerate(stage_names):
+        if stage_losses[s]:
+            metrics[f"val_loss_{name}"] = sum(stage_losses[s]) / len(stage_losses[s])
+
+    # Add donor consistency metrics (Task #6)
+    if donor_losses:
+        donor_means = [sum(v) / len(v) for v in donor_losses.values() if v]
+        if donor_means:
+            metrics["val_donor_mean"] = sum(donor_means) / len(donor_means)
+            metrics["val_donor_std"] = (sum((m - metrics["val_donor_mean"])**2 for m in donor_means) / len(donor_means)) ** 0.5
+            metrics["val_donor_min"] = min(donor_means)
+            metrics["val_donor_max"] = max(donor_means)
+
     return metrics
 
 
@@ -1060,15 +1251,22 @@ def train(config: TrainingConfig):
     aux_input_dim = config.context_dim
     pathway_head = PathwayHead(aux_input_dim, n_pathways=14).to(device)
     prolif_head = ProliferationHead(aux_input_dim).to(device)
-    log(f"Auxiliary heads created: pathway (14 pathways), proliferation (Ki67)")
+    il1b_head = IL1BHead(aux_input_dim).to(device)  # Peng/Kadara hypothesis test
+    log(f"Auxiliary heads created: pathway (14), proliferation (Ki67), IL1B (hypothesis test)")
 
     # Wrap auxiliary heads with DDP if distributed
     if distributed:
         pathway_head = DDP(pathway_head, device_ids=[local_rank], find_unused_parameters=True)
         prolif_head = DDP(prolif_head, device_ids=[local_rank], find_unused_parameters=True)
+        il1b_head = DDP(il1b_head, device_ids=[local_rank], find_unused_parameters=True)
 
     # Create optimizer and scaler (include auxiliary head parameters)
-    all_params = list(model.parameters()) + list(pathway_head.parameters()) + list(prolif_head.parameters())
+    all_params = (
+        list(model.parameters())
+        + list(pathway_head.parameters())
+        + list(prolif_head.parameters())
+        + list(il1b_head.parameters())
+    )
     optimizer = torch.optim.AdamW(
         all_params,
         lr=config.learning_rate,
@@ -1141,13 +1339,13 @@ def train(config: TrainingConfig):
         # Train with SSL objective + auxiliary losses
         train_metrics = train_epoch(
             model, train_loader, optimizer, scaler, device, config, epoch, phase="ssl",
-            pathway_head=pathway_head, prolif_head=prolif_head,
+            pathway_head=pathway_head, prolif_head=prolif_head, il1b_head=il1b_head,
         )
 
         # Validate
         val_metrics = validate(
             model, val_loader, device, config, phase="ssl",
-            pathway_head=pathway_head, prolif_head=prolif_head,
+            pathway_head=pathway_head, prolif_head=prolif_head, il1b_head=il1b_head,
         )
 
         # Combine metrics
@@ -1227,12 +1425,34 @@ def train(config: TrainingConfig):
     log(f"\n{'=' * 60}")
     log(f"STAGE 2: Transition Model ({config.transition_epochs} epochs)")
     log("Objective: Learn stage transition dynamics (flow field)")
+    if config.freeze_encoder:
+        log("Mode: FROZEN encoder (SSL representation transfer test)")
+    else:
+        log("Mode: Fine-tuning (end-to-end optimization)")
     log(f"{'=' * 60}\n")
 
-    # Reset optimizer for transition phase (lower LR for fine-tuning)
-    # Include auxiliary heads in optimizer
-    transition_lr = config.learning_rate * 0.1
-    all_params = list(model.parameters()) + list(pathway_head.parameters()) + list(prolif_head.parameters())
+    # Optionally freeze encoder for ablation (tests SSL representation quality)
+    if config.freeze_encoder:
+        actual_model = model.module if hasattr(model, "module") else model
+        frozen_count = 0
+        # Freeze encoder components (niche_encoder, context_encoder, context_projection, wes_proj)
+        for name in ["niche_encoder", "context_encoder", "context_projection", "wes_proj", "token_type_embedding"]:
+            if hasattr(actual_model, name):
+                for param in getattr(actual_model, name).parameters():
+                    param.requires_grad = False
+                    frozen_count += param.numel()
+        log(f"Froze {frozen_count:,} encoder parameters")
+
+    # Reset optimizer for transition phase
+    # Only include trainable parameters
+    transition_lr = config.learning_rate * 0.1 if not config.freeze_encoder else config.learning_rate
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    all_params = (
+        trainable_params
+        + list(pathway_head.parameters())
+        + list(prolif_head.parameters())
+        + list(il1b_head.parameters())
+    )
     optimizer = torch.optim.AdamW(
         all_params,
         lr=transition_lr,
@@ -1266,12 +1486,13 @@ def train(config: TrainingConfig):
             phase="transition",
             pathway_head=pathway_head,
             prolif_head=prolif_head,
+            il1b_head=il1b_head,
         )
 
         # Validate
         val_metrics = validate(
             model, val_loader, device, config, phase="transition",
-            pathway_head=pathway_head, prolif_head=prolif_head,
+            pathway_head=pathway_head, prolif_head=prolif_head, il1b_head=il1b_head,
         )
 
         # Combine metrics
@@ -1429,6 +1650,13 @@ def main():
     parser.add_argument("--no_mixed_precision", action="store_true")
     parser.add_argument("--device", type=str, default="auto")
 
+    # Ablation flags
+    parser.add_argument(
+        "--freeze_encoder",
+        action="store_true",
+        help="Freeze encoder during transition phase (tests SSL representation transfer)",
+    )
+
     args = parser.parse_args()
 
     config = TrainingConfig(
@@ -1460,6 +1688,7 @@ def main():
         seed=args.seed,
         num_workers=args.num_workers,
         mixed_precision=not args.no_mixed_precision,
+        freeze_encoder=args.freeze_encoder,
     )
 
     train(config)

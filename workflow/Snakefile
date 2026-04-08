@@ -625,6 +625,97 @@ rule training:
 
 
 # =============================================================================
+# Stage 5c-ablation: Training with Frozen Encoder (SSL transfer test)
+# =============================================================================
+# Tests whether SSL representations transfer directly to transition task
+# without fine-tuning. Compares to main training to validate SSL quality.
+
+rule training_frozen:
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        splits = f"{CANONICAL}/split_manifest.json",
+        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
+        hpo_params = f"{TRAINING}/hpo/best_params.json",
+        leakage_check = f"{CANONICAL}/leakage_validation.json"
+    output:
+        checkpoint = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/checkpoints/final_checkpoint.pt",
+        best = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/checkpoints/best_checkpoint.pt",
+        ssl_checkpoint = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/checkpoints/ssl_pretrained.pt",
+        metrics = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/metrics/training_metrics.csv",
+        config = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/config.json",
+        results = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/results.json"
+    wildcard_constraints:
+        fold = "[0-4]",
+        seed = "[0-9]+"
+    params:
+        n_gpus = 4,
+        ssl_epochs = 100,
+        transition_epochs = 50,
+        canonical_dir = CANONICAL,
+        training_dir = TRAINING
+    threads: 32
+    resources:
+        mem_mb = 512000,
+        runtime = 720,
+        slurm_partition = "gpu",
+        gpu = 4,
+        constraint = "h100",
+        nodes = 1
+    log:
+        f"{RUNS}/logs/training_frozen/fold{{fold}}_seed{{seed}}.log"
+    shell:
+        """
+        echo "=============================================="
+        echo "StageBridge V1 Training (FROZEN ENCODER ABLATION)"
+        echo "  Fold: {wildcards.fold}/5"
+        echo "  Seed: {wildcards.seed}"
+        echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
+        echo "  Stage 2: Transition Model ({params.transition_epochs} epochs) - FROZEN"
+        echo "  Purpose: Test SSL representation transfer quality"
+        echo "=============================================="
+
+        torchrun \
+            --nproc_per_node={params.n_gpus} \
+            --master_port=$((29600 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
+            -m stagebridge.pipelines.run_v1_ddp \
+            --data_dir {params.canonical_dir} \
+            --output_dir {params.training_dir}/frozen/fold{wildcards.fold}_seed{wildcards.seed} \
+            --validation_fold {wildcards.fold} \
+            --seed {wildcards.seed} \
+            --ssl_epochs {params.ssl_epochs} \
+            --transition_epochs {params.transition_epochs} \
+            --batch_size 256 \
+            --checkpoint_every 10 \
+            --hpo_params {input.hpo_params} \
+            --use_best_hparams \
+            --freeze_encoder \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Training: Run both fine-tuned and frozen in parallel
+# =============================================================================
+
+rule training_all:
+    """Run both fine-tuned and frozen encoder training in parallel for efficiency."""
+    input:
+        # Fine-tuned (15 runs: 5 folds × 3 seeds)
+        finetuned = expand(
+            f"{TRAINING}/fold{{fold}}_seed{{seed}}/results.json",
+            fold=FOLDS, seed=SEEDS
+        ),
+        # Frozen encoder ablation (15 runs: 5 folds × 3 seeds)
+        frozen = expand(
+            f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/results.json",
+            fold=FOLDS, seed=SEEDS
+        )
+    output:
+        touch(f"{TRAINING}/training_all.done")
+
+
+# =============================================================================
 # Stage 5d: Aggregate CV Results (with Bootstrap CIs)
 # =============================================================================
 
