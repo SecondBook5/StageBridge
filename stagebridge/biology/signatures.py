@@ -359,6 +359,62 @@ IMMUNE_SIGNATURES = {
         "description": "Immune infiltration markers - DEPLETED in progressive/persistent lesions",
         "source": "Beane et al. 2019 Nature Communications",
     },
+    "plasma_cell": {
+        "genes": [
+            # Plasma cell signature - predicts immunotherapy response
+            "CD38",  # PC marker
+            "SDC1",  # CD138, PC marker
+            "JCHAIN",  # Ig joining chain
+            "MZB1",  # Marginal zone B and B1 cell-specific protein
+            "XBP1",  # UPR, antibody secretion
+            "PRDM1",  # BLIMP1, PC differentiation
+            "IRF4",  # PC transcription factor
+            "IGHA1",  # IgA heavy chain
+            "IGHA2",
+            "IGHG1",  # IgG heavy chain
+            "IGHG2",
+            "IGHG3",
+            "IGHG4",
+            "IGHM",  # IgM heavy chain
+            "IGHD",  # IgD heavy chain
+        ],
+        "description": "Plasma cell signature - HIGH predicts better OS and immunotherapy response",
+        "source": "Hao et al. 2022 Cancer Discovery",
+    },
+    "b_cell_memory": {
+        "genes": [
+            # Memory B cell markers
+            "MS4A1",  # CD20
+            "CD19",
+            "CD27",  # Memory marker
+            "CD24",
+            "CR2",  # CD21
+            "TNFRSF13B",  # TACI
+            "TNFRSF13C",  # BAFF-R
+            "TNFRSF17",  # BCMA
+            "AICDA",  # AID, class switch recombination
+            "BACH2",  # B cell differentiation
+        ],
+        "description": "Memory B cell markers - class-switched, GC-experienced",
+        "source": "Hao et al. 2022 Cancer Discovery",
+    },
+    "cxcl13_tls": {
+        "genes": [
+            # CXCL13-CXCR5 axis for TLS formation and B cell recruitment
+            "CXCL13",  # B cell attractant - produced by Tfh, fibroblasts
+            "CXCR5",  # CXCL13 receptor on B cells
+            "CD4",  # Tfh marker
+            "ICOS",  # Tfh marker
+            "PDCD1",  # PD1, Tfh/Tex marker
+            "BCL6",  # Tfh/GC master regulator
+            "IL21",  # Tfh cytokine
+            "CD40LG",  # CD40L, T-B interaction
+            "CR2",  # FDC marker
+            "FDCSP",  # FDC secreted protein
+        ],
+        "description": "CXCL13-CXCR5 axis / TLS markers - highest in early-stage LUAD",
+        "source": "Hao et al. 2022 Cancer Discovery",
+    },
 }
 
 # =============================================================================
