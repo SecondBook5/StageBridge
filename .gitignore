@@ -98,6 +98,7 @@ CLAUDE.md
 
 # Large result files (generated, not for git)
 results/reference_mapping/
+results/spatial_benchmark/
 
 # Logs directory (runtime logs)
 logs/
