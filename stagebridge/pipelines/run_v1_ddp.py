@@ -499,6 +499,25 @@ def create_dataloaders(
                     z_source = embeddings
                     z_target = embeddings
 
+                # Extract DestVI gamma values if available (intra-cell-type functional state)
+                gamma_cols = [c for c in cells_df.columns if c.startswith("gamma_")]
+                gamma_features = None
+                if gamma_cols:
+                    gamma_features = torch.tensor(
+                        cells_df[sorted(gamma_cols)].values, dtype=torch.float32
+                    )
+                    n_gamma = gamma_features.shape[1]
+                    log(f"  Gamma values: {n_gamma} dims (DestVI functional state)")
+
+                    # Add gamma to token 7 (pathway token) - represents functional state
+                    # Pad or truncate gamma to fit remaining space in latent_dim
+                    if n_gamma < config.latent_dim:
+                        # Pad gamma with zeros to match latent_dim for token 7
+                        gamma_padded = torch.zeros(n_cells, config.latent_dim)
+                        gamma_padded[:, :n_gamma] = gamma_features
+                        niche_tokens[:, 7, :] = gamma_padded  # Token 7 = functional state
+                        log(f"  Token 7 (pathway) enriched with gamma ({n_gamma} dims, padded to {config.latent_dim})")
+
                 # Extract pathway scores if available (pre-computed in complete_data_prep.py)
                 pathway_cols = [c for c in cells_df.columns if c.startswith("pathway_")]
                 pathway_targets = None
