@@ -20,7 +20,13 @@ import anndata as ad
 import json
 import yaml
 from tqdm import tqdm
+import torch
 from stagebridge.utils.data_cache import get_data_cache
+from stagebridge.biology.pathway_targets import (
+    compute_pathway_targets,
+    compute_proliferation_targets,
+    PROGENY_PATHWAYS,
+)
 
 
 def generate_canonical_artifacts(
@@ -176,6 +182,19 @@ def generate_cells_table(
     # Determine WES ID column (patient_id vs donor_id)
     wes_id_col = "patient_id" if wes_df is not None and "patient_id" in wes_df.columns else "donor_id"
 
+    # Pre-compute pathway/proliferation targets for all snRNA cells (batch)
+    print("  Computing pathway/proliferation targets...")
+    gene_names = list(snrna.var_names)
+    snrna_expr = torch.tensor(
+        snrna.X.toarray() if hasattr(snrna.X, "toarray") else snrna.X,
+        dtype=torch.float32,
+    )
+    pathway_targets = compute_pathway_targets(snrna_expr, gene_names, torch.device("cpu"))
+    prolif_targets = compute_proliferation_targets(snrna_expr, gene_names, torch.device("cpu"))
+    n_pathways = len(PROGENY_PATHWAYS)
+    print(f"    Pathway targets: {pathway_targets.shape if pathway_targets is not None else 'None'}")
+    print(f"    Proliferation targets: {prolif_targets.shape if prolif_targets is not None else 'None'}")
+
     # Process snRNA cells
     for idx, cell_id in enumerate(tqdm(snrna.obs_names, desc="Processing snRNA")):
         obs = snrna.obs.iloc[idx]
@@ -219,7 +238,30 @@ def generate_cells_table(
             record[f"z_hlca_{dim}"] = z_placeholder[dim]
             record[f"z_luca_{dim}"] = z_placeholder[dim]
 
+        # Add pathway/proliferation targets (pre-computed from real expression)
+        if pathway_targets is not None:
+            for p_idx in range(n_pathways):
+                record[f"pathway_{p_idx}"] = float(pathway_targets[idx, p_idx].item())
+        else:
+            for p_idx in range(n_pathways):
+                record[f"pathway_{p_idx}"] = 0.0
+        record["proliferation_label"] = (
+            float(prolif_targets[idx, 0].item()) if prolif_targets is not None else 0.0
+        )
+
         records.append(record)
+
+    # Pre-compute pathway/proliferation targets for spatial spots
+    print("  Computing spatial pathway/proliferation targets...")
+    spatial_gene_names = list(spatial.var_names)
+    spatial_expr = torch.tensor(
+        spatial.X.toarray() if hasattr(spatial.X, "toarray") else spatial.X,
+        dtype=torch.float32,
+    )
+    spatial_pathway_targets = compute_pathway_targets(spatial_expr, spatial_gene_names, torch.device("cpu"))
+    spatial_prolif_targets = compute_proliferation_targets(spatial_expr, spatial_gene_names, torch.device("cpu"))
+    print(f"    Spatial pathway targets: {spatial_pathway_targets.shape if spatial_pathway_targets is not None else 'None'}")
+    print(f"    Spatial proliferation targets: {spatial_prolif_targets.shape if spatial_prolif_targets is not None else 'None'}")
 
     # Process spatial spots
     for idx, spot_id in enumerate(tqdm(spatial.obs_names, desc="Processing spatial")):
@@ -265,6 +307,17 @@ def generate_cells_table(
             record[f"z_fused_{dim}"] = z_placeholder[dim]
             record[f"z_hlca_{dim}"] = z_placeholder[dim]
             record[f"z_luca_{dim}"] = z_placeholder[dim]
+
+        # Add pathway/proliferation targets (pre-computed from real expression)
+        if spatial_pathway_targets is not None:
+            for p_idx in range(n_pathways):
+                record[f"pathway_{p_idx}"] = float(spatial_pathway_targets[idx, p_idx].item())
+        else:
+            for p_idx in range(n_pathways):
+                record[f"pathway_{p_idx}"] = 0.0
+        record["proliferation_label"] = (
+            float(spatial_prolif_targets[idx, 0].item()) if spatial_prolif_targets is not None else 0.0
+        )
 
         records.append(record)
 
