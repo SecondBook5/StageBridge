@@ -590,7 +590,8 @@ rule training:
         runtime = 720,  # 12 hours (SSL ~6h + transition ~3h + buffer)
         slurm_partition = "gpu",
         gpu = 4,
-        constraint = "h100"
+        constraint = "h100",
+        nodes = 1
     log:
         f"{RUNS}/logs/training/fold{{fold}}_seed{{seed}}.log"
     shell:
