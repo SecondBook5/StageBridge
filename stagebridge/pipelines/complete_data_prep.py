@@ -72,21 +72,39 @@ def generate_canonical_artifacts(
     backend_results = cache.read_parquet(spatial_backend_dir / "cell_type_proportions.parquet")
 
     # Load DestVI gamma values if available (intra-cell-type variation)
-    gamma_files = list(spatial_backend_dir.glob("destvi_gamma_*.csv"))
+    # Gamma files are per-sample in samples/*/destvi_gamma_*.csv
     gamma_df = None
-    if gamma_files:
-        print(f"  Loading {len(gamma_files)} DestVI gamma files (intra-cell-type variation)...")
-        gamma_stack = []
-        for gf in sorted(gamma_files):
-            gf_df = pd.read_csv(gf, index_col=0)
-            gamma_stack.append(gf_df.values)
-        # Average gamma across cell types to get spot-level functional state
-        mean_gamma = np.stack(gamma_stack).mean(axis=0)  # [spots, n_gamma_dims]
-        gamma_cols = [f"gamma_{i}" for i in range(mean_gamma.shape[1])]
-        gamma_df = pd.DataFrame(mean_gamma, index=pd.read_csv(gamma_files[0], index_col=0).index, columns=gamma_cols)
-        print(f"  Gamma shape: {gamma_df.shape} (spots x gamma dims)")
+    samples_dir = spatial_backend_dir / "samples"
+    if samples_dir.exists():
+        sample_dirs = [d for d in samples_dir.iterdir() if d.is_dir()]
+        print(f"  Searching for gamma files in {len(sample_dirs)} sample directories...")
+
+        all_gamma_dfs = []
+        for sample_dir in sorted(sample_dirs):
+            gamma_files = list(sample_dir.glob("destvi_gamma_*.csv"))
+            if gamma_files:
+                # Average gamma across cell types for this sample
+                gamma_stack = []
+                for gf in sorted(gamma_files):
+                    gf_df = pd.read_csv(gf, index_col=0)
+                    gamma_stack.append(gf_df.values)
+                mean_gamma = np.stack(gamma_stack).mean(axis=0)
+                n_gamma = mean_gamma.shape[1]
+                gamma_cols = [f"gamma_{i}" for i in range(n_gamma)]
+                sample_gamma_df = pd.DataFrame(
+                    mean_gamma,
+                    index=pd.read_csv(gamma_files[0], index_col=0).index,
+                    columns=gamma_cols
+                )
+                all_gamma_dfs.append(sample_gamma_df)
+
+        if all_gamma_dfs:
+            gamma_df = pd.concat(all_gamma_dfs, axis=0)
+            print(f"  Loaded gamma from {len(all_gamma_dfs)} samples: {gamma_df.shape} (spots x gamma dims)")
+        else:
+            print("  No DestVI gamma files found in sample directories")
     else:
-        print("  No DestVI gamma files found (using proportions only)")
+        print("  No samples directory found (using proportions only)")
 
     print(f"  snRNA: {snrna.shape[0]} cells")
     print(f"  Spatial: {spatial.shape[0]} spots")
