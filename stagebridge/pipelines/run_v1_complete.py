@@ -283,6 +283,34 @@ class StageBridgeV1Complete(nn.Module):
             nn.Linear(256, latent_dim),
         )
 
+        # =====================================================================
+        # COUNTERFACTUAL PREDICTION HEAD (Novel methodological contribution)
+        # Predicts: "What would this cell's state be in a different niche?"
+        # Enables causal claims about niche effects on cell state
+        # =====================================================================
+        self.counterfactual_head = nn.Sequential(
+            # Input: receiver_state + original_context + counterfactual_context
+            nn.Linear(latent_dim + context_dim * 2, 256),
+            nn.GELU(),
+            nn.LayerNorm(256),
+            nn.Dropout(dropout),
+            nn.Linear(256, 256),
+            nn.GELU(),
+            nn.LayerNorm(256),
+            nn.Linear(256, latent_dim),  # Predicted state change
+        )
+
+        # =====================================================================
+        # IL1B-SPECIFIC HEAD (Direct test of Peng/Kadara biological hypothesis)
+        # Predicts IL1B pathway activity in receivers from niche context
+        # IL1B-IL1R1 signaling axis: macrophage IL1B → epithelial IL1R1
+        # =====================================================================
+        self.il1b_head = nn.Sequential(
+            nn.Linear(context_dim, 64),
+            nn.GELU(),
+            nn.Linear(64, 1),  # Single IL1B activity score
+        )
+
     def encode_niche(
         self, niche_tokens: torch.Tensor, distances: torch.Tensor = None
     ) -> torch.Tensor:
@@ -472,6 +500,107 @@ class StageBridgeV1Complete(nn.Module):
             trajectory.append(z_t)
 
         return torch.stack(trajectory, dim=1)
+
+    def counterfactual_forward(
+        self,
+        receiver_state: torch.Tensor,
+        original_niche: torch.Tensor,
+        counterfactual_niche: torch.Tensor,
+    ) -> dict:
+        """Counterfactual prediction: What would cell state be in a different niche?
+
+        This is the key methodological contribution enabling causal claims.
+        Given a cell's current state and its actual niche, predict what its
+        state would be if it were in a different (counterfactual) niche.
+
+        Args:
+            receiver_state: [B, latent_dim] current cell state
+            original_niche: [B, K, D] actual niche tokens
+            counterfactual_niche: [B, K, D] hypothetical niche tokens
+
+        Returns:
+            dict with:
+                - predicted_state: [B, latent_dim] predicted state in counterfactual niche
+                - state_change: [B, latent_dim] predicted change from original
+                - original_context: [B, context_dim] encoded original niche
+                - counterfactual_context: [B, context_dim] encoded counterfactual niche
+        """
+        # Encode both niches
+        original_context = self.encode_niche(original_niche)
+        counterfactual_context = self.encode_niche(counterfactual_niche)
+
+        # Predict state change from niche swap
+        cf_input = torch.cat([receiver_state, original_context, counterfactual_context], dim=-1)
+        state_change = self.counterfactual_head(cf_input)
+
+        # Predicted state = current state + predicted change
+        predicted_state = receiver_state + state_change
+
+        return {
+            "predicted_state": predicted_state,
+            "state_change": state_change,
+            "original_context": original_context,
+            "counterfactual_context": counterfactual_context,
+        }
+
+    def il1b_forward(self, niche_tokens: torch.Tensor) -> dict:
+        """IL1B pathway prediction: Test Peng/Kadara biological hypothesis.
+
+        Predicts IL1B pathway activity in receivers from niche context.
+        The hypothesis: IL1B+ macrophages in niche → increased IL1B signaling in epithelial cells.
+
+        Args:
+            niche_tokens: [B, K, D] niche token embeddings
+
+        Returns:
+            dict with:
+                - il1b_score: [B, 1] predicted IL1B pathway activity
+                - context: [B, context_dim] niche context used for prediction
+        """
+        context = self.encode_niche(niche_tokens)
+        il1b_score = self.il1b_head(context)
+
+        return {
+            "il1b_score": il1b_score,
+            "context": context,
+        }
+
+    def perturbation_forward(
+        self,
+        receiver_state: torch.Tensor,
+        original_niche: torch.Tensor,
+        perturbed_niche: torch.Tensor,
+    ) -> dict:
+        """In silico perturbation: Remove/add cell types from niche.
+
+        Wrapper around counterfactual_forward specifically for perturbation experiments.
+        Computes effect size and confidence of niche perturbation on cell state.
+
+        Args:
+            receiver_state: [B, latent_dim] current cell state
+            original_niche: [B, K, D] actual niche tokens
+            perturbed_niche: [B, K, D] niche with cell type removed/added
+
+        Returns:
+            dict with effect size, direction, and confidence metrics
+        """
+        cf_output = self.counterfactual_forward(receiver_state, original_niche, perturbed_niche)
+
+        # Compute effect metrics
+        state_change = cf_output["state_change"]
+        effect_magnitude = torch.norm(state_change, dim=-1, keepdim=True)  # [B, 1]
+        effect_direction = state_change / (effect_magnitude + 1e-8)  # [B, D] unit vector
+
+        # Context difference as proxy for perturbation strength
+        context_diff = cf_output["counterfactual_context"] - cf_output["original_context"]
+        perturbation_magnitude = torch.norm(context_diff, dim=-1, keepdim=True)
+
+        return {
+            **cf_output,
+            "effect_magnitude": effect_magnitude,
+            "effect_direction": effect_direction,
+            "perturbation_magnitude": perturbation_magnitude,
+        }
 
 
 # =============================================================================
