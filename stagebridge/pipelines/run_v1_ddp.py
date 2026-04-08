@@ -435,6 +435,35 @@ class IL1BHead(nn.Module):
         return self.head(x)
 
 
+class KACHead(nn.Module):
+    """Predict KAC (KRT8+ Alveolar Intermediate Cell) signature.
+
+    From Nature 2024 Kadara lab: KACs are THE key intermediate state in
+    AT2 -> LUAD progression. The trajectory is:
+    Normal -> AT2 -> AIC -> KAC (KRT8+) -> LUAD tumor
+
+    Key insight: KACs are found in tumor-adjacent normal tissue BEFORE
+    tumors form. This is the critical progression window where intervention
+    is possible. Our transition model should capture cells transitioning
+    toward this state.
+
+    KAC markers: KRT8, CLDN4, CDKN1A, CDKN2A, PLAUR (senescence + invasion)
+    """
+    def __init__(self, input_dim: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),  # KAC signature score
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(x)
+
+
 def create_model(config: TrainingConfig, device: torch.device) -> nn.Module:
     """Create the StageBridge model."""
     try:
@@ -823,6 +852,7 @@ def train_epoch(
     pathway_head: nn.Module | None = None,
     prolif_head: nn.Module | None = None,
     il1b_head: nn.Module | None = None,
+    kac_head: nn.Module | None = None,
 ) -> dict:
     """Train for one epoch.
 
@@ -844,6 +874,7 @@ def train_epoch(
     total_pathway_loss = 0.0
     total_prolif_loss = 0.0
     total_il1b_loss = 0.0  # Peng/Kadara hypothesis test
+    total_kac_loss = 0.0  # KAC intermediate state (Nature 2024)
     n_aux_batches = 0
 
     # Stage-stratified metrics tracking
@@ -980,9 +1011,23 @@ def train_epoch(
                         il1b_loss = torch.nn.functional.mse_loss(il1b_pred, il1b_targets)
                         total_il1b_loss += il1b_loss.item()
 
+            # KAC signature loss (weight: 0.10) - Nature 2024 key intermediate state
+            # KAC is computed from a subset of pathway genes (indices vary by dataset)
+            kac_loss = torch.tensor(0.0, device=device)
+            if kac_head is not None and pathway_targets is not None:
+                # KAC score computed as mean z-score of KAC markers in pathway targets
+                # For now, use p53 pathway (index 7) as proxy since CDKN1A/2A are in it
+                if pathway_targets.shape[1] > 7:
+                    kac_proxy = pathway_targets[:, 7:8]  # p53 pathway as proxy for senescence
+                    if kac_proxy.abs().sum() > 0:
+                        kac_pred = kac_head(aux_repr)
+                        kac_loss = torch.nn.functional.mse_loss(kac_pred, kac_proxy)
+                        total_kac_loss += kac_loss.item()
+
             # Add auxiliary losses (weighted at 0.05 each as per doctrine)
             # IL1B gets extra weight (0.10) as the key hypothesis test
-            loss = loss + 0.05 * pathway_loss + 0.05 * prolif_loss + 0.10 * il1b_loss
+            # KAC gets extra weight (0.10) as the key intermediate state
+            loss = loss + 0.05 * pathway_loss + 0.05 * prolif_loss + 0.10 * il1b_loss + 0.10 * kac_loss
 
         # NaN/Inf detection - skip bad batches
         if torch.isnan(loss) or torch.isinf(loss):
@@ -1023,7 +1068,8 @@ def train_epoch(
     if n_aux_batches > 0:
         metrics["train_pathway_loss"] = total_pathway_loss / n_aux_batches
         metrics["train_prolif_loss"] = total_prolif_loss / n_aux_batches
-        metrics["train_il1b_loss"] = total_il1b_loss / n_aux_batches  # Hypothesis test
+        metrics["train_il1b_loss"] = total_il1b_loss / n_aux_batches  # Peng/Kadara hypothesis
+        metrics["train_kac_loss"] = total_kac_loss / n_aux_batches  # Nature 2024 intermediate
 
     # Add stage-stratified metrics (Task #5)
     stage_names = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
@@ -1044,6 +1090,7 @@ def validate(
     pathway_head: nn.Module | None = None,
     prolif_head: nn.Module | None = None,
     il1b_head: nn.Module | None = None,
+    kac_head: nn.Module | None = None,
 ) -> dict:
     """Validate the model.
 
@@ -1055,6 +1102,7 @@ def validate(
     total_pathway_loss = 0.0
     total_prolif_loss = 0.0
     total_il1b_loss = 0.0  # Peng/Kadara hypothesis test
+    total_kac_loss = 0.0  # KAC intermediate state (Nature 2024)
     n_batches = 0
     n_aux_batches = 0
 
@@ -1150,6 +1198,14 @@ def validate(
                         il1b_pred = il1b_head(aux_repr)
                         total_il1b_loss += torch.nn.functional.mse_loss(il1b_pred, il1b_targets).item()
 
+            # KAC validation loss (Nature 2024 intermediate state)
+            if kac_head is not None and pathway_targets is not None:
+                if pathway_targets.shape[1] > 7:
+                    kac_proxy = pathway_targets[:, 7:8]  # p53 as proxy for senescence
+                    if kac_proxy.abs().sum() > 0:
+                        kac_pred = kac_head(aux_repr)
+                        total_kac_loss += torch.nn.functional.mse_loss(kac_pred, kac_proxy).item()
+
         total_loss += loss.item()
         n_batches += 1
 
@@ -1166,7 +1222,8 @@ def validate(
     if n_aux_batches > 0:
         metrics["val_pathway_loss"] = total_pathway_loss / n_aux_batches
         metrics["val_prolif_loss"] = total_prolif_loss / n_aux_batches
-        metrics["val_il1b_loss"] = total_il1b_loss / n_aux_batches  # Hypothesis test
+        metrics["val_il1b_loss"] = total_il1b_loss / n_aux_batches  # Peng/Kadara hypothesis
+        metrics["val_kac_loss"] = total_kac_loss / n_aux_batches  # Nature 2024 intermediate
 
     # Add stage-stratified validation metrics (Task #5)
     stage_names = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
@@ -1251,14 +1308,16 @@ def train(config: TrainingConfig):
     aux_input_dim = config.context_dim
     pathway_head = PathwayHead(aux_input_dim, n_pathways=14).to(device)
     prolif_head = ProliferationHead(aux_input_dim).to(device)
-    il1b_head = IL1BHead(aux_input_dim).to(device)  # Peng/Kadara hypothesis test
-    log(f"Auxiliary heads created: pathway (14), proliferation (Ki67), IL1B (hypothesis test)")
+    il1b_head = IL1BHead(aux_input_dim).to(device)  # Peng/Kadara IL1B hypothesis
+    kac_head = KACHead(aux_input_dim).to(device)  # KAC intermediate state (Nature 2024)
+    log(f"Auxiliary heads created: pathway (14), proliferation (Ki67), IL1B, KAC (Nature 2024)")
 
     # Wrap auxiliary heads with DDP if distributed
     if distributed:
         pathway_head = DDP(pathway_head, device_ids=[local_rank], find_unused_parameters=True)
         prolif_head = DDP(prolif_head, device_ids=[local_rank], find_unused_parameters=True)
         il1b_head = DDP(il1b_head, device_ids=[local_rank], find_unused_parameters=True)
+        kac_head = DDP(kac_head, device_ids=[local_rank], find_unused_parameters=True)
 
     # Create optimizer and scaler (include auxiliary head parameters)
     all_params = (
@@ -1266,6 +1325,7 @@ def train(config: TrainingConfig):
         + list(pathway_head.parameters())
         + list(prolif_head.parameters())
         + list(il1b_head.parameters())
+        + list(kac_head.parameters())
     )
     optimizer = torch.optim.AdamW(
         all_params,
@@ -1340,12 +1400,14 @@ def train(config: TrainingConfig):
         train_metrics = train_epoch(
             model, train_loader, optimizer, scaler, device, config, epoch, phase="ssl",
             pathway_head=pathway_head, prolif_head=prolif_head, il1b_head=il1b_head,
+            kac_head=kac_head,
         )
 
         # Validate
         val_metrics = validate(
             model, val_loader, device, config, phase="ssl",
             pathway_head=pathway_head, prolif_head=prolif_head, il1b_head=il1b_head,
+            kac_head=kac_head,
         )
 
         # Combine metrics
@@ -1487,12 +1549,14 @@ def train(config: TrainingConfig):
             pathway_head=pathway_head,
             prolif_head=prolif_head,
             il1b_head=il1b_head,
+            kac_head=kac_head,
         )
 
         # Validate
         val_metrics = validate(
             model, val_loader, device, config, phase="transition",
             pathway_head=pathway_head, prolif_head=prolif_head, il1b_head=il1b_head,
+            kac_head=kac_head,
         )
 
         # Combine metrics

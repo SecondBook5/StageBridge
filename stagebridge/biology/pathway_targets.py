@@ -35,6 +35,22 @@ PROGENY_PATHWAYS = {
 # Proliferation markers (from stagebridge/biology/signatures.py)
 PROLIFERATION_MARKERS = ["MKI67", "TOP2A", "PCNA", "MCM2", "MCM6"]
 
+# KAC (KRT8+ Alveolar Intermediate Cell) markers
+# These cells are the key intermediate in the AT2 -> LUAD progression trajectory
+# From Nature 2024 Kadara lab + Peng et al. 2020 Cancer Cell
+KAC_MARKERS = [
+    "KRT8",  # Primary marker
+    "CLDN4",  # Tight junction
+    "CDKN1A",  # p21 senescence (Nature 2024)
+    "CDKN2A",  # p16 senescence (Nature 2024)
+    "PLAUR",  # uPAR invasion (Nature 2024)
+    "CEACAM5",
+    "CEACAM6",
+    "MUC1",
+    "MSLN",
+    "CD24",
+]
+
 
 def compute_pathway_targets(
     expression: torch.Tensor,
@@ -125,6 +141,45 @@ def compute_proliferation_targets(
     return (ki67_expr > threshold).float().unsqueeze(1)
 
 
+def compute_kac_targets(
+    expression: torch.Tensor,
+    gene_names: list[str],
+    device: torch.device,
+) -> torch.Tensor | None:
+    """Compute KAC (KRT8+ Alveolar Intermediate Cell) signature score.
+
+    From Nature 2024 Kadara lab: KACs are the key intermediate state in
+    AT2 -> LUAD progression. Trajectory: Normal -> AT2 -> AIC -> KAC -> Tumor.
+    KACs are found in tumor-adjacent normal tissue BEFORE tumors form,
+    making this the critical cell state our transition model should capture.
+
+    Markers: KRT8, CLDN4, CDKN1A, CDKN2A, PLAUR (senescence + invasion)
+
+    Args:
+        expression: [B, n_genes] expression matrix
+        gene_names: List of gene names corresponding to expression columns
+        device: Torch device
+
+    Returns:
+        [B, 1] KAC signature scores, or None if insufficient genes found
+    """
+    if gene_names is None or len(gene_names) == 0:
+        return None
+
+    gene_to_idx = {g: i for i, g in enumerate(gene_names)}
+    gene_idx = [gene_to_idx[g] for g in KAC_MARKERS if g in gene_to_idx]
+
+    if len(gene_idx) < 3:  # Need at least 3 markers
+        return None
+
+    kac_expr = expression[:, gene_idx]
+    # Z-score normalize and mean
+    mean = kac_expr.mean(dim=0, keepdim=True)
+    std = kac_expr.std(dim=0, keepdim=True, unbiased=False) + 1e-8
+    z_scores = (kac_expr - mean) / std
+    return z_scores.mean(dim=1, keepdim=True)
+
+
 def get_pathway_gene_list() -> list[str]:
     """Get all unique genes used in pathway scoring.
 
@@ -134,4 +189,5 @@ def get_pathway_gene_list() -> list[str]:
     for pathway_genes in PROGENY_PATHWAYS.values():
         genes.update(pathway_genes)
     genes.update(PROLIFERATION_MARKERS)
+    genes.update(KAC_MARKERS)
     return sorted(genes)
