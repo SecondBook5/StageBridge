@@ -176,10 +176,12 @@
 % ============================================
 \node[sectitle] at (7, 1.5) {E. SSL Objectives};
 
-\node[lossbox, minimum width=2.8cm] (l1) at (9, 0.9) {$\mathcal{L}_\text{recon}$ \textbf{(70\%)}};
-\node[lossbox] (l2) at (9, 0.3) {$\mathcal{L}_\text{rank}$ (10\%)};
-\node[lossbox] (l3) at (9, -0.3) {$\mathcal{L}_\text{consist}$ (10\%)};
-\node[lossbox] (l4) at (9, -0.9) {$\mathcal{L}_\text{coord}$ (5\%)};
+\node[lossbox, minimum width=2.8cm] (l1) at (9, 1.2) {$\mathcal{L}_\text{recon}$ \textbf{(70\%)}};
+\node[lossbox] (l2) at (9, 0.6) {$\mathcal{L}_\text{rank}$ (10\%)};
+\node[lossbox] (l3) at (9, 0.0) {$\mathcal{L}_\text{consist}$ (10\%)};
+\node[lossbox] (l4) at (9, -0.6) {$\mathcal{L}_\text{coord}$ (5\%)};
+\node[lossbox, fill=down!15] (l5) at (9, -1.2) {$\mathcal{L}_\text{pathway}$ (5\%)};
+\node[lossbox, fill=down!15] (l6) at (9, -1.8) {$\mathcal{L}_\text{prolif}$ (5\%)};
 
 % Highlight primary
 \node[rectangle, draw=loss!80!black, rounded corners=2pt, dashed,
@@ -189,8 +191,12 @@
 \draw[arr=repr!70] (encoder.east) -- ++(0.3, 0) |- (l2.west);
 \draw[arr=repr!50] (encoder.east) -- ++(0.3, 0) |- (l3.west);
 \draw[arr=repr!30] (encoder.east) -- ++(0.3, 0) |- (l4.west);
+\draw[arr=down!50] (encoder.east) -- ++(0.3, 0) |- (l5.west);
+\draw[arr=down!50] (encoder.east) -- ++(0.3, 0) |- (l6.west);
 
 \node[annot, right=0.1cm of l1] {Primary};
+\node[annot, right=0.1cm of l5, text width=1.5cm] {PROGENy\\(SpatialFusion)};
+\node[annot, right=0.1cm of l6, text width=1.2cm] {Ki67\\(OSDR)};
 
 % ============================================
 % F. DOWNSTREAM TASKS
