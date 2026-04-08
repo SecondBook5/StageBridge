@@ -85,6 +85,21 @@ V1 uses **Flow Matching** (OT-CFM) with Sinkhorn coupling:
 - Optimal transport provides principled coupling
 - Niche context conditions the flow field
 
+### Self-supervised objectives
+
+The SSL pretraining uses weighted multi-task learning:
+
+| Loss | Weight | Description | Inspiration |
+|------|--------|-------------|-------------|
+| Reconstruction | 70% | Masked receiver prediction from niche context | Core novelty |
+| Ranking | 10% | Positive/negative niche discrimination | Contrastive |
+| Consistency | 10% | Cross-view provider consistency | SimCLR |
+| Coordinate | 5% | Spatial coordinate corruption detection | Spatial awareness |
+| **Pathway** | 5% | PROGENy pathway activity prediction | SpatialFusion |
+| **Proliferation** | 5% | Ki67 proliferation classification | OSDR |
+
+The pathway and proliferation heads are paper-inspired auxiliary losses that force the latent space to encode biologically meaningful features.
+
 ---
 
 ## Project scope
