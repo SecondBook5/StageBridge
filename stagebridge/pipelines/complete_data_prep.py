@@ -71,6 +71,23 @@ def generate_canonical_artifacts(
     # Load spatial backend results (use canonical backend from benchmark)
     backend_results = cache.read_parquet(spatial_backend_dir / "cell_type_proportions.parquet")
 
+    # Load DestVI gamma values if available (intra-cell-type variation)
+    gamma_files = list(spatial_backend_dir.glob("destvi_gamma_*.csv"))
+    gamma_df = None
+    if gamma_files:
+        print(f"  Loading {len(gamma_files)} DestVI gamma files (intra-cell-type variation)...")
+        gamma_stack = []
+        for gf in sorted(gamma_files):
+            gf_df = pd.read_csv(gf, index_col=0)
+            gamma_stack.append(gf_df.values)
+        # Average gamma across cell types to get spot-level functional state
+        mean_gamma = np.stack(gamma_stack).mean(axis=0)  # [spots, n_gamma_dims]
+        gamma_cols = [f"gamma_{i}" for i in range(mean_gamma.shape[1])]
+        gamma_df = pd.DataFrame(mean_gamma, index=pd.read_csv(gamma_files[0], index_col=0).index, columns=gamma_cols)
+        print(f"  Gamma shape: {gamma_df.shape} (spots x gamma dims)")
+    else:
+        print("  No DestVI gamma files found (using proportions only)")
+
     print(f"  snRNA: {snrna.shape[0]} cells")
     print(f"  Spatial: {spatial.shape[0]} spots")
     print(f"  WES: {len(wes_df) if wes_df is not None else 0} samples")
@@ -82,6 +99,7 @@ def generate_canonical_artifacts(
         spatial=spatial,
         wes_df=wes_df,
         stage_definitions=stage_definitions,
+        gamma_df=gamma_df,
     )
     cells_df.to_parquet(output_dir / "cells.parquet", index=False)
     print(f"  Saved {len(cells_df)} cells")
@@ -155,6 +173,7 @@ def generate_cells_table(
     spatial: ad.AnnData,
     wes_df: pd.DataFrame,
     stage_definitions: dict[str, list[str]],
+    gamma_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Generate cells.parquet with all required fields.
@@ -319,7 +338,26 @@ def generate_cells_table(
             float(spatial_prolif_targets[idx, 0].item()) if spatial_prolif_targets is not None else 0.0
         )
 
+        # Add DestVI gamma values (intra-cell-type variation) for spatial spots
+        if gamma_df is not None and spot_id in gamma_df.index:
+            gamma_row = gamma_df.loc[spot_id]
+            for g_idx, g_col in enumerate(gamma_df.columns):
+                record[g_col] = float(gamma_row[g_col])
+        elif gamma_df is not None:
+            # Gamma available but spot not found - fill with zeros
+            for g_col in gamma_df.columns:
+                record[g_col] = 0.0
+
         records.append(record)
+
+    # Add gamma columns to snRNA records (zeros - gamma is spatial only)
+    if gamma_df is not None:
+        n_gamma = len(gamma_df.columns)
+        print(f"  Adding {n_gamma} gamma columns to snRNA cells (zeros - spatial only)...")
+        snrna_records = [r for r in records if not r["cell_id"].startswith("spatial_")]
+        for r in snrna_records:
+            for g_col in gamma_df.columns:
+                r[g_col] = 0.0
 
     return pd.DataFrame(records)
 
