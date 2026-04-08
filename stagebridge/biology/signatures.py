@@ -297,6 +297,68 @@ IMMUNE_SIGNATURES = {
         "description": "Neutrophil markers",
         "source": "Literature consensus",
     },
+    "interferon_response": {
+        "genes": [
+            # Module 9 genes from Beane et al. - DOWN in progressive lesions
+            "SP100",
+            "CIITA",
+            "CXCL10",
+            "SOCS1",
+            "GBP1",
+            "GBP4",
+            "B2M",
+            "TAP1",
+            "TAPBP",
+            "TRIM14",
+            "TRIM21",
+            "TRIM22",
+            "STAT1",
+            "PML",
+            "OAS2",
+            "OAS3",
+            "MX1",
+            "ADAR",
+            "ISG15",
+            "IFI35",
+            "IFIT3",
+            "IFI27",
+            "PSMB8",
+            "PSMB9",
+            "BST2",
+            "IRF1",
+            "IRF9",
+            "CD74",
+            "HLA-DQA1",
+            "HLA-DPA1",
+            "HLA-DRA",
+            "HLA-DPB1",
+            "HLA-DRB1",
+            "HLA-DQB1",
+            "HLA-DMA",
+        ],
+        "description": "Interferon signaling and antigen presentation (Module 9) - LOW in progressive PMLs",
+        "source": "Beane et al. 2019 Nature Communications",
+    },
+    "immune_cold": {
+        "genes": [
+            # Markers of immune exclusion/cold TME
+            # Progressive lesions have FEWER of these cells
+            "CD8A",
+            "CD8B",
+            "CD4",
+            "CD3D",
+            "CD3E",
+            "CD3G",
+            "GZMA",
+            "GZMB",
+            "PRF1",
+            "IFNG",
+            "CD163",  # M2 macrophage - depleted in progressive
+            "CD68",  # Pan-macrophage
+        ],
+        "description": "Immune infiltration markers - DEPLETED in progressive/persistent lesions",
+        "source": "Beane et al. 2019 Nature Communications",
+    },
 }
 
 # =============================================================================
@@ -337,19 +399,25 @@ LUNG_CANCER_SIGNATURES = {
     },
     "kac_intermediate": {
         "genes": [
-            "KRT8",
+            # Core KAC markers (Nature 2024 + Peng 2020)
+            "KRT8",  # Primary marker - KRT8+ alveolar intermediate
+            "CLDN4",  # Tight junction, epithelial
+            "CDKN1A",  # p21, senescence marker (Nature 2024)
+            "CDKN2A",  # p16, senescence marker (Nature 2024)
+            "PLAUR",  # uPAR, invasion/remodeling (Nature 2024)
+            # Extended markers from Peng et al. 2020
             "CEACAM5",
             "CEACAM6",
             "MUC1",
             "MSLN",
             "CD24",
-            "CLDN4",
             "TACSTD2",
             "EPCAM",
             "KRT7",
+            "KRT18",  # Also marks intermediates
         ],
-        "description": "KRT8+/CEACAM5+ alveolar intermediate cells (Peng et al.)",
-        "source": "Peng et al. 2020 Cancer Cell",
+        "description": "KRT8+ Alveolar Intermediate Cells (KACs) - key LUAD precursor state",
+        "source": "Nature 2024 Kadara + Peng et al. 2020 Cancer Cell",
     },
     "club_cell": {
         "genes": [
@@ -417,6 +485,44 @@ LUNG_CANCER_SIGNATURES = {
         "description": "NOTCH pathway genes",
         "source": "KEGG + Literature",
     },
+    "kras_signature": {
+        "genes": [
+            # KRAS-mutant LUAD signature from Nature 2024
+            # KACs with KRAS mutations show these
+            "KRAS",
+            "DUSP6",  # MAPK feedback
+            "ETV4",
+            "ETV5",
+            "SPRY2",
+            "SPRY4",
+            "AREG",  # EGFR ligand
+            "EREG",
+            "MYC",  # Downstream target
+            "CCND1",
+            # Loss of differentiation
+            "NKX2-1",  # Reduced
+            "GNK2",  # Reduced
+        ],
+        "description": "KRAS-mutant signature in KACs and malignant cells",
+        "source": "Han et al. 2024 Nature (KAC atlas)",
+    },
+    "alveolar_differentiation": {
+        "genes": [
+            # AT2 differentiation markers - LOST in malignancy
+            "SFTPC",
+            "SFTPB",
+            "SFTPA1",
+            "SFTPA2",
+            "SFTPD",
+            "LAMP3",
+            "ABCA3",
+            "NKX2-1",
+            "ETV5",
+            "NAPSA",
+        ],
+        "description": "Alveolar differentiation - progressively lost in LUAD",
+        "source": "Han et al. 2024 Nature + HLCA",
+    },
 }
 
 # =============================================================================
@@ -450,6 +556,27 @@ PROLIFERATION_SIGNATURE = {
         ],
         "description": "Cell proliferation / cell cycle markers",
         "source": "Literature consensus",
+    },
+    "invasion_ube2c": {
+        "genes": [
+            # UBE2C+ cancer cell signature from Zhu et al. 2022
+            # Increases during AIS → MIA → IAC progression
+            "UBE2C",  # Key prognostic marker
+            "BIRC5",  # Survivin
+            "CCNB1",
+            "CCNB2",
+            "CDC20",
+            "CDKN3",
+            "CKS1B",
+            "CKS2",
+            "FOXM1",
+            "NUSAP1",
+            "PRC1",
+            "TPX2",
+            "TYMS",
+        ],
+        "description": "UBE2C+ invasive cancer cell signature - increases AIS→MIA→IAC",
+        "source": "Zhu et al. 2022 Exp Mol Med",
     },
 }
 
