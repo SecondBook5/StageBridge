@@ -11,6 +11,10 @@ from torch import Tensor, nn
 import torch.nn.functional as F
 
 from stagebridge.context_model.set_encoder import SetContextSummary
+from stagebridge.biology.pathway_targets import (
+    compute_pathway_targets,
+    compute_proliferation_targets,
+)
 
 
 @dataclass(slots=True, frozen=True)
@@ -28,6 +32,10 @@ class RelationalPretrainingConfig:
     - provider_consistency (0.10): Auxiliary - cross-view consistency
     - coordinate_corruption (0.05): Auxiliary - spatial awareness
     - group_relation (0.05): Auxiliary - biological group structure
+
+    Optional paper-inspired auxiliary heads (disabled by default):
+    - pathway: PROGENy pathway regression (SpatialFusion, Nature Methods 2024)
+    - proliferation: Ki67 binary classification (OSDR, Nature 2026)
     """
 
     mask_fraction: float = 0.15
@@ -42,10 +50,21 @@ class RelationalPretrainingConfig:
     learning_rate: float = 8e-4
     weight_decay: float = 1e-4
     seed: int = 42
+    # Paper-inspired auxiliary heads (SpatialFusion, OSDR)
+    use_pathway_head: bool = True  # PROGENy pathway regression
+    pathway_weight: float = 0.05
+    n_pathways: int = 14  # Number of PROGENy pathways
+    use_proliferation_head: bool = True  # Ki67 proliferation prediction
+    proliferation_weight: float = 0.05
 
 
 class RelationalPretrainingHeads(nn.Module):
-    """Heads used during transformer pretraining and reduced fine-tuning."""
+    """Heads used during transformer pretraining and reduced fine-tuning.
+
+    Includes optional paper-inspired auxiliary heads:
+    - pathway_head: PROGENy pathway regression (SpatialFusion)
+    - proliferation_head: Ki67 binary classification (OSDR)
+    """
 
     def __init__(
         self,
@@ -56,6 +75,9 @@ class RelationalPretrainingHeads(nn.Module):
         num_datasets: int = 4,
         num_edges: int = 8,
         projection_dim: int = 64,
+        n_pathways: int = 14,
+        use_pathway_head: bool = True,
+        use_proliferation_head: bool = True,
     ) -> None:
         super().__init__()
         aux_dim = max(16, context_dim // 4)
@@ -101,6 +123,24 @@ class RelationalPretrainingHeads(nn.Module):
             nn.LayerNorm(int(context_dim)),
             nn.Linear(int(context_dim), 1),
         )
+        # Paper-inspired auxiliary heads (optional)
+        self.use_pathway_head = use_pathway_head
+        self.use_proliferation_head = use_proliferation_head
+        if use_pathway_head:
+            # PROGENy pathway regression (SpatialFusion, Nature Methods 2024)
+            self.pathway_head = nn.Sequential(
+                nn.Linear(int(context_dim), int(context_dim)),
+                nn.GELU(),
+                nn.LayerNorm(int(context_dim)),
+                nn.Linear(int(context_dim), int(n_pathways)),
+            )
+        if use_proliferation_head:
+            # Ki67 proliferation binary classification (OSDR, Nature 2026)
+            self.proliferation_head = nn.Sequential(
+                nn.Linear(int(context_dim), max(16, int(context_dim) // 2)),
+                nn.GELU(),
+                nn.Linear(max(16, int(context_dim) // 2), 1),
+            )
 
 
 def _clone_trainable_parameters(module: nn.Module) -> dict[str, Tensor]:
@@ -252,6 +292,9 @@ def compute_relational_auxiliary_losses(
     include_coordinate_corruption: bool,
     include_group_relation: bool,
     return_attention: bool = False,
+    # Paper-inspired auxiliary targets (optional)
+    pathway_targets: Tensor | None = None,
+    proliferation_targets: Tensor | None = None,
 ) -> tuple[Tensor, dict[str, Tensor], dict[str, Any], SetContextSummary]:
     summary = _forward_context_encoder(
         context_encoder,
@@ -477,12 +520,42 @@ def compute_relational_auxiliary_losses(
         losses["group_relation"] = torch.zeros((), device=device, dtype=dtype)
         metrics["group_relation_accuracy"] = float("nan")
 
+    # Paper-inspired auxiliary losses (SpatialFusion pathway, OSDR proliferation)
+    if heads.use_pathway_head and pathway_targets is not None:
+        pathway_pred = heads.pathway_head(pooled)
+        # Handle batch dimension mismatch
+        if pathway_pred.shape[0] != pathway_targets.shape[0]:
+            pathway_pred = pathway_pred.expand(pathway_targets.shape[0], -1)
+        losses["pathway"] = F.mse_loss(pathway_pred, pathway_targets)
+        metrics["pathway_loss"] = float(losses["pathway"].detach().item())
+    else:
+        losses["pathway"] = torch.zeros((), device=device, dtype=dtype)
+        metrics["pathway_loss"] = float("nan")
+
+    if heads.use_proliferation_head and proliferation_targets is not None:
+        proliferation_logits = heads.proliferation_head(pooled)
+        # Handle batch dimension mismatch
+        if proliferation_logits.shape[0] != proliferation_targets.shape[0]:
+            proliferation_logits = proliferation_logits.expand(proliferation_targets.shape[0], -1)
+        losses["proliferation"] = F.binary_cross_entropy_with_logits(
+            proliferation_logits, proliferation_targets
+        )
+        preds = torch.sigmoid(proliferation_logits.detach()) > 0.5
+        metrics["proliferation_accuracy"] = float(
+            (preds == proliferation_targets).float().mean().item()
+        )
+    else:
+        losses["proliferation"] = torch.zeros((), device=device, dtype=dtype)
+        metrics["proliferation_accuracy"] = float("nan")
+
     total = (
         float(config.masked_token_weight) * losses["masked_token"]
         + float(config.ranking_weight) * losses["ranking"]
         + float(config.provider_consistency_weight) * losses["provider_consistency"]
         + float(config.coordinate_corruption_weight) * losses["coordinate_corruption"]
         + float(config.group_relation_weight) * losses["group_relation"]
+        + float(config.pathway_weight) * losses["pathway"]
+        + float(config.proliferation_weight) * losses["proliferation"]
     )
     metrics["loss_total"] = float(total.detach().item())
     metrics["loss_masked_token"] = float(losses["masked_token"].detach().item())
@@ -490,6 +563,8 @@ def compute_relational_auxiliary_losses(
     metrics["loss_provider_consistency"] = float(losses["provider_consistency"].detach().item())
     metrics["loss_coordinate_corruption"] = float(losses["coordinate_corruption"].detach().item())
     metrics["loss_group_relation"] = float(losses["group_relation"].detach().item())
+    metrics["loss_pathway"] = float(losses["pathway"].detach().item())
+    metrics["loss_proliferation"] = float(losses["proliferation"].detach().item())
     return total, losses, metrics, summary
 
 
@@ -505,8 +580,16 @@ def pretrain_relational_transformer(
     negative_controls: list[dict[str, Any]] | None,
     provider_views: list[dict[str, Any]] | None,
     config: RelationalPretrainingConfig,
+    # Optional expression data for pathway/proliferation auxiliary targets
+    expression: Tensor | None = None,
+    gene_names: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run self-supervised relational pretraining on the hierarchical transformer."""
+    """Run self-supervised relational pretraining on the hierarchical transformer.
+
+    Args:
+        expression: Optional [B, n_genes] expression matrix for pathway/proliferation targets.
+        gene_names: Optional list of gene names corresponding to expression columns.
+    """
     probe_summary = _forward_context_encoder(
         context_encoder,
         context_tokens,
@@ -524,7 +607,23 @@ def pretrain_relational_transformer(
         num_token_types=int(token_type_ids.max().item()) + 1 if token_type_ids.numel() > 0 else 1,
         num_datasets=4,
         num_edges=8,
+        n_pathways=int(config.n_pathways),
+        use_pathway_head=bool(config.use_pathway_head),
+        use_proliferation_head=bool(config.use_proliferation_head),
     ).to(context_tokens.device)
+
+    # Compute pathway/proliferation targets if expression data provided
+    pathway_targets = None
+    proliferation_targets = None
+    if expression is not None and gene_names is not None:
+        if config.use_pathway_head:
+            pathway_targets = compute_pathway_targets(
+                expression, gene_names, context_tokens.device
+            )
+        if config.use_proliferation_head:
+            proliferation_targets = compute_proliferation_targets(
+                expression, gene_names, context_tokens.device
+            )
 
     before = _clone_trainable_parameters(context_encoder)
     params = list(context_encoder.parameters()) + list(heads.parameters())
@@ -555,6 +654,8 @@ def pretrain_relational_transformer(
                 include_coordinate_corruption=True,
                 include_group_relation=True,
                 return_attention=False,
+                pathway_targets=pathway_targets,
+                proliferation_targets=proliferation_targets,
             )
             optimizer.zero_grad(set_to_none=True)
             total.backward()
@@ -589,6 +690,8 @@ def pretrain_relational_transformer(
             include_coordinate_corruption=True,
             include_group_relation=True,
             return_attention=True,
+            pathway_targets=pathway_targets,
+            proliferation_targets=proliferation_targets,
         )
 
     return {
