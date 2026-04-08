@@ -378,6 +378,35 @@ class CheckpointManager:
         return torch.load(checkpoint_path, map_location=device)
 
 
+# Pathway/proliferation auxiliary heads (paper-inspired: SpatialFusion, OSDR)
+class PathwayHead(nn.Module):
+    """Predict PROGENy pathway scores from context (SpatialFusion-inspired)."""
+    def __init__(self, input_dim: int, n_pathways: int = 14):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, n_pathways),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(x)
+
+
+class ProliferationHead(nn.Module):
+    """Predict Ki67 proliferation (OSDR-inspired)."""
+    def __init__(self, input_dim: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Linear(input_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(x)
+
+
 def create_model(config: TrainingConfig, device: torch.device) -> nn.Module:
     """Create the StageBridge model."""
     try:
@@ -470,6 +499,23 @@ def create_dataloaders(
                     z_source = embeddings
                     z_target = embeddings
 
+                # Extract pathway scores if available (pre-computed in complete_data_prep.py)
+                pathway_cols = [c for c in cells_df.columns if c.startswith("pathway_")]
+                pathway_targets = None
+                if pathway_cols:
+                    pathway_targets = torch.tensor(
+                        cells_df[sorted(pathway_cols)].values, dtype=torch.float32
+                    )
+                    log(f"  Pathway targets: {pathway_targets.shape[1]} pathways")
+
+                # Extract proliferation label if available
+                prolif_targets = None
+                if "proliferation_label" in cells_df.columns:
+                    prolif_targets = torch.tensor(
+                        cells_df["proliferation_label"].values, dtype=torch.float32
+                    ).unsqueeze(1)
+                    log(f"  Proliferation targets: {prolif_targets.shape}")
+
                 # Train/val split - MUST use donor-held-out splits to prevent leakage
                 split_manifest_path = Path(config.data_dir) / "split_manifest.json"
 
@@ -522,15 +568,25 @@ def create_dataloaders(
                     indices = torch.randperm(n_cells)
                     train_idx, val_idx = indices[:n_train], indices[n_train:]
 
+                # Include pathway/proliferation targets in dataset (None-safe)
+                train_pathway = pathway_targets[train_idx] if pathway_targets is not None else torch.zeros(len(train_idx), 14)
+                val_pathway = pathway_targets[val_idx] if pathway_targets is not None else torch.zeros(len(val_idx), 14)
+                train_prolif = prolif_targets[train_idx] if prolif_targets is not None else torch.zeros(len(train_idx), 1)
+                val_prolif = prolif_targets[val_idx] if prolif_targets is not None else torch.zeros(len(val_idx), 1)
+
                 train_data = TensorDataset(
                     niche_tokens[train_idx],
                     z_source[train_idx],
                     z_target[train_idx],
+                    train_pathway,
+                    train_prolif,
                 )
                 val_data = TensorDataset(
                     niche_tokens[val_idx],
                     z_source[val_idx],
                     z_target[val_idx],
+                    val_pathway,
+                    val_prolif,
                 )
 
                 log(f"  Train: {len(train_idx):,} cells")
@@ -612,11 +668,15 @@ def create_dataloaders(
             torch.randn(n_train, 9, config.latent_dim),
             torch.randn(n_train, config.latent_dim),
             torch.randn(n_train, config.latent_dim),
+            torch.zeros(n_train, 14),  # pathway targets (placeholder)
+            torch.zeros(n_train, 1),   # proliferation targets (placeholder)
         )
         val_data = TensorDataset(
             torch.randn(n_val, 9, config.latent_dim),
             torch.randn(n_val, config.latent_dim),
             torch.randn(n_val, config.latent_dim),
+            torch.zeros(n_val, 14),  # pathway targets (placeholder)
+            torch.zeros(n_val, 1),   # proliferation targets (placeholder)
         )
 
     # ==========================================================================
@@ -669,6 +729,8 @@ def train_epoch(
     config: TrainingConfig,
     epoch: int,
     phase: str = "ssl",
+    pathway_head: nn.Module | None = None,
+    prolif_head: nn.Module | None = None,
 ) -> dict:
     """Train for one epoch.
 
@@ -686,10 +748,18 @@ def train_epoch(
     phase_label = "SSL" if phase == "ssl" else "Trans"
     progress = tqdm(train_loader, desc=f"[{phase_label}] E{epoch}", disable=not is_main_process())
 
-    for niche_tokens, z_source, z_target in progress:
-        niche_tokens = niche_tokens.to(device, non_blocking=True)
-        z_source = z_source.to(device, non_blocking=True)
-        z_target = z_target.to(device, non_blocking=True)
+    # Track auxiliary losses
+    total_pathway_loss = 0.0
+    total_prolif_loss = 0.0
+    n_aux_batches = 0
+
+    for batch in progress:
+        # Unpack batch (5 tensors: niche_tokens, z_source, z_target, pathway_targets, prolif_targets)
+        niche_tokens = batch[0].to(device, non_blocking=True)
+        z_source = batch[1].to(device, non_blocking=True)
+        z_target = batch[2].to(device, non_blocking=True)
+        pathway_targets = batch[3].to(device, non_blocking=True) if len(batch) > 3 else None
+        prolif_targets = batch[4].to(device, non_blocking=True) if len(batch) > 4 else None
 
         optimizer.zero_grad()
 
@@ -729,6 +799,41 @@ def train_epoch(
                     # Transition loss: predict z_target from z_source + context
                     loss = torch.mean((context.context - z_target) ** 2)
 
+            # =================================================================
+            # AUXILIARY LOSSES: Pathway + Proliferation (SpatialFusion/OSDR-inspired)
+            # =================================================================
+            # Get context representation for auxiliary heads
+            if 'context' in dir() and hasattr(context, 'context'):
+                aux_repr = context.context
+            elif 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+                aux_repr = outputs['context']
+            else:
+                # Use receiver embedding as fallback
+                aux_repr = niche_tokens[:, 0, :]
+
+            # Pathway auxiliary loss (weight: 0.05)
+            pathway_loss = torch.tensor(0.0, device=device)
+            if pathway_head is not None and pathway_targets is not None:
+                # Only compute if targets have actual signal (not all zeros)
+                if pathway_targets.abs().sum() > 0:
+                    pathway_pred = pathway_head(aux_repr)
+                    pathway_loss = torch.nn.functional.mse_loss(pathway_pred, pathway_targets)
+                    total_pathway_loss += pathway_loss.item()
+                    n_aux_batches += 1
+
+            # Proliferation auxiliary loss (weight: 0.05)
+            prolif_loss = torch.tensor(0.0, device=device)
+            if prolif_head is not None and prolif_targets is not None:
+                if prolif_targets.abs().sum() > 0:
+                    prolif_pred = prolif_head(aux_repr)
+                    prolif_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                        prolif_pred, prolif_targets
+                    )
+                    total_prolif_loss += prolif_loss.item()
+
+            # Add auxiliary losses (weighted at 0.05 each as per doctrine)
+            loss = loss + 0.05 * pathway_loss + 0.05 * prolif_loss
+
         # NaN/Inf detection - skip bad batches
         if torch.isnan(loss) or torch.isinf(loss):
             if is_main_process():
@@ -764,7 +869,11 @@ def train_epoch(
         total_loss = total_loss_tensor.item()
         n_batches = int(n_batches_tensor.item())
 
-    return {"train_loss": total_loss / max(n_batches, 1)}
+    metrics = {"train_loss": total_loss / max(n_batches, 1)}
+    if n_aux_batches > 0:
+        metrics["train_pathway_loss"] = total_pathway_loss / n_aux_batches
+        metrics["train_prolif_loss"] = total_prolif_loss / n_aux_batches
+    return metrics
 
 
 @torch.no_grad()
@@ -774,6 +883,8 @@ def validate(
     device: torch.device,
     config: TrainingConfig,
     phase: str = "ssl",
+    pathway_head: nn.Module | None = None,
+    prolif_head: nn.Module | None = None,
 ) -> dict:
     """Validate the model.
 
@@ -782,12 +893,18 @@ def validate(
     """
     model.eval()
     total_loss = 0.0
+    total_pathway_loss = 0.0
+    total_prolif_loss = 0.0
     n_batches = 0
+    n_aux_batches = 0
 
-    for niche_tokens, z_source, z_target in val_loader:
-        niche_tokens = niche_tokens.to(device, non_blocking=True)
-        z_source = z_source.to(device, non_blocking=True)
-        z_target = z_target.to(device, non_blocking=True)
+    for batch in val_loader:
+        # Unpack batch (5 tensors)
+        niche_tokens = batch[0].to(device, non_blocking=True)
+        z_source = batch[1].to(device, non_blocking=True)
+        z_target = batch[2].to(device, non_blocking=True)
+        pathway_targets = batch[3].to(device, non_blocking=True) if len(batch) > 3 else None
+        prolif_targets = batch[4].to(device, non_blocking=True) if len(batch) > 4 else None
 
         with torch.cuda.amp.autocast(enabled=config.mixed_precision):
             if hasattr(model, "module"):
@@ -821,6 +938,25 @@ def validate(
                     )
                     loss = torch.mean((context.context - z_target) ** 2)
 
+            # Auxiliary losses for validation metrics
+            if 'context' in dir() and hasattr(context, 'context'):
+                aux_repr = context.context
+            elif 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+                aux_repr = outputs['context']
+            else:
+                aux_repr = niche_tokens[:, 0, :]
+
+            if pathway_head is not None and pathway_targets is not None and pathway_targets.abs().sum() > 0:
+                pathway_pred = pathway_head(aux_repr)
+                total_pathway_loss += torch.nn.functional.mse_loss(pathway_pred, pathway_targets).item()
+                n_aux_batches += 1
+
+            if prolif_head is not None and prolif_targets is not None and prolif_targets.abs().sum() > 0:
+                prolif_pred = prolif_head(aux_repr)
+                total_prolif_loss += torch.nn.functional.binary_cross_entropy_with_logits(
+                    prolif_pred, prolif_targets
+                ).item()
+
         total_loss += loss.item()
         n_batches += 1
 
@@ -833,7 +969,11 @@ def validate(
         total_loss = total_loss_tensor.item()
         n_batches = int(n_batches_tensor.item())
 
-    return {"val_loss": total_loss / max(n_batches, 1)}
+    metrics = {"val_loss": total_loss / max(n_batches, 1)}
+    if n_aux_batches > 0:
+        metrics["val_pathway_loss"] = total_pathway_loss / n_aux_batches
+        metrics["val_prolif_loss"] = total_prolif_loss / n_aux_batches
+    return metrics
 
 
 def train(config: TrainingConfig):
@@ -896,9 +1036,22 @@ def train(config: TrainingConfig):
     if distributed:
         model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
 
-    # Create optimizer and scaler
+    # Create auxiliary heads for paper-inspired losses (SpatialFusion/OSDR)
+    # Input dim matches context dim from the model
+    aux_input_dim = config.context_dim
+    pathway_head = PathwayHead(aux_input_dim, n_pathways=14).to(device)
+    prolif_head = ProliferationHead(aux_input_dim).to(device)
+    log(f"Auxiliary heads created: pathway (14 pathways), proliferation (Ki67)")
+
+    # Wrap auxiliary heads with DDP if distributed
+    if distributed:
+        pathway_head = DDP(pathway_head, device_ids=[local_rank], find_unused_parameters=True)
+        prolif_head = DDP(prolif_head, device_ids=[local_rank], find_unused_parameters=True)
+
+    # Create optimizer and scaler (include auxiliary head parameters)
+    all_params = list(model.parameters()) + list(pathway_head.parameters()) + list(prolif_head.parameters())
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        all_params,
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
     )
@@ -966,13 +1119,17 @@ def train(config: TrainingConfig):
     log(f"{'=' * 60}\n")
 
     for epoch in range(start_epoch, min(start_epoch + config.ssl_epochs, config.ssl_epochs)):
-        # Train with SSL objective
+        # Train with SSL objective + auxiliary losses
         train_metrics = train_epoch(
-            model, train_loader, optimizer, scaler, device, config, epoch, phase="ssl"
+            model, train_loader, optimizer, scaler, device, config, epoch, phase="ssl",
+            pathway_head=pathway_head, prolif_head=prolif_head,
         )
 
         # Validate
-        val_metrics = validate(model, val_loader, device, config, phase="ssl")
+        val_metrics = validate(
+            model, val_loader, device, config, phase="ssl",
+            pathway_head=pathway_head, prolif_head=prolif_head,
+        )
 
         # Combine metrics
         metrics = {**train_metrics, **val_metrics, "phase": "ssl"}
@@ -1054,9 +1211,11 @@ def train(config: TrainingConfig):
     log(f"{'=' * 60}\n")
 
     # Reset optimizer for transition phase (lower LR for fine-tuning)
+    # Include auxiliary heads in optimizer
     transition_lr = config.learning_rate * 0.1
+    all_params = list(model.parameters()) + list(pathway_head.parameters()) + list(prolif_head.parameters())
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        all_params,
         lr=transition_lr,
         weight_decay=config.weight_decay,
     )
@@ -1076,7 +1235,7 @@ def train(config: TrainingConfig):
     for epoch in range(config.transition_epochs):
         global_epoch = config.ssl_epochs + epoch
 
-        # Train with transition objective
+        # Train with transition objective + auxiliary losses
         train_metrics = train_epoch(
             model,
             train_loader,
@@ -1086,10 +1245,15 @@ def train(config: TrainingConfig):
             config,
             global_epoch,
             phase="transition",
+            pathway_head=pathway_head,
+            prolif_head=prolif_head,
         )
 
         # Validate
-        val_metrics = validate(model, val_loader, device, config, phase="transition")
+        val_metrics = validate(
+            model, val_loader, device, config, phase="transition",
+            pathway_head=pathway_head, prolif_head=prolif_head,
+        )
 
         # Combine metrics
         metrics = {**train_metrics, **val_metrics, "phase": "transition"}
