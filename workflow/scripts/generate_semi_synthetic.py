@@ -175,7 +175,7 @@ if all_expression:
         "is_interacting": torch.from_numpy(np.concatenate(all_labels).astype(np.int64)).long(),
         "celltype_idx": torch.tensor([celltype_to_idx[ct] for ct in celltypes_concat]).long(),
         "stage_idx": torch.tensor([stage_to_idx[s] for s in stages_concat]).long(),
-        "gene_names": np.load(benchmark_dir / "gene_names.npy"),
+        "gene_names": np.load(benchmark_dir / "gene_names.npy", allow_pickle=True),
         "celltype_names": unique_celltypes,
         "stage_names": unique_stages,
     }
