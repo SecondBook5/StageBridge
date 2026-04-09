@@ -638,79 +638,8 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         return importance_scores
 
 
-class ReceiverNicheEncoderWithDualReference(ReceiverCenteredNicheEncoder):
-    """Receiver-centered encoder with explicit HLCA/LuCA dual-reference integration.
-
-    Extends the base encoder to explicitly handle dual-reference embeddings,
-    maintaining the project doctrine of HLCA+LuCA geometry.
-    """
-
-    def __init__(
-        self,
-        input_dim: int,
-        hlca_dim: int,
-        luca_dim: int,
-        hidden_dim: int = 128,
-        **kwargs,
-    ):
-        # Combined input includes cell embedding + reference features
-        combined_input_dim = input_dim + hlca_dim + luca_dim
-        super().__init__(
-            input_dim=combined_input_dim,
-            hidden_dim=hidden_dim,
-            **kwargs,
-        )
-
-        self.hlca_dim = hlca_dim
-        self.luca_dim = luca_dim
-
-        # Reconstruction head should output original input_dim, not combined
-        if self.reconstruction_head is not None:
-            self.reconstruction_head = nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.GELU(),
-                nn.Linear(hidden_dim, input_dim),  # Reconstruct cell embedding only
-            )
-
-    def forward(
-        self,
-        receiver: Tensor,
-        neighbors: Tensor,
-        distances: Tensor,
-        receiver_hlca: Tensor,
-        receiver_luca: Tensor,
-        neighbor_hlca: Tensor,
-        neighbor_luca: Tensor,
-        neighbor_mask: Tensor | None = None,
-        cell_type_hint: Tensor | None = None,
-        return_reconstruction: bool = False,
-    ) -> ReceiverNicheOutput:
-        """Forward with dual-reference features.
-
-        Args:
-            receiver: [B, D] receiver cell embedding
-            neighbors: [B, K, D] neighbor cell embeddings
-            distances: [B, K] distances
-            receiver_hlca: [B, D_hlca] receiver's HLCA reference features
-            receiver_luca: [B, D_luca] receiver's LuCA reference features
-            neighbor_hlca: [B, K, D_hlca] neighbors' HLCA features
-            neighbor_luca: [B, K, D_luca] neighbors' LuCA features
-            neighbor_mask: [B, K] valid neighbor mask
-            cell_type_hint: [B, D_type] optional cell type hint
-            return_reconstruction: Whether to compute reconstruction
-
-        Returns:
-            ReceiverNicheOutput
-        """
-        # Concatenate dual-reference features
-        receiver_combined = torch.cat([receiver, receiver_hlca, receiver_luca], dim=-1)
-        neighbors_combined = torch.cat([neighbors, neighbor_hlca, neighbor_luca], dim=-1)
-
-        return super().forward(
-            receiver_combined,
-            neighbors_combined,
-            distances,
-            neighbor_mask,
-            cell_type_hint,
-            return_reconstruction,
-        )
+# NOTE: ReceiverNicheEncoderWithDualReference was REMOVED (2026-04-09)
+# It redundantly concatenated [fused | hlca | luca] = 80d when fused already contains hlca+luca.
+# The correct approach: Use ReceiverCenteredNicheEncoder with fused embedding (40d).
+# The Linear projection learns to weight HLCA vs LuCA features.
+# See: docs/architecture/dual_reference_encoder.md

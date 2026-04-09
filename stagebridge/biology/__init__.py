@@ -74,6 +74,15 @@ from .intervention_targets import (
     export_intervention_report,
 )
 
+from .dynamic_driver_index import (
+    DriverIndexResult,
+    compute_dynamic_driver_index,
+    compute_driver_index_along_trajectory,
+    compute_driver_index_efficient,
+    analyze_luad_progression_drivers,
+    LUAD_STAGES,
+)
+
 __all__ = [
     # Signatures
     "GENE_SIGNATURES",
@@ -127,4 +136,11 @@ __all__ = [
     "aggregate_niche_risks_by_region",
     "generate_intervention_plan",
     "export_intervention_report",
+    # Dynamic driver index (GeoBridge-inspired)
+    "DriverIndexResult",
+    "compute_dynamic_driver_index",
+    "compute_driver_index_along_trajectory",
+    "compute_driver_index_efficient",
+    "analyze_luad_progression_drivers",
+    "LUAD_STAGES",
 ]
