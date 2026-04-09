@@ -281,7 +281,81 @@ class GCMAE(nn.Module):
 
 ---
 
-## 9. Ki67 Proliferation Prediction (from OSDR) - IMPLEMENTED
+## 9. IL1B Pathway Supervision (from Peng/Kadara) - IMPLEMENTED
+
+### Problem
+- The Peng/Kadara hypothesis states IL1B+ macrophage niches drive AT2-to-LUAD progression
+- Model should explicitly learn this inflammatory axis
+
+### Solution: IL1B Auxiliary Head
+
+```python
+class IL1BHead(nn.Module):
+    """Predict IL1B pathway activity from niche context."""
+    def __init__(self, input_dim: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 1),
+        )
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(x)
+```
+
+### Implementation Status: COMPLETE
+
+**Files:**
+- `stagebridge/pipelines/run_v1_ddp.py` - IL1BHead class, 5% weight in training
+- Target: NFkB pathway index from PROGENy (best proxy for IL1B signaling)
+
+**Priority: COMPLETE** - Direct test of the key biological hypothesis.
+
+---
+
+## 10. KAC Intermediate State Supervision (from Han et al. 2024) - IMPLEMENTED
+
+### Problem
+- KRT8+ Alveolar Intermediate Cells (KACs) are the critical precursor state
+- Trajectory: Normal AT2 -> AIC -> KAC -> LUAD
+- Model should explicitly supervise learning of this state
+
+### Solution: KAC Auxiliary Head
+
+```python
+KAC_MARKERS = [
+    "KRT8", "CLDN4", "CDKN1A", "CDKN2A", "PLAUR",  # Core markers
+    "CEACAM5", "CEACAM6", "MUC1", "MSLN", "CD24",  # Extended
+]
+
+class KACHead(nn.Module):
+    """Predict KAC (KRT8+ Alveolar Intermediate Cell) signature."""
+    def __init__(self, input_dim: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+        )
+```
+
+### Implementation Status: COMPLETE
+
+**Files:**
+- `stagebridge/biology/pathway_targets.py` - KAC_MARKERS list, compute_kac_targets()
+- `stagebridge/pipelines/run_v1_ddp.py` - KACHead class, 5% weight
+- Target: p53 pathway (CDKN1A proxy) from PROGENy
+
+**Priority: COMPLETE** - Supervises the key intermediate state from Han et al. 2024 Nature.
+
+---
+
+## 11. Ki67 Proliferation Prediction (from OSDR) - IMPLEMENTED
 
 ### Problem
 - Niche encoder may not capture dynamically-relevant features
@@ -321,11 +395,18 @@ prolif_loss = F.binary_cross_entropy_with_logits(pred, prolif_target)
 
 ## Summary: Prioritized Implementation Order
 
-### Phase 1 (Immediate - Low Effort, High Impact)
+### Phase 1 (Immediate - Low Effort, High Impact) - COMPLETE
 1. **Pathway regression loss** - DONE (PROGENy prediction head)
 2. **Ki67 proliferation loss** - DONE (OSDR-inspired)
-3. **Niche pathway encoding** - Include pathway scores in niche representation
-4. **Relative representations** - Define stage archetypes, compute relative coords
+3. **IL1B head** - DONE (Peng/Kadara hypothesis test)
+4. **KAC head** - DONE (Han et al. 2024 Nature - KRT8+ intermediate state)
+5. **Stage-aware OT** - DONE (Adjacent stage pairing only)
+6. **DestVI gamma integration** - DONE (Functional state in Token 7)
+7. **B/plasma cell signatures** - DONE (Hao et al. 2022 - immunotherapy response)
+
+### Phase 1b (Remaining - Medium Effort)
+8. **Niche pathway encoding** - Include pathway scores in niche representation
+9. **Relative representations** - Define stage archetypes, compute relative coords
 
 ### Phase 2 (Short-term - Medium Effort, High Impact)
 5. **Frozen foundation embeddings** - Replace raw expression with scGPT embeddings
@@ -342,6 +423,11 @@ prolif_loss = F.binary_cross_entropy_with_logits(pred, prolif_target)
 |-------------|--------|--------|----------|
 | Pathway regression | SpatialFusion | DONE | `pathway_targets.py`, `run_v1_ddp.py` |
 | Ki67 proliferation | OSDR | DONE | `pathway_targets.py`, `run_v1_ddp.py` |
+| IL1B head | Peng et al. 2020 | DONE | `run_v1_ddp.py:IL1BHead` |
+| KAC head | Han et al. 2024 Nature | DONE | `run_v1_ddp.py:KACHead`, `pathway_targets.py:KAC_MARKERS` |
+| Stage-aware OT | OT-CFM | DONE | `run_v1_ddp.py` (adjacent stage pairing) |
+| DestVI gamma | DestVI | DONE | `run_v1_ddp.py` (Token 7 enrichment) |
+| B/plasma signatures | Hao et al. 2022 | DONE | `signatures.py` (plasma_cell, cxcl13_tls) |
 | Sparse attention | Doctrine | DONE | `receiver_niche_encoder.py` (ENTROPY/TOPK/SPARSEMAX) |
 | Hyperbolic geometry | scPhere | Code ready, not enabled | `reference_geometry/` |
 | Geodesic bridges | GeoBridge | Pending | - |
