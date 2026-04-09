@@ -646,6 +646,22 @@ def create_dataloaders(
                     ).unsqueeze(1)
                     log(f"  Proliferation targets: {prolif_targets.shape}")
 
+                # Extract WES features for evolutionary regularization
+                # 8 features: tmb, kras_mut, egfr_mut, tp53_mut, stk11_mut, keap1_mut, smad4_mut, braf_mut
+                wes_cols = ["tmb", "kras_mut", "egfr_mut", "tp53_mut", "stk11_mut", "keap1_mut", "smad4_mut", "braf_mut"]
+                wes_features = None
+                available_wes_cols = [c for c in wes_cols if c in cells_df.columns]
+                if available_wes_cols:
+                    wes_features = torch.tensor(
+                        cells_df[available_wes_cols].values, dtype=torch.float32
+                    )
+                    log(f"  WES features: {wes_features.shape[1]} columns (evolutionary regularization)")
+                    # Log mutation prevalence
+                    for col in available_wes_cols:
+                        if col != "tmb":
+                            pct = (cells_df[col] > 0).mean() * 100
+                            log(f"    {col}: {pct:.1f}% mutated")
+
                 # Train/val split - MUST use donor-held-out splits to prevent leakage
                 split_manifest_path = Path(config.data_dir) / "split_manifest.json"
 
@@ -702,6 +718,11 @@ def create_dataloaders(
                 train_prolif = prolif_targets[train_idx] if prolif_targets is not None else torch.zeros(len(train_idx), 1)
                 val_prolif = prolif_targets[val_idx] if prolif_targets is not None else torch.zeros(len(val_idx), 1)
 
+                # Include WES features for evolutionary regularization (None-safe)
+                n_wes = 8  # tmb + 7 driver mutations
+                train_wes = wes_features[train_idx] if wes_features is not None else torch.zeros(len(train_idx), n_wes)
+                val_wes = wes_features[val_idx] if wes_features is not None else torch.zeros(len(val_idx), n_wes)
+
                 # Include stage indices for cross-stage OT during transition training
                 train_stages = stage_indices[train_idx]
                 val_stages = stage_indices[val_idx]
@@ -721,7 +742,7 @@ def create_dataloaders(
                 # NOTE: HLCA/LuCA are already in the fused embedding (niche_tokens)
                 # The Linear projection learns to weight them. See docs/architecture/dual_reference_encoder.md
 
-                # Dataset: [niche_tokens, z_source, z_target, pathway, prolif, stages, donors]
+                # Dataset: [niche_tokens, z_source, z_target, pathway, prolif, stages, donors, wes]
                 train_data = TensorDataset(
                     niche_tokens[train_idx],
                     z_source[train_idx],
@@ -730,6 +751,7 @@ def create_dataloaders(
                     train_prolif,
                     train_stages,
                     train_donors_idx,
+                    train_wes,
                 )
                 val_data = TensorDataset(
                     niche_tokens[val_idx],
@@ -739,6 +761,7 @@ def create_dataloaders(
                     val_prolif,
                     val_stages,
                     val_donors_idx,
+                    val_wes,
                 )
 
                 log(f"  Train: {len(train_idx):,} cells")
@@ -908,14 +931,14 @@ def train_epoch(
     total_prolif_loss = 0.0
     total_il1b_loss = 0.0  # Peng/Kadara hypothesis test
     total_kac_loss = 0.0  # KAC intermediate state (Nature 2024)
+    total_wes_loss = 0.0  # WES evolutionary regularization
     n_aux_batches = 0
 
     # Stage-stratified metrics tracking
     stage_losses = {i: [] for i in range(5)}  # Normal=0, AAH=1, AIS=2, MIA=3, LUAD=4
 
     for batch in progress:
-        # Unpack batch (9 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, hlca, luca)
-        # Note: HLCA/LuCA are in the fused embedding (niche_tokens), stored separately for logging only
+        # Unpack batch (8 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
         z_target = batch[2].to(device, non_blocking=True)
@@ -923,7 +946,7 @@ def train_epoch(
         prolif_targets = batch[4].to(device, non_blocking=True) if len(batch) > 4 else None
         stage_indices = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
         donor_indices = batch[6].to(device, non_blocking=True) if len(batch) > 6 else None
-        # HLCA/LuCA stored separately for debugging/logging (already in fused niche_tokens)
+        wes_features = batch[7].to(device, non_blocking=True) if len(batch) > 7 else None
         # hlca_embeddings = batch[7], luca_embeddings = batch[8]
 
         optimizer.zero_grad()
@@ -1061,10 +1084,29 @@ def train_epoch(
                         kac_loss = torch.nn.functional.mse_loss(kac_pred, kac_proxy)
                         total_kac_loss += kac_loss.item()
 
+            # WES evolutionary regularization (weight: 0.05)
+            # Penalizes transitions where cells with different driver mutations produce identical dynamics
+            # Uses pairwise L1 distance on WES features (tmb + 7 driver mutations)
+            wes_loss = torch.tensor(0.0, device=device)
+            if wes_features is not None and phase == "transition":
+                from stagebridge.transition_model.wes_regularizer import pairwise_wes_penalty
+                # Only compute for cells that are transitioning
+                if 'trans_z_source' in dir() and len(trans_z_source) > 1:
+                    trans_wes = wes_features[can_transition]
+                    # Compute pairwise penalty: cells with different WES profiles should have different dynamics
+                    # We sample pairs to avoid O(N^2) computation
+                    n_pairs = min(256, len(trans_wes))
+                    idx1 = torch.randperm(len(trans_wes))[:n_pairs]
+                    idx2 = torch.randperm(len(trans_wes))[:n_pairs]
+                    wes_penalty = pairwise_wes_penalty(trans_wes[idx1], trans_wes[idx2], penalty_scale=0.1)
+                    wes_loss = wes_penalty.mean()
+                    total_wes_loss += wes_loss.item()
+
             # Add auxiliary losses (weighted at 0.05 each as per doctrine)
             # IL1B gets extra weight (0.10) as the key hypothesis test
             # KAC gets extra weight (0.10) as the key intermediate state
-            loss = loss + 0.05 * pathway_loss + 0.05 * prolif_loss + 0.10 * il1b_loss + 0.10 * kac_loss
+            # WES regularization: small weight (0.05) to encourage evolutionary-aware transitions
+            loss = loss + 0.05 * pathway_loss + 0.05 * prolif_loss + 0.10 * il1b_loss + 0.10 * kac_loss + 0.05 * wes_loss
 
         # NaN/Inf detection - skip bad batches
         if torch.isnan(loss) or torch.isinf(loss):
@@ -1141,6 +1183,7 @@ def validate(
     total_prolif_loss = 0.0
     total_il1b_loss = 0.0  # Peng/Kadara hypothesis test
     total_kac_loss = 0.0  # KAC intermediate state (Nature 2024)
+    total_wes_loss = 0.0  # WES evolutionary regularization
     n_batches = 0
     n_aux_batches = 0
 
@@ -1149,7 +1192,7 @@ def validate(
     donor_losses = {}  # donor_idx -> list of losses
 
     for batch in val_loader:
-        # Unpack batch (7 tensors)
+        # Unpack batch (8 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
         z_target = batch[2].to(device, non_blocking=True)
@@ -1157,6 +1200,7 @@ def validate(
         prolif_targets = batch[4].to(device, non_blocking=True) if len(batch) > 4 else None
         stage_indices = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
         donor_indices = batch[6].to(device, non_blocking=True) if len(batch) > 6 else None
+        wes_features = batch[7].to(device, non_blocking=True) if len(batch) > 7 else None
 
         with torch.cuda.amp.autocast(enabled=config.mixed_precision):
             if hasattr(model, "module"):
