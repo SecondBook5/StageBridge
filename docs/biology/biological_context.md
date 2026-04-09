@@ -119,9 +119,56 @@ This is stronger than raw attention weights.
 
 ---
 
+## 6. Biology-Informed Model Components
+
+### Auxiliary Supervision Heads
+
+The model includes auxiliary heads that directly test biological hypotheses:
+
+| Head | Target | Biological Rationale | Source |
+|------|--------|---------------------|--------|
+| **IL1BHead** | IL1B pathway activity | Tests Peng/Kadara hypothesis: IL1B+ macrophage niches drive progression | Peng et al. 2020 |
+| **KACHead** | KRT8+ intermediate signature | Supervises learning of key LUAD precursor state | Han et al. 2024 Nature |
+| **PathwayHead** | PROGENy pathway scores | Forces latent to encode biologically meaningful features | SpatialFusion |
+| **ProlifHead** | Ki67/MKI67 expression | Division rate as transition readout | OSDR |
+
+### KAC (KRT8+ Alveolar Intermediate Cell) Markers
+
+From Han et al. 2024 Nature - the critical intermediate state in AT2 -> LUAD progression:
+
+```
+Trajectory: Normal AT2 -> AIC -> KAC -> LUAD tumor
+```
+
+KAC markers used for supervision:
+- **KRT8** - Primary marker
+- **CLDN4** - Tight junction
+- **CDKN1A/CDKN2A** - p21/p16 senescence (Nature 2024)
+- **PLAUR** - uPAR invasion (Nature 2024)
+- **CEACAM5/6, MUC1, MSLN, CD24** - Extended markers (Peng et al. 2020)
+
+### Immune Signatures for Interpretation
+
+Post-training biological validation uses curated signatures:
+
+| Signature | Interpretation | Source |
+|-----------|---------------|--------|
+| `plasma_cell` | High = better OS and immunotherapy response | Hao et al. 2022 Cancer Discovery |
+| `b_cell_memory` | TLS formation, organized immune response | Hao et al. 2022 |
+| `cxcl13_tls` | B cell recruitment axis - highest in early LUAD | Hao et al. 2022 |
+| `interferon_response` | LOW in progressive lesions (Module 9) | Beane et al. 2019 |
+| `immune_cold` | Depleted in progressive/persistent lesions | Beane et al. 2019 |
+| `il1b_macrophage` | Inflammatory niche - key hypothesis | Peng et al. 2020 |
+
+---
+
 ## References
 
-- **Peng/Kadara**: LUAD precursor paper - KAC progenitors, IL1B-high macrophages
+- **Peng et al. 2020 Cancer Cell**: LUAD precursor paper - KAC progenitors, IL1B-high macrophages
+- **Han et al. 2024 Nature**: KAC atlas - KRT8+ alveolar intermediates as LUAD predecessors
+- **Hao et al. 2022 Cancer Discovery**: B/plasma cell landscape - PC signature predicts immunotherapy response
+- **Beane et al. 2019 Nature Communications**: Airway gene expression - Module 9 (interferon) down in progressive lesions
+- **Yanagawa et al. 2023**: Pulmonary nodule immunosurveillance - CD8+ decrease, Treg increase in progression
 - **OSDR**: Tissue dynamics from snapshot, clinical prediction from early biopsies
 - **HLCA**: Human Lung Cell Atlas (healthy reference)
 - **LuCA**: Lung Cancer Atlas (disease reference)

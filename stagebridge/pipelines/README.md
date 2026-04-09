@@ -68,10 +68,22 @@ This directory contains all pipeline scripts for the StageBridge V1 workflow.
                                    ========
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  run_v1_complete.py        <-- RECOMMENDED: Runs BOTH datasets              │
+│  run_v1_ddp.py             <-- RECOMMENDED: DDP training with biology heads │
 │  Full pipeline: SSL pretraining + transition training                       │
-│  Runs on: Semi-synthetic (with ground truth) + Real LUAD data              │
-│  Output: runs/v1_complete/weights/, figures/, results.json                  │
+│                                                                             │
+│  Phase 1 - SSL Pretraining (100 epochs):                                   │
+│    - Masked receiver reconstruction (70%)                                   │
+│    - Pathway/Proliferation supervision (5% each)                           │
+│    - IL1B head (Peng/Kadara hypothesis test)                               │
+│    - KAC head (KRT8+ intermediate state, Han et al. 2024)                  │
+│                                                                             │
+│  Phase 2 - Transition Training (50 epochs):                                │
+│    - OT-CFM flow matching with Sinkhorn coupling                           │
+│    - Stage-aware OT pairing (adjacent stages only)                         │
+│    - DestVI gamma integration (functional state)                           │
+│                                                                             │
+│  Output: runs/v1_complete/fold{N}_seed{S}/checkpoints/                     │
+│          ssl_pretrained.pt, best_checkpoint.pt, final_checkpoint.pt        │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 
