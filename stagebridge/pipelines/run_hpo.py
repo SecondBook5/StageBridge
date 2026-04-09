@@ -91,6 +91,59 @@ def main():
     with open(output_dir / "optimization_history.json", "w") as f:
         json.dump(history, f, indent=2)
 
+    # Generate Optuna visualization plots
+    if study and len([t for t in study.trials if t.value is not None]) > 1:
+        log.info("Generating Optuna visualization plots...")
+        try:
+            import optuna.visualization as vis
+
+            figures_dir = output_dir / "figures"
+
+            # Optimization history (loss over trials)
+            fig = vis.plot_optimization_history(study)
+            fig.write_html(str(figures_dir / "optimization_history.html"))
+            fig.write_image(str(figures_dir / "optimization_history.png"))
+            log.info("  Saved optimization_history.html/png")
+
+            # Parameter importances
+            try:
+                fig = vis.plot_param_importances(study)
+                fig.write_html(str(figures_dir / "param_importances.html"))
+                fig.write_image(str(figures_dir / "param_importances.png"))
+                log.info("  Saved param_importances.html/png")
+            except Exception as e:
+                log.warning(f"  Could not generate param_importances: {e}")
+
+            # Parallel coordinate plot
+            fig = vis.plot_parallel_coordinate(study)
+            fig.write_html(str(figures_dir / "parallel_coordinate.html"))
+            fig.write_image(str(figures_dir / "parallel_coordinate.png"))
+            log.info("  Saved parallel_coordinate.html/png")
+
+            # Slice plot (parameter vs objective)
+            fig = vis.plot_slice(study)
+            fig.write_html(str(figures_dir / "slice_plot.html"))
+            fig.write_image(str(figures_dir / "slice_plot.png"))
+            log.info("  Saved slice_plot.html/png")
+
+            # Contour plots for top parameter pairs
+            try:
+                params = list(study.best_params.keys())[:4]  # Top 4 params
+                if len(params) >= 2:
+                    fig = vis.plot_contour(study, params=params[:2])
+                    fig.write_html(str(figures_dir / "contour_plot.html"))
+                    fig.write_image(str(figures_dir / "contour_plot.png"))
+                    log.info("  Saved contour_plot.html/png")
+            except Exception as e:
+                log.warning(f"  Could not generate contour_plot: {e}")
+
+            log.info(f"  All plots saved to {figures_dir}")
+
+        except ImportError:
+            log.warning("Optuna visualization requires plotly: pip install plotly kaleido")
+        except Exception as e:
+            log.warning(f"Could not generate Optuna plots: {e}")
+
     log.info("=" * 60)
     log.info("HPO Complete")
     if study:
