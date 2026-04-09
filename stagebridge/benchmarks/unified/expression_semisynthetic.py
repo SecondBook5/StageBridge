@@ -391,9 +391,17 @@ class ExpressionSemisyntheticGenerator:
 
         subset = self.adata[mask].copy()
 
-        # Run Leiden
-        sc.pp.neighbors(subset, n_neighbors=15)
-        sc.tl.leiden(subset, resolution=self.config.leiden_resolution, key_added="subcluster")
+        # Run Leiden (use PCA for neighbors, igraph backend for future compat)
+        sc.pp.pca(subset, n_comps=min(50, subset.n_vars - 1))
+        sc.pp.neighbors(subset, n_neighbors=15, use_rep="X_pca")
+        sc.tl.leiden(
+            subset,
+            resolution=self.config.leiden_resolution,
+            key_added="subcluster",
+            flavor="igraph",
+            n_iterations=2,
+            directed=False,
+        )
 
         # Take largest two clusters as interacting/noninteracting
         cluster_sizes = subset.obs["subcluster"].value_counts()
