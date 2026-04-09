@@ -131,7 +131,7 @@ class SpatialBenchmarkFigures:
         sems = grouped.sem()
 
         # Sort by mean
-        order = means.sort_values(ascending=False if higher_better else True).index
+        order = means.sort_values(ascending=not higher_better).index
 
         x = np.arange(len(order))
         colors = [self.backend_colors[b] for b in order]

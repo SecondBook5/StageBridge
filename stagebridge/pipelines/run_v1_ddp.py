@@ -573,7 +573,7 @@ def create_dataloaders(
                     luad_mask = (stage_indices == 4)
                     z_target[luad_mask] = embeddings[luad_mask]
 
-                    log(f"  Cross-stage transition pairs created (OT refinement in training)")
+                    log("  Cross-stage transition pairs created (OT refinement in training)")
                 else:
                     log("  WARNING: No stage column, using self-transitions (degenerate)")
                     stage_indices = torch.zeros(n_cells, dtype=torch.long)
@@ -1310,7 +1310,7 @@ def train(config: TrainingConfig):
     prolif_head = ProliferationHead(aux_input_dim).to(device)
     il1b_head = IL1BHead(aux_input_dim).to(device)  # Peng/Kadara IL1B hypothesis
     kac_head = KACHead(aux_input_dim).to(device)  # KAC intermediate state (Nature 2024)
-    log(f"Auxiliary heads created: pathway (14), proliferation (Ki67), IL1B, KAC (Nature 2024)")
+    log("Auxiliary heads created: pathway (14), proliferation (Ki67), IL1B, KAC (Nature 2024)")
 
     # Wrap auxiliary heads with DDP if distributed
     if distributed:

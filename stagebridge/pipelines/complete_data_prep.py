@@ -178,7 +178,7 @@ def generate_canonical_artifacts(
     }
     with open(output_dir / "data_manifest.json", "w") as f:
         json.dump(data_manifest, f, indent=2)
-    print(f"  Saved data manifest")
+    print("  Saved data manifest")
 
     print("\n" + "=" * 80)
     print(" Canonical artifacts complete!")
