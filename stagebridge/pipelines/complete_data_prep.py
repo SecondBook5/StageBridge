@@ -27,6 +27,7 @@ from stagebridge.biology.pathway_targets import (
     compute_proliferation_targets,
     PROGENY_PATHWAYS,
 )
+from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS
 
 
 def generate_canonical_artifacts(
@@ -207,7 +208,7 @@ def generate_cells_table(
     - stage_idx: Stage index (0-4 for Normal/AAH/AIS/MIA/LUAD)
     - cell_type: Cell type annotation
     - z_fused, z_hlca, z_luca: Latent embeddings from reference geometry
-    - tmb, smoking_signature, uv_signature: WES features
+    - WES features: tmb, kras_mut, egfr_mut, tp53_mut, stk11_mut, keap1_mut, smad4_mut, braf_mut
     - x_spatial, y_spatial: Spatial coordinates (for spatial cells)
     """
     records = []
@@ -363,12 +364,19 @@ def generate_cells_table(
         # Get REAL embeddings from reference geometry
         z_fused, z_hlca, z_luca = get_embeddings(cell_id)
 
-        # Get WES features if available
-        wes_row = (
-            wes_df[wes_df[wes_id_col] == donor_id].iloc[0]
-            if wes_df is not None and donor_id in wes_df[wes_id_col].values
-            else None
-        )
+        # Get WES features if available - lookup by (patient_id, stage) for proper evolutionary tracking
+        wes_row = None
+        if wes_df is not None:
+            # WES data is per-(patient, stage) lesion, not just per-patient
+            mask = (wes_df[wes_id_col] == donor_id) & (wes_df["stage"] == stage)
+            matching_rows = wes_df[mask]
+            if len(matching_rows) > 0:
+                wes_row = matching_rows.iloc[0]
+            else:
+                # Fallback: try patient-level (any stage) if lesion-specific not found
+                mask_patient = wes_df[wes_id_col] == donor_id
+                if mask_patient.any():
+                    wes_row = wes_df[mask_patient].iloc[0]
 
         record = {
             "cell_id": cell_id,
@@ -376,17 +384,20 @@ def generate_cells_table(
             "stage": stage,
             "stage_idx": stage_idx,
             "cell_type": obs.get("cell_type", "unknown"),
+            # Cell cycle scores (for identifying cycling/rare cell states)
+            "S_score": float(obs.get("S_score", 0.0)) if pd.notna(obs.get("S_score")) else 0.0,
+            "G2M_score": float(obs.get("G2M_score", 0.0)) if pd.notna(obs.get("G2M_score")) else 0.0,
+            "phase": str(obs.get("phase", "unknown")) if pd.notna(obs.get("phase")) else "unknown",
             "z_fused": z_fused.tolist(),
             "z_hlca": z_hlca.tolist(),
             "z_luca": z_luca.tolist(),
-            "tmb": wes_row["tmb"] if wes_row is not None else 0.0,
-            "smoking_signature": wes_row.get("smoking_signature", 0.0)
-            if wes_row is not None
-            else 0.0,
-            "uv_signature": wes_row.get("uv_signature", 0.0) if wes_row is not None else 0.0,
             "x_spatial": np.nan,  # snRNA doesn't have spatial coords
             "y_spatial": np.nan,
         }
+
+        # Add WES features (8 columns for evolutionary regularization)
+        for wes_col in WES_FEATURE_COLS:
+            record[wes_col] = float(wes_row[wes_col]) if wes_row is not None and wes_col in wes_row.index else 0.0
 
         # Add latent dimension columns (preserve actual dimensions: HLCA=30, LuCA=10, Fused=40)
         for dim in range(fused_dim):
@@ -440,12 +451,17 @@ def generate_cells_table(
         # Get REAL embeddings (spatial spots may not have embeddings, use zeros as fallback)
         z_fused, z_hlca, z_luca = get_embeddings(cell_id_for_lookup)
 
-        # Get WES features
-        wes_row = (
-            wes_df[wes_df[wes_id_col] == donor_id].iloc[0]
-            if wes_df is not None and donor_id in wes_df[wes_id_col].values
-            else None
-        )
+        # Get WES features - lookup by (patient_id, stage) for proper evolutionary tracking
+        wes_row = None
+        if wes_df is not None:
+            mask = (wes_df[wes_id_col] == donor_id) & (wes_df["stage"] == stage)
+            matching_rows = wes_df[mask]
+            if len(matching_rows) > 0:
+                wes_row = matching_rows.iloc[0]
+            else:
+                mask_patient = wes_df[wes_id_col] == donor_id
+                if mask_patient.any():
+                    wes_row = wes_df[mask_patient].iloc[0]
 
         record = {
             "cell_id": cell_id_for_lookup,
@@ -453,17 +469,20 @@ def generate_cells_table(
             "stage": stage,
             "stage_idx": stage_idx,
             "cell_type": obs.get("cell_type", "mixed"),  # Spatial spots are mixtures
+            # Cell cycle scores (NaN for spatial - no single-cell resolution)
+            "S_score": np.nan,
+            "G2M_score": np.nan,
+            "phase": "spatial",  # Mark as spatial spot
             "z_fused": z_fused.tolist(),
             "z_hlca": z_hlca.tolist(),
             "z_luca": z_luca.tolist(),
-            "tmb": wes_row["tmb"] if wes_row is not None else 0.0,
-            "smoking_signature": wes_row.get("smoking_signature", 0.0)
-            if wes_row is not None
-            else 0.0,
-            "uv_signature": wes_row.get("uv_signature", 0.0) if wes_row is not None else 0.0,
             "x_spatial": spatial_coords[0],
             "y_spatial": spatial_coords[1],
         }
+
+        # Add WES features (8 columns for evolutionary regularization)
+        for wes_col in WES_FEATURE_COLS:
+            record[wes_col] = float(wes_row[wes_col]) if wes_row is not None and wes_col in wes_row.index else 0.0
 
         # Add latent dimension columns (preserve actual dimensions: HLCA=30, LuCA=10, Fused=40)
         for dim in range(fused_dim):
@@ -760,7 +779,12 @@ def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame
                 "hlca": len(hlca_cols),    # Expected: 30 (scANVI latent)
                 "luca": len(luca_cols),    # Expected: 10 (scVI latent)
             },
-            "wes_features": ["tmb", "smoking_signature", "uv_signature"],
+            "wes_features": WES_FEATURE_COLS,  # 8 features: tmb + 7 driver mutations
+            "cell_cycle_features": {
+                "S_score": "S phase score from scanpy (snRNA only, NaN for spatial)",
+                "G2M_score": "G2M phase score from scanpy (snRNA only, NaN for spatial)",
+                "phase": "Cell cycle phase: G1, S, G2M, or 'spatial' for spots",
+            },
         },
         "neighborhoods": {
             "n_neighborhoods": len(neighborhoods_df),
@@ -777,7 +801,7 @@ def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame
                 "stats",
             ],
         },
-        "version": "1.1",  # Bumped version for dual-reference architecture
+        "version": "1.2",  # Added cell cycle features (S_score, G2M_score, phase)
     }
 
 
