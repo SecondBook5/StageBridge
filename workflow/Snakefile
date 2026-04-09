@@ -456,6 +456,7 @@ rule data_preparation:
             --spatial {input.spatial} \
             --wes {input.wes} \
             --spatial_backend_dir {params.spatial_dir}/canonical \
+            --reference_geometry {REF_GEOM} \
             --output_dir {params.canonical_dir} \
             2>&1 | tee {log}
         """
@@ -584,7 +585,7 @@ rule training:
         transition_epochs = 50,
         canonical_dir = CANONICAL,
         training_dir = TRAINING
-    threads: 32  # 8 per GPU for data loading
+    threads: 32
     resources:
         mem_mb = 512000,
         runtime = 720,  # 12 hours (SSL ~6h + transition ~3h + buffer)

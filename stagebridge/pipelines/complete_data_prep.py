@@ -37,6 +37,7 @@ def generate_canonical_artifacts(
     output_dir: Path,
     stage_definitions: dict[str, list[str]],
     n_folds: int = 5,
+    reference_geometry_dir: Path | None = None,
 ):
     """
     Generate all canonical artifacts for StageBridge V1.
@@ -46,6 +47,7 @@ def generate_canonical_artifacts(
         - spatial_merged.h5ad (from run_data_prep.py)
         - wes_features.parquet (from run_data_prep.py)
         - spatial_backend results (cell_type_proportions.parquet)
+        - reference_geometry outputs (fused_embedding.parquet, etc.)
 
     Outputs:
         - cells.parquet
@@ -118,6 +120,7 @@ def generate_canonical_artifacts(
         wes_df=wes_df,
         stage_definitions=stage_definitions,
         gamma_df=gamma_df,
+        reference_geometry_dir=reference_geometry_dir,
     )
     cells_df.to_parquet(output_dir / "cells.parquet", index=False)
     print(f"  Saved {len(cells_df)} cells")
@@ -192,6 +195,7 @@ def generate_cells_table(
     wes_df: pd.DataFrame,
     stage_definitions: dict[str, list[str]],
     gamma_df: pd.DataFrame | None = None,
+    reference_geometry_dir: Path | None = None,
 ) -> pd.DataFrame:
     """
     Generate cells.parquet with all required fields.
@@ -199,22 +203,116 @@ def generate_cells_table(
     Required columns:
     - cell_id: Unique cell identifier
     - donor_id: Donor/patient ID
-    - stage: Disease stage
-    - stage_idx: Stage index (0-3)
+    - stage: Disease stage (extracted from cell_id if not in donor mapping)
+    - stage_idx: Stage index (0-4 for Normal/AAH/AIS/MIA/LUAD)
     - cell_type: Cell type annotation
-    - z_fused, z_hlca, z_luca: Latent embeddings (placeholder for now)
+    - z_fused, z_hlca, z_luca: Latent embeddings from reference geometry
     - tmb, smoking_signature, uv_signature: WES features
     - x_spatial, y_spatial: Spatial coordinates (for spatial cells)
     """
     records = []
+    cache = get_data_cache()
 
-    # Map donors to stages
+    # Stage order for indexing
+    stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    stage_to_idx = {s: i for i, s in enumerate(stage_order)}
+
+    # Map donors to stages (fallback, prefer cell_id extraction)
     donor_to_stage = {}
     for stage, donors in stage_definitions.items():
         for donor in donors:
             donor_to_stage[donor] = stage
 
     stages = list(stage_definitions.keys())
+
+    # ==========================================================================
+    # Load REAL embeddings from reference geometry (CRITICAL!)
+    # ==========================================================================
+    fused_emb_df = None
+    hlca_emb_df = None
+    luca_emb_df = None
+    latent_dim = 32
+
+    if reference_geometry_dir is not None and reference_geometry_dir.exists():
+        print("  Loading reference geometry embeddings...")
+
+        fused_path = reference_geometry_dir / "fused_embedding.parquet"
+        hlca_path = reference_geometry_dir / "hlca_embedding.parquet"
+        luca_path = reference_geometry_dir / "luca_embedding.parquet"
+
+        if fused_path.exists():
+            fused_emb_df = cache.read_parquet(fused_path)
+            # Set index to cell_id for fast lookup
+            if 'cell_id' in fused_emb_df.columns:
+                fused_emb_df = fused_emb_df.set_index('cell_id')
+            print(f"    Fused embeddings: {len(fused_emb_df):,} cells")
+            # Get actual latent dim from data
+            fused_cols = [c for c in fused_emb_df.columns if c.startswith('fused_') or c.startswith('z_fused_') or c.isdigit() or c.startswith('dim_')]
+            if not fused_cols:
+                # Try numeric columns
+                fused_cols = [c for c in fused_emb_df.columns if fused_emb_df[c].dtype in ['float32', 'float64', 'int64']]
+            latent_dim = len(fused_cols) if fused_cols else 32
+            print(f"    Latent dim: {latent_dim}")
+        else:
+            print(f"    WARNING: fused_embedding.parquet not found at {fused_path}")
+
+        if hlca_path.exists():
+            hlca_emb_df = cache.read_parquet(hlca_path)
+            if 'cell_id' in hlca_emb_df.columns:
+                hlca_emb_df = hlca_emb_df.set_index('cell_id')
+            print(f"    HLCA embeddings: {len(hlca_emb_df):,} cells")
+
+        if luca_path.exists():
+            luca_emb_df = cache.read_parquet(luca_path)
+            if 'cell_id' in luca_emb_df.columns:
+                luca_emb_df = luca_emb_df.set_index('cell_id')
+            print(f"    LuCA embeddings: {len(luca_emb_df):,} cells")
+    else:
+        print("  WARNING: No reference_geometry_dir provided or doesn't exist!")
+        print("           Embeddings will be zeros (placeholder mode)")
+
+    def extract_stage_from_cell_id(cell_id: str) -> str:
+        """Extract stage from cell_id like GSM9237901_P3_Normal:AAACAAGCACCAGCTCACTTTAGG.1"""
+        import re
+        match = re.search(r'_P\d+_([^:]+):', cell_id)
+        if match:
+            stage_raw = match.group(1)
+            # Normalize stage names (handle variants like AIS1, AIS-1, etc.)
+            stage_clean = stage_raw.replace('1', '').replace('-', '').strip()
+            if stage_clean in stage_order:
+                return stage_clean
+            # Fuzzy match
+            for s in stage_order:
+                if s.lower() in stage_clean.lower():
+                    return s
+        return "unknown"
+
+    def get_embeddings(cell_id: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Get embeddings for a cell from loaded dataframes."""
+        z_fused = np.zeros(latent_dim)
+        z_hlca = np.zeros(latent_dim)
+        z_luca = np.zeros(latent_dim)
+
+        if fused_emb_df is not None and cell_id in fused_emb_df.index:
+            row = fused_emb_df.loc[cell_id]
+            # Get numeric columns
+            vals = row.select_dtypes(include=[np.number]).values[:latent_dim]
+            if len(vals) > 0:
+                z_fused[:len(vals)] = vals
+
+        if hlca_emb_df is not None and cell_id in hlca_emb_df.index:
+            row = hlca_emb_df.loc[cell_id]
+            vals = row.select_dtypes(include=[np.number]).values[:latent_dim]
+            if len(vals) > 0:
+                z_hlca[:len(vals)] = vals
+
+        if luca_emb_df is not None and cell_id in luca_emb_df.index:
+            row = luca_emb_df.loc[cell_id]
+            vals = row.select_dtypes(include=[np.number]).values[:latent_dim]
+            if len(vals) > 0:
+                z_luca[:len(vals)] = vals
+
+        return z_fused, z_hlca, z_luca
 
     # Determine WES ID column (patient_id vs donor_id)
     wes_id_col = "patient_id" if wes_df is not None and "patient_id" in wes_df.columns else "donor_id"
@@ -237,12 +335,16 @@ def generate_cells_table(
         obs = snrna.obs.iloc[idx]
 
         donor_id = obs.get("donor_id", obs.get("patient_id", "unknown"))
-        stage = donor_to_stage.get(donor_id, "unknown")
-        stage_idx = stages.index(stage) if stage in stages else -1
 
-        # Placeholder embeddings (will be computed by dual-reference mapper)
-        latent_dim = 32
-        z_placeholder = np.zeros(latent_dim)
+        # Extract stage from cell_id (more reliable than donor mapping)
+        stage = extract_stage_from_cell_id(cell_id)
+        if stage == "unknown":
+            # Fallback to donor mapping
+            stage = donor_to_stage.get(donor_id, "unknown")
+        stage_idx = stage_to_idx.get(stage, -1)
+
+        # Get REAL embeddings from reference geometry
+        z_fused, z_hlca, z_luca = get_embeddings(cell_id)
 
         # Get WES features if available
         wes_row = (
@@ -257,9 +359,9 @@ def generate_cells_table(
             "stage": stage,
             "stage_idx": stage_idx,
             "cell_type": obs.get("cell_type", "unknown"),
-            "z_fused": z_placeholder.tolist(),
-            "z_hlca": z_placeholder.tolist(),
-            "z_luca": z_placeholder.tolist(),
+            "z_fused": z_fused.tolist(),
+            "z_hlca": z_hlca.tolist(),
+            "z_luca": z_luca.tolist(),
             "tmb": wes_row["tmb"] if wes_row is not None else 0.0,
             "smoking_signature": wes_row.get("smoking_signature", 0.0)
             if wes_row is not None
@@ -271,9 +373,9 @@ def generate_cells_table(
 
         # Add latent dimension columns
         for dim in range(latent_dim):
-            record[f"z_fused_{dim}"] = z_placeholder[dim]
-            record[f"z_hlca_{dim}"] = z_placeholder[dim]
-            record[f"z_luca_{dim}"] = z_placeholder[dim]
+            record[f"z_fused_{dim}"] = z_fused[dim]
+            record[f"z_hlca_{dim}"] = z_hlca[dim]
+            record[f"z_luca_{dim}"] = z_luca[dim]
 
         # Add pathway/proliferation targets (pre-computed from real expression)
         if pathway_targets is not None:
@@ -305,14 +407,19 @@ def generate_cells_table(
         obs = spatial.obs.iloc[idx]
 
         donor_id = obs.get("donor_id", obs.get("patient_id", "unknown"))
-        stage = donor_to_stage.get(donor_id, "unknown")
-        stage_idx = stages.index(stage) if stage in stages else -1
+
+        # Extract stage from spot_id or use donor mapping
+        cell_id_for_lookup = f"spatial_{spot_id}"
+        stage = extract_stage_from_cell_id(spot_id)
+        if stage == "unknown":
+            stage = donor_to_stage.get(donor_id, "unknown")
+        stage_idx = stage_to_idx.get(stage, -1)
 
         # Spatial coordinates
         spatial_coords = spatial.obsm["spatial"][idx]
 
-        # Placeholder embeddings
-        z_placeholder = np.zeros(latent_dim)
+        # Get REAL embeddings (spatial spots may not have embeddings, use zeros as fallback)
+        z_fused, z_hlca, z_luca = get_embeddings(cell_id_for_lookup)
 
         # Get WES features
         wes_row = (
@@ -322,14 +429,14 @@ def generate_cells_table(
         )
 
         record = {
-            "cell_id": f"spatial_{spot_id}",
+            "cell_id": cell_id_for_lookup,
             "donor_id": donor_id,
             "stage": stage,
             "stage_idx": stage_idx,
             "cell_type": obs.get("cell_type", "mixed"),  # Spatial spots are mixtures
-            "z_fused": z_placeholder.tolist(),
-            "z_hlca": z_placeholder.tolist(),
-            "z_luca": z_placeholder.tolist(),
+            "z_fused": z_fused.tolist(),
+            "z_hlca": z_hlca.tolist(),
+            "z_luca": z_luca.tolist(),
             "tmb": wes_row["tmb"] if wes_row is not None else 0.0,
             "smoking_signature": wes_row.get("smoking_signature", 0.0)
             if wes_row is not None
@@ -341,9 +448,9 @@ def generate_cells_table(
 
         # Add latent dimension columns
         for dim in range(latent_dim):
-            record[f"z_fused_{dim}"] = z_placeholder[dim]
-            record[f"z_hlca_{dim}"] = z_placeholder[dim]
-            record[f"z_luca_{dim}"] = z_placeholder[dim]
+            record[f"z_fused_{dim}"] = z_fused[dim]
+            record[f"z_hlca_{dim}"] = z_hlca[dim]
+            record[f"z_luca_{dim}"] = z_luca[dim]
 
         # Add pathway/proliferation targets (pre-computed from real expression)
         if spatial_pathway_targets is not None:
@@ -654,6 +761,10 @@ def main():
     parser.add_argument(
         "--spatial_backend_dir", type=str, required=True, help="Spatial backend results directory"
     )
+    parser.add_argument(
+        "--reference_geometry", type=str, required=True,
+        help="Path to reference_geometry directory (contains fused_embedding.parquet, etc.)"
+    )
 
     # Stage definitions
     parser.add_argument("--stage_config", type=str, help="YAML file with stage definitions")
@@ -685,6 +796,7 @@ def main():
         output_dir=Path(args.output_dir),
         stage_definitions=stage_definitions,
         n_folds=args.n_folds,
+        reference_geometry_dir=Path(args.reference_geometry),
     )
 
 
