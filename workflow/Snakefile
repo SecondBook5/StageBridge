@@ -589,8 +589,7 @@ rule training:
         mem_mb = 512000,
         runtime = 720,  # 12 hours (SSL ~6h + transition ~3h + buffer)
         slurm_partition = "gpu",
-        gpu = 4,
-        constraint = "h100",
+        gres = "gpu:h100:4",
         nodes = 1
     log:
         f"{RUNS}/logs/training/fold{{fold}}_seed{{seed}}.log"
@@ -659,8 +658,7 @@ rule training_frozen:
         mem_mb = 512000,
         runtime = 720,
         slurm_partition = "gpu",
-        gpu = 4,
-        constraint = "h100",
+        gres = "gpu:h100:4",
         nodes = 1
     log:
         f"{RUNS}/logs/training_frozen/fold{{fold}}_seed{{seed}}.log"
