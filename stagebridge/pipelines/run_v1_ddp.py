@@ -522,10 +522,10 @@ def create_dataloaders(
             log(f"  Cells: {len(cells_df):,}")
             log(f"  Neighborhoods: {len(neighborhoods_df):,}")
 
-            # Extract embedding columns
-            fused_cols = [c for c in cells_df.columns if c.startswith("fused_latent_")]
-            [c for c in cells_df.columns if c.startswith("hlca_latent_")]
-            [c for c in cells_df.columns if c.startswith("luca_latent_")]
+            # Extract embedding columns (support both naming conventions)
+            fused_cols = [c for c in cells_df.columns if c.startswith("z_fused_") or c.startswith("fused_latent_")]
+            hlca_cols = [c for c in cells_df.columns if c.startswith("z_hlca_") or c.startswith("hlca_latent_")]
+            luca_cols = [c for c in cells_df.columns if c.startswith("z_luca_") or c.startswith("luca_latent_")]
 
             if fused_cols:
                 log(f"  Fused embedding: {len(fused_cols)} dims")
