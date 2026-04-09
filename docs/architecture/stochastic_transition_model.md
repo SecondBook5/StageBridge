@@ -42,6 +42,20 @@ Optimal transport provides principled pairing between source and target cells:
 
 Coupling is precomputed per disease edge and cached.
 
+### Stage-Aware OT Pairing (V1 Enhancement)
+
+Training uses **cross-stage OT pairing** to ensure biologically meaningful transitions:
+
+1. Filter to cells that can transition (stages 0-3, not terminal LUAD)
+2. Pair cells only across adjacent stages:
+   - Normal (0) -> AAH (1)
+   - AAH (1) -> AIS (2)
+   - AIS (2) -> MIA (3)
+   - MIA (3) -> LUAD (4)
+3. OT coupling respects stage ordering (no reverse transitions)
+
+This prevents the model from learning shortcuts (e.g., pairing Normal directly to LUAD).
+
 ### Training Objective
 
 Conditional Flow Matching (CFM) loss:
@@ -70,6 +84,17 @@ The context vector `c` from Layer C conditions the velocity field:
 - Encodes local tissue microenvironment
 - Allows niche-specific transition dynamics
 - Ablation: compare conditioned vs unconditioned flow
+
+### DestVI Gamma Integration
+
+When DestVI is the spatial backend, gamma values (intra-cell-type functional state) are extracted and integrated:
+
+1. Gamma values loaded from `cells.parquet` columns (`gamma_*`)
+2. Injected into **Token 7** (pathway/functional state token) of the 9-token niche sequence
+3. Provides cell-type-independent functional variation (e.g., stressed vs quiescent states)
+4. Complements cell-type composition from spatial deconvolution
+
+This allows the model to learn transitions conditioned on both cell-type composition AND functional state.
 
 ### Inference
 

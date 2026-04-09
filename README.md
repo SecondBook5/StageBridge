@@ -82,8 +82,9 @@ Each spatial niche is encoded as a **9-token sequence**:
 
 V1 uses **Flow Matching** (OT-CFM) with Sinkhorn coupling:
 - Learns continuous trajectories between cell states
-- Optimal transport provides principled coupling
+- **Stage-aware OT pairing**: Cells are coupled across adjacent stages (Normal->AAH, AAH->AIS, etc.)
 - Niche context conditions the flow field
+- **DestVI gamma integration**: Functional state from spatial deconvolution enriches pathway token
 
 ### Self-supervised objectives
 
@@ -97,8 +98,12 @@ The SSL pretraining uses weighted multi-task learning:
 | Coordinate | 5% | Spatial coordinate corruption detection | Spatial awareness |
 | **Pathway** | 5% | PROGENy pathway activity prediction | SpatialFusion |
 | **Proliferation** | 5% | Ki67 proliferation classification | OSDR |
+| **IL1B** | 5% | IL1B pathway prediction (niche inflammation) | Peng et al. 2020 |
+| **KAC** | 5% | KRT8+ intermediate state supervision | Han et al. 2024 Nature |
 
-The pathway and proliferation heads are paper-inspired auxiliary losses that force the latent space to encode biologically meaningful features.
+The auxiliary heads are informed by LUAD progression biology:
+- **IL1B**: Tests the Peng/Kadara hypothesis that IL1B+ macrophage niches drive AT2-to-LUAD progression
+- **KAC**: Supervises learning of KRT8+ Alveolar Intermediate Cells, the key precursor state identified in Han et al. 2024 Nature
 
 ---
 
