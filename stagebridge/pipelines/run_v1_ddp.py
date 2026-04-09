@@ -56,8 +56,10 @@ class TrainingConfig:
     hlca_path: str = ""
     luca_path: str = ""
 
-    # Model
-    latent_dim: int = 32
+    # Model - Dual Reference Geometry
+    latent_dim: int = 40  # Fused embedding: HLCA (30) + LuCA (10)
+    hlca_dim: int = 30    # HLCA scANVI latent dimension
+    luca_dim: int = 10    # LuCA scVI latent dimension
     niche_hidden_dim: int = 128
     context_dim: int = 256
     dropout: float = 0.1
@@ -464,8 +466,20 @@ class KACHead(nn.Module):
         return self.head(x)
 
 
-def create_model(config: TrainingConfig, device: torch.device) -> nn.Module:
-    """Create the StageBridge model."""
+def create_model(
+    config: TrainingConfig,
+    device: torch.device,
+    hlca_dim: int = 30,
+    luca_dim: int = 10,
+) -> nn.Module:
+    """Create the StageBridge model with dual-reference geometry.
+
+    Args:
+        config: Training configuration
+        device: Target device
+        hlca_dim: HLCA embedding dimension (default 30 from scANVI)
+        luca_dim: LuCA embedding dimension (default 10 from scVI)
+    """
     try:
         from stagebridge.pipelines.run_v1_complete import StageBridgeV1Complete
 
@@ -474,7 +488,10 @@ def create_model(config: TrainingConfig, device: torch.device) -> nn.Module:
             niche_hidden_dim=config.niche_hidden_dim,
             context_dim=config.context_dim,
             dropout=config.dropout,
+            hlca_dim=hlca_dim,  # Dual-reference geometry
+            luca_dim=luca_dim,  # Dual-reference geometry
         )
+        log(f"Created StageBridgeV1Complete with dual-reference encoder (HLCA={hlca_dim}d, LuCA={luca_dim}d)")
     except ImportError:
         # Fallback to basic model
         from stagebridge.context_model.receiver_niche_encoder import ReceiverCenteredNicheEncoder
@@ -486,6 +503,7 @@ def create_model(config: TrainingConfig, device: torch.device) -> nn.Module:
             num_layers=2,
             dropout=config.dropout,
         )
+        log("WARNING: Using fallback ReceiverCenteredNicheEncoder (no dual-reference)")
 
     return model.to(device)
 
@@ -523,18 +541,30 @@ def create_dataloaders(
             log(f"  Neighborhoods: {len(neighborhoods_df):,}")
 
             # Extract embedding columns (support both naming conventions)
-            fused_cols = [c for c in cells_df.columns if c.startswith("z_fused_") or c.startswith("fused_latent_")]
-            hlca_cols = [c for c in cells_df.columns if c.startswith("z_hlca_") or c.startswith("hlca_latent_")]
-            luca_cols = [c for c in cells_df.columns if c.startswith("z_luca_") or c.startswith("luca_latent_")]
+            fused_cols = sorted([c for c in cells_df.columns if c.startswith("z_fused_") or c.startswith("fused_latent_")])
+            hlca_cols = sorted([c for c in cells_df.columns if c.startswith("z_hlca_") or c.startswith("hlca_latent_")])
+            luca_cols = sorted([c for c in cells_df.columns if c.startswith("z_luca_") or c.startswith("luca_latent_")])
+
+            # Log embedding dimensions
+            log(f"  Fused embedding: {len(fused_cols)} dims")
+            log(f"  HLCA embedding: {len(hlca_cols)} dims (dual-reference)")
+            log(f"  LuCA embedding: {len(luca_cols)} dims (dual-reference)")
 
             if fused_cols:
-                log(f"  Fused embedding: {len(fused_cols)} dims")
-
                 # Build niche tokens from neighborhoods
                 # Token order: [receiver, ring1, ring2, ring3, ring4, hlca, luca, pathway, stats]
-                # For now, use fused embedding for all tokens (will refine)
                 embeddings = torch.tensor(cells_df[fused_cols].values, dtype=torch.float32)
                 n_cells = len(embeddings)
+
+                # Load HLCA and LuCA embeddings separately for dual-reference encoder
+                hlca_embeddings = None
+                luca_embeddings = None
+                if hlca_cols:
+                    hlca_embeddings = torch.tensor(cells_df[hlca_cols].values, dtype=torch.float32)
+                    log(f"  Loaded HLCA embeddings: {hlca_embeddings.shape}")
+                if luca_cols:
+                    luca_embeddings = torch.tensor(cells_df[luca_cols].values, dtype=torch.float32)
+                    log(f"  Loaded LuCA embeddings: {luca_embeddings.shape}")
 
                 # Create 9-token sequences (simplified: replicate for now)
                 niche_tokens = embeddings.unsqueeze(1).expand(-1, 9, -1).clone()
@@ -688,6 +718,10 @@ def create_dataloaders(
                     train_donors_idx = torch.zeros(len(train_idx), dtype=torch.long)
                     val_donors_idx = torch.zeros(len(val_idx), dtype=torch.long)
 
+                # NOTE: HLCA/LuCA are already in the fused embedding (niche_tokens)
+                # The Linear projection learns to weight them. See docs/architecture/dual_reference_encoder.md
+
+                # Dataset: [niche_tokens, z_source, z_target, pathway, prolif, stages, donors]
                 train_data = TensorDataset(
                     niche_tokens[train_idx],
                     z_source[train_idx],
@@ -709,6 +743,7 @@ def create_dataloaders(
 
                 log(f"  Train: {len(train_idx):,} cells")
                 log(f"  Val: {len(val_idx):,} cells")
+                log(f"  Embedding: {len(fused_cols)}d fused (HLCA {len(hlca_cols)}d + LuCA {len(luca_cols)}d)")
 
         except Exception as e:
             log(f"Warning: Failed to load real data: {e}")
@@ -879,7 +914,8 @@ def train_epoch(
     stage_losses = {i: [] for i in range(5)}  # Normal=0, AAH=1, AIS=2, MIA=3, LUAD=4
 
     for batch in progress:
-        # Unpack batch (7 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor)
+        # Unpack batch (9 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, hlca, luca)
+        # Note: HLCA/LuCA are in the fused embedding (niche_tokens), stored separately for logging only
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
         z_target = batch[2].to(device, non_blocking=True)
@@ -887,6 +923,8 @@ def train_epoch(
         prolif_targets = batch[4].to(device, non_blocking=True) if len(batch) > 4 else None
         stage_indices = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
         donor_indices = batch[6].to(device, non_blocking=True) if len(batch) > 6 else None
+        # HLCA/LuCA stored separately for debugging/logging (already in fused niche_tokens)
+        # hlca_embeddings = batch[7], luca_embeddings = batch[8]
 
         optimizer.zero_grad()
 
@@ -899,8 +937,9 @@ def train_epoch(
 
             if phase == "ssl":
                 # STAGE 1: SSL - Masked receiver reconstruction from niche context
+                # The fused embedding [HLCA | LuCA] already encodes dual-reference geometry
                 if hasattr(actual_model, "ssl_forward"):
-                    receiver = niche_tokens[:, 0, :]
+                    receiver = niche_tokens[:, 0, :]  # [B, 40] = fused
                     outputs = actual_model.ssl_forward(niche_tokens, receiver)
                     loss = outputs["loss_reconstruction"]
 
@@ -923,7 +962,7 @@ def train_epoch(
             else:
                 # STAGE 2: Transition - Learn flow with CROSS-STAGE OT pairing
                 if hasattr(actual_model, "transition_forward"):
-                    # Encode niche context for transition
+                    # Encode niche context (fused embedding contains dual-reference geometry)
                     context = actual_model.encode_niche(niche_tokens)
 
                     # Use stage-aware OT: only pair cells across adjacent stages
@@ -1292,9 +1331,14 @@ def train(config: TrainingConfig):
     if distributed:
         dist.barrier()
 
-    # Create model
+    # Create model with dual-reference geometry
     log("Creating model...")
-    model = create_model(config, device)
+    model = create_model(
+        config,
+        device,
+        hlca_dim=config.hlca_dim,
+        luca_dim=config.luca_dim,
+    )
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     log(f"Model parameters: {n_params:,}")
 

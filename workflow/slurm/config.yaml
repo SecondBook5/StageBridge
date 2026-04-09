@@ -3,6 +3,10 @@
 
 executor: slurm
 
+# Don't propagate resources to srun (fixes "Invalid gres specification" error)
+# The sbatch allocation already has the GPUs, srun inherits them
+jobstep-args: ""
+
 default-resources:
   slurm_account: chaunzt1
   slurm_partition: gpu
