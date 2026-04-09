@@ -1043,6 +1043,7 @@ def train_epoch(
             if is_main_process():
                 log(f"[WARN] NaN/Inf gradient norm at batch {n_batches}, skipping...")
             optimizer.zero_grad()
+            scaler.update()  # Reset scaler state before continuing
             continue
 
         scaler.step(optimizer)
