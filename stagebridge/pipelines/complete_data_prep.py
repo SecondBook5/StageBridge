@@ -315,17 +315,18 @@ def generate_cells_table(
 
         if fused_emb_df is not None and cell_id in fused_emb_df.index:
             row = fused_emb_df.loc[cell_id]
-            vals = row.select_dtypes(include=[np.number]).values.astype(np.float32)
+            # row is a Series when index is unique - get numeric values directly
+            vals = pd.to_numeric(row, errors='coerce').dropna().values.astype(np.float32)
             z_fused[:len(vals)] = vals[:fused_dim]
 
         if hlca_emb_df is not None and cell_id in hlca_emb_df.index:
             row = hlca_emb_df.loc[cell_id]
-            vals = row.select_dtypes(include=[np.number]).values.astype(np.float32)
+            vals = pd.to_numeric(row, errors='coerce').dropna().values.astype(np.float32)
             z_hlca[:len(vals)] = vals[:hlca_dim]
 
         if luca_emb_df is not None and cell_id in luca_emb_df.index:
             row = luca_emb_df.loc[cell_id]
-            vals = row.select_dtypes(include=[np.number]).values.astype(np.float32)
+            vals = pd.to_numeric(row, errors='coerce').dropna().values.astype(np.float32)
             z_luca[:len(vals)] = vals[:luca_dim]
 
         return z_fused, z_hlca, z_luca
