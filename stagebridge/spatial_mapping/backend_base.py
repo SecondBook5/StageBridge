@@ -40,6 +40,9 @@ class BackendMappingResult:
     # Optional: Gene expression reconstruction
     reconstructed_expression: pd.DataFrame | None = None  # (n_spots, n_genes)
 
+    # Optional: Uncertainty estimates (per-spot or per-spot-per-type)
+    uncertainty: np.ndarray | None = None
+
     def save(self, output_dir: Path):
         """Save results to standardized format."""
         output_dir = Path(output_dir)
