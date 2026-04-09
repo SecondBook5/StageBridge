@@ -16,7 +16,6 @@ import torch
 
 from stagebridge.context_model.receiver_niche_encoder import (
     ReceiverCenteredNicheEncoder,
-    ReceiverNicheEncoderWithDualReference,
     ReceiverCenteredAttention,
     DistanceEncoder,
     DistanceEncoding,
@@ -373,66 +372,10 @@ class TestSparsity:
         assert entropy_focused < entropy_uniform
 
 
-# ---------------------------------------------------------------------------
-# Dual Reference Integration Tests
-# ---------------------------------------------------------------------------
-
-
-class TestDualReferenceEncoder:
-    """Test encoder with HLCA/LuCA dual-reference features."""
-
-    def test_dual_reference_forward(self, batch_size, num_neighbors):
-        """Test forward pass with dual-reference features."""
-        input_dim = 32
-        hlca_dim = 16
-        luca_dim = 16
-
-        encoder = ReceiverNicheEncoderWithDualReference(
-            input_dim=input_dim,
-            hlca_dim=hlca_dim,
-            luca_dim=luca_dim,
-            hidden_dim=64,
-        )
-
-        output = encoder(
-            receiver=torch.randn(batch_size, input_dim),
-            neighbors=torch.randn(batch_size, num_neighbors, input_dim),
-            distances=torch.rand(batch_size, num_neighbors) * 50,
-            receiver_hlca=torch.randn(batch_size, hlca_dim),
-            receiver_luca=torch.randn(batch_size, luca_dim),
-            neighbor_hlca=torch.randn(batch_size, num_neighbors, hlca_dim),
-            neighbor_luca=torch.randn(batch_size, num_neighbors, luca_dim),
-        )
-
-        assert output.context.shape == (batch_size, 64)
-
-    def test_dual_reference_reconstruction_shape(self, batch_size, num_neighbors):
-        """Reconstruction should match original input_dim, not combined."""
-        input_dim = 32
-        hlca_dim = 16
-        luca_dim = 16
-
-        encoder = ReceiverNicheEncoderWithDualReference(
-            input_dim=input_dim,
-            hlca_dim=hlca_dim,
-            luca_dim=luca_dim,
-            hidden_dim=64,
-            use_reconstruction_head=True,
-        )
-
-        output = encoder(
-            receiver=torch.randn(batch_size, input_dim),
-            neighbors=torch.randn(batch_size, num_neighbors, input_dim),
-            distances=torch.rand(batch_size, num_neighbors) * 50,
-            receiver_hlca=torch.randn(batch_size, hlca_dim),
-            receiver_luca=torch.randn(batch_size, luca_dim),
-            neighbor_hlca=torch.randn(batch_size, num_neighbors, hlca_dim),
-            neighbor_luca=torch.randn(batch_size, num_neighbors, luca_dim),
-            return_reconstruction=True,
-        )
-
-        # Should reconstruct original cell embedding, not combined
-        assert output.receiver_reconstruction.shape == (batch_size, input_dim)
+# NOTE: TestDualReferenceEncoder was REMOVED (2026-04-09)
+# ReceiverNicheEncoderWithDualReference was redundant - it concatenated [fused|hlca|luca]
+# when fused already contains hlca+luca. Use ReceiverCenteredNicheEncoder with fused (40d).
+# See: docs/architecture/dual_reference_encoder.md
 
 
 # ---------------------------------------------------------------------------

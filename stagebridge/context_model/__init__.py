@@ -10,7 +10,6 @@ This module provides:
 # Receiver-centered niche encoder (PREFERRED - per doctrine)
 from .receiver_niche_encoder import (
     ReceiverCenteredNicheEncoder,
-    ReceiverNicheEncoderWithDualReference,
     ReceiverCenteredAttention,
     ReceiverNicheOutput,
     DistanceEncoding,
@@ -40,7 +39,6 @@ from .prototype_bottleneck import PrototypeBottleneck, PrototypeBottleneckOutput
 __all__ = [
     # Receiver-centered niche encoder (PREFERRED)
     "ReceiverCenteredNicheEncoder",
-    "ReceiverNicheEncoderWithDualReference",
     "ReceiverCenteredAttention",
     "ReceiverNicheOutput",
     "DistanceEncoding",

@@ -177,7 +177,9 @@ class StageBridgeV1Complete(nn.Module):
          coordinate_corruption (5%), group_relation (5%)
     2. Transition Modeling: Flow matching for progression dynamics
 
-    Uses ReceiverCenteredNicheEncoder when available (doctrine-compliant).
+    Uses ReceiverCenteredNicheEncoder with fused dual-reference embedding (40d).
+    The Linear projection learns to weight HLCA (30d) vs LuCA (10d) features.
+    See: docs/architecture/dual_reference_encoder.md
     """
 
     def __init__(
@@ -190,6 +192,9 @@ class StageBridgeV1Complete(nn.Module):
         use_doctrine_encoder: bool = True,
         wes_feature_dim: int = 3,  # tmb, smoking_signature, uv_signature
         wes_hidden_dim: int = 16,
+        # Dual-reference geometry dimensions
+        hlca_dim: int = 30,  # HLCA scANVI latent
+        luca_dim: int = 10,  # LuCA scVI latent
         # OT-CFM parameters
         ot_epsilon: float = 0.05,
         sinkhorn_iters: int = 50,
@@ -200,7 +205,11 @@ class StageBridgeV1Complete(nn.Module):
         self.latent_dim = latent_dim
         self.context_dim = context_dim
         self.wes_hidden_dim = wes_hidden_dim
+        self.hlca_dim = hlca_dim
+        self.luca_dim = luca_dim
         self.use_doctrine_encoder = use_doctrine_encoder and DOCTRINE_ENCODER_AVAILABLE
+        # Note: Dual-reference geometry is encoded in the fused embedding [HLCA | LuCA]
+        # The Linear projection learns to weight these features (see docs/architecture/dual_reference_encoder.md)
 
         # OT-CFM parameters
         self.ot_epsilon = ot_epsilon
@@ -216,13 +225,16 @@ class StageBridgeV1Complete(nn.Module):
 
         if self.use_doctrine_encoder:
             # Use doctrine-compliant ReceiverCenteredNicheEncoder
+            # The fused embedding [HLCA | LuCA] is the input - Linear projection
+            # learns to weight HLCA vs LuCA features (see docs/architecture/dual_reference_encoder.md)
+            # Fallback: single-input encoder (concatenated reference)
             self.niche_encoder = ReceiverCenteredNicheEncoder(
                 input_dim=latent_dim,
                 hidden_dim=niche_hidden_dim,
                 num_heads=4,
                 num_layers=2,
                 dropout=dropout,
-                use_reconstruction_head=True,  # For SSL
+                use_reconstruction_head=True,
             )
             self.context_projection = nn.Linear(niche_hidden_dim, context_dim)
         else:
@@ -312,12 +324,19 @@ class StageBridgeV1Complete(nn.Module):
         )
 
     def encode_niche(
-        self, niche_tokens: torch.Tensor, distances: torch.Tensor = None
+        self,
+        niche_tokens: torch.Tensor,
+        distances: torch.Tensor = None,
     ) -> torch.Tensor:
         """Encode 9-token niche structure into context vector.
 
+        The fused embedding [HLCA | LuCA] is used as the cell representation.
+        The Linear projection learns to weight HLCA vs LuCA features.
+        See: docs/architecture/dual_reference_encoder.md
+
         Args:
             niche_tokens: [B, K, D] niche token embeddings (token 0 = receiver)
+                          D = 40 = fused dimension (30 HLCA + 10 LuCA)
             distances: [B, K] optional distances for doctrine encoder
 
         Returns:
@@ -327,12 +346,13 @@ class StageBridgeV1Complete(nn.Module):
 
         if self.use_doctrine_encoder:
             # Doctrine-compliant: receiver as query, neighbors as keys/values
-            receiver = niche_tokens[:, 0, :]  # [B, D]
+            # The fused embedding [HLCA | LuCA] contains dual-reference geometry
+            # Linear projection learns: h = W @ [hlca; luca] + b
+            receiver = niche_tokens[:, 0, :]  # [B, D] - fused = [HLCA | LuCA]
             neighbors = niche_tokens[:, 1:, :]  # [B, K-1, D]
 
-            # Generate distances if not provided
+            K = neighbors.shape[1]
             if distances is None:
-                K = neighbors.shape[1]
                 distances = torch.ones(batch_size, K, device=niche_tokens.device)
 
             output: ReceiverNicheOutput = self.niche_encoder(
@@ -359,8 +379,17 @@ class StageBridgeV1Complete(nn.Module):
 
         return context
 
-    def ssl_forward(self, niche_tokens: torch.Tensor, receiver_target: torch.Tensor) -> dict:
-        """SSL pretraining forward pass."""
+    def ssl_forward(
+        self,
+        niche_tokens: torch.Tensor,
+        receiver_target: torch.Tensor,
+    ) -> dict:
+        """SSL pretraining forward pass.
+
+        Args:
+            niche_tokens: [B, K, D] niche token embeddings (D=40 fused)
+            receiver_target: [B, D] target for receiver reconstruction
+        """
         context = self.encode_niche(niche_tokens)
         receiver_pred = self.ssl_decoder(context)
         loss_reconstruction = torch.mean((receiver_pred - receiver_target) ** 2)
