@@ -227,11 +227,16 @@ def generate_cells_table(
 
     # ==========================================================================
     # Load REAL embeddings from reference geometry (CRITICAL!)
+    # Preserve actual dimensions: HLCA=30, LuCA=10, Fused=40
     # ==========================================================================
     fused_emb_df = None
     hlca_emb_df = None
     luca_emb_df = None
-    latent_dim = 32
+
+    # Default dimensions from reference atlases (scArches/scVI models)
+    hlca_dim = 30  # HLCA scANVI latent
+    luca_dim = 10  # LuCA scVI latent
+    fused_dim = hlca_dim + luca_dim  # Concatenated
 
     if reference_geometry_dir is not None and reference_geometry_dir.exists():
         print("  Loading reference geometry embeddings...")
@@ -242,17 +247,16 @@ def generate_cells_table(
 
         if fused_path.exists():
             fused_emb_df = cache.read_parquet(fused_path)
-            # Set index to cell_id for fast lookup
             if 'cell_id' in fused_emb_df.columns:
                 fused_emb_df = fused_emb_df.set_index('cell_id')
             print(f"    Fused embeddings: {len(fused_emb_df):,} cells")
-            # Get actual latent dim from data
-            fused_cols = [c for c in fused_emb_df.columns if c.startswith('fused_') or c.startswith('z_fused_') or c.isdigit() or c.startswith('dim_')]
+            # Detect actual fused dim
+            fused_cols = [c for c in fused_emb_df.columns if c.startswith('fused_') or c.startswith('z_fused_')]
             if not fused_cols:
-                # Try numeric columns
-                fused_cols = [c for c in fused_emb_df.columns if fused_emb_df[c].dtype in ['float32', 'float64', 'int64']]
-            latent_dim = len(fused_cols) if fused_cols else 32
-            print(f"    Latent dim: {latent_dim}")
+                fused_cols = [c for c in fused_emb_df.columns if fused_emb_df[c].dtype in ['float32', 'float64']]
+            if fused_cols:
+                fused_dim = len(fused_cols)
+            print(f"    Fused dim: {fused_dim}")
         else:
             print(f"    WARNING: fused_embedding.parquet not found at {fused_path}")
 
@@ -260,13 +264,25 @@ def generate_cells_table(
             hlca_emb_df = cache.read_parquet(hlca_path)
             if 'cell_id' in hlca_emb_df.columns:
                 hlca_emb_df = hlca_emb_df.set_index('cell_id')
-            print(f"    HLCA embeddings: {len(hlca_emb_df):,} cells")
+            # Detect actual HLCA dim
+            hlca_cols = [c for c in hlca_emb_df.columns if c.startswith('hlca_') or c.startswith('z_hlca_')]
+            if not hlca_cols:
+                hlca_cols = [c for c in hlca_emb_df.columns if hlca_emb_df[c].dtype in ['float32', 'float64']]
+            if hlca_cols:
+                hlca_dim = len(hlca_cols)
+            print(f"    HLCA embeddings: {len(hlca_emb_df):,} cells, dim={hlca_dim}")
 
         if luca_path.exists():
             luca_emb_df = cache.read_parquet(luca_path)
             if 'cell_id' in luca_emb_df.columns:
                 luca_emb_df = luca_emb_df.set_index('cell_id')
-            print(f"    LuCA embeddings: {len(luca_emb_df):,} cells")
+            # Detect actual LuCA dim
+            luca_cols = [c for c in luca_emb_df.columns if c.startswith('luca_') or c.startswith('z_luca_')]
+            if not luca_cols:
+                luca_cols = [c for c in luca_emb_df.columns if luca_emb_df[c].dtype in ['float32', 'float64']]
+            if luca_cols:
+                luca_dim = len(luca_cols)
+            print(f"    LuCA embeddings: {len(luca_emb_df):,} cells, dim={luca_dim}")
     else:
         print("  WARNING: No reference_geometry_dir provided or doesn't exist!")
         print("           Embeddings will be zeros (placeholder mode)")
@@ -288,29 +304,29 @@ def generate_cells_table(
         return "unknown"
 
     def get_embeddings(cell_id: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Get embeddings for a cell from loaded dataframes."""
-        z_fused = np.zeros(latent_dim)
-        z_hlca = np.zeros(latent_dim)
-        z_luca = np.zeros(latent_dim)
+        """Get embeddings for a cell from loaded dataframes.
+
+        Returns actual dimensions: HLCA (30d), LuCA (10d), Fused (40d).
+        NOT truncated to a single latent_dim.
+        """
+        z_fused = np.zeros(fused_dim, dtype=np.float32)
+        z_hlca = np.zeros(hlca_dim, dtype=np.float32)
+        z_luca = np.zeros(luca_dim, dtype=np.float32)
 
         if fused_emb_df is not None and cell_id in fused_emb_df.index:
             row = fused_emb_df.loc[cell_id]
-            # Get numeric columns
-            vals = row.select_dtypes(include=[np.number]).values[:latent_dim]
-            if len(vals) > 0:
-                z_fused[:len(vals)] = vals
+            vals = row.select_dtypes(include=[np.number]).values.astype(np.float32)
+            z_fused[:len(vals)] = vals[:fused_dim]
 
         if hlca_emb_df is not None and cell_id in hlca_emb_df.index:
             row = hlca_emb_df.loc[cell_id]
-            vals = row.select_dtypes(include=[np.number]).values[:latent_dim]
-            if len(vals) > 0:
-                z_hlca[:len(vals)] = vals
+            vals = row.select_dtypes(include=[np.number]).values.astype(np.float32)
+            z_hlca[:len(vals)] = vals[:hlca_dim]
 
         if luca_emb_df is not None and cell_id in luca_emb_df.index:
             row = luca_emb_df.loc[cell_id]
-            vals = row.select_dtypes(include=[np.number]).values[:latent_dim]
-            if len(vals) > 0:
-                z_luca[:len(vals)] = vals
+            vals = row.select_dtypes(include=[np.number]).values.astype(np.float32)
+            z_luca[:len(vals)] = vals[:luca_dim]
 
         return z_fused, z_hlca, z_luca
 
@@ -371,10 +387,12 @@ def generate_cells_table(
             "y_spatial": np.nan,
         }
 
-        # Add latent dimension columns
-        for dim in range(latent_dim):
+        # Add latent dimension columns (preserve actual dimensions: HLCA=30, LuCA=10, Fused=40)
+        for dim in range(fused_dim):
             record[f"z_fused_{dim}"] = z_fused[dim]
+        for dim in range(hlca_dim):
             record[f"z_hlca_{dim}"] = z_hlca[dim]
+        for dim in range(luca_dim):
             record[f"z_luca_{dim}"] = z_luca[dim]
 
         # Add pathway/proliferation targets (pre-computed from real expression)
@@ -446,10 +464,12 @@ def generate_cells_table(
             "y_spatial": spatial_coords[1],
         }
 
-        # Add latent dimension columns
-        for dim in range(latent_dim):
+        # Add latent dimension columns (preserve actual dimensions: HLCA=30, LuCA=10, Fused=40)
+        for dim in range(fused_dim):
             record[f"z_fused_{dim}"] = z_fused[dim]
+        for dim in range(hlca_dim):
             record[f"z_hlca_{dim}"] = z_hlca[dim]
+        for dim in range(luca_dim):
             record[f"z_luca_{dim}"] = z_luca[dim]
 
         # Add pathway/proliferation targets (pre-computed from real expression)
@@ -723,13 +743,22 @@ def generate_cv_splits(cells_df: pd.DataFrame, n_folds: int = 5) -> dict:
 
 def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame) -> dict:
     """Generate feature specifications for documentation."""
+    # Detect actual embedding dimensions from column names
+    fused_cols = [c for c in cells_df.columns if c.startswith("z_fused_")]
+    hlca_cols = [c for c in cells_df.columns if c.startswith("z_hlca_")]
+    luca_cols = [c for c in cells_df.columns if c.startswith("z_luca_")]
+
     return {
         "cells": {
             "n_cells": len(cells_df),
             "n_donors": cells_df["donor_id"].nunique(),
             "n_stages": cells_df["stage"].nunique(),
             "stages": sorted(cells_df["stage"].unique().tolist()),
-            "latent_dim": 32,
+            "embedding_dims": {
+                "fused": len(fused_cols),  # Expected: 40 (30 HLCA + 10 LuCA)
+                "hlca": len(hlca_cols),    # Expected: 30 (scANVI latent)
+                "luca": len(luca_cols),    # Expected: 10 (scVI latent)
+            },
             "wes_features": ["tmb", "smoking_signature", "uv_signature"],
         },
         "neighborhoods": {
@@ -747,7 +776,7 @@ def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame
                 "stats",
             ],
         },
-        "version": "1.0",
+        "version": "1.1",  # Bumped version for dual-reference architecture
     }
 
 
