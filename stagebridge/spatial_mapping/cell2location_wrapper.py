@@ -149,6 +149,11 @@ class Cell2locationBackend(SpatialBackend):
             accelerator=self.accelerator,
         )
 
+        # Capture training history before export
+        ref_history = dict(self.ref_model.history) if hasattr(self.ref_model, 'history') else {}
+        ref_epochs_run = max((len(v) for v in ref_history.values() if hasattr(v, '__len__')), default=0)
+        print(f"  Reference model finished after {ref_epochs_run} epochs")
+
         # Export estimated cell type signatures
         snrna_sub = self.ref_model.export_posterior(
             snrna_sub,
@@ -204,6 +209,17 @@ class Cell2locationBackend(SpatialBackend):
             batch_size=None,  # Use full batch for spatial
             accelerator=self.accelerator,
         )
+
+        # Capture training history
+        spatial_history = dict(self.spatial_model.history) if hasattr(self.spatial_model, 'history') else {}
+        spatial_epochs_run = max((len(v) for v in spatial_history.values() if hasattr(v, '__len__')), default=0)
+        print(f"  Spatial model finished after {spatial_epochs_run} epochs")
+
+        # Store history for later saving
+        self._ref_history = ref_history
+        self._spatial_history = spatial_history
+        self._ref_epochs_run = ref_epochs_run
+        self._spatial_epochs_run = spatial_epochs_run
 
         # Export posterior estimates
         spatial_sub = self.spatial_model.export_posterior(
@@ -299,6 +315,38 @@ class Cell2locationBackend(SpatialBackend):
                     abundances,
                     index=spatial_sub.obs_names,
                 ).to_parquet(output_dir / "cell_abundances.parquet")
+
+            # Save annotated spatial h5ad (consistent with other backends)
+            spatial_annotated = spatial.copy()
+            # Add proportions to obsm
+            props_array = proportions.values if hasattr(proportions, 'values') else proportions
+            spatial_annotated.obsm["cell2location_proportions"] = props_array
+            # Add per-celltype columns to obs for easy visualization
+            if hasattr(proportions, 'columns'):
+                for ct in proportions.columns:
+                    # Clean up column name (remove long prefix)
+                    ct_clean = ct.replace("q05cell_abundance_w_sf_means_per_cluster_mu_fg_", "")
+                    spatial_annotated.obs[f"cell2location_{ct_clean}"] = proportions[ct].values
+            spatial_annotated.write_h5ad(output_dir / "cell2location_spatial_annotated.h5ad")
+
+            # Save training history (loss curves)
+            import json
+            training_history = {
+                "reference_model": {
+                    "epochs_run": self._ref_epochs_run,
+                    "history": {k: [float(x) for x in v] if hasattr(v, '__iter__') else v
+                               for k, v in self._ref_history.items()},
+                },
+                "spatial_model": {
+                    "epochs_run": self._spatial_epochs_run,
+                    "history": {k: [float(x) for x in v] if hasattr(v, '__iter__') else v
+                               for k, v in self._spatial_history.items()},
+                },
+            }
+            with open(output_dir / "training_history.json", "w") as f:
+                json.dump(training_history, f, indent=2, default=str)
+
+            print(f"  Cell2location outputs saved to {output_dir}")
 
         return result
 

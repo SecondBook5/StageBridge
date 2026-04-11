@@ -1,0 +1,28 @@
+name: r_deconv
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - r-base>=4.2
+  - r-matrix
+  - r-remotes
+  - r-devtools
+  - r-biocmanager
+  - r-rcpp
+  - r-rcpparmadillo
+  - r-rcppeigen
+  - r-fields
+  - r-rann
+  - r-pbmcapply
+  - r-ggplot2
+  - r-dplyr
+  - r-tidyr
+  - r-stringr
+  - r-data.table
+  # Bioconductor dependencies
+  - bioconductor-singlecellexperiment
+  - bioconductor-spatialexperiment
+  - bioconductor-scater
+  - bioconductor-scran
+  - bioconductor-scuttle
