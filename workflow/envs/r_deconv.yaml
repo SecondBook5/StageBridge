@@ -26,3 +26,7 @@ dependencies:
   - bioconductor-scater
   - bioconductor-scran
   - bioconductor-scuttle
+  # Spatial deconvolution packages
+  - bioconductor-spotlight
+  - r-spacexr  # RCTD
+  - r-card
