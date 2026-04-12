@@ -271,7 +271,13 @@ class SPOTlightBackend(SpatialBackend):
     def _save_for_r(self, snrna: ad.AnnData, spatial: ad.AnnData, output_dir: Path):
         """Save data in format readable by R."""
         # Reference counts (Matrix Market) - genes x cells for R
-        X = snrna.X.T if hasattr(snrna.X, 'toarray') else csr_matrix(snrna.X.T)
+        # Use counts layer if available, cast to int for R
+        if "counts" in snrna.layers:
+            X_ref = snrna.layers["counts"].T
+        else:
+            X_ref = snrna.X.T
+        X = X_ref if hasattr(X_ref, 'toarray') else csr_matrix(X_ref)
+        X = X.astype(int)
         mmwrite(output_dir / "ref_counts.mtx", X)
 
         # Reference metadata
@@ -282,7 +288,12 @@ class SPOTlightBackend(SpatialBackend):
         )
 
         # Spatial counts (Matrix Market) - genes x spots for R
-        X_sp = spatial.X.T if hasattr(spatial.X, 'toarray') else csr_matrix(spatial.X.T)
+        if "counts" in spatial.layers:
+            X_sp_raw = spatial.layers["counts"].T
+        else:
+            X_sp_raw = spatial.X.T
+        X_sp = X_sp_raw if hasattr(X_sp_raw, 'toarray') else csr_matrix(X_sp_raw)
+        X_sp = X_sp.astype(int)
         mmwrite(output_dir / "spatial_counts.mtx", X_sp)
 
         # Spatial metadata
