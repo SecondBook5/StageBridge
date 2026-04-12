@@ -769,8 +769,10 @@ def create_dataloaders(
                 log(f"  Embedding: {len(fused_cols)}d fused (HLCA {len(hlca_cols)}d + LuCA {len(luca_cols)}d)")
 
         except Exception as e:
-            log(f"Warning: Failed to load real data: {e}")
-            train_data = None
+            import traceback
+            log(f"ERROR: Failed to load real data: {e}")
+            log(f"Traceback:\n{traceback.format_exc()}")
+            raise  # Re-raise to fail loudly instead of silent fallback
 
     # ==========================================================================
     # Load SEMI-SYNTHETIC benchmark data (with ground truth)
@@ -833,26 +835,14 @@ def create_dataloaders(
         log(traceback.format_exc())
 
     # ==========================================================================
-    # Fallback to pure synthetic if no real data
+    # FAIL if no real data - no silent fallback to synthetic
     # ==========================================================================
     if train_data is None:
-        log("Using SYNTHETIC data (no real data available)")
-        torch.manual_seed(config.seed)
-        n_train, n_val = 50000, 10000
-
-        train_data = TensorDataset(
-            torch.randn(n_train, 9, config.latent_dim),
-            torch.randn(n_train, config.latent_dim),
-            torch.randn(n_train, config.latent_dim),
-            torch.zeros(n_train, 14),  # pathway targets (placeholder)
-            torch.zeros(n_train, 1),   # proliferation targets (placeholder)
-        )
-        val_data = TensorDataset(
-            torch.randn(n_val, 9, config.latent_dim),
-            torch.randn(n_val, config.latent_dim),
-            torch.randn(n_val, config.latent_dim),
-            torch.zeros(n_val, 14),  # pathway targets (placeholder)
-            torch.zeros(n_val, 1),   # proliferation targets (placeholder)
+        raise RuntimeError(
+            f"Failed to load real data from {config.data_dir}. "
+            f"Check that cells.parquet exists and has z_fused_* columns. "
+            f"cells_path.exists()={cells_path.exists()}, "
+            f"neighborhoods_path.exists()={neighborhoods_path.exists()}"
         )
 
     # ==========================================================================
