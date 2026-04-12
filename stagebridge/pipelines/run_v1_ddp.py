@@ -1781,7 +1781,7 @@ def main():
     parser.add_argument("--luca_path", type=str, default="")
 
     # Model
-    parser.add_argument("--latent_dim", type=int, default=32)
+    parser.add_argument("--latent_dim", type=int, default=40)  # Must match fused embedding (HLCA 30 + LuCA 10)
     parser.add_argument("--niche_hidden_dim", type=int, default=128)
     parser.add_argument("--context_dim", type=int, default=256)
     parser.add_argument("--dropout", type=float, default=0.1)
