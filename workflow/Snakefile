@@ -331,7 +331,7 @@ rule spatial_r_backend_sample:
         f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
     shell:
         """
-        export PATH="/scratch/chaunzt1/envs/r_deconv/lib/R/bin:$PATH"
+        export R_EXECUTABLE="/scratch/chaunzt1/envs/r_deconv/lib/R/bin/Rscript"
         export R_LIBS_USER="/scratch/chaunzt1/envs/r_deconv/lib/R/library"
         python -m stagebridge.pipelines.run_spatial_benchmark \
             --snrna {input.snrna} \

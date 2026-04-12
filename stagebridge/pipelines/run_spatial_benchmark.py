@@ -188,18 +188,25 @@ def run_backend_comparison(
                     n_markers=50,
                 )
             elif backend_name == "rctd":
+                # Use R_EXECUTABLE env var if set, otherwise default to Rscript in PATH
+                r_exec = os.environ.get("R_EXECUTABLE", "Rscript")
                 backend = RCTDBackend(
                     mode="doublet",
                     min_cells_per_type=5,
+                    r_executable=r_exec,
                 )
             elif backend_name == "card":
+                r_exec = os.environ.get("R_EXECUTABLE", "Rscript")
                 backend = CARDBackend(
                     min_cells_per_type=5,
+                    r_executable=r_exec,
                 )
             elif backend_name == "spotlight":
+                r_exec = os.environ.get("R_EXECUTABLE", "Rscript")
                 backend = SPOTlightBackend(
                     min_cells_per_type=5,
                     n_hvg=3000,
+                    r_executable=r_exec,
                 )
             else:
                 raise ValueError(f"Unknown backend: {backend_name}")
