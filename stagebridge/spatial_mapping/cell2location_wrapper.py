@@ -150,7 +150,15 @@ class Cell2locationBackend(SpatialBackend):
         )
 
         # Capture training history before export
-        ref_history = dict(self.ref_model.history) if hasattr(self.ref_model, 'history') else {}
+        # Note: scvi-tools history is a pandas DataFrame, need to convert properly
+        ref_history = {}
+        if hasattr(self.ref_model, 'history') and self.ref_model.history is not None:
+            hist = self.ref_model.history
+            if hasattr(hist, 'to_dict'):  # It's a DataFrame
+                ref_history = {k: list(v.values()) for k, v in hist.to_dict().items()}
+            elif isinstance(hist, dict):
+                ref_history = {k: list(v) if hasattr(v, '__iter__') and not isinstance(v, str) else [v]
+                              for k, v in hist.items()}
         ref_epochs_run = max((len(v) for v in ref_history.values() if hasattr(v, '__len__')), default=0)
         print(f"  Reference model finished after {ref_epochs_run} epochs")
 
@@ -210,8 +218,15 @@ class Cell2locationBackend(SpatialBackend):
             accelerator=self.accelerator,
         )
 
-        # Capture training history
-        spatial_history = dict(self.spatial_model.history) if hasattr(self.spatial_model, 'history') else {}
+        # Capture training history (same handling as reference model)
+        spatial_history = {}
+        if hasattr(self.spatial_model, 'history') and self.spatial_model.history is not None:
+            hist = self.spatial_model.history
+            if hasattr(hist, 'to_dict'):  # It's a DataFrame
+                spatial_history = {k: list(v.values()) for k, v in hist.to_dict().items()}
+            elif isinstance(hist, dict):
+                spatial_history = {k: list(v) if hasattr(v, '__iter__') and not isinstance(v, str) else [v]
+                                  for k, v in hist.items()}
         spatial_epochs_run = max((len(v) for v in spatial_history.values() if hasattr(v, '__len__')), default=0)
         print(f"  Spatial model finished after {spatial_epochs_run} epochs")
 
@@ -331,16 +346,32 @@ class Cell2locationBackend(SpatialBackend):
 
             # Save training history (loss curves)
             import json
+
+            def _safe_convert_history(hist: dict) -> dict:
+                """Safely convert history dict values to JSON-serializable format."""
+                result = {}
+                for k, v in hist.items():
+                    if hasattr(v, '__iter__') and not isinstance(v, str):
+                        try:
+                            # Try to convert to list of floats
+                            result[k] = [float(x) for x in v]
+                        except (ValueError, TypeError):
+                            # Fall back to string representation
+                            result[k] = [str(x) for x in v]
+                    elif isinstance(v, (int, float, np.floating, np.integer)):
+                        result[k] = float(v)
+                    else:
+                        result[k] = str(v) if v is not None else None
+                return result
+
             training_history = {
                 "reference_model": {
                     "epochs_run": self._ref_epochs_run,
-                    "history": {k: [float(x) for x in v] if hasattr(v, '__iter__') else v
-                               for k, v in self._ref_history.items()},
+                    "history": _safe_convert_history(self._ref_history),
                 },
                 "spatial_model": {
                     "epochs_run": self._spatial_epochs_run,
-                    "history": {k: [float(x) for x in v] if hasattr(v, '__iter__') else v
-                               for k, v in self._spatial_history.items()},
+                    "history": _safe_convert_history(self._spatial_history),
                 },
             }
             with open(output_dir / "training_history.json", "w") as f:
