@@ -49,8 +49,7 @@ FIGURES = f"{RUNS}/publication_figures"
 # Spatial backends to run
 # Python backends: tangram, destvi, tacco, cell2location, marker_scoring
 # R backends (Paper 3): rctd, card, spotlight (require R packages: spacexr, CARD, SPOTlight)
-# NOTE: R backends disabled for v1 - enable after installing R packages on HPC
-SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location", "marker_scoring"]
+SPATIAL_BACKENDS = ["tangram", "destvi", "tacco", "cell2location", "marker_scoring", "card", "rctd", "spotlight"]
 
 # Label sources for spatial deconvolution ablation (HLCA vs LuCA cell types)
 LABEL_SOURCES = ["hlca", "luca"]
@@ -346,7 +345,57 @@ rule spatial_backend_aggregate:
         """
 
 
-# Step 3d: Compare backends across label sources (HLCA vs LuCA ablation)
+# Step 3d: Generate unified comparison figures per sample (all backends on same plot)
+def get_all_backends_for_sample(wildcards):
+    """Get all backend metrics for a single sample to trigger unified figure generation."""
+    checkpoint_output = checkpoints.extract_spatial_samples.get(**wildcards).output.manifest
+    import json
+    with open(checkpoint_output) as f:
+        manifest = json.load(f)
+    samples = manifest["samples"]
+    # Return all backend metrics for all samples (for this label_source)
+    return expand(
+        f"{SPATIAL}/{wildcards.label_source}/{{backend}}/samples/{{sample}}/backend_comparison.json",
+        backend=SPATIAL_BACKENDS,
+        sample=samples
+    )
+
+
+rule spatial_unified_figures:
+    input:
+        backend_jsons = get_all_backends_for_sample,
+        manifest = f"{SPATIAL}/sample_manifest.json"
+    output:
+        figures_done = f"{SPATIAL}/{{label_source}}/figures/unified_comparison/.done"
+    wildcard_constraints:
+        label_source = "|".join(LABEL_SOURCES)
+    threads: 2
+    resources:
+        mem_mb = 16000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/spatial/{{label_source}}/unified_figures.log"
+    shell:
+        """
+        # Unified comparison: 2x2 grid (performance, radar, runtime, quality trade-offs)
+        python scripts/create_unified_backend_comparison.py \
+            --results-dir {SPATIAL} \
+            --output-dir {SPATIAL}/{wildcards.label_source}/figures/unified_comparison \
+            --label-source {wildcards.label_source} \
+            2>&1 | tee {log}
+
+        # Spatial comparison grid: cell types x backends spatial maps
+        python scripts/create_backend_comparison_grid.py \
+            --results-dir {SPATIAL} \
+            --output-dir {SPATIAL}/{wildcards.label_source}/figures/backend_comparison \
+            --label-source {wildcards.label_source} \
+            2>&1 | tee -a {log}
+
+        touch {output.figures_done}
+        """
+
+
+# Step 3f: Compare backends across label sources (HLCA vs LuCA ablation)
 # This is a checkpoint because downstream rules need to read its output
 checkpoint spatial_comparison:
     input:
@@ -354,6 +403,11 @@ checkpoint spatial_comparison:
         expand(
             SPATIAL + "/{label_source}/{backend}/upstream_metrics.json",
             label_source=LABEL_SOURCES, backend=SPATIAL_BACKENDS
+        ),
+        # Unified comparison figures (all backends per sample)
+        expand(
+            SPATIAL + "/{label_source}/figures/unified_comparison/.done",
+            label_source=LABEL_SOURCES
         )
     output:
         comparison = f"{SPATIAL}/backend_comparison.json",

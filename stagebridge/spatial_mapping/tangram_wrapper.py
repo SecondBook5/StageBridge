@@ -293,10 +293,17 @@ class TangramBackend(SpatialBackend):
 
         ct_pred = spatial_pp.obsm["tangram_ct_pred"]
         if isinstance(ct_pred, pd.DataFrame):
-            return ct_pred
+            props_df = ct_pred
         else:
             cell_types = snrna_pp.obs[cell_type_key].cat.categories.tolist()
-            return pd.DataFrame(ct_pred, index=spatial_pp.obs_names, columns=cell_types)
+            props_df = pd.DataFrame(ct_pred, index=spatial_pp.obs_names, columns=cell_types)
+
+        # Normalize to sum to 1 per spot (Tangram returns raw scores, not proportions)
+        row_sums = props_df.sum(axis=1)
+        row_sums = row_sums.replace(0, 1e-10)  # Avoid division by zero
+        props_df = props_df.div(row_sums, axis=0)
+
+        return props_df
 
     def _map_scvi(
         self,
@@ -336,7 +343,14 @@ class TangramBackend(SpatialBackend):
         proportions = model.get_spatial_mapping()
 
         cell_types = snrna_pp.obs[cell_type_key].cat.categories.tolist()
-        return pd.DataFrame(proportions, index=spatial_pp.obs_names, columns=cell_types)
+        props_df = pd.DataFrame(proportions, index=spatial_pp.obs_names, columns=cell_types)
+
+        # Normalize to sum to 1 per spot
+        row_sums = props_df.sum(axis=1)
+        row_sums = row_sums.replace(0, 1e-10)
+        props_df = props_df.div(row_sums, axis=0)
+
+        return props_df
 
     def _get_cell_type_key(self, adata: ad.AnnData) -> str:
         """Get the cell type column name from obs."""
