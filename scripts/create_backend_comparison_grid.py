@@ -90,9 +90,19 @@ def create_backend_comparison_figure(
     Create multi-backend comparison figure.
 
     Rows = cell types, Columns = backends
+    Marker scoring is separated as a baseline method at the end.
     """
-    backends = sorted(proportions.keys())
+    # Separate deconvolution methods from baselines
+    BASELINE_BACKENDS = {"marker_scoring"}
+
+    all_backends = set(proportions.keys())
+    deconv_backends = sorted(all_backends - BASELINE_BACKENDS)
+    baseline_backends = sorted(all_backends & BASELINE_BACKENDS)
+
+    # Order: deconvolution methods first, then baselines at the end
+    backends = deconv_backends + baseline_backends
     n_backends = len(backends)
+    baseline_start_idx = len(deconv_backends)  # Column index where baselines start
 
     # Limit cell types shown
     cell_types = cell_types[:max_celltypes]
@@ -165,11 +175,28 @@ def create_backend_comparison_figure(
 
             # Column header (backend name)
             if row == 0:
-                ax.set_title(backend.upper(), fontsize=12, fontweight='bold')
+                is_baseline = backend in BASELINE_BACKENDS
+                title_text = f"{backend.upper()}\n(Baseline)" if is_baseline else backend.upper()
+                title_color = '#666666' if is_baseline else 'black'
+                ax.set_title(title_text, fontsize=11, fontweight='bold', color=title_color)
 
             # Row label (cell type)
             if col == 0:
                 ax.set_ylabel(ct, fontsize=10, fontweight='bold')
+
+            # Add vertical separator line before baseline section
+            if col == baseline_start_idx and baseline_start_idx > 0:
+                # Draw line on left edge of baseline columns
+                ax.axvline(x=ax.get_xlim()[0], color='#333333', linewidth=2, linestyle='--')
+
+    # Add a visible separator between deconvolution and baseline sections
+    if baseline_start_idx > 0 and baseline_start_idx < n_backends:
+        # Add text annotation for the sections
+        fig.text(
+            baseline_start_idx / n_backends - 0.02, 0.5,
+            '|', fontsize=40, ha='center', va='center',
+            transform=fig.transFigure, color='#999999'
+        )
 
     # Overall title
     fig.suptitle(
@@ -194,8 +221,15 @@ def create_correlation_heatmap(
     output_path: Path,
 ):
     """Create correlation heatmap between backends."""
-    backends = sorted(proportions.keys())
+    # Separate deconvolution methods from baselines (same ordering as spatial figure)
+    BASELINE_BACKENDS = {"marker_scoring"}
+
+    all_backends = set(proportions.keys())
+    deconv_backends = sorted(all_backends - BASELINE_BACKENDS)
+    baseline_backends = sorted(all_backends & BASELINE_BACKENDS)
+    backends = deconv_backends + baseline_backends
     n_backends = len(backends)
+    baseline_start_idx = len(deconv_backends)
 
     if n_backends < 2:
         return
@@ -225,8 +259,17 @@ def create_correlation_heatmap(
 
     ax.set_xticks(range(n_backends))
     ax.set_yticks(range(n_backends))
-    ax.set_xticklabels([b.upper() for b in backends], rotation=45, ha='right')
-    ax.set_yticklabels([b.upper() for b in backends])
+
+    # Format labels - mark baselines
+    xlabels = [f"{b.upper()}\n(Baseline)" if b in BASELINE_BACKENDS else b.upper() for b in backends]
+    ylabels = [f"{b.upper()} (B)" if b in BASELINE_BACKENDS else b.upper() for b in backends]
+    ax.set_xticklabels(xlabels, rotation=45, ha='right')
+    ax.set_yticklabels(ylabels)
+
+    # Add separator lines before baseline section
+    if baseline_start_idx > 0 and baseline_start_idx < n_backends:
+        ax.axhline(y=baseline_start_idx - 0.5, color='white', linewidth=3)
+        ax.axvline(x=baseline_start_idx - 0.5, color='white', linewidth=3)
 
     # Add correlation values
     for i in range(n_backends):
