@@ -566,8 +566,41 @@ def create_dataloaders(
                     luca_embeddings = torch.tensor(cells_df[luca_cols].values, dtype=torch.float32)
                     log(f"  Loaded LuCA embeddings: {luca_embeddings.shape}")
 
-                # Create 9-token sequences (simplified: replicate for now)
-                niche_tokens = embeddings.unsqueeze(1).expand(-1, 9, -1).clone()
+                # Create 9-token sequences
+                # Token structure: [receiver, ring1, ring2, ring3, ring4, hlca, luca, pathway, stats]
+                embed_dim = embeddings.shape[1]  # 40 for fused
+                niche_tokens = torch.zeros(n_cells, 9, embed_dim)
+
+                # Token 0: Receiver (fused embedding)
+                niche_tokens[:, 0, :] = embeddings
+
+                # Tokens 1-4: Rings (use receiver as placeholder - TODO: parse neighborhoods.parquet)
+                # For V1, rings replicate receiver; proper neighborhoods require spatial graph
+                for ring_idx in range(1, 5):
+                    niche_tokens[:, ring_idx, :] = embeddings
+
+                # Token 5: HLCA embedding (pad to fused dim if needed)
+                if hlca_embeddings is not None:
+                    hlca_dim = hlca_embeddings.shape[1]
+                    niche_tokens[:, 5, :hlca_dim] = hlca_embeddings
+                    log(f"  Token 5 (HLCA): {hlca_dim} dims")
+                else:
+                    niche_tokens[:, 5, :] = embeddings
+                    log("  Token 5 (HLCA): using fused (no separate HLCA)")
+
+                # Token 6: LuCA embedding (pad to fused dim if needed)
+                if luca_embeddings is not None:
+                    luca_dim = luca_embeddings.shape[1]
+                    niche_tokens[:, 6, :luca_dim] = luca_embeddings
+                    log(f"  Token 6 (LuCA): {luca_dim} dims")
+                else:
+                    niche_tokens[:, 6, :] = embeddings
+                    log("  Token 6 (LuCA): using fused (no separate LuCA)")
+
+                # Token 7: Pathway (will be filled with gamma below if available)
+                # Token 8: Stats (zeros for now - TODO: compute from neighborhoods)
+                log(f"  Token 7 (pathway): zeros (gamma will be added if available)")
+                log(f"  Token 8 (stats): zeros (TODO: neighborhood stats)")
 
                 # z_source and z_target for transition learning
                 # Create REAL cross-stage transition pairs using stage information
