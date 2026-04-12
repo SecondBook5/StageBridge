@@ -35,6 +35,9 @@ from stagebridge.spatial_mapping import (
     Cell2locationBackend,
 )
 from stagebridge.spatial_mapping.marker_scoring_wrapper import MarkerScoringBackend
+from stagebridge.spatial_mapping.rctd_wrapper import RCTDBackend
+from stagebridge.spatial_mapping.card_wrapper import CARDBackend
+from stagebridge.spatial_mapping.spotlight_wrapper import SPOTlightBackend
 
 log = logging.getLogger(__name__)
 
@@ -184,10 +187,20 @@ def run_backend_comparison(
                     use_reference_markers=True,
                     n_markers=50,
                 )
-            elif backend_name in ["rctd", "card", "spotlight"]:
-                # TODO: Implement wrappers for these backends
-                log.warning(f"Backend '{backend_name}' not yet implemented, skipping")
-                continue
+            elif backend_name == "rctd":
+                backend = RCTDBackend(
+                    mode="doublet",
+                    min_cells_per_type=5,
+                )
+            elif backend_name == "card":
+                backend = CARDBackend(
+                    min_cells_per_type=5,
+                )
+            elif backend_name == "spotlight":
+                backend = SPOTlightBackend(
+                    min_cells_per_type=5,
+                    n_hvg=3000,
+                )
             else:
                 raise ValueError(f"Unknown backend: {backend_name}")
 
