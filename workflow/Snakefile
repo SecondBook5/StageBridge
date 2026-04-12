@@ -355,7 +355,7 @@ def get_all_backends_for_sample(wildcards):
     samples = manifest["samples"]
     # Return all backend metrics for all samples (for this label_source)
     return expand(
-        f"{SPATIAL}/{wildcards.label_source}/{{backend}}/samples/{{sample}}/backend_comparison.json",
+        f"{SPATIAL}/{wildcards.label_source}/{{backend}}/samples/{{sample}}/upstream_metrics.json",
         backend=SPATIAL_BACKENDS,
         sample=samples
     )
