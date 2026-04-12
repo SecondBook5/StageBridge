@@ -294,6 +294,8 @@ rule spatial_backend_sample:
         f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
     shell:
         """
+        export TMPDIR="{DATA}/tmp"
+        mkdir -p $TMPDIR
         python -m stagebridge.pipelines.run_spatial_benchmark \
             --snrna {input.snrna} \
             --spatial {input.spatial} \
@@ -333,6 +335,8 @@ rule spatial_r_backend_sample:
         """
         export R_EXECUTABLE="/scratch/chaunzt1/envs/r_deconv/lib/R/bin/Rscript"
         export R_LIBS_USER="/scratch/chaunzt1/envs/r_deconv/lib/R/library"
+        export TMPDIR="{DATA}/tmp"
+        mkdir -p $TMPDIR
         python -m stagebridge.pipelines.run_spatial_benchmark \
             --snrna {input.snrna} \
             --spatial {input.spatial} \
