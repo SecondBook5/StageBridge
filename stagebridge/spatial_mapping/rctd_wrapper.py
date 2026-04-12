@@ -245,8 +245,14 @@ class RCTDBackend(SpatialBackend):
 
     def _save_for_r(self, snrna: ad.AnnData, spatial: ad.AnnData, output_dir: Path):
         """Save data in format readable by R."""
-        # Reference counts (Matrix Market)
-        X = snrna.X.T if hasattr(snrna.X, 'toarray') else csr_matrix(snrna.X.T)
+        # Reference counts (Matrix Market) - use raw counts layer if available
+        # RCTD requires integer counts
+        if "counts" in snrna.layers:
+            X_ref = snrna.layers["counts"].T
+        else:
+            X_ref = snrna.X.T
+        X = X_ref if hasattr(X_ref, 'toarray') else csr_matrix(X_ref)
+        X = X.astype(int)  # RCTD requires integer dtype
         mmwrite(output_dir / "ref_counts.mtx", X)
 
         # Reference metadata
@@ -256,8 +262,13 @@ class RCTDBackend(SpatialBackend):
             output_dir / "ref_celltypes.csv", index=False
         )
 
-        # Spatial counts (Matrix Market)
-        X_sp = spatial.X.T if hasattr(spatial.X, 'toarray') else csr_matrix(spatial.X.T)
+        # Spatial counts (Matrix Market) - use raw counts layer if available
+        if "counts" in spatial.layers:
+            X_sp_raw = spatial.layers["counts"].T
+        else:
+            X_sp_raw = spatial.X.T
+        X_sp = X_sp_raw if hasattr(X_sp_raw, 'toarray') else csr_matrix(X_sp_raw)
+        X_sp = X_sp.astype(int)  # RCTD requires integer dtype
         mmwrite(output_dir / "spatial_counts.mtx", X_sp)
 
         # Spatial metadata
