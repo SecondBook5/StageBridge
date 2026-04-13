@@ -81,7 +81,7 @@ def load_model(checkpoint_path: Path, device: torch.device) -> nn.Module:
     config = checkpoint.get("config", {})
 
     model = StageBridgeV1Complete(
-        latent_dim=config.get("latent_dim", 32),
+        latent_dim=config.get("latent_dim", 40),
         niche_hidden_dim=config.get("niche_hidden_dim", 128),
         context_dim=config.get("context_dim", 256),
         dropout=config.get("dropout", 0.1),
@@ -114,7 +114,7 @@ def load_data(data_dir: Path, n_samples: int, seed: int) -> tuple[pd.DataFrame, 
 def create_niche_tokens(
     embeddings: torch.Tensor,
     cells_df: pd.DataFrame,
-    latent_dim: int = 32,
+    latent_dim: int = 40,
 ) -> torch.Tensor:
     """Create 9-token niche representations."""
     n_cells = len(embeddings)

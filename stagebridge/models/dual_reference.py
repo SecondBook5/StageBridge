@@ -40,7 +40,7 @@ class DualReferenceMapper(nn.Module):
     def __init__(
         self,
         input_dim: int = 2000,
-        latent_dim: int = 32,
+        latent_dim: int = 40,
         hlca_dim: int = 16,
         luca_dim: int = 16,
         fusion_mode: str = "attention",
@@ -216,7 +216,7 @@ class PrecomputedDualReference(nn.Module):
         latent_dim: Dimensionality of embeddings
     """
 
-    def __init__(self, latent_dim: int = 32):
+    def __init__(self, latent_dim: int = 40):
         super().__init__()
         self.latent_dim = latent_dim
 
@@ -252,7 +252,7 @@ class PrecomputedDualReference(nn.Module):
 
 def create_dual_reference_mapper(
     mode: str = "precomputed",
-    latent_dim: int = 32,
+    latent_dim: int = 40,
     **kwargs,
 ) -> nn.Module:
     """
@@ -291,7 +291,7 @@ class DualReferenceAligner(nn.Module):
 
     def __init__(
         self,
-        latent_dim: int = 32,
+        latent_dim: int = 40,
         align_mode: str = "affine",
     ):
         super().__init__()
@@ -356,7 +356,7 @@ if __name__ == "__main__":
 
     batch_size = 16
     input_dim = 2000
-    latent_dim = 32
+    latent_dim = 40
 
     # Test learned mapper
     mapper = DualReferenceMapper(

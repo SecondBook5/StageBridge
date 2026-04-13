@@ -14,8 +14,27 @@ from stagebridge.evaluation.metrics import (
     MetricsTracker,
     wasserstein_nd_distance,
 )
+from stagebridge.evaluation.plasticity import (
+    compute_plasticity_score,
+    compute_normalized_plasticity,
+    compute_niche_resolution,
+    compute_niche_resolution_effect_size,
+    identify_bifurcation_cells,
+    compute_bifurcation_enrichment,
+    analyze_fate_commitment,
+    compute_plasticity_by_cell_type,
+    rank_cell_types_by_plasticity,
+    stage_logits_to_probs,
+    compute_plasticity_from_logits,
+    generate_plasticity_report,
+    report_to_dict,
+    PlasticityReport,
+    BifurcationCellResult,
+    FateCommitmentResult,
+)
 
 __all__ = [
+    # Metrics
     "compute_all_metrics",
     "compute_ari",
     "compute_batch_integration_metrics",
@@ -28,4 +47,21 @@ __all__ = [
     "maximum_mean_discrepancy",
     "MetricsTracker",
     "wasserstein_nd_distance",
+    # Plasticity (H1.3)
+    "compute_plasticity_score",
+    "compute_normalized_plasticity",
+    "compute_niche_resolution",
+    "compute_niche_resolution_effect_size",
+    "identify_bifurcation_cells",
+    "compute_bifurcation_enrichment",
+    "analyze_fate_commitment",
+    "compute_plasticity_by_cell_type",
+    "rank_cell_types_by_plasticity",
+    "stage_logits_to_probs",
+    "compute_plasticity_from_logits",
+    "generate_plasticity_report",
+    "report_to_dict",
+    "PlasticityReport",
+    "BifurcationCellResult",
+    "FateCommitmentResult",
 ]

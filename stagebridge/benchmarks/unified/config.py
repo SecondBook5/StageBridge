@@ -119,7 +119,7 @@ class UnifiedBenchmarkConfig:
     n_cells: int = 2000
     n_donors: int = 10
     n_stages: int = 5
-    latent_dim: int = 32
+    latent_dim: int = 40
     n_genes: int = 2000
     n_celltypes: int = 8
 
@@ -392,7 +392,7 @@ def load_config_from_yaml(path: Path) -> UnifiedBenchmarkConfig:
         luca_path=Path(data["luca_path"]) if data.get("luca_path") else None,
         progression_path=Path(data["progression_path"]) if data.get("progression_path") else None,
         n_hvg=data.get("n_hvg", 2000),
-        latent_dim=data.get("latent_dim", 32),
+        latent_dim=data.get("latent_dim", 40),
         stages=data.get("stages", ["Normal", "AAH", "AIS", "MIA", "LUAD"]),
         cell_groups=cell_groups,
         interaction_rules=interaction_rules,

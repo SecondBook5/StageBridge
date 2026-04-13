@@ -47,7 +47,7 @@ class StageBridgeV1Full(nn.Module):
         self,
         # Layer A: Dual-Reference
         reference_mode: str = "precomputed",
-        latent_dim: int = 32,
+        latent_dim: int = 40,
         hlca_dim: int = 16,
         luca_dim: int = 16,
         fusion_mode: str = "attention",
@@ -395,7 +395,7 @@ def main():
     # Data
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--fold", type=int, default=0)
-    parser.add_argument("--latent_dim", type=int, default=32)
+    parser.add_argument("--latent_dim", type=int, default=40)
 
     # Model
     parser.add_argument("--niche_encoder", type=str, default="mlp", choices=["mlp", "transformer"])

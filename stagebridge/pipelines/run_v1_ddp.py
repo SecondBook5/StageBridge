@@ -574,10 +574,99 @@ def create_dataloaders(
                 # Token 0: Receiver (fused embedding)
                 niche_tokens[:, 0, :] = embeddings
 
-                # Tokens 1-4: Rings (use receiver as placeholder - TODO: parse neighborhoods.parquet)
-                # For V1, rings replicate receiver; proper neighborhoods require spatial graph
-                for ring_idx in range(1, 5):
-                    niche_tokens[:, ring_idx, :] = embeddings
+                # ==========================================================================
+                # Tokens 1-4: Ring embeddings from neighborhoods.parquet
+                # ==========================================================================
+                # Build cell_id to index mapping for fast lookup
+                cell_id_to_idx = {cid: i for i, cid in enumerate(cells_df["cell_id"].values)}
+
+                # Parse neighborhoods_df to extract ring tokens
+                # neighborhoods_df has columns: cell_id, donor_id, stage, tokens
+                # where 'tokens' is a list of 9 token dicts with z_pooled for rings
+                n_rings_populated = 0
+                n_stats_populated = 0
+
+                if len(neighborhoods_df) > 0 and "tokens" in neighborhoods_df.columns:
+                    log("  Parsing neighborhoods.parquet for REAL ring tokens...")
+                    log(f"    Processing {len(neighborhoods_df):,} neighborhoods...")
+
+                    # Pre-extract columns for faster iteration
+                    cell_ids = neighborhoods_df["cell_id"].values
+                    tokens_col = neighborhoods_df["tokens"].values
+
+                    for row_idx in range(len(neighborhoods_df)):
+                        cell_id = cell_ids[row_idx]
+                        if cell_id not in cell_id_to_idx:
+                            continue
+                        cell_idx = cell_id_to_idx[cell_id]
+                        tokens_list = tokens_col[row_idx]
+
+                        # tokens_list is a list of 9 token dicts
+                        for token_dict in tokens_list:
+                            token_idx = token_dict.get("token_idx", -1)
+
+                            # Tokens 1-4: Ring embeddings (z_pooled)
+                            if 1 <= token_idx <= 4:
+                                z_pooled = token_dict.get("z_pooled")
+                                if z_pooled is not None and len(z_pooled) > 0:
+                                    z_pooled_tensor = torch.tensor(z_pooled, dtype=torch.float32)
+                                    # Ensure z_pooled fits embed_dim (pad or truncate)
+                                    if len(z_pooled_tensor) < embed_dim:
+                                        padded = torch.zeros(embed_dim)
+                                        padded[:len(z_pooled_tensor)] = z_pooled_tensor
+                                        z_pooled_tensor = padded
+                                    elif len(z_pooled_tensor) > embed_dim:
+                                        z_pooled_tensor = z_pooled_tensor[:embed_dim]
+                                    niche_tokens[cell_idx, token_idx, :] = z_pooled_tensor
+                                    n_rings_populated += 1
+
+                            # Token 8: Stats (n_neighbors, mean_distance, diversity)
+                            elif token_idx == 8:
+                                n_neighbors = token_dict.get("n_neighbors", 0)
+                                mean_distance = token_dict.get("mean_distance", 0.0)
+                                diversity = token_dict.get("diversity", 0)
+                                # Encode stats into first few dims of token 8
+                                # Normalize: n_neighbors/20, mean_distance (already normalized), diversity/20
+                                niche_tokens[cell_idx, 8, 0] = float(n_neighbors) / 20.0
+                                niche_tokens[cell_idx, 8, 1] = float(mean_distance)
+                                niche_tokens[cell_idx, 8, 2] = float(diversity) / 20.0
+                                n_stats_populated += 1
+
+                    log(f"  Ring tokens populated: {n_rings_populated} (from {len(neighborhoods_df)} neighborhoods)")
+                    log(f"  Stats tokens populated: {n_stats_populated}")
+
+                    # Verify ring tokens are different from receiver
+                    if n_rings_populated > 0:
+                        # Check a sample of cells to verify diversity
+                        sample_idx = min(100, n_cells)
+                        ring_diff = (niche_tokens[:sample_idx, 1:5, :] - niche_tokens[:sample_idx, 0:1, :]).abs().mean()
+                        log(f"  Ring-receiver difference (sample): {ring_diff:.4f} (should be > 0)")
+                        if ring_diff < 1e-6:
+                            log("  WARNING: Ring tokens appear identical to receiver - check neighborhoods parsing")
+                else:
+                    # Fallback: use receiver embedding for rings (placeholder behavior)
+                    log("  WARNING: No 'tokens' column in neighborhoods.parquet or empty DataFrame")
+                    log("  FALLBACK: Using receiver embedding for ring tokens (degraded niche context)")
+                    for ring_idx in range(1, 5):
+                        niche_tokens[:, ring_idx, :] = embeddings
+
+                # Fill any remaining cells without neighborhoods (snRNA cells) with receiver embedding
+                # Spatial cells should have neighborhoods; snRNA cells (no spatial coords) won't
+                spatial_mask = cells_df["cell_id"].str.startswith("spatial_")
+                n_spatial = spatial_mask.sum()
+                n_snrna = (~spatial_mask).sum()
+                log(f"  Spatial cells: {n_spatial:,}, snRNA cells: {n_snrna:,}")
+
+                # For cells without neighborhoods, use receiver as fallback
+                # This is detected by all-zero ring tokens
+                ring_sum = niche_tokens[:, 1:5, :].abs().sum(dim=(1, 2))
+                cells_without_niche_mask = (ring_sum < 1e-6)
+                cells_without_niche = cells_without_niche_mask.sum().item()
+                if cells_without_niche > 0:
+                    log(f"  Cells without niche context: {cells_without_niche:,} (using receiver as fallback)")
+                    # Vectorized assignment: for cells without niche, copy receiver to all ring positions
+                    for ring_idx in range(1, 5):
+                        niche_tokens[cells_without_niche_mask, ring_idx, :] = embeddings[cells_without_niche_mask]
 
                 # Token 5: HLCA embedding (pad to fused dim if needed)
                 if hlca_embeddings is not None:
@@ -598,9 +687,9 @@ def create_dataloaders(
                     log("  Token 6 (LuCA): using fused (no separate LuCA)")
 
                 # Token 7: Pathway (will be filled with gamma below if available)
-                # Token 8: Stats (zeros for now - TODO: compute from neighborhoods)
+                # Token 8: Stats (populated above from neighborhoods.parquet)
                 log(f"  Token 7 (pathway): zeros (gamma will be added if available)")
-                log(f"  Token 8 (stats): zeros (TODO: neighborhood stats)")
+                log(f"  Token 8 (stats): {n_stats_populated} cells have neighborhood stats")
 
                 # z_source and z_target for transition learning
                 # Create REAL cross-stage transition pairs using stage information

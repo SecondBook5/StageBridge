@@ -205,16 +205,27 @@ class RCTDBackend(SpatialBackend):
             # Load results
             proportions = pd.read_csv(r_output_dir / "proportions.csv", index_col=0)
 
-        # RCTD may drop some spots - reindex to match spatial, fill missing with 0
-        # The proportions file uses the original spot barcodes, so we reindex
+        # RCTD may drop some spots - reindex to match spatial
+        # Fill missing with uniform distribution (max entropy = max uncertainty)
+        # and mark confidence=0 so downstream knows to filter/impute
+        dropped_mask = None
+        n_celltypes = len(proportions.columns)
         if len(proportions) != len(spatial):
-            print(f"RCTD: Warning - {len(spatial) - len(proportions)} spots dropped, reindexing...")
-            proportions = proportions.reindex(spatial.obs_names, fill_value=0.0)
+            n_dropped = len(spatial) - len(proportions)
+            print(f"RCTD: Warning - {n_dropped} spots dropped, filling with uniform dist (confidence=0)...")
+            dropped_mask = ~spatial.obs_names.isin(proportions.index)
+            # Uniform distribution: 1/n_celltypes for each cell type
+            uniform_fill = 1.0 / n_celltypes
+            proportions = proportions.reindex(spatial.obs_names, fill_value=uniform_fill)
 
         # Compute confidence (use entropy - lower entropy = higher confidence)
         entropy = compute_cell_type_entropy(proportions)
         confidence = 1 - entropy  # Invert: low entropy = high confidence
         confidence = confidence.clip(0, 1)
+
+        # Set confidence=0 for dropped spots (we have no data for them)
+        if dropped_mask is not None:
+            confidence[dropped_mask] = 0.0
 
         # Compute metrics
         upstream_metrics = {
