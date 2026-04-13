@@ -205,8 +205,11 @@ class RCTDBackend(SpatialBackend):
             # Load results
             proportions = pd.read_csv(r_output_dir / "proportions.csv", index_col=0)
 
-        # Ensure proportions index matches spatial
-        proportions.index = spatial.obs_names
+        # RCTD may drop some spots - reindex to match spatial, fill missing with 0
+        # The proportions file uses the original spot barcodes, so we reindex
+        if len(proportions) != len(spatial):
+            print(f"RCTD: Warning - {len(spatial) - len(proportions)} spots dropped, reindexing...")
+            proportions = proportions.reindex(spatial.obs_names, fill_value=0.0)
 
         # Compute confidence (use entropy - lower entropy = higher confidence)
         entropy = compute_cell_type_entropy(proportions)

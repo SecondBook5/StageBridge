@@ -37,6 +37,7 @@ suppressPackageStartupMessages({
     library(Matrix)
     library(SingleCellExperiment)
     library(SpatialExperiment)
+    library(scran)  # For findMarkers
 })
 
 args <- commandArgs(trailingOnly = TRUE)
