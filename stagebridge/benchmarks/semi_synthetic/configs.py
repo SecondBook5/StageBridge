@@ -82,7 +82,7 @@ class BenchmarkConfig:
 
     # Feature harmonization
     n_hvg: int = 2000
-    latent_dim: int = 32
+    latent_dim: int = 40
     use_shared_genes_only: bool = True
 
     # Cell groups
@@ -246,7 +246,7 @@ def load_config_from_yaml(path: Path) -> BenchmarkConfig:
         luca_path=Path(data["luca_path"]) if data.get("luca_path") else None,
         progression_path=Path(data["progression_path"]) if data.get("progression_path") else None,
         n_hvg=data.get("n_hvg", 2000),
-        latent_dim=data.get("latent_dim", 32),
+        latent_dim=data.get("latent_dim", 40),
         cell_groups=cell_groups,
         interaction_rules=interaction_rules,
         n_worlds_train=data.get("n_worlds_train", 10),

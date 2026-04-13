@@ -206,13 +206,27 @@ class CARDBackend(SpatialBackend):
             # Load results
             proportions = pd.read_csv(r_output_dir / "proportions.csv", index_col=0)
 
-        # Ensure proportions index matches spatial
-        proportions.index = spatial.obs_names
+        # CARD may drop some spots - reindex to match spatial
+        # Fill missing with uniform distribution (max entropy = max uncertainty)
+        # and mark confidence=0 so downstream knows to filter/impute
+        dropped_mask = None
+        n_celltypes = len(proportions.columns)
+        if len(proportions) != len(spatial):
+            n_dropped = len(spatial) - len(proportions)
+            print(f"CARD: Warning - {n_dropped} spots dropped, filling with uniform dist (confidence=0)...")
+            dropped_mask = ~spatial.obs_names.isin(proportions.index)
+            # Uniform distribution: 1/n_celltypes for each cell type
+            uniform_fill = 1.0 / n_celltypes
+            proportions = proportions.reindex(spatial.obs_names, fill_value=uniform_fill)
 
         # Compute confidence (use entropy - lower entropy = higher confidence)
         entropy = compute_cell_type_entropy(proportions)
         confidence = 1 - entropy
         confidence = confidence.clip(0, 1)
+
+        # Set confidence=0 for dropped spots (we have no data for them)
+        if dropped_mask is not None:
+            confidence[dropped_mask] = 0.0
 
         # Compute metrics
         upstream_metrics = {

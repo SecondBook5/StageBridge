@@ -29,7 +29,7 @@ def main():
     parser.add_argument("--n_trials", type=int, default=30, help="Number of Optuna trials")
     parser.add_argument("--n_epochs", type=int, default=10, help="Epochs per trial")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size for trials")
-    parser.add_argument("--latent_dim", type=int, default=32, help="Latent dimension")
+    parser.add_argument("--latent_dim", type=int, default=40, help="Latent dimension")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="auto", help="Device (auto/cuda/cpu)")
 

@@ -26,6 +26,9 @@ dependencies:
   - bioconductor-scater
   - bioconductor-scran
   - bioconductor-scuttle
+  - bioconductor-toast  # Required by MuSiC
+  # NOTE: MuSiC (required by CARD) must be installed manually after env creation:
+  # R -e "devtools::install_github('xuranw/MuSiC')"
   # Spatial deconvolution packages
   - bioconductor-spotlight
   - r-spacexr  # RCTD

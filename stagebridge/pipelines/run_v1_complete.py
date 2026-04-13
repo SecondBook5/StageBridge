@@ -184,7 +184,7 @@ class StageBridgeV1Complete(nn.Module):
 
     def __init__(
         self,
-        latent_dim: int = 32,
+        latent_dim: int = 40,
         niche_hidden_dim: int = 128,
         context_dim: int = 256,
         n_token_types: int = 9,
@@ -640,7 +640,7 @@ class StageBridgeV1Complete(nn.Module):
 class MeanPoolMLPBaseline(nn.Module):
     """Baseline 1: Mean pooling + MLP (weakest floor)."""
 
-    def __init__(self, latent_dim: int = 32, hidden_dim: int = 128):
+    def __init__(self, latent_dim: int = 40, hidden_dim: int = 128):
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Linear(latent_dim, hidden_dim),
@@ -657,7 +657,7 @@ class MeanPoolMLPBaseline(nn.Module):
 class MaxPoolMLPBaseline(nn.Module):
     """Baseline 2: Max pooling + MLP (extreme-feature pooling)."""
 
-    def __init__(self, latent_dim: int = 32, hidden_dim: int = 128):
+    def __init__(self, latent_dim: int = 40, hidden_dim: int = 128):
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Linear(latent_dim, hidden_dim),
@@ -678,7 +678,7 @@ PoolingMLPBaseline = MeanPoolMLPBaseline
 
 
 class DeepSetsBaseline(nn.Module):
-    def __init__(self, latent_dim: int = 32, hidden_dim: int = 128):
+    def __init__(self, latent_dim: int = 40, hidden_dim: int = 128):
         super().__init__()
         self.phi = nn.Sequential(
             nn.Linear(latent_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim)
@@ -694,7 +694,7 @@ class DeepSetsBaseline(nn.Module):
 
 
 class SetTransformerBaseline(nn.Module):
-    def __init__(self, latent_dim: int = 32, hidden_dim: int = 128, n_heads: int = 4):
+    def __init__(self, latent_dim: int = 40, hidden_dim: int = 128, n_heads: int = 4):
         super().__init__()
         self.input_proj = nn.Linear(latent_dim, hidden_dim)
         self.transformer = nn.TransformerEncoder(
@@ -718,7 +718,7 @@ class HierarchicalSetTransformerBaseline(nn.Module):
     Key ablation point - shows hierarchy helps but influence matters.
     """
 
-    def __init__(self, latent_dim: int = 32, hidden_dim: int = 128, n_heads: int = 4):
+    def __init__(self, latent_dim: int = 40, hidden_dim: int = 128, n_heads: int = 4):
         super().__init__()
         self.input_proj = nn.Linear(latent_dim, hidden_dim)
 
@@ -753,7 +753,7 @@ class HierarchicalSetTransformerBaseline(nn.Module):
 class GraphSAGEBaseline(nn.Module):
     """Baseline 6: Spatial graph structure (simplified GraphSAGE)."""
 
-    def __init__(self, latent_dim: int = 32, hidden_dim: int = 128, n_layers: int = 2):
+    def __init__(self, latent_dim: int = 40, hidden_dim: int = 128, n_layers: int = 2):
         super().__init__()
         self.latent_dim = latent_dim
         self.layers = nn.ModuleList()
@@ -778,7 +778,7 @@ class GraphSAGEBaseline(nn.Module):
 class GATBaseline(nn.Module):
     """Baseline 7: Graph Attention Network."""
 
-    def __init__(self, latent_dim: int = 32, hidden_dim: int = 128, n_heads: int = 4):
+    def __init__(self, latent_dim: int = 40, hidden_dim: int = 128, n_heads: int = 4):
         super().__init__()
         self.n_heads = n_heads
         self.head_dim = hidden_dim // n_heads
@@ -1370,7 +1370,7 @@ def run_hyperparameter_optimization(
     n_trials: int = 50,
     n_epochs_per_trial: int = 10,
     batch_size: int = 64,
-    latent_dim: int = 32,
+    latent_dim: int = 40,
     seed: int = 42,
 ):
     """Run Optuna hyperparameter optimization."""
@@ -1597,7 +1597,7 @@ def main():
     parser.add_argument("--hlca_path", type=str, default=None)
     parser.add_argument("--luca_path", type=str, default=None)
 
-    parser.add_argument("--latent_dim", type=int, default=32)
+    parser.add_argument("--latent_dim", type=int, default=40)
     parser.add_argument("--ssl_epochs", type=int, default=20)
     parser.add_argument("--transition_epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=64)
