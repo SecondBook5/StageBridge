@@ -8,6 +8,7 @@ This script completes all missing pieces from run_data_prep.py:
 3. Build 9-token niche structure
 4. Generate donor-held-out CV splits
 5. Extract WES features properly
+6. Integrate clonal evolution patterns for H3 validation
 
 This is the PRODUCTION-READY version that handles real LUAD data.
 """
@@ -29,6 +30,16 @@ from stagebridge.biology.pathway_targets import (
 )
 from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS
 
+# Clonal pattern encoding for model input
+CLONAL_PATTERN_ENCODING = {
+    "1a": 0,      # Direct lineage (precursor -> LUAD)
+    "1b": 1,      # Branched evolution (shared + stage-specific clones)
+    "2": 2,       # Independent origins (no shared clones)
+    "stable": 3,  # Chromosomally stable
+    "uncategorized": -1,
+    "unknown": -1,
+}
+
 
 def generate_canonical_artifacts(
     snrna_path: Path,
@@ -39,6 +50,7 @@ def generate_canonical_artifacts(
     stage_definitions: dict[str, list[str]],
     n_folds: int = 5,
     reference_geometry_dir: Path | None = None,
+    clonal_patterns_path: Path | None = None,
 ):
     """
     Generate all canonical artifacts for StageBridge V1.
@@ -49,9 +61,10 @@ def generate_canonical_artifacts(
         - wes_features.parquet (from run_data_prep.py)
         - spatial_backend results (cell_type_proportions.parquet)
         - reference_geometry outputs (fused_embedding.parquet, etc.)
+        - clonal_patterns.json (from run_clonal_extraction.py) [optional]
 
     Outputs:
-        - cells.parquet
+        - cells.parquet (with clonal_pattern column if clonal data provided)
         - neighborhoods.parquet
         - stage_edges.parquet
         - split_manifest.json
@@ -113,6 +126,22 @@ def generate_canonical_artifacts(
     print(f"  Spatial: {spatial.shape[0]} spots")
     print(f"  WES: {len(wes_df) if wes_df is not None else 0} samples")
 
+    # Load clonal patterns for H3 validation (optional)
+    clonal_patterns = None
+    if clonal_patterns_path is not None and clonal_patterns_path.exists():
+        print(f"  Loading clonal patterns from {clonal_patterns_path}")
+        with open(clonal_patterns_path) as f:
+            clonal_patterns = json.load(f)
+        print(f"  Clonal patterns: {len(clonal_patterns)} patients")
+        # Log pattern distribution
+        from collections import Counter
+        pattern_counts = Counter(clonal_patterns.values())
+        for pattern, count in sorted(pattern_counts.items()):
+            print(f"    Pattern {pattern}: {count} patients")
+    elif clonal_patterns_path is not None:
+        print(f"  WARNING: Clonal patterns file not found: {clonal_patterns_path}")
+        print("  Run: python -m stagebridge.pipelines.run_clonal_extraction --spatial-h5ad <path>")
+
     # Generate cells.parquet
     print("\n[2/6] Generating cells.parquet...")
     cells_df = generate_cells_table(
@@ -122,9 +151,13 @@ def generate_canonical_artifacts(
         stage_definitions=stage_definitions,
         gamma_df=gamma_df,
         reference_geometry_dir=reference_geometry_dir,
+        clonal_patterns=clonal_patterns,
     )
     cells_df.to_parquet(output_dir / "cells.parquet", index=False)
     print(f"  Saved {len(cells_df)} cells")
+    if clonal_patterns is not None:
+        n_with_clonal = (cells_df["clonal_pattern"] != "unknown").sum()
+        print(f"  Cells with clonal annotation: {n_with_clonal:,} ({100*n_with_clonal/len(cells_df):.1f}%)")
 
     # Generate neighborhoods.parquet
     print("\n[3/6] Generating neighborhoods.parquet...")
@@ -197,6 +230,7 @@ def generate_cells_table(
     stage_definitions: dict[str, list[str]],
     gamma_df: pd.DataFrame | None = None,
     reference_geometry_dir: Path | None = None,
+    clonal_patterns: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """
     Generate cells.parquet with all required fields.
@@ -210,6 +244,8 @@ def generate_cells_table(
     - z_fused, z_hlca, z_luca: Latent embeddings from reference geometry
     - WES features: tmb, kras_mut, egfr_mut, tp53_mut, stk11_mut, keap1_mut, smad4_mut, braf_mut
     - x_spatial, y_spatial: Spatial coordinates (for spatial cells)
+    - clonal_pattern: Clonal evolution pattern (1a/1b/2/stable/unknown) [if provided]
+    - clonal_pattern_idx: Numeric encoding for model input [if provided]
     """
     records = []
     cache = get_data_cache()
@@ -524,7 +560,26 @@ def generate_cells_table(
             for g_col in gamma_df.columns:
                 r[g_col] = 0.0
 
-    return pd.DataFrame(records)
+    # Convert to DataFrame
+    cells_df = pd.DataFrame(records)
+
+    # Add clonal evolution patterns for H3 validation
+    # Patterns are per-donor/patient, mapped to all cells from that donor
+    if clonal_patterns is not None:
+        print(f"  Adding clonal patterns from {len(clonal_patterns)} patients...")
+        # Map donor_id -> pattern string
+        cells_df["clonal_pattern"] = cells_df["donor_id"].map(clonal_patterns).fillna("unknown")
+        # Numeric encoding for model input (see CLONAL_PATTERN_ENCODING at top of file)
+        cells_df["clonal_pattern_idx"] = cells_df["clonal_pattern"].map(CLONAL_PATTERN_ENCODING).fillna(-1).astype(int)
+        # Log coverage
+        n_with_pattern = (cells_df["clonal_pattern"] != "unknown").sum()
+        print(f"    Cells with clonal annotation: {n_with_pattern:,} / {len(cells_df):,}")
+    else:
+        # No clonal data - add placeholder columns for schema consistency
+        cells_df["clonal_pattern"] = "unknown"
+        cells_df["clonal_pattern_idx"] = -1
+
+    return cells_df
 
 
 def generate_neighborhoods_table(
@@ -768,6 +823,18 @@ def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame
     hlca_cols = [c for c in cells_df.columns if c.startswith("z_hlca_")]
     luca_cols = [c for c in cells_df.columns if c.startswith("z_luca_")]
 
+    # Count clonal pattern coverage
+    has_clonal = "clonal_pattern" in cells_df.columns
+    clonal_coverage = {}
+    if has_clonal:
+        pattern_counts = cells_df["clonal_pattern"].value_counts().to_dict()
+        n_with_clonal = len(cells_df) - pattern_counts.get("unknown", 0)
+        clonal_coverage = {
+            "n_cells_with_clonal": n_with_clonal,
+            "coverage_pct": round(100 * n_with_clonal / len(cells_df), 1),
+            "pattern_distribution": pattern_counts,
+        }
+
     return {
         "cells": {
             "n_cells": len(cells_df),
@@ -784,6 +851,11 @@ def generate_feature_spec(cells_df: pd.DataFrame, neighborhoods_df: pd.DataFrame
                 "S_score": "S phase score from scanpy (snRNA only, NaN for spatial)",
                 "G2M_score": "G2M phase score from scanpy (snRNA only, NaN for spatial)",
                 "phase": "Cell cycle phase: G1, S, G2M, or 'spatial' for spots",
+            },
+            "clonal_patterns": {
+                "has_clonal_data": has_clonal,
+                "encoding": CLONAL_PATTERN_ENCODING,
+                **clonal_coverage,
             },
         },
         "neighborhoods": {
@@ -819,6 +891,10 @@ def main():
         "--reference_geometry", type=str, required=True,
         help="Path to reference_geometry directory (contains fused_embedding.parquet, etc.)"
     )
+    parser.add_argument(
+        "--clonal_patterns", type=str, default=None,
+        help="Path to clonal_patterns.json from run_clonal_extraction.py (for H3 validation)"
+    )
 
     # Stage definitions
     parser.add_argument("--stage_config", type=str, help="YAML file with stage definitions")
@@ -851,6 +927,7 @@ def main():
         stage_definitions=stage_definitions,
         n_folds=args.n_folds,
         reference_geometry_dir=Path(args.reference_geometry),
+        clonal_patterns_path=Path(args.clonal_patterns) if args.clonal_patterns else None,
     )
 
 

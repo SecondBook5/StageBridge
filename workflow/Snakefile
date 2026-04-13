@@ -42,6 +42,7 @@ RUNS = f"{DATA}/runs"
 REF_GEOM = f"{PROCESSED}/reference_geometry"
 SPATIAL = f"{RUNS}/spatial_benchmark"
 CANONICAL = f"{PROCESSED}/canonical"
+CLONAL = f"{RUNS}/clonal"
 TRAINING = f"{RUNS}/v1_complete"
 ABLATIONS = f"{RUNS}/ablations"
 FIGURES = f"{RUNS}/publication_figures"
@@ -70,9 +71,13 @@ rule all:
         f"{REF_GEOM}/fused_embedding.parquet",
         # Spatial benchmark
         f"{SPATIAL}/backend_comparison.json",
+        # Clonal patterns (for H3 validation)
+        f"{CLONAL}/clonal_patterns.json",
         # Training (5-fold CV × 3 seeds, aggregated)
         f"{TRAINING}/aggregated/cv_results.json",
         f"{TRAINING}/aggregated/publication_metrics.json",
+        # H3 hypothesis validation
+        f"{TRAINING}/h3_validation/h3_validation.json",
         # Baseline ladder comparison
         f"{TRAINING}/baselines/baseline_comparison.json",
         # Ablations
@@ -521,6 +526,50 @@ rule canonical_backend_aggregate:
 
 
 # =============================================================================
+# Stage 3f: Clonal Pattern Extraction (CNV-based evolution patterns)
+# =============================================================================
+# Extracts clonal evolution patterns (1a, 1b, 2) from spatial data using
+# inferCNVpy. Required for H3 hypothesis validation.
+#
+# Patterns:
+#   1a: Direct lineage (shared clones across stages)
+#   1b: Branched evolution (shared ancestor, divergent clones)
+#   2:  Independent origins (no shared clones)
+
+rule clonal_extraction:
+    input:
+        # Use snRNA data (single-cell resolution, has cell types from HLCA mapping)
+        # CNV inference needs single-cell resolution for accurate clone identification
+        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
+        # Ensure cell type labels are validated first
+        marker_check = f"{REF_GEOM}/marker_validation.json"
+    output:
+        patterns = f"{CLONAL}/clonal_patterns.json",
+        details = f"{CLONAL}/clonal_analysis_details.csv",
+        cnv_profiles = f"{CLONAL}/epithelial_cnv.h5ad"
+    params:
+        clonal_dir = CLONAL
+    threads: 8
+    resources:
+        mem_mb = 256000,  # 256GB for full snRNA data
+        runtime = 360,    # 6 hours (CNV inference is slow)
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/clonal/extraction.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_clonal_extraction \
+            --spatial-h5ad {input.snrna} \
+            --output-dir {params.clonal_dir} \
+            --patient-key donor_id \
+            --stage-key stage \
+            --cell-type-key cell_type \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
 # Stage 4: Complete Data Preparation
 # =============================================================================
 
@@ -531,7 +580,8 @@ rule data_preparation:
         canonical_metrics = f"{SPATIAL}/canonical/upstream_metrics.json",
         snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
         spatial = f"{PROCESSED}/spatial_merged.h5ad",
-        wes = f"{PROCESSED}/wes_features.parquet"
+        wes = f"{PROCESSED}/wes_features.parquet",
+        clonal = f"{CLONAL}/clonal_patterns.json"  # From clonal_extraction
     output:
         cells = f"{CANONICAL}/cells.parquet",
         neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
@@ -557,6 +607,7 @@ rule data_preparation:
             --spatial_backend_dir {params.spatial_dir}/canonical \
             --reference_geometry {REF_GEOM} \
             --output_dir {params.canonical_dir} \
+            --clonal_patterns {input.clonal} \
             2>&1 | tee {log}
         """
 
@@ -848,6 +899,43 @@ rule aggregate_cv_results:
 
 
 # =============================================================================
+# Stage 5d-bis: H3 Hypothesis Validation (clonal evolution patterns)
+# =============================================================================
+# Validates H3 hypothesis using trained model:
+#   H3.1: Transition probability correlates with shared clones across stages
+#   H3.2: Niche influence differs by clonal pattern (1a > 1b > 2)
+#
+# Requires clonal patterns in cells.parquet (from clonal_extraction rule).
+
+rule h3_validation:
+    input:
+        checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/best_checkpoint.pt",
+        cells = f"{CANONICAL}/cells.parquet",
+        cv_results = f"{TRAINING}/aggregated/cv_results.json"  # Ensure training complete
+    output:
+        results = f"{TRAINING}/h3_validation/h3_validation.json"
+    params:
+        canonical_dir = CANONICAL,
+        h3_dir = f"{TRAINING}/h3_validation"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60,  # 1 hour
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/h3_validation.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_h3_validation \
+            --checkpoint {input.checkpoint} \
+            --data_dir {params.canonical_dir} \
+            --output_dir {params.h3_dir} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
 # Stage 5e: Baseline Ladder (fair comparison with same splits/seeds)
 # =============================================================================
 #
@@ -1042,35 +1130,85 @@ rule dag:
 # Execution DAG (Snakemake handles this automatically based on input/output)
 # =============================================================================
 #
-#  hlca_mapping ──┬──→ merge_cell_types ──→ validate_markers ──→ spatial_backend (4x)
-#                 │                                                       │
-#                 └──→ fuse_embeddings ←── luca_mapping                   │
-#                             │                                           │
-#                             └─────────────────────┬──────────────────────┘
-#                                                   ▼
-#                                          data_preparation
-#                                                   │
-#                                       ┌───────────┴───────────┐
-#                                       ▼                       ▼
-#                               semi_synthetic            validate_splits
-#                                       │                       │
-#                                       └───────────┬───────────┘
-#                                                   ▼
-#                                                 hpo
-#                                                   │
-#                           ┌───────────────────────┼───────────────────────┐
-#                           ▼                       ▼                       ▼
-#               training (5×3=15)          baseline (4×5×3=60)          (wait)
-#                           │                       │                       │
-#                           ▼                       ▼                       │
-#                  aggregate_cv_results      aggregate_baselines            │
-#                           │                       │                       │
-#                           └───────────┬───────────┴───────────────────────┘
-#                                       ▼
-#                           ┌───────────┴───────────┐
-#                           ▼                       ▼
-#                  ablation (14x)         publication_figures
-#                           │
-#                           ▼
-#                   ablation_summary
+# STAGE 1-2: Reference Mapping (parallel)
+#
+#   snrna_qc_normalized_with_ensg.h5ad
+#              │
+#     ┌────────┴────────┐
+#     ▼                 ▼
+#  hlca_mapping    luca_mapping
+#     │                 │
+#     ├────────┬────────┤
+#     │        ▼        │
+#     │  fuse_embeddings│
+#     │        │        │
+#     ▼        │        ▼
+#  add_cell_type_labels ←┘
+#              │
+#              ▼
+#       validate_markers
+#              │
+#     ┌────────┴────────┐
+#     │                 │
+#     ▼                 ▼
+# clonal_extraction  spatial_backend (8 backends × 2 label sources × 56 samples)
+#     │                 │
+#     │        ┌────────┴────────┐
+#     │        ▼                 ▼
+#     │  spatial_aggregate  spatial_unified_figures
+#     │        │                 │
+#     │        └────────┬────────┘
+#     │                 ▼
+#     │        spatial_comparison ──→ backend_comparison.json
+#     │                 │
+#     │                 ▼
+#     │        canonical_backend_aggregate
+#     │                 │
+#     └────────┬────────┘
+#              ▼
+# STAGE 4: Data Preparation
+#
+#       data_preparation (merges: fused embedding + canonical spatial + clonal patterns)
+#              │
+#     ┌────────┴────────┐
+#     ▼                 ▼
+# validate_splits  semi_synthetic_benchmark
+#     │                 │
+#     └────────┬────────┘
+#              ▼
+# STAGE 5: Training & Validation
+#
+#            hpo (30 Optuna trials)
+#              │
+#     ┌────────┴────────┬────────────────┐
+#     ▼                 ▼                ▼
+#  training         training_frozen   baseline
+#  (5×3=15)         (5×3=15)          (4×5×3=60)
+#     │                 │                │
+#     ▼                 │                ▼
+# aggregate_cv_results  │         aggregate_baselines
+#     │                 │                │
+#     ├─────────────────┴────────────────┤
+#     │                                  │
+#     ▼                                  ▼
+# h3_validation                    baseline_comparison.json
+#     │
+#     ▼
+# STAGE 6-7: Ablation & Publication
+#
+#  ablation (14 configurations)
+#     │
+#     ▼
+# ablation_summary
+#     │
+#     ├─────────────────────────────────┐
+#     ▼                                 ▼
+# publication_figures            figure_manifest.json
+#
+# =============================================================================
+# Key Outputs:
+#   - clonal_patterns.json: Donor → pattern (1a/1b/2) mapping for H3 validation
+#   - cells.parquet: All cells with clonal_pattern + clonal_pattern_idx columns
+#   - h3_validation.json: H3.1 (AUC, OR) + H3.2 (p-value, effect size) results
+# =============================================================================
 #
