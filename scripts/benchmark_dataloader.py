@@ -27,6 +27,8 @@ import os
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from stagebridge.config import FUSED_LATENT_DIM
+
 
 def get_memory_usage_mb():
     """Get current process memory usage in MB."""
@@ -53,7 +55,7 @@ def benchmark_original_loader(data_dir, n_epochs=3):
         fold=0,
         split="train",
         batch_size=32,
-        latent_dim=32,
+        latent_dim=FUSED_LATENT_DIM,
         shuffle=True,
     )
     init_time = time.time() - t_init
@@ -111,7 +113,7 @@ def benchmark_optimized_loader(data_dir, n_epochs=3):
         fold=0,
         split="train",
         batch_size=32,
-        latent_dim=32,
+        latent_dim=FUSED_LATENT_DIM,
         shuffle=True,
         use_cache=True,
     )

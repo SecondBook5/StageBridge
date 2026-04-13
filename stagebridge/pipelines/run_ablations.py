@@ -27,6 +27,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from stagebridge.config import FUSED_LATENT_DIM
+
 
 ABLATION_CONFIGS = {
     "full_model": {
@@ -256,7 +258,7 @@ def run_all_ablations(
         "batch_size": 32,
         "n_epochs": 50,
         "lr": 1e-3,
-        "latent_dim": 32,
+        "latent_dim": FUSED_LATENT_DIM,
     }
 
     # Select ablations
@@ -474,7 +476,7 @@ def main():
         "batch_size": args.batch_size,
         "n_epochs": args.n_epochs,
         "lr": args.lr,
-        "latent_dim": 32,
+        "latent_dim": FUSED_LATENT_DIM,
     }
 
     # Run ablations

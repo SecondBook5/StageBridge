@@ -21,6 +21,8 @@ import numpy as np
 import seaborn as sns
 import torch
 
+from stagebridge.config import FUSED_LATENT_DIM
+
 # Publication-quality settings
 plt.rcParams.update({
     'figure.facecolor': 'white',
@@ -236,7 +238,7 @@ def extract_attention_from_checkpoint(
 
         config = checkpoint.get("config", {})
         model = StageBridgeModel(
-            latent_dim=config.get("latent_dim", 32),
+            latent_dim=config.get("latent_dim", FUSED_LATENT_DIM),
             niche_hidden_dim=config.get("niche_hidden_dim", 128),
             context_dim=config.get("context_dim", 256),
         ).to(device)

@@ -6,15 +6,20 @@
 data_root: "/scratch/chaunzt1/stagebridge"
 
 # Reference mapping parameters
+# NOTE: These dimensions are fixed by the pretrained reference atlas models.
+# Canonical values defined in: stagebridge/config.py
 hlca:
   latent_key: "X_scanvi_emb"
-  latent_dim: 30
+  latent_dim: 30  # Fixed by HLCA scANVI model
   surgery_epochs: 200
 
 luca:
   latent_key: "X_scANVI"
-  latent_dim: 10
+  latent_dim: 10  # Fixed by LuCA scVI model
   surgery_epochs: 200
+
+# Derived: fused_latent_dim = hlca.latent_dim + luca.latent_dim = 40
+# This is the input dimension for the StageBridge model.
 
 # Spatial backend parameters
 spatial:
@@ -31,7 +36,8 @@ training:
   transition_epochs: 50
   batch_size: 256
   learning_rate: 0.0001
-  latent_dim: 64
+  hidden_dim: 128  # Model internal hidden dimension (tunable)
+  context_dim: 256  # Context projection dimension (tunable)
   n_gpus: 4
   checkpoint_every: 10
   early_stopping_patience: 20
