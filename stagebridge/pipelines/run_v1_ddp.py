@@ -41,6 +41,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 from tqdm import tqdm
 
+from stagebridge.config import (
+    FUSED_LATENT_DIM,
+    HLCA_LATENT_DIM,
+    LUCA_LATENT_DIM,
+    N_NICHE_TOKENS,
+)
+
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -56,10 +63,10 @@ class TrainingConfig:
     hlca_path: str = ""
     luca_path: str = ""
 
-    # Model - Dual Reference Geometry
-    latent_dim: int = 40  # Fused embedding: HLCA (30) + LuCA (10)
-    hlca_dim: int = 30    # HLCA scANVI latent dimension
-    luca_dim: int = 10    # LuCA scVI latent dimension
+    # Model - Dual Reference Geometry (dimensions from stagebridge.config)
+    latent_dim: int = FUSED_LATENT_DIM  # 40: HLCA (30) + LuCA (10)
+    hlca_dim: int = HLCA_LATENT_DIM     # 30: from HLCA scANVI model
+    luca_dim: int = LUCA_LATENT_DIM     # 10: from LuCA scVI model
     niche_hidden_dim: int = 128
     context_dim: int = 256
     dropout: float = 0.1

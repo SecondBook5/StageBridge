@@ -87,7 +87,7 @@ Generate or process data depending on mode.
         output_dir=DATA_DIR,
         n_cells=500,
         n_donors=5,
-        latent_dim=32,
+        latent_dim=40,  # FUSED_LATENT_DIM: HLCA (30) + LuCA (10)
         seed=42,
     )
     print(f" Synthetic data ready: {data_path}")
@@ -274,7 +274,7 @@ if model_path.exists():
     # Create model instance
     from stagebridge.pipelines.run_v1_full import StageBridgeV1Full
     model = StageBridgeV1Full(
-        latent_dim=32,
+        latent_dim=40,  # FUSED_LATENT_DIM: HLCA (30) + LuCA (10)
         niche_encoder_type="mlp",
         use_set_encoder=False,
         use_wes=True,
@@ -293,7 +293,7 @@ if model_path.exists():
         fold=0,
         split="test",
         batch_size=32,
-        latent_dim=32,
+        latent_dim=40,  # FUSED_LATENT_DIM: HLCA (30) + LuCA (10)
     )
     
     print("Computing influence tensors...")
