@@ -37,7 +37,8 @@ suppressPackageStartupMessages({
     library(Matrix)
     library(SingleCellExperiment)
     library(SpatialExperiment)
-    library(scran)  # For findMarkers
+    library(scran)   # For findMarkers
+    library(scuttle) # For logNormCounts
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -82,6 +83,10 @@ sce <- SingleCellExperiment(
         row.names = ref_barcodes
     )
 )
+
+# Compute log-normalized counts (required by scran::findMarkers)
+cat("SPOTlight: Computing log-normalized counts...\\n")
+sce <- logNormCounts(sce)
 
 # Create SpatialExperiment for spatial data
 # SPOTlight expects genes x spots
