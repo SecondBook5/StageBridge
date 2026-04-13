@@ -32,6 +32,19 @@ from stagebridge.evaluation.plasticity import (
     BifurcationCellResult,
     FateCommitmentResult,
 )
+from stagebridge.evaluation.clonal_validation import (
+    run_clonal_validation,
+    validate_h3_1,
+    validate_h3_2,
+    H3_1_Result,
+    H3_2_Result,
+    ClonalValidationReport,
+    compute_transition_probability,
+    compute_niche_influence_from_attention,
+    SHARED_CLONE_PATTERNS,
+    INDEPENDENT_PATTERNS,
+    VALID_PATTERNS,
+)
 
 __all__ = [
     # Metrics
@@ -64,4 +77,16 @@ __all__ = [
     "PlasticityReport",
     "BifurcationCellResult",
     "FateCommitmentResult",
+    # Clonal Validation (H3)
+    "run_clonal_validation",
+    "validate_h3_1",
+    "validate_h3_2",
+    "H3_1_Result",
+    "H3_2_Result",
+    "ClonalValidationReport",
+    "compute_transition_probability",
+    "compute_niche_influence_from_attention",
+    "SHARED_CLONE_PATTERNS",
+    "INDEPENDENT_PATTERNS",
+    "VALID_PATTERNS",
 ]
