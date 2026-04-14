@@ -1234,6 +1234,42 @@ rule publication_figures:
         "scripts/generate_publication_figures.py"
 
 
+rule embedding_figures:
+    """Generate advanced embedding visualizations from cells.parquet."""
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
+    output:
+        fig1 = f"{FIGURES}/embeddings/fig1_embedding_overview.png",
+        fig5 = f"{FIGURES}/embeddings/fig5_advanced_trajectory.png",
+        manifest = f"{FIGURES}/embeddings/manifest.json"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/embedding_figures.log"
+    shell:
+        """
+        mkdir -p {FIGURES}/embeddings
+
+        # Publication embedding figures (Fig 1-4)
+        python scripts/viz/publication_embedding_figures.py \
+            --data_dir {CANONICAL} \
+            --output_dir {FIGURES}/embeddings \
+            2>&1 | tee {log}
+
+        # Advanced trajectory figures (Fig 5-7)
+        python scripts/viz/advanced_embedding_figures.py \
+            --data_dir {CANONICAL} \
+            --output_dir {FIGURES}/embeddings \
+            2>&1 | tee -a {log}
+
+        # Create manifest
+        echo '{{"generated": "'$(date -Iseconds)'", "figures": 7}}' > {output.manifest}
+        """
+
+
 # =============================================================================
 # Utility Rules
 # =============================================================================
