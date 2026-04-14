@@ -353,14 +353,17 @@ def generate_cells_table(
 
             # Compute mean HLCA embeddings per HLCA cell type
             print("  Computing mean HLCA embeddings per cell type...")
+            hlca_cols = [c for c in fused_emb_df.columns if c.startswith('hlca_latent_')]
             for cell_type in hlca_labels_df['cell_type'].unique():
                 cell_ids = hlca_labels_df[hlca_labels_df['cell_type'] == cell_type].index
                 matching = [cid for cid in cell_ids if cid in fused_emb_df.index]
                 if matching:
-                    hlca_cols = [c for c in fused_emb_df.columns if c.startswith('hlca_latent_')]
                     mean_emb = fused_emb_df.loc[matching, hlca_cols].mean().values.astype(np.float32)
                     hlca_mean_emb[cell_type] = mean_emb
-            print(f"    Computed means for {len(hlca_mean_emb)} HLCA cell types")
+            # Update hlca_dim to match actual fused embedding columns (ensures consistency)
+            if hlca_cols:
+                hlca_dim = len(hlca_cols)
+            print(f"    Computed means for {len(hlca_mean_emb)} HLCA cell types (dim={hlca_dim})")
 
         if luca_labels_path.exists():
             luca_labels_df = cache.read_parquet(luca_labels_path)
@@ -375,15 +378,19 @@ def generate_cells_table(
 
             # Compute mean LuCA embeddings per LuCA cell type
             print("  Computing mean LuCA embeddings per cell type...")
+            luca_cols = [c for c in fused_emb_df.columns if c.startswith('luca_latent_')]
             luca_label_col = 'luca_label' if 'luca_label' in luca_labels_df.columns else 'cell_type'
             for cell_type in luca_labels_df[luca_label_col].unique():
                 cell_ids = luca_labels_df[luca_labels_df[luca_label_col] == cell_type].index
                 matching = [cid for cid in cell_ids if cid in fused_emb_df.index]
                 if matching:
-                    luca_cols = [c for c in fused_emb_df.columns if c.startswith('luca_latent_')]
                     mean_emb = fused_emb_df.loc[matching, luca_cols].mean().values.astype(np.float32)
                     luca_mean_emb[cell_type] = mean_emb
-            print(f"    Computed means for {len(luca_mean_emb)} LuCA cell types")
+            # Update luca_dim to match actual fused embedding columns (ensures consistency)
+            if luca_cols:
+                luca_dim = len(luca_cols)
+                fused_dim = hlca_dim + luca_dim  # Update fused dim too
+            print(f"    Computed means for {len(luca_mean_emb)} LuCA cell types (dim={luca_dim})")
 
     # Load spatial deconvolution results
     if hlca_deconv_dir is not None and hlca_deconv_dir.exists():
