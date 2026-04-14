@@ -798,11 +798,15 @@ rule training:
         echo "  Seed: {wildcards.seed}"
         echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
         echo "  Stage 2: Transition Model ({params.transition_epochs} epochs)"
-        echo "  GPU: 1x H100 (single-GPU mode)"
+        echo "  GPU: 1x H100 (single-process, no DDP overhead)"
         echo "  HPO params: {input.hpo_params}"
         echo "=============================================="
 
-        python -m stagebridge.pipelines.run_v1_complete \
+        # Single GPU via torchrun with nproc=1 (no DDP overhead, keeps same CLI)
+        torchrun \
+            --nproc_per_node=1 \
+            --master_port=$((29500 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
+            -m stagebridge.pipelines.run_v1_ddp \
             --data_dir {params.canonical_dir} \
             --output_dir {params.training_dir}/fold{wildcards.fold}_seed{wildcards.seed} \
             --validation_fold {wildcards.fold} \
@@ -863,11 +867,15 @@ rule training_frozen:
         echo "  Seed: {wildcards.seed}"
         echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
         echo "  Stage 2: Transition Model ({params.transition_epochs} epochs) - FROZEN"
-        echo "  GPU: 1x H100 (single-GPU mode)"
+        echo "  GPU: 1x H100 (single-process, no DDP overhead)"
         echo "  Purpose: Test SSL representation transfer quality"
         echo "=============================================="
 
-        python -m stagebridge.pipelines.run_v1_complete \
+        # Single GPU via torchrun with nproc=1 (no DDP overhead, keeps same CLI)
+        torchrun \
+            --nproc_per_node=1 \
+            --master_port=$((29600 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
+            -m stagebridge.pipelines.run_v1_ddp \
             --data_dir {params.canonical_dir} \
             --output_dir {params.training_dir}/frozen/fold{wildcards.fold}_seed{wildcards.seed} \
             --validation_fold {wildcards.fold} \
