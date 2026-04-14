@@ -75,11 +75,15 @@ rule all:
         f"{CLONAL}/clonal_patterns.json",
         # LIANA L-R analysis (H1.2 biological validation)
         f"{RUNS}/biological_validation/liana/liana_summary.json",
+        # LIANA cell cycling post-hoc
+        f"{RUNS}/biological_validation/liana/cycling_posthoc_summary.json",
         # Training (5-fold CV × 3 seeds, aggregated)
         f"{TRAINING}/aggregated/cv_results.json",
         f"{TRAINING}/aggregated/publication_metrics.json",
-        # H3 hypothesis validation
+        # H3 hypothesis validation (clonal ground truth)
         f"{TRAINING}/h3_validation/h3_validation.json",
+        # H1.3 plasticity validation
+        f"{RUNS}/biological_validation/plasticity/plasticity_validation.json",
         # Baseline ladder comparison
         f"{TRAINING}/baselines/baseline_comparison.json",
         # Ablations
@@ -974,6 +978,76 @@ rule h3_validation:
             --checkpoint {input.checkpoint} \
             --data_dir {params.canonical_dir} \
             --output_dir {params.h3_dir} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5d-ter: H1.3 Plasticity Validation
+# =============================================================================
+# Validates H1.3 hypothesis using trained model:
+#   H1.3.0: Niche conditioning reduces fate uncertainty (entropy reduction)
+#   H1.3.1: KACs/RPII have highest plasticity among epithelial cells
+#   H1.3.2: IL1B-high niches commit plastic cells toward tumor
+
+PLASTICITY = f"{RUNS}/biological_validation/plasticity"
+
+rule plasticity_validation:
+    input:
+        checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/best_checkpoint.pt",
+        checkpoint_no_niche = f"{ABLATIONS}/no_niche/checkpoints/final_checkpoint.pt",
+        cells = f"{CANONICAL}/cells.parquet",
+        cv_results = f"{TRAINING}/aggregated/cv_results.json"
+    output:
+        results = f"{PLASTICITY}/plasticity_validation.json",
+        inference = f"{PLASTICITY}/full_model_inference.parquet"
+    params:
+        canonical_dir = CANONICAL,
+        plasticity_dir = PLASTICITY
+    threads: 4
+    resources:
+        mem_mb = 128000,
+        runtime = 120,
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/biological_validation/plasticity.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_plasticity_validation \
+            --checkpoint {input.checkpoint} \
+            --checkpoint_no_niche {input.checkpoint_no_niche} \
+            --data_dir {params.canonical_dir} \
+            --output_dir {params.plasticity_dir} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5d-quater: LIANA Cell Cycling Post-Hoc Analysis
+# =============================================================================
+# After LIANA runs, stratify results by cell cycle phase to test whether
+# cycling cells have different IL1B-IL1R1 interaction profiles.
+
+rule liana_cycling_posthoc:
+    input:
+        liana_results = f"{RUNS}/biological_validation/liana/lr_interactions_full.parquet",
+        cells = f"{CANONICAL}/cells.parquet"
+    output:
+        summary = f"{RUNS}/biological_validation/liana/cycling_posthoc_summary.json",
+        il1b_cycling = f"{RUNS}/biological_validation/liana/il1b_with_cycling.parquet"
+    threads: 2
+    resources:
+        mem_mb = 32000,
+        runtime = 30
+    log:
+        f"{RUNS}/logs/biological_validation/liana_cycling.log"
+    shell:
+        """
+        python scripts/run_liana_cycling_posthoc.py \
+            --liana-results {input.liana_results} \
+            --cells {input.cells} \
+            --output-dir $(dirname {output.summary}) \
             2>&1 | tee {log}
         """
 
