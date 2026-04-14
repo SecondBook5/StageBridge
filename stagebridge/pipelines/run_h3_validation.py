@@ -6,6 +6,8 @@ clonal evolution patterns, validating the H3 hypothesis:
   - H3.1: Transition probability correlates with shared clones across stages
   - H3.2: Niche influence differs by clonal pattern (1a > 1b > 2)
 
+Uses REAL model outputs - no placeholders.
+
 Usage:
     python -m stagebridge.pipelines.run_h3_validation \
         --checkpoint /path/to/best_checkpoint.pt \
@@ -40,7 +42,7 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Output directory for H3 results")
     parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -74,29 +76,64 @@ def main():
     pattern_counts = cells_df["clonal_pattern"].value_counts()
     logger.info(f"Pattern distribution:\n{pattern_counts}")
 
-    # Load checkpoint
+    # Load checkpoint and run inference
     checkpoint_path = Path(args.checkpoint)
     if not checkpoint_path.exists():
         logger.error(f"Checkpoint not found: {checkpoint_path}")
         return 1
 
-    logger.info(f"Loading checkpoint from {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    logger.info(f"Running model inference from {checkpoint_path}")
 
-    # For now, use placeholder values until model inference is wired up
-    # TODO: Run model inference to get actual transition_probs and niche_influence
-    logger.warning("Using placeholder values - full model inference not yet implemented")
+    # Import inference utilities
+    from stagebridge.evaluation.model_inference import (
+        load_checkpoint,
+        build_model_from_checkpoint,
+        prepare_inference_data,
+        run_inference,
+    )
 
-    # Placeholder: random values for demonstration
-    n_cells = len(cells_df)
-    transition_probs = np.random.uniform(0, 1, n_cells)
-    niche_influence = np.random.uniform(0, 1, n_cells)
+    # Load model
+    checkpoint = load_checkpoint(checkpoint_path, device=args.device)
+    model = build_model_from_checkpoint(checkpoint, device=args.device)
+
+    # Prepare data
+    dataloader, cell_ids, current_stage = prepare_inference_data(
+        cells_df, batch_size=args.batch_size
+    )
+
+    # Run inference to get REAL outputs
+    logger.info("Running model inference...")
+    outputs = run_inference(
+        model=model,
+        dataloader=dataloader,
+        cell_ids=cell_ids,
+        current_stage=current_stage,
+        device=args.device,
+    )
+
+    logger.info(f"Inference complete: {len(outputs.transition_probs)} cells")
+    logger.info(f"  Transition prob range: [{outputs.transition_probs.min():.3f}, {outputs.transition_probs.max():.3f}]")
+    logger.info(f"  Niche influence range: [{outputs.niche_influence.min():.3f}, {outputs.niche_influence.max():.3f}]")
+
+    # Map outputs to DataFrame
+    cell_id_to_idx = {cid: i for i, cid in enumerate(outputs.cell_ids)}
+
+    # Get transition_probs and niche_influence for cells with clonal patterns
+    transition_probs = np.array([
+        outputs.transition_probs[cell_id_to_idx[cid]]
+        for cid in cells_df['cell_id'].values
+        if cid in cell_id_to_idx
+    ])
+    niche_influence = np.array([
+        outputs.niche_influence[cell_id_to_idx[cid]]
+        for cid in cells_df['cell_id'].values
+        if cid in cell_id_to_idx
+    ])
     patterns = cells_df["clonal_pattern"].values
 
     # Run H3 validation
     from stagebridge.evaluation.clonal_validation import (
         run_clonal_validation,
-        ClonalValidationReport,
     )
 
     donor_ids = cells_df["donor_id"].values if "donor_id" in cells_df.columns else None
@@ -108,7 +145,12 @@ def main():
         donor_ids=donor_ids,
     )
 
-    # Save results
+    # Save inference outputs for downstream analysis
+    inference_df = outputs.to_dataframe()
+    inference_df.to_parquet(output_dir / "model_inference.parquet", index=False)
+    logger.info(f"Saved model inference to {output_dir / 'model_inference.parquet'}")
+
+    # Save H3 validation results
     results_path = output_dir / "h3_validation.json"
     with open(results_path, "w") as f:
         json.dump(report.to_dict(), f, indent=2)
@@ -116,7 +158,7 @@ def main():
 
     # Print summary
     logger.info("=" * 60)
-    logger.info("H3 VALIDATION SUMMARY")
+    logger.info("H3 VALIDATION SUMMARY (REAL MODEL OUTPUTS)")
     logger.info("=" * 60)
     logger.info(f"H3.1 (transition ~ shared clones): AUC={report.h3_1.auc:.3f}, supported={report.h3_1.h3_1_supported}")
     logger.info(f"H3.2 (niche influence by pattern): p={report.h3_2.pvalue_1a_vs_2:.4f}, supported={report.h3_2.h3_2_supported}")
