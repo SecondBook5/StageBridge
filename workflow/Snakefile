@@ -73,6 +73,8 @@ rule all:
         f"{SPATIAL}/backend_comparison.json",
         # Clonal patterns (for H3 validation)
         f"{CLONAL}/clonal_patterns.json",
+        # LIANA L-R analysis (H1.2 biological validation)
+        f"{RUNS}/biological_validation/liana/liana_summary.json",
         # Training (5-fold CV × 3 seeds, aggregated)
         f"{TRAINING}/aggregated/cv_results.json",
         f"{TRAINING}/aggregated/publication_metrics.json",
@@ -565,6 +567,47 @@ rule clonal_extraction:
             --patient-key donor_id \
             --stage-key stage \
             --cell-type-key cell_type \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 3g: LIANA L-R Analysis (Biological Validation for H1.2)
+# =============================================================================
+# Validates that IL1B-IL1R1 is a top L-R pair in the dataset.
+# Key evidence for H1.2: "IL1B-high proinflammatory niches increase transition
+# probability for alveolar progenitors"
+
+LIANA = f"{RUNS}/biological_validation/liana"
+
+rule liana_analysis:
+    input:
+        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
+        marker_check = f"{REF_GEOM}/marker_validation.json"  # Ensure cell types validated
+    output:
+        full = f"{LIANA}/lr_interactions_full.parquet",
+        top100 = f"{LIANA}/lr_interactions_top100.parquet",
+        il1b = f"{LIANA}/lr_il1b_il1r1.parquet",
+        summary = f"{LIANA}/liana_summary.json"
+    params:
+        output_dir = LIANA,
+        n_perms = 100,
+        expr_prop = 0.05  # Lower threshold to catch rare cell type interactions
+    threads: 8
+    resources:
+        mem_mb = 256000,  # 256GB for 800K cells
+        runtime = 180,    # 3 hours
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/biological_validation/liana.log"
+    shell:
+        """
+        python scripts/run_liana_analysis.py \
+            --snrna {input.snrna} \
+            --output-dir {params.output_dir} \
+            --n-perms {params.n_perms} \
+            --expr-prop {params.expr_prop} \
             2>&1 | tee {log}
         """
 
