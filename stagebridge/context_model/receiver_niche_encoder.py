@@ -638,6 +638,197 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         return importance_scores
 
 
+# =============================================================================
+# ABLATION: Self-Attention Niche Encoder
+# =============================================================================
+
+
+class SelfAttentionNicheEncoder(nn.Module):
+    """Self-attention niche encoder for ablation comparison.
+
+    This encoder uses standard self-attention over ALL tokens (receiver + neighbors)
+    instead of cross-attention where receiver queries neighbors.
+
+    Key difference from ReceiverCenteredNicheEncoder:
+    - ReceiverCentered: receiver is query, neighbors are key/value (cross-attention)
+    - SelfAttention: all tokens attend to all tokens equally (self-attention)
+
+    Same interface as ReceiverCenteredNicheEncoder for ablation comparison.
+    This tests whether architectural enforcement of receiver-centrality helps,
+    or whether self-attention can learn to focus on the receiver.
+
+    Args:
+        input_dim: Dimension of cell embeddings
+        hidden_dim: Internal hidden dimension
+        num_heads: Number of attention heads
+        num_layers: Number of self-attention layers
+        dropout: Dropout rate
+        use_reconstruction_head: Add decoder for masked receiver reconstruction
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int = 128,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        max_neighbors: int = 20,  # For interface compatibility
+        distance_encoding: DistanceEncoding | str = DistanceEncoding.RBF,  # Unused but for interface
+        sparsity_type: SparsityType | str = SparsityType.ENTROPY,  # Unused but for interface
+        sparsity_weight: float = 0.01,  # Unused but for interface
+        topk: int = 5,  # Unused but for interface
+        dropout: float = 0.1,
+        use_reconstruction_head: bool = True,
+    ):
+        super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+
+        # Unified projection for all tokens
+        self.token_proj = nn.Linear(input_dim, hidden_dim)
+
+        # Token type embeddings: 0 = receiver, 1 = neighbor
+        self.token_type_embedding = nn.Embedding(2, hidden_dim)
+
+        # Standard transformer self-attention layers
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim * 4,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # Output projection
+        self.output_proj = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.LayerNorm(hidden_dim),
+        )
+
+        # Optional reconstruction head
+        self.reconstruction_head = None
+        if use_reconstruction_head:
+            self.reconstruction_head = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, input_dim),
+            )
+
+    def forward(
+        self,
+        receiver: Tensor,
+        neighbors: Tensor,
+        distances: Tensor,  # Unused in self-attention (no distance modulation)
+        neighbor_mask: Tensor | None = None,
+        cell_type_hint: Tensor | None = None,  # Unused but for interface
+        return_reconstruction: bool = False,
+    ) -> ReceiverNicheOutput:
+        """Encode receiver's neighborhood using self-attention.
+
+        Args:
+            receiver: [B, D] receiver cell embedding
+            neighbors: [B, K, D] neighbor cell embeddings
+            distances: [B, K] distances (unused - no distance modulation in self-attention)
+            neighbor_mask: [B, K] boolean, True = valid, False = masked
+            cell_type_hint: [B, D_type] optional (unused, for interface compatibility)
+            return_reconstruction: Whether to compute receiver reconstruction
+
+        Returns:
+            ReceiverNicheOutput with context, attention weights, and optional reconstruction
+        """
+        B, K, D = neighbors.shape
+
+        # Project all tokens to hidden dimension
+        h_receiver = self.token_proj(receiver).unsqueeze(1)  # [B, 1, H]
+        h_neighbors = self.token_proj(neighbors)  # [B, K, H]
+
+        # Add token type embeddings
+        receiver_type = torch.zeros(B, 1, dtype=torch.long, device=receiver.device)
+        neighbor_type = torch.ones(B, K, dtype=torch.long, device=receiver.device)
+
+        h_receiver = h_receiver + self.token_type_embedding(receiver_type)
+        h_neighbors = h_neighbors + self.token_type_embedding(neighbor_type)
+
+        # Concatenate: [receiver, neighbors] -> [B, K+1, H]
+        tokens = torch.cat([h_receiver, h_neighbors], dim=1)
+
+        # Build attention mask if needed
+        # Mask format for nn.TransformerEncoder: True = IGNORE
+        src_key_padding_mask = None
+        if neighbor_mask is not None:
+            # Receiver is always valid (False = attend), neighbors use provided mask
+            receiver_valid = torch.zeros(B, 1, dtype=torch.bool, device=receiver.device)
+            # Invert: neighbor_mask True = valid -> False for transformer
+            neighbor_invalid = ~neighbor_mask
+            src_key_padding_mask = torch.cat([receiver_valid, neighbor_invalid], dim=1)
+
+        # Self-attention over all tokens
+        h = self.transformer(tokens, src_key_padding_mask=src_key_padding_mask)
+
+        # Extract receiver's representation (first token)
+        h_receiver_out = h[:, 0, :]  # [B, H]
+
+        # Output projection
+        context = self.output_proj(h_receiver_out)
+
+        # Compute pseudo-attention weights from final layer (for interpretability)
+        # Self-attention doesn't have explicit receiver->neighbor weights,
+        # so we report uniform weights as a placeholder
+        attention_weights = torch.ones(B, K, device=receiver.device) / K
+        if neighbor_mask is not None:
+            attention_weights = attention_weights * neighbor_mask.float()
+            attention_weights = attention_weights / attention_weights.sum(dim=-1, keepdim=True).clamp(min=1e-8)
+
+        # Optional reconstruction
+        reconstruction = None
+        if return_reconstruction and self.reconstruction_head is not None:
+            reconstruction = self.reconstruction_head(context)
+
+        return ReceiverNicheOutput(
+            context=context,
+            attention_weights=attention_weights,
+            entropy_loss=None,  # No entropy loss for self-attention
+            receiver_reconstruction=reconstruction,
+        )
+
+    def compute_reconstruction_loss(
+        self,
+        receiver: Tensor,
+        neighbors: Tensor,
+        distances: Tensor,
+        neighbor_mask: Tensor | None = None,
+        mask_ratio: float = 0.15,
+    ) -> tuple[Tensor, ReceiverNicheOutput]:
+        """Compute masked receiver reconstruction loss (same interface as ReceiverCentered)."""
+        B, D = receiver.shape
+        device = receiver.device
+
+        mask = torch.rand(B, D, device=device) < mask_ratio
+        receiver_masked = receiver.clone()
+        receiver_masked[mask] = 0.0
+
+        output = self.forward(
+            receiver_masked,
+            neighbors,
+            distances,
+            neighbor_mask,
+            return_reconstruction=True,
+        )
+
+        if output.receiver_reconstruction is not None:
+            reconstruction_loss = F.mse_loss(
+                output.receiver_reconstruction[mask],
+                receiver[mask],
+            )
+        else:
+            reconstruction_loss = torch.tensor(0.0, device=device)
+
+        return reconstruction_loss, output
+
+
 # NOTE: ReceiverNicheEncoderWithDualReference was REMOVED (2026-04-09)
 # It redundantly concatenated [fused | hlca | luca] = 80d when fused already contains hlca+luca.
 # The correct approach: Use ReceiverCenteredNicheEncoder with fused embedding (40d).

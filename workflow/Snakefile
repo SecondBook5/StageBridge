@@ -1081,7 +1081,7 @@ rule liana_cycling_posthoc:
 # 5. stagebridge - Full model (receiver-centered niche + dual references)
 #
 
-BASELINES = ["pooling_mlp", "deep_sets", "set_transformer", "graph_sage"]
+BASELINES = ["pooling_mlp", "deep_sets", "set_transformer", "graph_sage", "receiver_centered"]
 
 rule baseline:
     input:
@@ -1109,11 +1109,11 @@ rule baseline:
         f"{RUNS}/logs/baselines/{{baseline}}/fold{{fold}}_seed{{seed}}.log"
     shell:
         """
-        python -m stagebridge.baselines.evaluate \
+        python -m stagebridge.baselines.evaluate_set_baselines \
             --data_dir {params.canonical_dir} \
             --output_dir {TRAINING}/baselines/{wildcards.baseline}/fold{wildcards.fold}_seed{wildcards.seed} \
             --baseline {wildcards.baseline} \
-            --validation_fold {wildcards.fold} \
+            --fold {wildcards.fold} \
             --seed {wildcards.seed} \
             2>&1 | tee {log}
         """
