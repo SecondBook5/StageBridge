@@ -119,3 +119,6 @@ CLAUDE.md
 .claude/
 PUBLICATION_QUALITY_REPORT.md
 docs/paper/
+
+# Baseline run results (large files)
+results/baseline_runs/

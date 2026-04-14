@@ -51,6 +51,8 @@ def generate_canonical_artifacts(
     n_folds: int = 5,
     reference_geometry_dir: Path | None = None,
     clonal_patterns_path: Path | None = None,
+    hlca_deconv_dir: Path | None = None,
+    luca_deconv_dir: Path | None = None,
 ):
     """
     Generate all canonical artifacts for StageBridge V1.
@@ -152,6 +154,8 @@ def generate_canonical_artifacts(
         gamma_df=gamma_df,
         reference_geometry_dir=reference_geometry_dir,
         clonal_patterns=clonal_patterns,
+        hlca_deconv_dir=hlca_deconv_dir,
+        luca_deconv_dir=luca_deconv_dir,
     )
     cells_df.to_parquet(output_dir / "cells.parquet", index=False)
     print(f"  Saved {len(cells_df)} cells")
@@ -231,6 +235,8 @@ def generate_cells_table(
     gamma_df: pd.DataFrame | None = None,
     reference_geometry_dir: Path | None = None,
     clonal_patterns: dict[str, str] | None = None,
+    hlca_deconv_dir: Path | None = None,
+    luca_deconv_dir: Path | None = None,
 ) -> pd.DataFrame:
     """
     Generate cells.parquet with all required fields.
@@ -324,6 +330,94 @@ def generate_cells_table(
         print("  WARNING: No reference_geometry_dir provided or doesn't exist!")
         print("           Embeddings will be zeros (placeholder mode)")
 
+    # ==========================================================================
+    # Compute mean embeddings per cell type for spatial embedding composition
+    # HLCA embeddings use HLCA cell types (9 types)
+    # LuCA embeddings use LuCA cell types (33 types)
+    # ==========================================================================
+    hlca_mean_emb = {}  # {cell_type: mean_hlca_embedding}
+    luca_mean_emb = {}  # {cell_type: mean_luca_embedding}
+    spatial_deconv_hlca = {}  # {spot_id: {cell_type: proportion}}
+    spatial_deconv_luca = {}  # {spot_id: {cell_type: proportion}}
+
+    if reference_geometry_dir is not None and fused_emb_df is not None:
+        # Load HLCA cell type labels
+        hlca_labels_path = reference_geometry_dir / "cell_types.parquet"
+        luca_labels_path = reference_geometry_dir / "luca_mapping" / "luca_labels.parquet"
+
+        if hlca_labels_path.exists():
+            hlca_labels_df = cache.read_parquet(hlca_labels_path)
+            if 'cell_id' not in hlca_labels_df.columns:
+                hlca_labels_df['cell_id'] = hlca_labels_df.index
+            hlca_labels_df = hlca_labels_df.set_index('cell_id')
+
+            # Compute mean HLCA embeddings per HLCA cell type
+            print("  Computing mean HLCA embeddings per cell type...")
+            for cell_type in hlca_labels_df['cell_type'].unique():
+                cell_ids = hlca_labels_df[hlca_labels_df['cell_type'] == cell_type].index
+                matching = [cid for cid in cell_ids if cid in fused_emb_df.index]
+                if matching:
+                    hlca_cols = [c for c in fused_emb_df.columns if c.startswith('hlca_latent_')]
+                    mean_emb = fused_emb_df.loc[matching, hlca_cols].mean().values.astype(np.float32)
+                    hlca_mean_emb[cell_type] = mean_emb
+            print(f"    Computed means for {len(hlca_mean_emb)} HLCA cell types")
+
+        if luca_labels_path.exists():
+            luca_labels_df = cache.read_parquet(luca_labels_path)
+            if 'cell_id' not in luca_labels_df.columns:
+                # Index might be cell_id
+                luca_labels_df = luca_labels_df.reset_index()
+                if 'index' in luca_labels_df.columns:
+                    luca_labels_df = luca_labels_df.rename(columns={'index': 'cell_id'})
+
+            # Need to align with fused_emb_df
+            luca_labels_df = luca_labels_df.set_index('cell_id') if 'cell_id' in luca_labels_df.columns else luca_labels_df
+
+            # Compute mean LuCA embeddings per LuCA cell type
+            print("  Computing mean LuCA embeddings per cell type...")
+            luca_label_col = 'luca_label' if 'luca_label' in luca_labels_df.columns else 'cell_type'
+            for cell_type in luca_labels_df[luca_label_col].unique():
+                cell_ids = luca_labels_df[luca_labels_df[luca_label_col] == cell_type].index
+                matching = [cid for cid in cell_ids if cid in fused_emb_df.index]
+                if matching:
+                    luca_cols = [c for c in fused_emb_df.columns if c.startswith('luca_latent_')]
+                    mean_emb = fused_emb_df.loc[matching, luca_cols].mean().values.astype(np.float32)
+                    luca_mean_emb[cell_type] = mean_emb
+            print(f"    Computed means for {len(luca_mean_emb)} LuCA cell types")
+
+    # Load spatial deconvolution results
+    if hlca_deconv_dir is not None and hlca_deconv_dir.exists():
+        print("  Loading HLCA deconvolution for spatial embedding composition...")
+        samples_dir = hlca_deconv_dir / "samples"
+        if samples_dir.exists():
+            for sample_dir in samples_dir.iterdir():
+                if sample_dir.is_dir():
+                    prop_path = sample_dir / "cell_type_proportions.parquet"
+                    if prop_path.exists():
+                        prop_df = cache.read_parquet(prop_path)
+                        # Normalize proportions
+                        prop_sum = prop_df.sum(axis=1)
+                        prop_norm = prop_df.div(prop_sum, axis=0).fillna(0)
+                        for spot_id in prop_norm.index:
+                            spatial_deconv_hlca[spot_id] = prop_norm.loc[spot_id].to_dict()
+        print(f"    Loaded HLCA deconvolution for {len(spatial_deconv_hlca):,} spots")
+
+    if luca_deconv_dir is not None and luca_deconv_dir.exists():
+        print("  Loading LuCA deconvolution for spatial embedding composition...")
+        samples_dir = luca_deconv_dir / "samples"
+        if samples_dir.exists():
+            for sample_dir in samples_dir.iterdir():
+                if sample_dir.is_dir():
+                    prop_path = sample_dir / "cell_type_proportions.parquet"
+                    if prop_path.exists():
+                        prop_df = cache.read_parquet(prop_path)
+                        # Normalize proportions
+                        prop_sum = prop_df.sum(axis=1)
+                        prop_norm = prop_df.div(prop_sum, axis=0).fillna(0)
+                        for spot_id in prop_norm.index:
+                            spatial_deconv_luca[spot_id] = prop_norm.loc[spot_id].to_dict()
+        print(f"    Loaded LuCA deconvolution for {len(spatial_deconv_luca):,} spots")
+
     def extract_stage_from_cell_id(cell_id: str) -> str:
         """Extract stage from cell_id like GSM9237901_P3_Normal:AAACAAGCACCAGCTCACTTTAGG.1"""
         import re
@@ -345,11 +439,41 @@ def generate_cells_table(
 
         Returns actual dimensions: HLCA (30d), LuCA (10d), Fused (40d).
         NOT truncated to a single latent_dim.
+
+        For spatial spots (cell_id starting with "spatial_"), composes embeddings
+        from deconvolution proportions:
+        - HLCA embedding = sum(HLCA_proportion[type] * mean_HLCA_embedding[type])
+        - LuCA embedding = sum(LuCA_proportion[type] * mean_LuCA_embedding[type])
         """
         z_fused = np.zeros(fused_dim, dtype=np.float32)
         z_hlca = np.zeros(hlca_dim, dtype=np.float32)
         z_luca = np.zeros(luca_dim, dtype=np.float32)
 
+        # For spatial spots, compose embeddings from deconvolution
+        if cell_id.startswith("spatial_"):
+            spot_id = cell_id[8:]  # Strip "spatial_" prefix
+
+            # Compose HLCA embedding from HLCA deconvolution
+            if spot_id in spatial_deconv_hlca and hlca_mean_emb:
+                props = spatial_deconv_hlca[spot_id]
+                for cell_type, proportion in props.items():
+                    if cell_type in hlca_mean_emb and proportion > 0:
+                        z_hlca += proportion * hlca_mean_emb[cell_type]
+
+            # Compose LuCA embedding from LuCA deconvolution
+            if spot_id in spatial_deconv_luca and luca_mean_emb:
+                props = spatial_deconv_luca[spot_id]
+                for cell_type, proportion in props.items():
+                    if cell_type in luca_mean_emb and proportion > 0:
+                        z_luca += proportion * luca_mean_emb[cell_type]
+
+            # Fused = concatenation of HLCA and LuCA
+            z_fused[:hlca_dim] = z_hlca
+            z_fused[hlca_dim:hlca_dim + luca_dim] = z_luca
+
+            return z_fused, z_hlca, z_luca
+
+        # For snRNA cells, use direct reference embeddings
         if fused_emb_df is not None and cell_id in fused_emb_df.index:
             row = fused_emb_df.loc[cell_id]
             # row is a Series when index is unique - get numeric values directly
@@ -895,6 +1019,14 @@ def main():
         "--clonal_patterns", type=str, default=None,
         help="Path to clonal_patterns.json from run_clonal_extraction.py (for H3 validation)"
     )
+    parser.add_argument(
+        "--hlca_deconv_dir", type=str, default=None,
+        help="Path to HLCA deconvolution results (for spatial embedding composition)"
+    )
+    parser.add_argument(
+        "--luca_deconv_dir", type=str, default=None,
+        help="Path to LuCA deconvolution results (for spatial embedding composition)"
+    )
 
     # Stage definitions
     parser.add_argument("--stage_config", type=str, help="YAML file with stage definitions")
@@ -928,6 +1060,8 @@ def main():
         n_folds=args.n_folds,
         reference_geometry_dir=Path(args.reference_geometry),
         clonal_patterns_path=Path(args.clonal_patterns) if args.clonal_patterns else None,
+        hlca_deconv_dir=Path(args.hlca_deconv_dir) if args.hlca_deconv_dir else None,
+        luca_deconv_dir=Path(args.luca_deconv_dir) if args.luca_deconv_dir else None,
     )
 
 
