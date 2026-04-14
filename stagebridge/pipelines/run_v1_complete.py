@@ -59,11 +59,25 @@ try:
     from stagebridge.context_model.receiver_niche_encoder import (
         ReceiverCenteredNicheEncoder,
         ReceiverNicheOutput,
+        SelfAttentionNicheEncoder,  # Ablation: self-attention vs cross-attention
     )
 
     DOCTRINE_ENCODER_AVAILABLE = True
 except ImportError:
     DOCTRINE_ENCODER_AVAILABLE = False
+
+# Import EA-MIST hierarchical components
+try:
+    from stagebridge.context_model.set_encoder import ISAB, PMA
+    from stagebridge.context_model.prototype_bottleneck import (
+        PrototypeBottleneck,
+        prototype_diversity_loss,
+    )
+    from stagebridge.context_model.evolution_branch import EvolutionBranch
+
+    HIERARCHICAL_AVAILABLE = True
+except ImportError:
+    HIERARCHICAL_AVAILABLE = False
 
 try:
     from stagebridge.transition_model.relational_pretraining import (
@@ -163,6 +177,184 @@ def setup_publication_style():
 
 
 # =============================================================================
+# Hierarchical Aggregation (from EA-MIST Layer C)
+# =============================================================================
+
+
+class HierarchicalAggregator(nn.Module):
+    """Aggregate multiple niche embeddings into sample-level representation.
+
+    This is EA-MIST's Layer C: ISAB-based hierarchical set transformer that
+    aggregates N niche embeddings per sample into a single sample embedding.
+
+    Key for H3 validation: enables clone-level predictions by aggregating
+    all niches from a sample/lesion.
+
+    Args:
+        hidden_dim: Niche embedding dimension (from ReceiverCenteredNicheEncoder)
+        num_heads: Number of attention heads
+        num_layers: Number of ISAB layers
+        num_inducing_points: Number of inducing points for ISAB (controls capacity)
+        dropout: Dropout rate
+        use_prototypes: If True, route through prototype bottleneck before ISAB
+        num_prototypes: Number of learned niche prototypes (interpretability)
+    """
+
+    def __init__(
+        self,
+        hidden_dim: int = 128,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        num_inducing_points: int = 16,
+        dropout: float = 0.1,
+        use_prototypes: bool = False,
+        num_prototypes: int = 16,
+    ):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.use_prototypes = use_prototypes and HIERARCHICAL_AVAILABLE
+
+        # Optional prototype bottleneck (interpretability: which "motif" is each niche?)
+        if self.use_prototypes and HIERARCHICAL_AVAILABLE:
+            self.prototype_bottleneck = PrototypeBottleneck(
+                hidden_dim,
+                num_prototypes=num_prototypes,
+                sparse_assignment=False,
+            )
+        else:
+            self.prototype_bottleneck = None
+
+        # ISAB layers for hierarchical aggregation
+        if HIERARCHICAL_AVAILABLE:
+            self.isab_layers = nn.ModuleList([
+                ISAB(
+                    dim=hidden_dim,
+                    num_heads=num_heads,
+                    num_inducing_points=num_inducing_points,
+                    dropout=dropout,
+                )
+                for _ in range(num_layers)
+            ])
+            self.pma = PMA(
+                dim=hidden_dim,
+                num_heads=num_heads,
+                num_seed_vectors=1,
+                dropout=dropout,
+            )
+        else:
+            # Fallback: simple mean pooling
+            self.isab_layers = None
+            self.pma = None
+
+        self.norm = nn.LayerNorm(hidden_dim)
+
+    def forward(
+        self,
+        niche_embeddings: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        return_attention: bool = False,
+    ) -> dict:
+        """Aggregate niche embeddings to sample-level.
+
+        Args:
+            niche_embeddings: [B, N, D] batch of N niches per sample
+            mask: [B, N] boolean mask (True = valid niche)
+            return_attention: If True, return attention weights
+
+        Returns:
+            dict with:
+                - sample_embedding: [B, D] aggregated sample representation
+                - prototype_output: PrototypeBottleneckOutput if use_prototypes
+                - attention_weights: dict of attention maps if return_attention
+        """
+        B, N, D = niche_embeddings.shape
+        prototype_output = None
+        attention_weights = {}
+
+        # Optional prototype bottleneck
+        if self.prototype_bottleneck is not None:
+            prototype_output = self.prototype_bottleneck(niche_embeddings, mask=mask)
+            h = prototype_output.aligned_embeddings
+        else:
+            h = niche_embeddings
+
+        # ISAB layers
+        if self.isab_layers is not None:
+            for i, isab in enumerate(self.isab_layers):
+                if return_attention and i == len(self.isab_layers) - 1:
+                    h, attn = isab(h, mask=mask, return_attention=True)
+                    attention_weights[f"isab_{i}"] = attn
+                else:
+                    h = isab(h, mask=mask)
+
+            # PMA pooling to single vector
+            if return_attention:
+                pooled, pma_attn = self.pma(h, mask=mask, return_attention=True)
+                attention_weights["pma"] = pma_attn
+            else:
+                pooled = self.pma(h, mask=mask)
+
+            sample_embedding = self.norm(pooled[:, 0, :])  # [B, D]
+        else:
+            # Fallback: masked mean pooling
+            if mask is not None:
+                h = h * mask.unsqueeze(-1).float()
+                sample_embedding = h.sum(dim=1) / mask.sum(dim=1, keepdim=True).clamp(min=1)
+            else:
+                sample_embedding = h.mean(dim=1)
+            sample_embedding = self.norm(sample_embedding)
+
+        return {
+            "sample_embedding": sample_embedding,
+            "prototype_output": prototype_output,
+            "attention_weights": attention_weights if return_attention else None,
+        }
+
+
+class SampleLevelHeads(nn.Module):
+    """Sample-level prediction heads for H3 validation.
+
+    Predicts:
+    - Stage classification (5-class: Normal, AAH, AIS, MIA, LUAD)
+    - Displacement vector (for transition modeling at sample level)
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        num_stage_classes: int = 5,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.stage_head = nn.Sequential(
+            nn.Linear(input_dim, input_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(input_dim, num_stage_classes),
+        )
+        self.displacement_head = nn.Sequential(
+            nn.Linear(input_dim, input_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(input_dim, input_dim),  # Displacement in embedding space
+        )
+
+    def forward(self, sample_embedding: torch.Tensor) -> dict:
+        """Predict sample-level outputs.
+
+        Args:
+            sample_embedding: [B, D] sample representation
+
+        Returns:
+            dict with stage_logits and displacement
+        """
+        return {
+            "stage_logits": self.stage_head(sample_embedding),
+            "displacement": self.displacement_head(sample_embedding),
+        }
+
+
+# =============================================================================
 # Model Definition
 # =============================================================================
 
@@ -199,15 +391,35 @@ class StageBridgeV1Complete(nn.Module):
         ot_epsilon: float = 0.05,
         sinkhorn_iters: int = 50,
         num_ot_pairs: int = 256,
+        # =====================================================================
+        # NICHE ENCODER ABLATION: Cross-Attention vs Self-Attention
+        # Tests whether architectural enforcement of receiver-centrality helps
+        # =====================================================================
+        niche_encoder_type: str = "cross_attention",  # "cross_attention" or "self_attention"
+        # =====================================================================
+        # HIERARCHICAL AGGREGATION (from EA-MIST Layer C)
+        # Enables sample-level predictions needed for H3 validation
+        # =====================================================================
+        use_hierarchical: bool = True,  # Enable sample-level aggregation
+        hierarchical_num_layers: int = 2,  # Number of ISAB layers
+        hierarchical_num_inducing: int = 16,  # Inducing points for ISAB
+        use_prototypes: bool = False,  # Enable prototype bottleneck (interpretability)
+        num_prototypes: int = 16,  # Number of learned niche prototypes
+        use_evolution_branch: bool = True,  # Gated WES fusion (vs simple projection)
+        evolution_mode: str = "gated",  # "gated" or "film"
+        num_stage_classes: int = 5,  # Normal, AAH, AIS, MIA, LUAD
     ):
         super().__init__()
 
         self.latent_dim = latent_dim
         self.context_dim = context_dim
+        self.niche_hidden_dim = niche_hidden_dim
         self.wes_hidden_dim = wes_hidden_dim
         self.hlca_dim = hlca_dim
         self.luca_dim = luca_dim
         self.use_doctrine_encoder = use_doctrine_encoder and DOCTRINE_ENCODER_AVAILABLE
+        self.use_hierarchical = use_hierarchical and HIERARCHICAL_AVAILABLE
+        self.use_evolution_branch = use_evolution_branch and HIERARCHICAL_AVAILABLE
         # Note: Dual-reference geometry is encoded in the fused embedding [HLCA | LuCA]
         # The Linear projection learns to weight these features (see docs/architecture/dual_reference_encoder.md)
 
@@ -217,18 +429,32 @@ class StageBridgeV1Complete(nn.Module):
         self.num_ot_pairs = num_ot_pairs
 
         # WES feature projection for evolutionary constraints
+        # Use gated EvolutionBranch for sample-level fusion, simple projection for cell-level
+        if self.use_evolution_branch:
+            # EvolutionBranch for sample-level: projects WES to niche_hidden_dim for gated fusion
+            self.evolution_branch = EvolutionBranch(
+                evolution_dim=wes_feature_dim,
+                model_dim=niche_hidden_dim,  # Must match hierarchical_aggregator output
+                mode=evolution_mode,
+                dropout=dropout,
+            )
+        else:
+            self.evolution_branch = None
+        # Simple projection for cell-level transition model (always needed)
         self.wes_proj = nn.Sequential(
             nn.Linear(wes_feature_dim, wes_hidden_dim),
             nn.GELU(),
             nn.LayerNorm(wes_hidden_dim),
         )
 
+        # Store encoder type for ablation tracking
+        self.niche_encoder_type = niche_encoder_type
+
         if self.use_doctrine_encoder:
-            # Use doctrine-compliant ReceiverCenteredNicheEncoder
+            # Use doctrine-compliant encoder with configurable attention type
             # The fused embedding [HLCA | LuCA] is the input - Linear projection
             # learns to weight HLCA vs LuCA features (see docs/architecture/dual_reference_encoder.md)
-            # Fallback: single-input encoder (concatenated reference)
-            self.niche_encoder = ReceiverCenteredNicheEncoder(
+            encoder_kwargs = dict(
                 input_dim=latent_dim,
                 hidden_dim=niche_hidden_dim,
                 num_heads=4,
@@ -236,6 +462,12 @@ class StageBridgeV1Complete(nn.Module):
                 dropout=dropout,
                 use_reconstruction_head=True,
             )
+            if niche_encoder_type == "self_attention":
+                # ABLATION: Self-attention over all tokens (receiver + neighbors)
+                self.niche_encoder = SelfAttentionNicheEncoder(**encoder_kwargs)
+            else:
+                # DEFAULT: Cross-attention (receiver as query, neighbors as key/value)
+                self.niche_encoder = ReceiverCenteredNicheEncoder(**encoder_kwargs)
             self.context_projection = nn.Linear(niche_hidden_dim, context_dim)
         else:
             # Fallback to simplified encoder
@@ -322,6 +554,29 @@ class StageBridgeV1Complete(nn.Module):
             nn.GELU(),
             nn.Linear(64, 1),  # Single IL1B activity score
         )
+
+        # =====================================================================
+        # HIERARCHICAL AGGREGATION (from EA-MIST Layer C)
+        # Aggregates multiple niches per sample for H3 validation
+        # =====================================================================
+        if self.use_hierarchical:
+            self.hierarchical_aggregator = HierarchicalAggregator(
+                hidden_dim=niche_hidden_dim,
+                num_heads=4,
+                num_layers=hierarchical_num_layers,
+                num_inducing_points=hierarchical_num_inducing,
+                dropout=dropout,
+                use_prototypes=use_prototypes,
+                num_prototypes=num_prototypes,
+            )
+            self.sample_heads = SampleLevelHeads(
+                input_dim=niche_hidden_dim,
+                num_stage_classes=num_stage_classes,
+                dropout=dropout,
+            )
+        else:
+            self.hierarchical_aggregator = None
+            self.sample_heads = None
 
     def encode_niche(
         self,
@@ -467,6 +722,8 @@ class StageBridgeV1Complete(nn.Module):
             t = torch.rand(num_pairs, 1, device=device)
 
         # Project WES features (indexed by source)
+        # Note: Cell-level transition uses simple wes_proj (always available)
+        # Sample-level uses evolution_branch for gated fusion (in sample_forward)
         if wes_features is not None:
             wes_paired = wes_features[src_idx]
             wes_h = self.wes_proj(wes_paired)
@@ -511,6 +768,7 @@ class StageBridgeV1Complete(nn.Module):
         device = z_source.device
 
         # Project WES features once (constant during trajectory)
+        # Note: Cell-level transition uses simple wes_proj
         if wes_features is not None:
             wes_h = self.wes_proj(wes_features)
         else:
@@ -630,6 +888,153 @@ class StageBridgeV1Complete(nn.Module):
             "effect_direction": effect_direction,
             "perturbation_magnitude": perturbation_magnitude,
         }
+
+    # =========================================================================
+    # SAMPLE-LEVEL METHODS (from EA-MIST Layer C)
+    # These enable H3 validation: clone-based predictions require sample-level
+    # aggregation of multiple niches
+    # =========================================================================
+
+    def encode_niche_embedding(
+        self,
+        niche_tokens: torch.Tensor,
+        distances: torch.Tensor = None,
+    ) -> torch.Tensor:
+        """Encode a single niche into its hidden representation (before context projection).
+
+        This returns the niche_hidden_dim embedding (not context_dim) for use in
+        hierarchical aggregation.
+
+        Args:
+            niche_tokens: [B, K, D] niche token embeddings
+            distances: [B, K] optional distances
+
+        Returns:
+            [B, niche_hidden_dim] niche embedding
+        """
+        batch_size = niche_tokens.shape[0]
+
+        if self.use_doctrine_encoder:
+            receiver = niche_tokens[:, 0, :]
+            neighbors = niche_tokens[:, 1:, :]
+            K = neighbors.shape[1]
+            if distances is None:
+                distances = torch.ones(batch_size, K, device=niche_tokens.device)
+
+            output: ReceiverNicheOutput = self.niche_encoder(
+                receiver=receiver,
+                neighbors=neighbors,
+                distances=distances,
+            )
+            return output.context  # [B, niche_hidden_dim]
+        else:
+            # Fallback
+            context = self.encode_niche(niche_tokens, distances)
+            # Project back to hidden dim (approximate)
+            return context[:, :self.niche_hidden_dim]
+
+    def sample_forward(
+        self,
+        niche_tokens_batch: torch.Tensor,
+        niche_mask: torch.Tensor | None = None,
+        distances_batch: torch.Tensor | None = None,
+        wes_features: torch.Tensor | None = None,
+        return_attention: bool = False,
+    ) -> dict:
+        """Sample-level forward pass: aggregate multiple niches per sample.
+
+        This is the key method for H3 validation (clone-based predictions).
+        It encodes each niche, then aggregates them into a sample-level embedding
+        for stage classification and displacement prediction.
+
+        Args:
+            niche_tokens_batch: [B, N, K, D] batch of N niches per sample
+                B = batch size (samples)
+                N = number of niches per sample
+                K = tokens per niche (9)
+                D = embedding dim (40)
+            niche_mask: [B, N] boolean mask (True = valid niche)
+            distances_batch: [B, N, K] optional distances per niche
+            wes_features: [B, wes_dim] WES features per sample
+            return_attention: If True, return attention weights
+
+        Returns:
+            dict with:
+                - sample_embedding: [B, hidden_dim] sample representation
+                - stage_logits: [B, num_classes] stage predictions
+                - displacement: [B, hidden_dim] displacement vector
+                - prototype_output: prototype assignments if enabled
+                - attention_weights: attention maps if return_attention
+                - niche_embeddings: [B, N, hidden_dim] per-niche embeddings
+        """
+        if not self.use_hierarchical:
+            raise RuntimeError(
+                "sample_forward requires use_hierarchical=True. "
+                "Pass use_hierarchical=True to constructor or use encode_niche for single niches."
+            )
+
+        B, N, K, D = niche_tokens_batch.shape
+
+        # Encode each niche individually
+        # Reshape to [B*N, K, D] for batch processing
+        flat_niches = niche_tokens_batch.reshape(B * N, K, D)
+        if distances_batch is not None:
+            flat_distances = distances_batch.reshape(B * N, K)
+        else:
+            flat_distances = None
+
+        # Get niche embeddings
+        flat_embeddings = self.encode_niche_embedding(flat_niches, flat_distances)
+        niche_embeddings = flat_embeddings.reshape(B, N, -1)  # [B, N, hidden_dim]
+
+        # Hierarchical aggregation
+        agg_output = self.hierarchical_aggregator(
+            niche_embeddings,
+            mask=niche_mask,
+            return_attention=return_attention,
+        )
+        sample_embedding = agg_output["sample_embedding"]  # [B, hidden_dim]
+
+        # Optional: fuse with WES features via evolution branch
+        evolution_embedding = None
+        if self.evolution_branch is not None and wes_features is not None:
+            sample_embedding, evolution_embedding = self.evolution_branch(
+                sample_embedding, wes_features
+            )
+
+        # Sample-level predictions
+        head_output = self.sample_heads(sample_embedding)
+
+        return {
+            "sample_embedding": sample_embedding,
+            "stage_logits": head_output["stage_logits"],
+            "displacement": head_output["displacement"],
+            "niche_embeddings": niche_embeddings,
+            "prototype_output": agg_output["prototype_output"],
+            "attention_weights": agg_output["attention_weights"],
+            "evolution_embedding": evolution_embedding,
+        }
+
+    def get_prototype_composition(self, niche_tokens_batch: torch.Tensor) -> torch.Tensor | None:
+        """Get prototype composition for interpretability.
+
+        Returns the proportion of each prototype "motif" in each sample.
+        Useful for understanding what types of niches dominate each lesion.
+
+        Args:
+            niche_tokens_batch: [B, N, K, D] batch of niches
+
+        Returns:
+            [B, num_prototypes] prototype composition per sample, or None if not using prototypes
+        """
+        if not self.use_hierarchical or self.hierarchical_aggregator.prototype_bottleneck is None:
+            return None
+
+        # Run forward to get prototype assignments
+        output = self.sample_forward(niche_tokens_batch, return_attention=False)
+        if output["prototype_output"] is not None:
+            return output["prototype_output"].prototype_composition
+        return None
 
 
 # =============================================================================

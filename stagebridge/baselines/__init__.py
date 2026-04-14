@@ -20,16 +20,25 @@ Usage:
     # Train and evaluate baselines on semi_synthetic.pt
 """
 
+# Legacy per-cell baselines (DEPRECATED - use set_baselines instead)
 from stagebridge.baselines.evaluate import (
     load_benchmark_tensors,
     create_splits,
     EvaluationMetrics,
+    train_baseline,
+    evaluate_baseline,
+)
+
+# Proper set-based baselines for H2 validation
+from stagebridge.baselines.set_baselines import (
+    BaselineOutput,
     PoolingMLPBaseline,
     DeepSetsBaseline,
     SetTransformerBaseline,
     GraphSAGEBaseline,
-    train_baseline,
-    evaluate_baseline,
+    ReceiverCenteredBaseline,
+    BASELINE_REGISTRY,
+    create_baseline,
 )
 # Import existing baselines from other modules
 from stagebridge.context_model.baselines_lesion import (
@@ -44,21 +53,26 @@ from stagebridge.transition_model.baselines import (
 )
 
 __all__ = [
-    # Evaluation
+    # Set-based baselines (CORRECT - for H2 validation)
+    "BaselineOutput",
+    "PoolingMLPBaseline",
+    "DeepSetsBaseline",
+    "SetTransformerBaseline",
+    "GraphSAGEBaseline",
+    "ReceiverCenteredBaseline",
+    "BASELINE_REGISTRY",
+    "create_baseline",
+    # Legacy evaluation (per-cell, DEPRECATED)
     "load_benchmark_tensors",
     "create_splits",
     "EvaluationMetrics",
     "train_baseline",
     "evaluate_baseline",
-    # Baselines (new simple implementations)
-    "PoolingMLPBaseline",
-    "DeepSetsBaseline",
-    "SetTransformerBaseline",
-    "GraphSAGEBaseline",
-    # Legacy baselines
+    # Lesion-level baselines
     "PooledLesionBaseline",
     "DeepSetsLesionBaseline",
     "LesionSetTransformerBaseline",
+    # Transition baselines
     "DeepSetsFlowModel",
     "NoContextFlowModel",
     "LinearTransitionBaseline",
