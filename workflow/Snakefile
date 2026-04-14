@@ -777,19 +777,17 @@ rule training:
         fold = "[0-4]",
         seed = "[0-9]+"
     params:
-        n_gpus = 4,
         ssl_epochs = 100,
         transition_epochs = 50,
         canonical_dir = CANONICAL,
         training_dir = TRAINING
-    threads: 32
+    threads: 8
     resources:
-        mem_mb = 512000,
-        runtime = 720,  # 12 hours (SSL ~6h + transition ~3h + buffer)
+        mem_mb = 256000,  # 256GB for 1.4M cells + neighborhoods + ring compositions
+        runtime = 480,    # 8 hours (single GPU, no DDP overhead)
         slurm_partition = "gpu",
-        gpu = 4,
-        constraint = "h100",
-        nodes = 1
+        gpu = 1,
+        constraint = "h100"
     log:
         f"{RUNS}/logs/training/fold{{fold}}_seed{{seed}}.log"
     shell:
@@ -800,14 +798,11 @@ rule training:
         echo "  Seed: {wildcards.seed}"
         echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
         echo "  Stage 2: Transition Model ({params.transition_epochs} epochs)"
-        echo "  GPUs: {params.n_gpus}"
+        echo "  GPU: 1x H100 (single-GPU mode)"
         echo "  HPO params: {input.hpo_params}"
         echo "=============================================="
 
-        torchrun \
-            --nproc_per_node={params.n_gpus} \
-            --master_port=$((29500 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
-            -m stagebridge.pipelines.run_v1_ddp \
+        python -m stagebridge.pipelines.run_v1_complete \
             --data_dir {params.canonical_dir} \
             --output_dir {params.training_dir}/fold{wildcards.fold}_seed{wildcards.seed} \
             --validation_fold {wildcards.fold} \
@@ -847,19 +842,17 @@ rule training_frozen:
         fold = "[0-4]",
         seed = "[0-9]+"
     params:
-        n_gpus = 4,
         ssl_epochs = 100,
         transition_epochs = 50,
         canonical_dir = CANONICAL,
         training_dir = TRAINING
-    threads: 32
+    threads: 8
     resources:
-        mem_mb = 512000,
-        runtime = 720,
+        mem_mb = 256000,  # 256GB for 1.4M cells + neighborhoods + ring compositions
+        runtime = 480,
         slurm_partition = "gpu",
-        gpu = 4,
-        constraint = "h100",
-        nodes = 1
+        gpu = 1,
+        constraint = "h100"
     log:
         f"{RUNS}/logs/training_frozen/fold{{fold}}_seed{{seed}}.log"
     shell:
@@ -870,13 +863,11 @@ rule training_frozen:
         echo "  Seed: {wildcards.seed}"
         echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
         echo "  Stage 2: Transition Model ({params.transition_epochs} epochs) - FROZEN"
+        echo "  GPU: 1x H100 (single-GPU mode)"
         echo "  Purpose: Test SSL representation transfer quality"
         echo "=============================================="
 
-        torchrun \
-            --nproc_per_node={params.n_gpus} \
-            --master_port=$((29600 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
-            -m stagebridge.pipelines.run_v1_ddp \
+        python -m stagebridge.pipelines.run_v1_complete \
             --data_dir {params.canonical_dir} \
             --output_dir {params.training_dir}/frozen/fold{wildcards.fold}_seed{wildcards.seed} \
             --validation_fold {wildcards.fold} \
