@@ -628,7 +628,10 @@ rule data_preparation:
         snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
         spatial = f"{PROCESSED}/spatial_merged.h5ad",
         wes = f"{PROCESSED}/wes_features.parquet",
-        clonal = f"{CLONAL}/clonal_patterns.json"  # From clonal_extraction
+        clonal = f"{CLONAL}/clonal_patterns.json",  # From clonal_extraction
+        # HLCA and LuCA deconvolution for spatial embedding composition
+        hlca_deconv = f"{SPATIAL}/hlca/destvi/cell_type_proportions.parquet",
+        luca_deconv = f"{SPATIAL}/luca/destvi/cell_type_proportions.parquet"
     output:
         cells = f"{CANONICAL}/cells.parquet",
         neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
@@ -636,7 +639,9 @@ rule data_preparation:
         manifest = f"{CANONICAL}/data_manifest.json"
     params:
         spatial_dir = SPATIAL,
-        canonical_dir = CANONICAL
+        canonical_dir = CANONICAL,
+        hlca_deconv_dir = f"{SPATIAL}/hlca/destvi",
+        luca_deconv_dir = f"{SPATIAL}/luca/destvi"
     threads: 16
     resources:
         mem_mb = 256000,
@@ -655,6 +660,8 @@ rule data_preparation:
             --reference_geometry {REF_GEOM} \
             --output_dir {params.canonical_dir} \
             --clonal_patterns {input.clonal} \
+            --hlca_deconv_dir {params.hlca_deconv_dir} \
+            --luca_deconv_dir {params.luca_deconv_dir} \
             2>&1 | tee {log}
         """
 
