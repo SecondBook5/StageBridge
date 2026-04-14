@@ -994,15 +994,17 @@ PLASTICITY = f"{RUNS}/biological_validation/plasticity"
 rule plasticity_validation:
     input:
         checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/best_checkpoint.pt",
-        checkpoint_no_niche = f"{ABLATIONS}/no_niche/checkpoints/final_checkpoint.pt",
         cells = f"{CANONICAL}/cells.parquet",
-        cv_results = f"{TRAINING}/aggregated/cv_results.json"
+        cv_results = f"{TRAINING}/aggregated/cv_results.json",
+        # no_niche ablation is optional - checked at runtime
+        ablation_summary = f"{ABLATIONS}/ablation_summary.json"  # Ensures ablations complete first
     output:
         results = f"{PLASTICITY}/plasticity_validation.json",
         inference = f"{PLASTICITY}/full_model_inference.parquet"
     params:
         canonical_dir = CANONICAL,
-        plasticity_dir = PLASTICITY
+        plasticity_dir = PLASTICITY,
+        no_niche_ckpt = f"{ABLATIONS}/no_niche/checkpoints/final_checkpoint.pt"
     threads: 4
     resources:
         mem_mb = 128000,
@@ -1013,9 +1015,15 @@ rule plasticity_validation:
         f"{RUNS}/logs/biological_validation/plasticity.log"
     shell:
         """
+        # Check if no_niche checkpoint exists (optional for niche resolution analysis)
+        NO_NICHE_ARG=""
+        if [ -f "{params.no_niche_ckpt}" ]; then
+            NO_NICHE_ARG="--checkpoint_no_niche {params.no_niche_ckpt}"
+        fi
+
         python -m stagebridge.pipelines.run_plasticity_validation \
             --checkpoint {input.checkpoint} \
-            --checkpoint_no_niche {input.checkpoint_no_niche} \
+            $NO_NICHE_ARG \
             --data_dir {params.canonical_dir} \
             --output_dir {params.plasticity_dir} \
             2>&1 | tee {log}
