@@ -487,7 +487,14 @@ def create_fallback_data(
 
     # Create expression matrix (sparse, simulated counts)
     # Different cell types have different expression patterns
-    gene_names = [f"Gene_{i:04d}" for i in range(n_genes)]
+    # Use real gene names from signatures so perturbations can be applied
+    from stagebridge.benchmarks.semi_synthetic.gene_signatures import get_all_signature_genes
+
+    signature_genes = sorted(get_all_signature_genes())
+    # Pad with synthetic gene names if needed
+    n_signature = min(len(signature_genes), n_genes)
+    n_synthetic = n_genes - n_signature
+    gene_names = signature_genes[:n_signature] + [f"Gene_{i:04d}" for i in range(n_synthetic)]
 
     # Create cell-type specific mean expression
     ct_means = {}
