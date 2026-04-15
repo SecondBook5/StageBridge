@@ -46,16 +46,16 @@ plt.rcParams.update({
     'figure.facecolor': 'white',
 })
 
-# Custom palettes
+# Dark2-inspired palette (from taveren)
 STAGE_ORDER = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
 STAGE_PALETTE = {
-    'Normal': '#2ecc71',
-    'AAH': '#f1c40f',
-    'AIS': '#e74c3c',
-    'MIA': '#9b59b6',
-    'LUAD': '#2c3e50'
+    'Normal': '#1b9e77',   # Teal
+    'AAH': '#d95f02',      # Orange
+    'AIS': '#7570b3',      # Purple
+    'MIA': '#e7298a',      # Pink
+    'LUAD': '#66a61e'      # Green
 }
-PATTERN_PALETTE = {'1a': '#3498db', '1b': '#e74c3c', '2': '#f39c12'}
+PATTERN_PALETTE = {'1a': '#1b9e77', '1b': '#d95f02', '2': '#7570b3'}
 
 # Gradient colormaps
 LANDSCAPE_CMAP = LinearSegmentedColormap.from_list(
@@ -158,9 +158,9 @@ def figure_dynamics_overview(cells_s, dynamics, output_dir):
     """Comprehensive dynamics figure with fancy seaborn styling."""
     print("  Generating dynamics overview...")
 
-    fig = plt.figure(figsize=(10, 8))
-    gs = GridSpec(3, 4, figure=fig, hspace=0.4, wspace=0.4,
-                  height_ratios=[1.2, 1, 1])
+    fig = plt.figure(figsize=(12, 10))
+    gs = GridSpec(3, 4, figure=fig, hspace=0.5, wspace=0.5,
+                  height_ratios=[1.3, 1, 1])
 
     grid_x, grid_y = dynamics['grid_x'], dynamics['grid_y']
     potential = dynamics['potential']
@@ -272,7 +272,7 @@ def figure_dynamics_overview(cells_s, dynamics, output_dir):
     cbar = plt.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label('∇×v', fontsize=9)
 
-    # E: Flux ratio by stage - FANCY VIOLIN
+    # E: Flux ratio by stage - VIOLIN + BOX + JITTER (taveren style)
     ax = fig.add_subplot(gs[1, 2:4])
 
     flux_data = []
@@ -288,26 +288,48 @@ def figure_dynamics_overview(cells_s, dynamics, output_dir):
 
     flux_df = pd.DataFrame(flux_data)
 
-    # Create fancy violin with embedded strip plot
-    sns.violinplot(data=flux_df, x='Stage', y='Flux Ratio',
-                  order=STAGE_ORDER, palette=STAGE_PALETTE,
-                  inner=None, linewidth=1, saturation=0.8, ax=ax)
+    # Violin + Box + Jitter overlay (ggplot2/ggpubr style)
+    positions = list(range(len(STAGE_ORDER)))
+    colors = [STAGE_PALETTE[s] for s in STAGE_ORDER]
 
-    sns.stripplot(data=flux_df, x='Stage', y='Flux Ratio',
-                 order=STAGE_ORDER, color='white',
-                 size=2, alpha=0.3, ax=ax)
+    # 1. Violin (background)
+    parts = ax.violinplot(
+        [flux_df[flux_df['Stage'] == s]['Flux Ratio'].dropna().values for s in STAGE_ORDER],
+        positions=positions, showmeans=False, showmedians=False, showextrema=False
+    )
+    for i, pc in enumerate(parts['bodies']):
+        pc.set_facecolor(colors[i])
+        pc.set_alpha(0.6)
+        pc.set_edgecolor('none')
 
-    # Add median line
-    medians = flux_df.groupby('Stage')['Flux Ratio'].median()
+    # 2. Box (overlay)
+    bp = ax.boxplot(
+        [flux_df[flux_df['Stage'] == s]['Flux Ratio'].dropna().values for s in STAGE_ORDER],
+        positions=positions, widths=0.15, showfliers=False, patch_artist=True, zorder=2
+    )
+    for i, (patch, median) in enumerate(zip(bp['boxes'], bp['medians'])):
+        patch.set_facecolor(colors[i])
+        patch.set_alpha(0.8)
+        patch.set_edgecolor('#333333')
+        patch.set_linewidth(1.2)
+        median.set_color('white')
+        median.set_linewidth(2)
+    for element in ['whiskers', 'caps']:
+        for line in bp[element]:
+            line.set_color('#333333')
+            line.set_linewidth(1.2)
+
+    # 3. Jitter points
     for i, stage in enumerate(STAGE_ORDER):
-        if stage in medians.index:
-            ax.hlines(medians[stage], i-0.3, i+0.3, color='white',
-                     linewidth=2, zorder=10)
+        data = flux_df[flux_df['Stage'] == stage]['Flux Ratio'].dropna()
+        jitter = np.random.uniform(-0.1, 0.1, len(data))
+        ax.scatter(i + jitter, data, c=colors[i], alpha=0.4, s=8, edgecolors='none', zorder=3)
 
-    ax.axhline(0.5, color='red', linestyle='--', linewidth=1.5,
-              alpha=0.7, label='Equilibrium')
+    ax.axhline(0.5, color='#e74c3c', linestyle='--', linewidth=1.5, alpha=0.7, label='Equilibrium')
+    ax.set_xticks(positions)
+    ax.set_xticklabels(STAGE_ORDER, fontweight='bold')
     ax.set_ylim(0, 1)
-    ax.set_ylabel('Flux Ratio')
+    ax.set_ylabel('Flux Ratio', fontweight='bold')
     ax.set_xlabel('')
     ax.set_title('E  Irreversibility by Stage', loc='left')
     ax.legend(loc='lower right', fontsize=8)
@@ -424,8 +446,8 @@ def figure_clonal_evolution(cells, patterns, coords_2d, output_dir):
     if len(cells_with_pattern) == 0:
         return
 
-    fig = plt.figure(figsize=(10, 6))
-    gs = GridSpec(2, 4, figure=fig, hspace=0.35, wspace=0.4)
+    fig = plt.figure(figsize=(12, 7))
+    gs = GridSpec(2, 4, figure=fig, hspace=0.45, wspace=0.5)
 
     # A: UMAP by pattern with density contours
     ax = fig.add_subplot(gs[0, 0:2])
@@ -609,18 +631,40 @@ def figure_h3_validation(cells, patterns, output_dir):
 
     df = pd.DataFrame(results)
 
-    fig, axes = plt.subplots(1, 3, figsize=(10, 3.5))
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
-    # A: Violin + swarm by pattern
+    # A: Violin + Box + Jitter by pattern (taveren style)
     ax = axes[0]
+    pattern_order = ['1a', '1b', '2']
+    colors = [PATTERN_PALETTE[p] for p in pattern_order]
 
-    sns.violinplot(data=df, x='Pattern', y='Distance',
-                  order=['1a', '1b', '2'], palette=PATTERN_PALETTE,
-                  inner=None, linewidth=1, ax=ax)
+    # Violin
+    parts = ax.violinplot(
+        [df[df['Pattern'] == p]['Distance'].dropna().values for p in pattern_order],
+        positions=[0, 1, 2], showmeans=False, showmedians=False, showextrema=False
+    )
+    for i, pc in enumerate(parts['bodies']):
+        pc.set_facecolor(colors[i])
+        pc.set_alpha(0.6)
+        pc.set_edgecolor('none')
 
-    sns.swarmplot(data=df, x='Pattern', y='Distance',
-                 order=['1a', '1b', '2'], color='white',
-                 edgecolor='gray', linewidth=0.5, size=6, ax=ax)
+    # Box
+    bp = ax.boxplot(
+        [df[df['Pattern'] == p]['Distance'].dropna().values for p in pattern_order],
+        positions=[0, 1, 2], widths=0.15, showfliers=False, patch_artist=True, zorder=2
+    )
+    for i, (patch, median) in enumerate(zip(bp['boxes'], bp['medians'])):
+        patch.set_facecolor(colors[i])
+        patch.set_alpha(0.8)
+        patch.set_edgecolor('#333333')
+        median.set_color('white')
+        median.set_linewidth(2)
+
+    # Jitter
+    for i, p in enumerate(pattern_order):
+        data = df[df['Pattern'] == p]['Distance'].dropna()
+        jitter = np.random.uniform(-0.1, 0.1, len(data))
+        ax.scatter(i + jitter, data, c=colors[i], alpha=0.5, s=20, edgecolors='none', zorder=3)
 
     # Stats
     groups = [df[df['Pattern'] == p]['Distance'].values for p in ['1a', '1b', '2']]
@@ -631,8 +675,10 @@ def figure_h3_validation(cells, patterns, output_dir):
                ha='right', va='top', fontsize=9,
                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
-    ax.set_ylabel('Embedding Distance')
-    ax.set_xlabel('Evolutionary Pattern')
+    ax.set_xticks([0, 1, 2])
+    ax.set_xticklabels(['1a', '1b', '2'], fontweight='bold')
+    ax.set_ylabel('Embedding Distance', fontweight='bold')
+    ax.set_xlabel('Evolutionary Pattern', fontweight='bold')
     ax.set_title('A  Distance by Pattern', loc='left')
     sns.despine(ax=ax)
 
@@ -680,8 +726,8 @@ def figure_method_comparison(cells_s, dynamics, output_dir):
     """Method comparison - what StageBridge uniquely provides."""
     print("  Generating method comparison figure...")
 
-    fig = plt.figure(figsize=(10, 5))
-    gs = GridSpec(2, 4, figure=fig, hspace=0.4, wspace=0.35)
+    fig = plt.figure(figsize=(12, 6))
+    gs = GridSpec(2, 4, figure=fig, hspace=0.5, wspace=0.45)
 
     grid_x, grid_y = dynamics['grid_x'], dynamics['grid_y']
     potential = dynamics['potential']
