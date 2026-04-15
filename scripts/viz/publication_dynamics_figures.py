@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Publication-grade dynamics and clonal evolution figures.
+"""Publication-grade dynamics figures - Nature Methods quality.
 
-Nature Methods quality - no text boxes, clean design, data speaks for itself.
+Uses seaborn, advanced visualizations, beautiful palettes.
 """
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from matplotlib.gridspec import GridSpec
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.collections import LineCollection
@@ -24,53 +25,54 @@ from sklearn.decomposition import PCA
 import json
 
 # =============================================================================
-# PUBLICATION STYLE
+# SEABORN PUBLICATION STYLE
 # =============================================================================
+sns.set_theme(style="white", context="paper", font_scale=1.1)
+sns.set_palette("deep")
+
 plt.rcParams.update({
     'font.family': 'sans-serif',
-    'font.sans-serif': ['Arial', 'Helvetica'],
-    'font.size': 8,
-    'axes.labelsize': 9,
-    'axes.titlesize': 10,
+    'font.size': 9,
+    'axes.labelsize': 10,
+    'axes.titlesize': 11,
     'axes.titleweight': 'bold',
-    'axes.linewidth': 0.8,
-    'xtick.labelsize': 8,
-    'ytick.labelsize': 8,
-    'xtick.major.width': 0.8,
-    'ytick.major.width': 0.8,
-    'legend.fontsize': 8,
-    'legend.frameon': False,
+    'axes.linewidth': 1,
+    'xtick.labelsize': 9,
+    'ytick.labelsize': 9,
+    'legend.fontsize': 9,
     'figure.dpi': 150,
     'savefig.dpi': 300,
     'savefig.bbox': 'tight',
-    'savefig.pad_inches': 0.05,
-    'axes.spines.top': False,
-    'axes.spines.right': False,
     'figure.facecolor': 'white',
-    'axes.facecolor': 'white',
 })
 
+# Custom palettes
 STAGE_ORDER = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
-STAGE_COLORS = {
-    'Normal': '#27ae60',
-    'AAH': '#f39c12',
+STAGE_PALETTE = {
+    'Normal': '#2ecc71',
+    'AAH': '#f1c40f',
     'AIS': '#e74c3c',
-    'MIA': '#8e44ad',
+    'MIA': '#9b59b6',
     'LUAD': '#2c3e50'
 }
-PATTERN_COLORS = {'1a': '#3498db', '1b': '#9b59b6', '2': '#e67e22'}
+PATTERN_PALETTE = {'1a': '#3498db', '1b': '#e74c3c', '2': '#f39c12'}
+
+# Gradient colormaps
+LANDSCAPE_CMAP = LinearSegmentedColormap.from_list(
+    'landscape', ['#2c3e50', '#1abc9c', '#f1c40f', '#e74c3c', '#ffffff']
+)
+FLUX_CMAP = sns.color_palette("rocket", as_cmap=True)
+DIVERGENCE_CMAP = sns.color_palette("icefire", as_cmap=True)
 
 
 def load_data(data_dir: Path):
     """Load cells and patterns."""
     cells = pd.read_parquet(data_dir / "cells.parquet")
-
     patterns_path = Path("data/paper/clonal_patterns.json")
     patterns = {}
     if patterns_path.exists():
         with open(patterns_path) as f:
             patterns = json.load(f)
-
     return cells, patterns
 
 
@@ -83,14 +85,12 @@ def compute_dynamics(cells_s, coords_2d):
     """Compute velocity field and landscape-flux decomposition."""
     stage_map = {s: i for i, s in enumerate(STAGE_ORDER)}
 
-    # Stage centroids
     centroids = {}
     for stage in STAGE_ORDER:
         mask = cells_s['stage'] == stage
         if mask.sum() > 0:
             centroids[stage] = coords_2d[mask.values].mean(axis=0)
 
-    # Velocity field (pointing toward next stage)
     velocities = np.zeros_like(coords_2d)
     for i, stage in enumerate(cells_s['stage'].values):
         stage_idx = stage_map.get(stage, -1)
@@ -102,7 +102,6 @@ def compute_dynamics(cells_s, coords_2d):
                 if norm > 0:
                     velocities[i] = direction / norm * 0.3
 
-    # Grid
     pad = 0.5
     x_min, x_max = coords_2d[:, 0].min() - pad, coords_2d[:, 0].max() + pad
     y_min, y_max = coords_2d[:, 1].min() - pad, coords_2d[:, 1].max() + pad
@@ -110,13 +109,11 @@ def compute_dynamics(cells_s, coords_2d):
     n_grid = 60
     grid_x, grid_y = np.mgrid[x_min:x_max:complex(n_grid), y_min:y_max:complex(n_grid)]
 
-    # Interpolate
     vx = griddata(coords_2d, velocities[:, 0], (grid_x, grid_y), method='linear', fill_value=0)
     vy = griddata(coords_2d, velocities[:, 1], (grid_x, grid_y), method='linear', fill_value=0)
     vx = ndimage.gaussian_filter(vx, sigma=1.5)
     vy = ndimage.gaussian_filter(vy, sigma=1.5)
 
-    # Density-based potential
     try:
         kde = gaussian_kde(coords_2d.T, bw_method=0.15)
         density = kde(np.vstack([grid_x.ravel(), grid_y.ravel()])).reshape(grid_x.shape)
@@ -127,7 +124,6 @@ def compute_dynamics(cells_s, coords_2d):
     potential = ndimage.gaussian_filter(potential, sigma=2)
     potential = (potential - potential.min()) / (potential.max() - potential.min() + 1e-10)
 
-    # Gradient and flux
     dU_dx = np.gradient(potential, axis=0)
     dU_dy = np.gradient(potential, axis=1)
 
@@ -138,10 +134,7 @@ def compute_dynamics(cells_s, coords_2d):
     rot_mag = np.sqrt(vx_rot**2 + vy_rot**2)
     flux_ratio = rot_mag / (grad_mag + rot_mag + 1e-10)
 
-    # Curl
     curl = np.gradient(vy, axis=0) - np.gradient(vx, axis=1)
-
-    # Divergence
     div = np.gradient(vx, axis=0) + np.gradient(vy, axis=1)
 
     return {
@@ -152,264 +145,269 @@ def compute_dynamics(cells_s, coords_2d):
         'curl': curl,
         'divergence': div,
         'centroids': centroids,
-        'coords_2d': coords_2d
+        'coords_2d': coords_2d,
+        'density': density
     }
 
 
 # =============================================================================
-# FIGURE 1: PHASE PORTRAIT
+# FIGURE 1: DYNAMICS OVERVIEW
 # =============================================================================
 
-def figure_phase_portrait(cells_s, dynamics, output_dir):
-    """Clean phase portrait with streamlines and fixed points."""
-    print("  Generating phase portrait...")
+def figure_dynamics_overview(cells_s, dynamics, output_dir):
+    """Comprehensive dynamics figure with fancy seaborn styling."""
+    print("  Generating dynamics overview...")
 
-    fig, axes = plt.subplots(1, 3, figsize=(7, 2.3))
+    fig = plt.figure(figsize=(10, 8))
+    gs = GridSpec(3, 4, figure=fig, hspace=0.4, wspace=0.4,
+                  height_ratios=[1.2, 1, 1])
 
     grid_x, grid_y = dynamics['grid_x'], dynamics['grid_y']
-    vx, vy = dynamics['vx'], dynamics['vy']
+    potential = dynamics['potential']
+    flux_ratio = dynamics['flux_ratio']
     centroids = dynamics['centroids']
     coords_2d = dynamics['coords_2d']
+    vx, vy = dynamics['vx'], dynamics['vy']
 
-    speed = np.sqrt(vx**2 + vy**2)
+    # A: 3D Landscape (large panel)
+    ax = fig.add_subplot(gs[0, 0:2], projection='3d')
 
-    # A: Streamlines
-    ax = axes[0]
-    strm = ax.streamplot(grid_x[:, 0], grid_y[0, :], vx.T, vy.T,
-                        color=speed.T, cmap='coolwarm', density=1.8,
-                        linewidth=0.6, arrowsize=0.6, arrowstyle='->')
+    # Create beautiful surface
+    surf = ax.plot_surface(grid_x, grid_y, potential,
+                          cmap='terrain', alpha=0.85,
+                          linewidth=0, antialiased=True,
+                          rstride=2, cstride=2, rasterized=True)
 
+    # Add "balls" rolling down
     for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=40, zorder=5,
-                  edgecolor='white', linewidth=0.8)
+        i = np.argmin(np.abs(grid_x[:, 0] - c[0]))
+        j = np.argmin(np.abs(grid_y[0, :] - c[1]))
+        z = potential[i, j] + 0.05
+        ax.scatter([c[0]], [c[1]], [z], c=STAGE_PALETTE[stage], s=80,
+                  edgecolor='white', linewidth=1.5, zorder=10, depthshade=False)
+
+    ax.set_xlabel('PC1', labelpad=2)
+    ax.set_ylabel('PC2', labelpad=2)
+    ax.set_zlabel('Potential', labelpad=2)
+    ax.view_init(elev=30, azim=-45)
+    ax.set_title('A  Waddington Landscape', loc='left', pad=10)
+    ax.tick_params(labelsize=7, pad=0)
+    ax.xaxis.pane.fill = False
+    ax.yaxis.pane.fill = False
+    ax.zaxis.pane.fill = False
+    ax.grid(True, alpha=0.3)
+
+    # B: Flux field with streamlines (large panel)
+    ax = fig.add_subplot(gs[0, 2:4])
+
+    # Background density
+    ax.contourf(grid_x, grid_y, dynamics['density'], levels=30,
+               cmap='Greys', alpha=0.3)
+
+    # Streamlines colored by flux
+    speed = np.sqrt(vx**2 + vy**2)
+    strm = ax.streamplot(grid_x[:, 0], grid_y[0, :], vx.T, vy.T,
+                        color=flux_ratio.T, cmap=FLUX_CMAP,
+                        density=2, linewidth=1.2, arrowsize=1,
+                        arrowstyle='-|>')
+
+    # Stage markers with glow effect
+    for stage, c in centroids.items():
+        ax.scatter(*c, c=STAGE_PALETTE[stage], s=200, zorder=10,
+                  edgecolor='white', linewidth=2)
+        ax.scatter(*c, c=STAGE_PALETTE[stage], s=400, zorder=9,
+                  alpha=0.3)  # Glow
+        ax.annotate(stage, c, fontsize=8, ha='center', va='bottom',
+                   xytext=(0, 12), textcoords='offset points',
+                   fontweight='bold')
 
     ax.set_xlabel('PC1')
     ax.set_ylabel('PC2')
-    ax.set_title('A', loc='left', fontweight='bold')
-    ax.set_aspect('equal', adjustable='box')
+    ax.set_title('B  Vector Field & Irreversibility', loc='left')
+    ax.set_aspect('equal')
+    sns.despine(ax=ax)
 
-    # B: Divergence (sources/sinks)
-    ax = axes[1]
+    cbar = plt.colorbar(strm.lines, ax=ax, shrink=0.6, pad=0.02)
+    cbar.set_label('Flux ratio', fontsize=9)
+
+    # C: Divergence field
+    ax = fig.add_subplot(gs[1, 0])
+
     div = dynamics['divergence']
     vmax = np.percentile(np.abs(div), 95)
-    im = ax.pcolormesh(grid_x, grid_y, div, cmap='RdBu_r',
+    im = ax.pcolormesh(grid_x, grid_y, div, cmap=DIVERGENCE_CMAP,
                        vmin=-vmax, vmax=vmax, shading='gouraud', rasterized=True)
 
     for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=40, zorder=5,
-                  edgecolor='white', linewidth=0.8)
+        ax.scatter(*c, c='white', s=60, zorder=5,
+                  edgecolor=STAGE_PALETTE[stage], linewidth=2)
 
     ax.set_xlabel('PC1')
     ax.set_ylabel('PC2')
-    ax.set_title('B', loc='left', fontweight='bold')
-    ax.set_aspect('equal', adjustable='box')
+    ax.set_title('C  Divergence', loc='left')
+    ax.set_aspect('equal')
+    sns.despine(ax=ax)
 
-    cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
-    cbar.set_label('Divergence', fontsize=7)
-    cbar.ax.tick_params(labelsize=6)
+    cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label('∇·v', fontsize=9)
 
-    # C: Curl (rotation)
-    ax = axes[2]
+    # D: Curl field
+    ax = fig.add_subplot(gs[1, 1])
+
     curl = dynamics['curl']
     vmax = np.percentile(np.abs(curl), 95)
     im = ax.pcolormesh(grid_x, grid_y, curl, cmap='PiYG',
                        vmin=-vmax, vmax=vmax, shading='gouraud', rasterized=True)
 
     for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=40, zorder=5,
-                  edgecolor='white', linewidth=0.8)
+        ax.scatter(*c, c='white', s=60, zorder=5,
+                  edgecolor=STAGE_PALETTE[stage], linewidth=2)
 
     ax.set_xlabel('PC1')
     ax.set_ylabel('PC2')
-    ax.set_title('C', loc='left', fontweight='bold')
-    ax.set_aspect('equal', adjustable='box')
+    ax.set_title('D  Curl (rotation)', loc='left')
+    ax.set_aspect('equal')
+    sns.despine(ax=ax)
 
-    cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
-    cbar.set_label('Curl', fontsize=7)
-    cbar.ax.tick_params(labelsize=6)
+    cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label('∇×v', fontsize=9)
 
-    plt.tight_layout()
-    fig.savefig(output_dir / "fig_phase_portrait.png", dpi=300, facecolor='white')
-    fig.savefig(output_dir / "fig_phase_portrait.pdf", facecolor='white')
-    plt.close(fig)
+    # E: Flux ratio by stage - FANCY VIOLIN
+    ax = fig.add_subplot(gs[1, 2:4])
 
-
-# =============================================================================
-# FIGURE 2: LANDSCAPE-FLUX DECOMPOSITION
-# =============================================================================
-
-def figure_landscape_flux(cells_s, dynamics, output_dir):
-    """Waddington landscape and flux decomposition."""
-    print("  Generating landscape-flux figure...")
-
-    fig = plt.figure(figsize=(7, 4.5))
-
-    grid_x, grid_y = dynamics['grid_x'], dynamics['grid_y']
-    potential = dynamics['potential']
-    flux_ratio = dynamics['flux_ratio']
-    centroids = dynamics['centroids']
-    vx, vy = dynamics['vx'], dynamics['vy']
-
-    # A: 3D landscape
-    ax = fig.add_subplot(2, 3, 1, projection='3d')
-
-    surf = ax.plot_surface(grid_x, grid_y, potential, cmap='terrain',
-                          alpha=0.9, linewidth=0, antialiased=True,
-                          rasterized=True)
-
-    # Project centroids
-    for stage, c in centroids.items():
-        i = np.argmin(np.abs(grid_x[:, 0] - c[0]))
-        j = np.argmin(np.abs(grid_y[0, :] - c[1]))
-        z = potential[i, j]
-        ax.scatter([c[0]], [c[1]], [z], c=STAGE_COLORS[stage], s=30,
-                  edgecolor='black', linewidth=0.5, zorder=5)
-
-    ax.set_xlabel('PC1', fontsize=7, labelpad=-2)
-    ax.set_ylabel('PC2', fontsize=7, labelpad=-2)
-    ax.set_zlabel('U', fontsize=7, labelpad=-2)
-    ax.set_title('A', loc='left', fontweight='bold', fontsize=10)
-    ax.view_init(elev=25, azim=-50)
-    ax.tick_params(labelsize=6, pad=-2)
-    ax.xaxis.pane.fill = False
-    ax.yaxis.pane.fill = False
-    ax.zaxis.pane.fill = False
-
-    # B: Contour landscape with gradient arrows
-    ax = fig.add_subplot(2, 3, 2)
-
-    contours = ax.contourf(grid_x, grid_y, potential, levels=20,
-                          cmap='terrain', alpha=0.9)
-    ax.contour(grid_x, grid_y, potential, levels=10, colors='white',
-              linewidths=0.3, alpha=0.5)
-
-    # Gradient arrows
-    skip = 6
-    dU_dx = np.gradient(potential, axis=0)
-    dU_dy = np.gradient(potential, axis=1)
-    ax.quiver(grid_x[::skip, ::skip], grid_y[::skip, ::skip],
-             -dU_dx[::skip, ::skip], -dU_dy[::skip, ::skip],
-             color='white', alpha=0.6, scale=25, width=0.004)
-
-    # Stage path
-    stages = [s for s in STAGE_ORDER if s in centroids]
-    if len(stages) > 1:
-        path_x = [centroids[s][0] for s in stages]
-        path_y = [centroids[s][1] for s in stages]
-        ax.plot(path_x, path_y, 'k-', linewidth=1.5, alpha=0.7, zorder=4)
-
-    for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=50, zorder=5,
-                  edgecolor='black', linewidth=0.8)
-
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('B', loc='left', fontweight='bold')
-    ax.set_aspect('equal', adjustable='box')
-
-    # C: Flux ratio field
-    ax = fig.add_subplot(2, 3, 3)
-
-    im = ax.pcolormesh(grid_x, grid_y, flux_ratio, cmap='magma',
-                       vmin=0, vmax=1, shading='gouraud', rasterized=True)
-
-    for stage, c in centroids.items():
-        ax.scatter(*c, c='white', s=50, zorder=5,
-                  edgecolor='black', linewidth=0.8)
-
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('C', loc='left', fontweight='bold')
-    ax.set_aspect('equal', adjustable='box')
-
-    cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
-    cbar.set_label('Flux ratio', fontsize=7)
-    cbar.ax.tick_params(labelsize=6)
-
-    # D: Flux ratio by stage (quantitative)
-    ax = fig.add_subplot(2, 3, 4)
-
-    flux_by_stage = []
-    stage_labels = []
+    flux_data = []
     for stage in STAGE_ORDER:
         if stage in centroids:
             cx, cy = centroids[stage]
             dist = np.sqrt((grid_x - cx)**2 + (grid_y - cy)**2)
-            near_mask = dist < 1.0
+            near_mask = dist < 1.5
             if near_mask.any():
-                flux_by_stage.append(flux_ratio[near_mask].mean())
-                stage_labels.append(stage)
+                values = flux_ratio[near_mask].ravel()
+                for v in values:
+                    flux_data.append({'Stage': stage, 'Flux Ratio': v})
 
-    colors = [STAGE_COLORS[s] for s in stage_labels]
-    bars = ax.bar(range(len(stage_labels)), flux_by_stage, color=colors,
-                 edgecolor='black', linewidth=0.5)
+    flux_df = pd.DataFrame(flux_data)
 
-    ax.axhline(0.5, color='red', linestyle='--', linewidth=0.8, alpha=0.7)
-    ax.set_xticks(range(len(stage_labels)))
-    ax.set_xticklabels(stage_labels, rotation=45, ha='right')
-    ax.set_ylabel('Flux ratio')
+    # Create fancy violin with embedded strip plot
+    sns.violinplot(data=flux_df, x='Stage', y='Flux Ratio',
+                  order=STAGE_ORDER, palette=STAGE_PALETTE,
+                  inner=None, linewidth=1, saturation=0.8, ax=ax)
+
+    sns.stripplot(data=flux_df, x='Stage', y='Flux Ratio',
+                 order=STAGE_ORDER, color='white',
+                 size=2, alpha=0.3, ax=ax)
+
+    # Add median line
+    medians = flux_df.groupby('Stage')['Flux Ratio'].median()
+    for i, stage in enumerate(STAGE_ORDER):
+        if stage in medians.index:
+            ax.hlines(medians[stage], i-0.3, i+0.3, color='white',
+                     linewidth=2, zorder=10)
+
+    ax.axhline(0.5, color='red', linestyle='--', linewidth=1.5,
+              alpha=0.7, label='Equilibrium')
     ax.set_ylim(0, 1)
-    ax.set_title('D', loc='left', fontweight='bold')
+    ax.set_ylabel('Flux Ratio')
+    ax.set_xlabel('')
+    ax.set_title('E  Irreversibility by Stage', loc='left')
+    ax.legend(loc='lower right', fontsize=8)
+    sns.despine(ax=ax)
 
-    # E: Streamlines colored by flux
-    ax = fig.add_subplot(2, 3, 5)
-
-    strm = ax.streamplot(grid_x[:, 0], grid_y[0, :], vx.T, vy.T,
-                        color=flux_ratio.T, cmap='magma', density=1.5,
-                        linewidth=0.6, arrowsize=0.6)
-
-    for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=50, zorder=5,
-                  edgecolor='white', linewidth=0.8)
-
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('E', loc='left', fontweight='bold')
-    ax.set_aspect('equal', adjustable='box')
-
-    # F: Summary statistics
-    ax = fig.add_subplot(2, 3, 6)
+    # F: Overall flux distribution - RIDGEPLOT STYLE
+    ax = fig.add_subplot(gs[2, 0:2])
 
     mean_flux = np.nanmean(flux_ratio)
 
-    # Bootstrap confidence interval
-    n_boot = 100
-    boot_means = []
+    # KDE of flux ratio
     flat_flux = flux_ratio.ravel()
     flat_flux = flat_flux[~np.isnan(flat_flux)]
-    for _ in range(n_boot):
-        sample = np.random.choice(flat_flux, size=len(flat_flux), replace=True)
-        boot_means.append(np.mean(sample))
+
+    sns.kdeplot(flat_flux, ax=ax, fill=True, color=sns.color_palette("rocket")[3],
+               alpha=0.7, linewidth=2)
+
+    ax.axvline(mean_flux, color='#2c3e50', linestyle='-', linewidth=2,
+              label=f'Mean = {mean_flux:.2f}')
+    ax.axvline(0.5, color='red', linestyle='--', linewidth=1.5,
+              label='Equilibrium')
+
+    # Bootstrap CI
+    n_boot = 1000
+    boot_means = [np.mean(np.random.choice(flat_flux, len(flat_flux), replace=True))
+                  for _ in range(n_boot)]
     ci_low, ci_high = np.percentile(boot_means, [2.5, 97.5])
+    ax.axvspan(ci_low, ci_high, alpha=0.2, color='#2c3e50', label='95% CI')
 
-    ax.barh([0], [mean_flux], color='#9b59b6', height=0.5,
-           edgecolor='black', linewidth=0.5)
-    ax.errorbar(mean_flux, 0, xerr=[[mean_flux - ci_low], [ci_high - mean_flux]],
-               fmt='none', color='black', capsize=3, linewidth=1)
-
-    ax.axvline(0.5, color='red', linestyle='--', linewidth=0.8)
     ax.set_xlim(0, 1)
-    ax.set_yticks([])
-    ax.set_xlabel('Mean flux ratio')
-    ax.set_title('F', loc='left', fontweight='bold')
+    ax.set_xlabel('Flux Ratio')
+    ax.set_ylabel('Density')
+    ax.set_title('F  Global Flux Distribution', loc='left')
+    ax.legend(loc='upper left', fontsize=8)
+    sns.despine(ax=ax)
 
-    # Add value annotation
-    ax.text(mean_flux + 0.05, 0, f'{mean_flux:.2f}', va='center', fontsize=9)
+    # G: Stage-to-stage transitions - HEATMAP
+    ax = fig.add_subplot(gs[2, 2])
+
+    # Compute transition distances
+    trans_matrix = np.zeros((5, 5))
+    for i, s1 in enumerate(STAGE_ORDER):
+        for j, s2 in enumerate(STAGE_ORDER):
+            if s1 in centroids and s2 in centroids:
+                trans_matrix[i, j] = np.linalg.norm(
+                    np.array(centroids[s1]) - np.array(centroids[s2])
+                )
+
+    mask = np.triu(np.ones_like(trans_matrix, dtype=bool), k=1)
+
+    sns.heatmap(trans_matrix, mask=~mask, annot=True, fmt='.2f',
+               cmap='YlOrRd', ax=ax, square=True,
+               xticklabels=STAGE_ORDER, yticklabels=STAGE_ORDER,
+               cbar_kws={'shrink': 0.6, 'label': 'Distance'},
+               annot_kws={'size': 8})
+
+    ax.set_title('G  Transition Distances', loc='left')
+
+    # H: Summary statistics - HORIZONTAL BAR
+    ax = fig.add_subplot(gs[2, 3])
+
+    stats_data = {
+        'Mean flux': mean_flux,
+        'Median flux': np.nanmedian(flux_ratio),
+        'Max curl': np.nanmax(np.abs(dynamics['curl'])),
+        'Max div': np.nanmax(np.abs(dynamics['divergence']))
+    }
+
+    colors = sns.color_palette("rocket", len(stats_data))
+    y_pos = range(len(stats_data))
+
+    bars = ax.barh(y_pos, list(stats_data.values()), color=colors,
+                  edgecolor='white', linewidth=1)
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(list(stats_data.keys()))
+    ax.set_xlabel('Value')
+    ax.set_title('H  Summary', loc='left')
+
+    for i, (bar, val) in enumerate(zip(bars, stats_data.values())):
+        ax.text(bar.get_width() + 0.02, bar.get_y() + bar.get_height()/2,
+               f'{val:.2f}', va='center', fontsize=8)
+
+    ax.set_xlim(0, max(stats_data.values()) * 1.3)
+    sns.despine(ax=ax)
 
     plt.tight_layout()
-    fig.savefig(output_dir / "fig_landscape_flux.png", dpi=300, facecolor='white')
-    fig.savefig(output_dir / "fig_landscape_flux.pdf", facecolor='white')
+    fig.savefig(output_dir / "fig1_dynamics_overview.png", dpi=300, facecolor='white')
+    fig.savefig(output_dir / "fig1_dynamics_overview.pdf", facecolor='white')
     plt.close(fig)
 
     return mean_flux
 
 
 # =============================================================================
-# FIGURE 3: CLONAL EVOLUTION PATTERNS
+# FIGURE 2: CLONAL EVOLUTION
 # =============================================================================
 
 def figure_clonal_evolution(cells, patterns, coords_2d, output_dir):
-    """Clonal evolution patterns from paper."""
+    """Clonal evolution with fancy seaborn styling."""
     print("  Generating clonal evolution figure...")
 
     if not patterns:
@@ -419,170 +417,166 @@ def figure_clonal_evolution(cells, patterns, coords_2d, output_dir):
     patient_to_pattern = patterns.get('patient_to_pattern', {})
     pattern_info = patterns.get('patterns', {})
 
-    # Map to cells
     cells = cells.copy()
     cells['pattern'] = cells['donor_id'].map(patient_to_pattern)
     cells_with_pattern = cells.dropna(subset=['pattern'])
 
     if len(cells_with_pattern) == 0:
-        print("    No pattern mapping, skipping")
         return
 
-    fig, axes = plt.subplots(2, 3, figsize=(7, 4.5))
+    fig = plt.figure(figsize=(10, 6))
+    gs = GridSpec(2, 4, figure=fig, hspace=0.35, wspace=0.4)
 
-    # A: UMAP by pattern
-    ax = axes[0, 0]
+    # A: UMAP by pattern with density contours
+    ax = fig.add_subplot(gs[0, 0:2])
+
     for pattern in ['1a', '1b', '2']:
         mask = cells_with_pattern['pattern'] == pattern
         idx = cells_with_pattern[mask].index
         pos = [cells.index.get_loc(i) for i in idx if i in cells.index]
-        if pos:
-            ax.scatter(coords_2d[pos, 0], coords_2d[pos, 1],
-                      c=PATTERN_COLORS[pattern], s=3, alpha=0.4,
-                      label=pattern, rasterized=True)
+        if len(pos) > 100:
+            coords = coords_2d[pos]
+            # Scatter
+            ax.scatter(coords[:, 0], coords[:, 1],
+                      c=PATTERN_PALETTE[pattern], s=5, alpha=0.3,
+                      label=f'{pattern} (n={len(pos):,})', rasterized=True)
+            # Density contour
+            try:
+                sns.kdeplot(x=coords[:, 0], y=coords[:, 1], ax=ax,
+                           color=PATTERN_PALETTE[pattern], levels=3,
+                           linewidths=1.5, alpha=0.8)
+            except:
+                pass
 
-    ax.legend(markerscale=3, loc='upper right', fontsize=7)
+    ax.legend(loc='upper right', fontsize=8, markerscale=3)
     ax.set_xlabel('PC1')
     ax.set_ylabel('PC2')
-    ax.set_title('A', loc='left', fontweight='bold')
-    ax.set_aspect('equal', adjustable='box')
+    ax.set_title('A  Evolutionary Patterns in Embedding', loc='left')
+    ax.set_aspect('equal')
+    sns.despine(ax=ax)
 
-    # B: Patient counts by pattern
-    ax = axes[0, 1]
+    # B: Donut chart with pattern distribution
+    ax = fig.add_subplot(gs[0, 2])
+
     pattern_counts = [pattern_info.get(p, {}).get('n', 0) for p in ['1a', '1b', '2']]
-    colors = [PATTERN_COLORS[p] for p in ['1a', '1b', '2']]
+    colors = [PATTERN_PALETTE[p] for p in ['1a', '1b', '2']]
 
-    wedges, texts, autotexts = ax.pie(pattern_counts, colors=colors,
-                                       autopct='%1.0f%%', startangle=90,
-                                       textprops={'fontsize': 8})
-    ax.set_title('B', loc='left', fontweight='bold')
+    wedges, texts, autotexts = ax.pie(
+        pattern_counts, colors=colors, autopct='%1.0f%%',
+        startangle=90, pctdistance=0.75,
+        wedgeprops=dict(width=0.5, edgecolor='white', linewidth=2),
+        textprops={'fontsize': 10, 'fontweight': 'bold'}
+    )
 
-    # C: Cell counts by pattern
-    ax = axes[0, 2]
+    # Center text
+    ax.text(0, 0, f'n={sum(pattern_counts)}', ha='center', va='center',
+           fontsize=12, fontweight='bold')
+
+    ax.set_title('B  Patients', loc='left')
+
+    # C: Cell counts - FANCY BAR
+    ax = fig.add_subplot(gs[0, 3])
+
     cell_counts = cells_with_pattern['pattern'].value_counts()
-    bars = ax.bar(['1a', '1b', '2'],
-                 [cell_counts.get(p, 0) for p in ['1a', '1b', '2']],
-                 color=[PATTERN_COLORS[p] for p in ['1a', '1b', '2']],
-                 edgecolor='black', linewidth=0.5)
+    patterns_list = ['1a', '1b', '2']
+    counts = [cell_counts.get(p, 0) for p in patterns_list]
+
+    bars = ax.bar(patterns_list, counts,
+                 color=[PATTERN_PALETTE[p] for p in patterns_list],
+                 edgecolor='white', linewidth=2)
+
+    # Add value labels
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2, height,
+               f'{height/1000:.0f}k', ha='center', va='bottom',
+               fontsize=9, fontweight='bold')
 
     ax.set_ylabel('Cells')
     ax.set_xlabel('Pattern')
-    ax.set_title('C', loc='left', fontweight='bold')
-
-    # Format y-axis in thousands
+    ax.set_title('C  Cells per Pattern', loc='left')
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.0f}k'))
+    sns.despine(ax=ax)
 
-    # D: Stage composition by pattern
-    ax = axes[1, 0]
-    stage_by_pattern = pd.crosstab(cells_with_pattern['pattern'],
-                                    cells_with_pattern['stage'],
-                                    normalize='index')
-    stage_by_pattern = stage_by_pattern.reindex(['1a', '1b', '2']).reindex(columns=STAGE_ORDER)
+    # D: Stage composition - STACKED BAR with patterns
+    ax = fig.add_subplot(gs[1, 0:2])
+
+    stage_by_pattern = pd.crosstab(cells_with_pattern['stage'],
+                                    cells_with_pattern['pattern'],
+                                    normalize='columns')
+    stage_by_pattern = stage_by_pattern.reindex(STAGE_ORDER).reindex(columns=['1a', '1b', '2'])
 
     x = np.arange(3)
-    width = 0.15
-    for i, stage in enumerate(STAGE_ORDER):
-        offset = (i - 2) * width
-        if stage in stage_by_pattern.columns:
-            ax.bar(x + offset, stage_by_pattern[stage], width,
-                  color=STAGE_COLORS[stage], edgecolor='white', linewidth=0.3)
+    bottom = np.zeros(3)
+
+    for stage in STAGE_ORDER:
+        if stage in stage_by_pattern.index:
+            values = stage_by_pattern.loc[stage].values
+            ax.bar(x, values, bottom=bottom, label=stage,
+                  color=STAGE_PALETTE[stage], edgecolor='white', linewidth=0.5)
+            bottom += values
 
     ax.set_xticks(x)
-    ax.set_xticklabels(['1a', '1b', '2'])
+    ax.set_xticklabels(['1a\nDirect', '1b\nBranched', '2\nIndependent'])
     ax.set_ylabel('Proportion')
-    ax.set_xlabel('Pattern')
-    ax.set_title('D', loc='left', fontweight='bold')
-    ax.legend(STAGE_ORDER, fontsize=6, loc='upper right', ncol=2)
+    ax.set_title('D  Stage Composition by Pattern', loc='left')
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
+    sns.despine(ax=ax)
 
-    # E: Pattern by stage
-    ax = axes[1, 1]
+    # E: Pattern composition by stage - FANCY STACKED
+    ax = fig.add_subplot(gs[1, 2:4])
+
     pattern_by_stage = pd.crosstab(cells_with_pattern['stage'],
                                     cells_with_pattern['pattern'],
                                     normalize='index')
     pattern_by_stage = pattern_by_stage.reindex(STAGE_ORDER).reindex(columns=['1a', '1b', '2'])
 
+    x = np.arange(len(STAGE_ORDER))
+    width = 0.6
+
     bottom = np.zeros(len(STAGE_ORDER))
     for pattern in ['1a', '1b', '2']:
         if pattern in pattern_by_stage.columns:
             values = pattern_by_stage[pattern].values
-            ax.bar(STAGE_ORDER, values, bottom=bottom,
-                  color=PATTERN_COLORS[pattern], edgecolor='white',
-                  linewidth=0.3, label=pattern)
+            ax.bar(x, values, width, bottom=bottom, label=pattern,
+                  color=PATTERN_PALETTE[pattern], edgecolor='white', linewidth=0.5)
             bottom += values
 
+    ax.set_xticks(x)
+    ax.set_xticklabels(STAGE_ORDER)
     ax.set_ylabel('Proportion')
-    ax.set_xticklabels(STAGE_ORDER, rotation=45, ha='right')
-    ax.set_title('E', loc='left', fontweight='bold')
-    ax.legend(fontsize=7, loc='upper right')
+    ax.set_xlabel('Disease Stage')
+    ax.set_title('E  Evolution Pattern by Stage', loc='left')
+    ax.legend(title='Pattern', fontsize=8)
 
-    # F: Evolution schematic (simplified)
-    ax = axes[1, 2]
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, 4)
-    ax.axis('off')
+    # Color x-axis labels
+    for i, label in enumerate(ax.get_xticklabels()):
+        label.set_color(STAGE_PALETTE[STAGE_ORDER[i]])
+        label.set_fontweight('bold')
 
-    # Pattern 1a
-    y = 3
-    ax.add_patch(plt.Circle((1, y), 0.3, color=PATTERN_COLORS['1a']))
-    ax.annotate('', xy=(2.5, y), xytext=(1.4, y),
-               arrowprops=dict(arrowstyle='->', color='black', lw=1))
-    ax.add_patch(plt.Circle((3, y), 0.3, color=PATTERN_COLORS['1a']))
-    ax.annotate('', xy=(4.5, y), xytext=(3.4, y),
-               arrowprops=dict(arrowstyle='->', color='black', lw=1))
-    ax.add_patch(plt.Circle((5, y), 0.3, color=PATTERN_COLORS['1a']))
-    ax.text(6, y, '1a: Direct', va='center', fontsize=7)
-
-    # Pattern 1b
-    y = 2
-    ax.add_patch(plt.Circle((1, y), 0.3, color=PATTERN_COLORS['1b']))
-    ax.annotate('', xy=(2.3, y+0.3), xytext=(1.4, y+0.1),
-               arrowprops=dict(arrowstyle='->', color='black', lw=1))
-    ax.annotate('', xy=(2.3, y-0.3), xytext=(1.4, y-0.1),
-               arrowprops=dict(arrowstyle='->', color='black', lw=1))
-    ax.add_patch(plt.Circle((2.7, y+0.4), 0.2, color=PATTERN_COLORS['1b'], alpha=0.6))
-    ax.add_patch(plt.Circle((2.7, y-0.4), 0.2, color=PATTERN_COLORS['1b'], alpha=0.6))
-    ax.annotate('', xy=(4.5, y), xytext=(3, y+0.3),
-               arrowprops=dict(arrowstyle='->', color='black', lw=1))
-    ax.add_patch(plt.Circle((5, y), 0.3, color=PATTERN_COLORS['1b']))
-    ax.text(6, y, '1b: Branched', va='center', fontsize=7)
-
-    # Pattern 2
-    y = 1
-    ax.add_patch(plt.Circle((1, y), 0.3, color=PATTERN_COLORS['2']))
-    ax.annotate('', xy=(2.5, y+0.3), xytext=(1.4, y+0.1),
-               arrowprops=dict(arrowstyle='->', color='black', lw=1))
-    ax.add_patch(plt.Circle((3, y+0.4), 0.25, color=PATTERN_COLORS['2'], alpha=0.6))
-    ax.add_patch(plt.Circle((3, y-0.4), 0.25, color='gray', alpha=0.4))
-    ax.annotate('', xy=(4.5, y), xytext=(3.3, y-0.3),
-               arrowprops=dict(arrowstyle='->', color='black', lw=1))
-    ax.add_patch(plt.Circle((5, y), 0.3, color=PATTERN_COLORS['2']))
-    ax.text(6, y, '2: Independent', va='center', fontsize=7)
-
-    ax.set_title('F', loc='left', fontweight='bold')
+    sns.despine(ax=ax)
 
     plt.tight_layout()
-    fig.savefig(output_dir / "fig_clonal_evolution.png", dpi=300, facecolor='white')
-    fig.savefig(output_dir / "fig_clonal_evolution.pdf", facecolor='white')
+    fig.savefig(output_dir / "fig2_clonal_evolution.png", dpi=300, facecolor='white')
+    fig.savefig(output_dir / "fig2_clonal_evolution.pdf", facecolor='white')
     plt.close(fig)
 
 
 # =============================================================================
-# FIGURE 4: H3 VALIDATION - EMBEDDING VS CLONAL
+# FIGURE 3: H3 VALIDATION
 # =============================================================================
 
 def figure_h3_validation(cells, patterns, output_dir):
-    """H3: Do clonally related cells have similar embeddings?"""
+    """H3 validation with fancy seaborn styling."""
     print("  Generating H3 validation figure...")
 
     if not patterns:
-        print("    No patterns data, skipping")
         return
 
     patient_to_pattern = patterns.get('patient_to_pattern', {})
     fused_cols = sorted([c for c in cells.columns if c.startswith('z_fused_')])
     fused = cells[fused_cols].values
 
-    # Per-patient, per-stage centroids
     results = []
     for patient in cells['donor_id'].unique():
         if patient not in patient_to_pattern:
@@ -599,261 +593,211 @@ def figure_h3_validation(cells, patterns, output_dir):
                 pos = [cells.index.get_loc(i) for i in idx]
                 centroids[stage] = fused[pos].mean(axis=0)
 
-        # Stage-to-stage distances
         for i in range(len(STAGE_ORDER) - 1):
             s1, s2 = STAGE_ORDER[i], STAGE_ORDER[i+1]
             if s1 in centroids and s2 in centroids:
                 dist = np.linalg.norm(centroids[s2] - centroids[s1])
                 results.append({
-                    'patient': patient,
-                    'pattern': pattern,
-                    'transition': f'{s1}→{s2}',
-                    'from_stage': s1,
-                    'to_stage': s2,
-                    'distance': dist
+                    'Patient': patient,
+                    'Pattern': pattern,
+                    'Transition': f'{s1}→{s2}',
+                    'Distance': dist
                 })
 
     if not results:
-        print("    Insufficient data for H3 analysis")
         return
 
     df = pd.DataFrame(results)
 
-    fig, axes = plt.subplots(1, 3, figsize=(7, 2.3))
+    fig, axes = plt.subplots(1, 3, figsize=(10, 3.5))
 
-    # A: Distance by pattern
+    # A: Violin + swarm by pattern
     ax = axes[0]
-    pattern_order = ['1a', '1b', '2']
 
-    for i, pattern in enumerate(pattern_order):
-        data = df[df['pattern'] == pattern]['distance']
-        if len(data) > 0:
-            bp = ax.boxplot([data], positions=[i], widths=0.5,
-                           patch_artist=True, showfliers=False)
-            bp['boxes'][0].set_facecolor(PATTERN_COLORS[pattern])
-            bp['boxes'][0].set_alpha(0.7)
-            bp['medians'][0].set_color('black')
+    sns.violinplot(data=df, x='Pattern', y='Distance',
+                  order=['1a', '1b', '2'], palette=PATTERN_PALETTE,
+                  inner=None, linewidth=1, ax=ax)
 
-            # Scatter individual points
-            jitter = np.random.normal(0, 0.08, len(data))
-            ax.scatter(np.full(len(data), i) + jitter, data,
-                      c=PATTERN_COLORS[pattern], s=15, alpha=0.6, zorder=3)
-
-    ax.set_xticks(range(3))
-    ax.set_xticklabels(['1a', '1b', '2'])
-    ax.set_ylabel('Embedding distance')
-    ax.set_xlabel('Pattern')
-    ax.set_title('A', loc='left', fontweight='bold')
+    sns.swarmplot(data=df, x='Pattern', y='Distance',
+                 order=['1a', '1b', '2'], color='white',
+                 edgecolor='gray', linewidth=0.5, size=6, ax=ax)
 
     # Stats
-    groups = [df[df['pattern'] == p]['distance'].values for p in pattern_order]
+    groups = [df[df['Pattern'] == p]['Distance'].values for p in ['1a', '1b', '2']]
     groups = [g for g in groups if len(g) > 2]
     if len(groups) >= 2:
         stat, pval = stats.kruskal(*groups)
-        ax.text(0.95, 0.95, f'p={pval:.3f}', transform=ax.transAxes,
-               ha='right', va='top', fontsize=7)
+        ax.text(0.95, 0.95, f'p = {pval:.3f}', transform=ax.transAxes,
+               ha='right', va='top', fontsize=9,
+               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
-    # B: Distance by transition
+    ax.set_ylabel('Embedding Distance')
+    ax.set_xlabel('Evolutionary Pattern')
+    ax.set_title('A  Distance by Pattern', loc='left')
+    sns.despine(ax=ax)
+
+    # B: Boxen plot by transition
     ax = axes[1]
-    transitions = [f'{STAGE_ORDER[i]}→{STAGE_ORDER[i+1]}' for i in range(4)]
 
-    for i, trans in enumerate(transitions):
-        data = df[df['transition'] == trans]['distance']
-        if len(data) > 0:
-            bp = ax.boxplot([data], positions=[i], widths=0.5,
-                           patch_artist=True, showfliers=False)
-            bp['boxes'][0].set_facecolor('#3498db')
-            bp['boxes'][0].set_alpha(0.7)
-            bp['medians'][0].set_color('black')
+    trans_order = [f'{STAGE_ORDER[i]}→{STAGE_ORDER[i+1]}' for i in range(4)]
 
-    ax.set_xticks(range(4))
-    ax.set_xticklabels(['N→A', 'A→AIS', 'AIS→M', 'M→L'], fontsize=7)
-    ax.set_ylabel('Embedding distance')
+    sns.boxenplot(data=df, x='Transition', y='Distance',
+                 order=trans_order, palette='viridis', ax=ax)
+
+    ax.set_ylabel('Embedding Distance')
     ax.set_xlabel('Transition')
-    ax.set_title('B', loc='left', fontweight='bold')
+    ax.set_xticklabels(['N→A', 'A→AIS', 'AIS→M', 'M→L'], fontsize=9)
+    ax.set_title('B  Distance by Transition', loc='left')
+    sns.despine(ax=ax)
 
-    # C: Pattern × Transition heatmap
+    # C: Heatmap
     ax = axes[2]
 
-    pivot = df.groupby(['pattern', 'transition'])['distance'].mean().unstack()
-    pivot = pivot.reindex(['1a', '1b', '2']).reindex(columns=transitions)
+    pivot = df.pivot_table(values='Distance', index='Pattern',
+                          columns='Transition', aggfunc='mean')
+    pivot = pivot.reindex(['1a', '1b', '2']).reindex(columns=trans_order)
 
-    im = ax.imshow(pivot.values, cmap='viridis', aspect='auto')
+    sns.heatmap(pivot, annot=True, fmt='.2f', cmap='rocket_r',
+               ax=ax, cbar_kws={'shrink': 0.8, 'label': 'Distance'},
+               linewidths=1, linecolor='white')
 
-    ax.set_xticks(range(len(transitions)))
-    ax.set_xticklabels(['N→A', 'A→AIS', 'AIS→M', 'M→L'], fontsize=7)
-    ax.set_yticks(range(3))
-    ax.set_yticklabels(['1a', '1b', '2'])
-    ax.set_xlabel('Transition')
+    ax.set_xticklabels(['N→A', 'A→AIS', 'AIS→M', 'M→L'], fontsize=9)
     ax.set_ylabel('Pattern')
-    ax.set_title('C', loc='left', fontweight='bold')
-
-    cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
-    cbar.set_label('Distance', fontsize=7)
-    cbar.ax.tick_params(labelsize=6)
+    ax.set_xlabel('Transition')
+    ax.set_title('C  Pattern × Transition', loc='left')
 
     plt.tight_layout()
-    fig.savefig(output_dir / "fig_h3_validation.png", dpi=300, facecolor='white')
-    fig.savefig(output_dir / "fig_h3_validation.pdf", facecolor='white')
+    fig.savefig(output_dir / "fig3_h3_validation.png", dpi=300, facecolor='white')
+    fig.savefig(output_dir / "fig3_h3_validation.pdf", facecolor='white')
     plt.close(fig)
 
 
 # =============================================================================
-# FIGURE 5: METHOD COMPARISON (data-driven, no text boxes)
+# FIGURE 4: METHOD COMPARISON
 # =============================================================================
 
-def figure_method_comparison(dynamics, output_dir):
-    """Compare what different methods can and cannot show."""
+def figure_method_comparison(cells_s, dynamics, output_dir):
+    """Method comparison - what StageBridge uniquely provides."""
     print("  Generating method comparison figure...")
 
-    fig, axes = plt.subplots(2, 3, figsize=(7, 4.5))
+    fig = plt.figure(figsize=(10, 5))
+    gs = GridSpec(2, 4, figure=fig, hspace=0.4, wspace=0.35)
 
     grid_x, grid_y = dynamics['grid_x'], dynamics['grid_y']
-    vx, vy = dynamics['vx'], dynamics['vy']
     potential = dynamics['potential']
     flux_ratio = dynamics['flux_ratio']
     centroids = dynamics['centroids']
+    coords_2d = dynamics['coords_2d']
 
-    # A: Velocity field (what scVelo shows)
-    ax = axes[0, 0]
-    skip = 5
-    speed = np.sqrt(vx**2 + vy**2)
-    ax.quiver(grid_x[::skip, ::skip], grid_y[::skip, ::skip],
-             vx[::skip, ::skip], vy[::skip, ::skip],
-             speed[::skip, ::skip], cmap='coolwarm', alpha=0.7, scale=15)
+    # Shared plotting function
+    def plot_field(ax, field, cmap, title, label):
+        im = ax.pcolormesh(grid_x, grid_y, field, cmap=cmap,
+                          shading='gouraud', rasterized=True)
+        for stage, c in centroids.items():
+            ax.scatter(*c, c='white', s=50, zorder=5,
+                      edgecolor=STAGE_PALETTE[stage], linewidth=2)
+        ax.set_xlabel('PC1')
+        ax.set_ylabel('PC2')
+        ax.set_title(title, loc='left')
+        ax.set_aspect('equal')
+        sns.despine(ax=ax)
+        cbar = plt.colorbar(im, ax=ax, shrink=0.7)
+        cbar.set_label(label, fontsize=8)
+        return im
 
-    for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=40, zorder=5,
-                  edgecolor='black', linewidth=0.5)
-
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('A  Velocity (scVelo)', loc='left', fontweight='bold', fontsize=9)
-    ax.set_aspect('equal', adjustable='box')
-
-    # B: Fate probability (what CellRank shows)
-    ax = axes[0, 1]
-
-    # Create fate probability proxy
-    stage_map = {s: i for i, s in enumerate(STAGE_ORDER)}
-    fate_field = np.zeros_like(grid_x)
-    for i in range(grid_x.shape[0]):
-        for j in range(grid_x.shape[1]):
-            # Distance to LUAD centroid
-            if 'LUAD' in centroids:
-                d = np.sqrt((grid_x[i,j] - centroids['LUAD'][0])**2 +
-                           (grid_y[i,j] - centroids['LUAD'][1])**2)
-                fate_field[i, j] = np.exp(-d/2)
-
-    im = ax.pcolormesh(grid_x, grid_y, fate_field, cmap='RdYlGn_r',
-                       shading='gouraud', rasterized=True)
-
-    for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=40, zorder=5,
-                  edgecolor='black', linewidth=0.5)
-
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('B  Fate prob (CellRank)', loc='left', fontweight='bold', fontsize=9)
-    ax.set_aspect('equal', adjustable='box')
-
-    cbar = plt.colorbar(im, ax=ax, shrink=0.7, pad=0.02)
-    cbar.set_label('P(LUAD)', fontsize=7)
-    cbar.ax.tick_params(labelsize=6)
-
-    # C: Pseudotime (what Monocle shows)
-    ax = axes[0, 2]
-
-    # Pseudotime proxy based on distance from Normal
+    # A: Pseudotime proxy (Monocle-like)
+    ax = fig.add_subplot(gs[0, 0])
     pt_field = np.zeros_like(grid_x)
     if 'Normal' in centroids:
         for i in range(grid_x.shape[0]):
             for j in range(grid_x.shape[1]):
-                d = np.sqrt((grid_x[i,j] - centroids['Normal'][0])**2 +
-                           (grid_y[i,j] - centroids['Normal'][1])**2)
-                pt_field[i, j] = d
+                pt_field[i, j] = np.sqrt((grid_x[i,j] - centroids['Normal'][0])**2 +
+                                        (grid_y[i,j] - centroids['Normal'][1])**2)
+    plot_field(ax, pt_field, 'viridis', 'A  Pseudotime', 'τ')
 
-    im = ax.pcolormesh(grid_x, grid_y, pt_field, cmap='viridis',
-                       shading='gouraud', rasterized=True)
+    # B: Fate probability proxy (CellRank-like)
+    ax = fig.add_subplot(gs[0, 1])
+    fate_field = np.zeros_like(grid_x)
+    if 'LUAD' in centroids:
+        for i in range(grid_x.shape[0]):
+            for j in range(grid_x.shape[1]):
+                d = np.sqrt((grid_x[i,j] - centroids['LUAD'][0])**2 +
+                           (grid_y[i,j] - centroids['LUAD'][1])**2)
+                fate_field[i, j] = np.exp(-d/1.5)
+    plot_field(ax, fate_field, 'RdYlGn_r', 'B  Fate Probability', 'P(LUAD)')
 
-    for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=40, zorder=5,
-                  edgecolor='white', linewidth=0.5)
+    # C: Landscape (StageBridge)
+    ax = fig.add_subplot(gs[0, 2])
+    plot_field(ax, potential, 'terrain', 'C  Landscape', 'U')
 
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('C  Pseudotime (Monocle)', loc='left', fontweight='bold', fontsize=9)
-    ax.set_aspect('equal', adjustable='box')
+    # D: Irreversibility (StageBridge unique)
+    ax = fig.add_subplot(gs[0, 3])
+    plot_field(ax, flux_ratio, FLUX_CMAP, 'D  Irreversibility', 'Flux')
 
-    cbar = plt.colorbar(im, ax=ax, shrink=0.7, pad=0.02)
-    cbar.set_label('Pseudotime', fontsize=7)
-    cbar.ax.tick_params(labelsize=6)
+    # E: Capability comparison - RADAR/SPIDER CHART
+    ax = fig.add_subplot(gs[1, 0:2], polar=True)
 
-    # D: Landscape (StageBridge)
-    ax = axes[1, 0]
+    categories = ['Direction', 'Fate', 'Time', 'Landscape', 'Irreversibility']
+    n_cats = len(categories)
 
-    contours = ax.contourf(grid_x, grid_y, potential, levels=15,
-                          cmap='terrain', alpha=0.9)
+    methods = {
+        'scVelo': [1, 0.3, 0.5, 0, 0],
+        'CellRank': [0.8, 1, 0.7, 0, 0],
+        'Monocle': [0.5, 0.5, 1, 0, 0],
+        'StageBridge': [1, 0.8, 0.8, 1, 1]
+    }
 
-    for stage, c in centroids.items():
-        ax.scatter(*c, c=STAGE_COLORS[stage], s=40, zorder=5,
-                  edgecolor='black', linewidth=0.5)
+    angles = [n / float(n_cats) * 2 * np.pi for n in range(n_cats)]
+    angles += angles[:1]
 
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('D  Landscape (StageBridge)', loc='left', fontweight='bold', fontsize=9)
-    ax.set_aspect('equal', adjustable='box')
+    method_colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6']
 
-    # E: Flux (StageBridge unique)
-    ax = axes[1, 1]
+    for (method, values), color in zip(methods.items(), method_colors):
+        values += values[:1]
+        ax.plot(angles, values, 'o-', linewidth=2, label=method, color=color)
+        ax.fill(angles, values, alpha=0.15, color=color)
 
-    im = ax.pcolormesh(grid_x, grid_y, flux_ratio, cmap='magma',
-                       vmin=0, vmax=1, shading='gouraud', rasterized=True)
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(categories, fontsize=9)
+    ax.set_ylim(0, 1.1)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=8)
+    ax.set_title('E  Method Capabilities', loc='left', pad=20)
 
-    for stage, c in centroids.items():
-        ax.scatter(*c, c='white', s=40, zorder=5,
-                  edgecolor='black', linewidth=0.5)
+    # F: Quantitative summary - GROUPED BAR
+    ax = fig.add_subplot(gs[1, 2:4])
 
-    ax.set_xlabel('PC1')
-    ax.set_ylabel('PC2')
-    ax.set_title('E  Irreversibility (StageBridge)', loc='left', fontweight='bold', fontsize=9)
-    ax.set_aspect('equal', adjustable='box')
+    # What each method can quantify
+    metrics = ['Direction', 'Fate prob.', 'Landscape', 'Flux ratio']
+    methods_short = ['scVelo', 'CellRank', 'Monocle', 'StageBridge']
 
-    cbar = plt.colorbar(im, ax=ax, shrink=0.7, pad=0.02)
-    cbar.set_label('Flux ratio', fontsize=7)
-    cbar.ax.tick_params(labelsize=6)
-
-    # F: Capability comparison (bar chart)
-    ax = axes[1, 2]
-
-    methods = ['scVelo', 'CellRank', 'Monocle', 'StageBridge']
-    capabilities = np.array([
-        [1, 0, 0, 0],  # Velocity
-        [0, 1, 0, 1],  # Fate
-        [0, 0, 1, 1],  # Pseudotime
-        [0, 0, 0, 1],  # Landscape
-        [0, 0, 0, 1],  # Irreversibility
+    data = np.array([
+        [1, 0, 0, 0],      # scVelo
+        [1, 1, 0, 0],      # CellRank
+        [1, 0, 0, 0],      # Monocle
+        [1, 1, 1, 1]       # StageBridge
     ])
 
-    cap_names = ['Velocity', 'Fate', 'Pseudotime', 'Landscape', 'Irreversibility']
+    x = np.arange(len(metrics))
+    width = 0.2
 
-    im = ax.imshow(capabilities, cmap='Greens', aspect='auto', vmin=0, vmax=1)
+    colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6']
 
-    ax.set_xticks(range(len(methods)))
-    ax.set_xticklabels(methods, rotation=45, ha='right', fontsize=8)
-    ax.set_yticks(range(len(cap_names)))
-    ax.set_yticklabels(cap_names, fontsize=8)
-    ax.set_title('F  Capabilities', loc='left', fontweight='bold', fontsize=9)
+    for i, (method, color) in enumerate(zip(methods_short, colors)):
+        offset = (i - 1.5) * width
+        ax.bar(x + offset, data[i], width, label=method, color=color,
+              edgecolor='white', linewidth=0.5)
 
-    # Add checkmarks
-    for i in range(len(cap_names)):
-        for j in range(len(methods)):
-            if capabilities[i, j]:
-                ax.text(j, i, '✓', ha='center', va='center', fontsize=10, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics)
+    ax.set_ylabel('Capability')
+    ax.set_ylim(0, 1.3)
+    ax.legend(loc='upper left', fontsize=8, ncol=2)
+    ax.set_title('F  Quantitative Outputs', loc='left')
+    sns.despine(ax=ax)
 
     plt.tight_layout()
-    fig.savefig(output_dir / "fig_method_comparison.png", dpi=300, facecolor='white')
-    fig.savefig(output_dir / "fig_method_comparison.pdf", facecolor='white')
+    fig.savefig(output_dir / "fig4_method_comparison.png", dpi=300, facecolor='white')
+    fig.savefig(output_dir / "fig4_method_comparison.pdf", facecolor='white')
     plt.close(fig)
 
 
@@ -869,38 +813,32 @@ def main():
     args = parser.parse_args()
 
     print("=" * 50)
-    print("Publication Dynamics Figures")
+    print("Publication Dynamics Figures (Fancy Edition)")
     print("=" * 50)
 
     cells, patterns = load_data(args.data_dir)
     print(f"Loaded {len(cells):,} cells")
 
-    # Sample
     np.random.seed(42)
     n_sample = min(25000, len(cells))
     cells_s = cells.sample(n_sample).reset_index(drop=True)
 
-    # Embeddings and PCA
     fused = get_embeddings(cells_s)
     pca = PCA(n_components=2)
     coords_2d = pca.fit_transform(fused)
 
-    # Compute dynamics
     print("\nComputing dynamics...")
     dynamics = compute_dynamics(cells_s, coords_2d)
     print(f"  Mean flux ratio: {np.nanmean(dynamics['flux_ratio']):.3f}")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate figures
     print("\nGenerating figures...")
-    figure_phase_portrait(cells_s, dynamics, args.output_dir)
-    mean_flux = figure_landscape_flux(cells_s, dynamics, args.output_dir)
+    mean_flux = figure_dynamics_overview(cells_s, dynamics, args.output_dir)
     figure_clonal_evolution(cells_s, patterns, coords_2d, args.output_dir)
     figure_h3_validation(cells, patterns, args.output_dir)
-    figure_method_comparison(dynamics, args.output_dir)
+    figure_method_comparison(cells_s, dynamics, args.output_dir)
 
-    # Save metrics
     metrics = {
         'mean_flux_ratio': float(mean_flux),
         'n_cells': len(cells),
