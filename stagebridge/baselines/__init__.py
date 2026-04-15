@@ -20,14 +20,8 @@ Usage:
     # Train and evaluate baselines on semi_synthetic.pt
 """
 
-# Legacy per-cell baselines (DEPRECATED - use set_baselines instead)
-from stagebridge.baselines.evaluate import (
-    load_benchmark_tensors,
-    create_splits,
-    EvaluationMetrics,
-    train_baseline,
-    evaluate_baseline,
-)
+# Note: Legacy per-cell evaluation functions removed (were deprecated)
+# Use set_baselines for H2 validation instead
 
 # Proper set-based baselines for H2 validation
 from stagebridge.baselines.set_baselines import (
@@ -62,12 +56,6 @@ __all__ = [
     "ReceiverCenteredBaseline",
     "BASELINE_REGISTRY",
     "create_baseline",
-    # Legacy evaluation (per-cell, DEPRECATED)
-    "load_benchmark_tensors",
-    "create_splits",
-    "EvaluationMetrics",
-    "train_baseline",
-    "evaluate_baseline",
     # Lesion-level baselines
     "PooledLesionBaseline",
     "DeepSetsLesionBaseline",
