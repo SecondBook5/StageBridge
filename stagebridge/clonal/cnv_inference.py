@@ -156,13 +156,13 @@ def run_cnv_inference(
         dynamic_threshold=1.5,
     )
 
-    # Compute per-cell CNV score (aneuploidy)
-    cnv.tl.cnv_score(adata)
-
     # Cluster by CNV profile to identify clones
     cnv.tl.pca(adata)
     cnv.pp.neighbors(adata)
     cnv.tl.leiden(adata, key_added="cnv_leiden")
+
+    # Compute per-cell CNV score (aneuploidy) - requires cnv_leiden
+    cnv.tl.cnv_score(adata)
 
     logger.info(
         f"CNV inference complete. Found {adata.obs['cnv_leiden'].nunique()} CNV clusters."
