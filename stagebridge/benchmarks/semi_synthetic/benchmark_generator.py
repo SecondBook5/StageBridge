@@ -367,6 +367,11 @@ class SemiSyntheticBenchmarkGenerator:
         """Apply interaction rules to all worlds."""
         reports = []
 
+        # Get available gene names for perturbation computation
+        available_genes: set[str] | None = None
+        if self.harmonizer is not None and len(self.harmonizer.harmonized_genes) > 0:
+            available_genes = set(self.harmonizer.harmonized_genes)
+
         for split, worlds in self.worlds.items():
             for world in worlds:
                 engine = InteractionRuleEngine(
@@ -374,11 +379,12 @@ class SemiSyntheticBenchmarkGenerator:
                     seed=world.seed + 1,
                 )
 
-                # Apply rules
+                # Apply rules with available genes for perturbation computation
                 updated_positions, report = engine.apply_to_world(
                     world.cell_positions,
                     cell_group_column="cell_group",
                     stage_column="stage" if "stage" in world.cell_positions.columns else None,
+                    available_genes=available_genes,
                 )
 
                 # Compute ground truth labels
@@ -408,12 +414,17 @@ class SemiSyntheticBenchmarkGenerator:
     ) -> "anndata.AnnData":
         """Extract expression matrices for all cells in a world.
 
+        This method extracts real expression profiles and then applies
+        interaction-induced gene perturbations to create semi-synthetic
+        expression data with ground-truth niche effects.
+
         Args:
             world: The synthetic world to extract expression for
             harmonized_genes: List of harmonized gene names to use
 
         Returns:
-            AnnData object with expression data aligned to world cells
+            AnnData object with expression data aligned to world cells,
+            with perturbations applied to interacting cells
         """
         import anndata
 
@@ -427,6 +438,7 @@ class SemiSyntheticBenchmarkGenerator:
 
         expression_matrices = []
         obs_records = []
+        cell_indices_in_world = []  # Track which cells these expression rows correspond to
 
         for source_name, group in source_groups:
             source_indices = group["_source_idx"].values
@@ -443,6 +455,7 @@ class SemiSyntheticBenchmarkGenerator:
                 continue
 
             expression_matrices.append(X)
+            cell_indices_in_world.extend(group.index.tolist())
 
             # Build obs DataFrame aligned with expression rows
             obs_subset = (
@@ -451,6 +464,12 @@ class SemiSyntheticBenchmarkGenerator:
                 else group[["synthetic_cell_id", "x", "y", "cell_group"]].copy()
             )
             obs_subset["source"] = source_name
+
+            # Include interaction metadata in obs
+            for col in ["is_interacting", "dominant_interaction", "interaction_strength"]:
+                if col in group.columns:
+                    obs_subset[col] = group[col].values
+
             obs_records.append(obs_subset)
 
         # Concatenate all expression matrices
@@ -459,6 +478,34 @@ class SemiSyntheticBenchmarkGenerator:
 
         X_combined = np.vstack(expression_matrices)
         obs_combined = pd.concat(obs_records, ignore_index=True)
+
+        # Apply gene perturbations to interacting cells
+        # This is the key step that creates semi-synthetic ground truth
+        if harmonized_genes is not None:
+            gene_to_idx = {gene: i for i, gene in enumerate(harmonized_genes)}
+            n_perturbed = 0
+            total_perturbations = 0
+
+            for row_idx, world_idx in enumerate(cell_indices_in_world):
+                perturbation_json = cells_df.loc[world_idx, "gene_perturbations_json"]
+                if perturbation_json and perturbation_json != "":
+                    try:
+                        perturbations = json.loads(perturbation_json)
+                        for gene, delta in perturbations.items():
+                            if gene in gene_to_idx:
+                                col_idx = gene_to_idx[gene]
+                                # Apply perturbation (additive in log-space for normalized data)
+                                X_combined[row_idx, col_idx] += delta
+                                total_perturbations += 1
+                        n_perturbed += 1
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+            if n_perturbed > 0:
+                log.info(
+                    f"Applied {total_perturbations} gene perturbations to {n_perturbed} cells "
+                    f"({100*n_perturbed/len(X_combined):.1f}% of cells)"
+                )
 
         # Create AnnData
         adata = anndata.AnnData(
@@ -476,6 +523,7 @@ class SemiSyntheticBenchmarkGenerator:
         adata.uns["world_id"] = world.world_id
         adata.uns["split"] = world.split
         adata.uns["world_seed"] = world.seed
+        adata.uns["n_perturbed_cells"] = n_perturbed if harmonized_genes is not None else 0
 
         return adata
 
@@ -555,6 +603,8 @@ class SemiSyntheticBenchmarkGenerator:
                     "dominant_interaction",
                     "interaction_strength",
                     "n_effective_senders",
+                    "min_sender_distance",
+                    "gene_perturbations_json",  # For recovery/validation
                 ]
                 gt_cols = [c for c in gt_cols if c in world.cell_positions.columns]
                 # Add ground truth columns

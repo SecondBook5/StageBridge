@@ -3,10 +3,15 @@ Interaction rule application for semi-synthetic benchmark.
 
 Applies explicit sender->receiver interaction rules to assign
 interacting vs non-interacting states based on neighborhood composition.
+
+IMPORTANT: This module now also computes expression perturbations that
+should be applied to receiver cells. The perturbations are stored in
+the cell_positions DataFrame and applied during expression extraction.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,6 +19,10 @@ import numpy as np
 import pandas as pd
 
 from stagebridge.benchmarks.semi_synthetic.configs import InteractionRule
+from stagebridge.benchmarks.semi_synthetic.gene_signatures import (
+    compute_perturbation,
+    get_signatures_for_effect,
+)
 
 
 @dataclass
@@ -27,6 +36,9 @@ class InteractionResult:
     dominant_interaction: str | None
     interaction_strength: float
     stage_context: str | None
+    # NEW: gene perturbations to apply to expression
+    gene_perturbations: dict[str, float] = field(default_factory=dict)
+    min_sender_distance: float = float("inf")
 
 
 @dataclass
@@ -73,6 +85,7 @@ class InteractionRuleEngine:
         cell_positions: pd.DataFrame,
         cell_group_column: str = "cell_group",
         stage_column: str | None = "stage",
+        available_genes: set[str] | None = None,
     ) -> tuple[pd.DataFrame, InteractionApplicationReport]:
         """Apply interaction rules to all cells in a world.
 
@@ -93,6 +106,8 @@ class InteractionRuleEngine:
         cell_positions["dominant_interaction"] = None
         cell_positions["interaction_strength"] = 0.0
         cell_positions["n_effective_senders"] = 0
+        cell_positions["min_sender_distance"] = float("inf")
+        cell_positions["gene_perturbations_json"] = ""  # JSON-encoded perturbations
 
         coords = cell_positions[["x", "y"]].values
         groups = cell_positions[cell_group_column].values
@@ -123,7 +138,7 @@ class InteractionRuleEngine:
 
             # Check each rule
             result = self._evaluate_rules_for_cell(
-                idx, coords, groups, applicable_rules, cell_stage
+                idx, coords, groups, applicable_rules, cell_stage, available_genes
             )
 
             # Update cell data
@@ -141,6 +156,15 @@ class InteractionRuleEngine:
             # Count senders
             total_senders = sum(result.sender_counts.values())
             cell_positions.at[cell_positions.index[idx], "n_effective_senders"] = total_senders
+            cell_positions.at[cell_positions.index[idx], "min_sender_distance"] = (
+                result.min_sender_distance
+            )
+
+            # Store gene perturbations as JSON for downstream application
+            if result.gene_perturbations:
+                cell_positions.at[cell_positions.index[idx], "gene_perturbations_json"] = (
+                    json.dumps(result.gene_perturbations)
+                )
 
             # Update report
             if result.is_interacting:
@@ -176,6 +200,7 @@ class InteractionRuleEngine:
         groups: np.ndarray,
         rules: list[InteractionRule],
         cell_stage: str | None,
+        available_genes: set[str] | None = None,
     ) -> InteractionResult:
         """Evaluate all applicable rules for a single cell."""
         cell_coord = coords[cell_idx]
@@ -183,6 +208,8 @@ class InteractionRuleEngine:
         sender_counts: dict[str, int] = {}
         max_strength = 0.0
         dominant_rule = None
+        min_sender_dist = float("inf")
+        accumulated_perturbations: dict[str, float] = {}
 
         for rule in rules:
             # Count senders within radius
@@ -198,6 +225,11 @@ class InteractionRuleEngine:
                 sender_counts[rule.sender_group] = (
                     sender_counts.get(rule.sender_group, 0) + n_senders
                 )
+
+                # Track minimum sender distance for distance decay
+                sender_distances = distances[sender_mask]
+                rule_min_dist = sender_distances.min()
+                min_sender_dist = min(min_sender_dist, rule_min_dist)
 
                 # Get effective strength (may be stage-modulated)
                 effect_strength = (
@@ -215,6 +247,25 @@ class InteractionRuleEngine:
                         max_strength = interaction_prob
                         dominant_rule = rule.effect_name
 
+                    # Compute gene perturbations for this triggered rule
+                    perturbations = compute_perturbation(
+                        effect_name=rule.effect_name,
+                        effect_strength=effect_strength,
+                        distance=rule_min_dist,
+                        interaction_radius=rule.interaction_radius,
+                        stage=cell_stage,
+                        stage_modulation=rule.stage_modulation,
+                        available_genes=available_genes,
+                        noise_scale=0.1,
+                        rng=self.rng,
+                    )
+
+                    # Accumulate perturbations (additive for multiple rules)
+                    for gene, delta in perturbations.items():
+                        accumulated_perturbations[gene] = (
+                            accumulated_perturbations.get(gene, 0) + delta
+                        )
+
         is_interacting = len(triggered_rules) > 0
 
         return InteractionResult(
@@ -225,6 +276,8 @@ class InteractionRuleEngine:
             dominant_interaction=dominant_rule,
             interaction_strength=max_strength,
             stage_context=cell_stage,
+            gene_perturbations=accumulated_perturbations,
+            min_sender_distance=min_sender_dist if min_sender_dist != float("inf") else 0.0,
         )
 
 

@@ -106,19 +106,41 @@ def run_cnv_inference(
     adata.obs["cnv_reference"] = ref_mask
 
     # Get gene chromosome positions
-    if gene_order_file is None:
-        # Use infercnvpy's built-in gene order
+    # First check if positions already exist in adata.var
+    has_positions = all(col in adata.var.columns for col in ["chromosome", "start", "end"])
+
+    if has_positions:
+        logger.info("Using existing genomic positions from adata.var")
+    elif gene_order_file is not None:
+        # Use provided GTF file
         cnv.io.genomic_position_from_gtf(
-            adata,
-            gtf_file="default",  # Uses bundled human GTF
+            gtf_file=str(gene_order_file),
+            adata=adata,
             inplace=True,
         )
     else:
-        cnv.io.genomic_position_from_gtf(
-            adata,
-            gtf_file=str(gene_order_file),
-            inplace=True,
-        )
+        # Try biomart (fetches from Ensembl online, works with gene symbols)
+        logger.info("Fetching genomic positions from Ensembl Biomart...")
+        try:
+            cnv.io.genomic_position_from_biomart(
+                adata=adata,
+                biomart_gene_id="hgnc_symbol",  # Use gene symbols
+                inplace=True,
+            )
+        except Exception as e:
+            logger.warning(f"Biomart failed ({e}), trying with ensembl_gene_id...")
+            # Maybe genes are ENSG IDs
+            try:
+                cnv.io.genomic_position_from_biomart(
+                    adata=adata,
+                    biomart_gene_id="ensembl_gene_id",
+                    inplace=True,
+                )
+            except Exception as e2:
+                raise RuntimeError(
+                    f"Could not get genomic positions. Provide a GTF file via gene_order_file. "
+                    f"Errors: biomart(hgnc)={e}, biomart(ensg)={e2}"
+                )
 
     # Filter to genes with position info
     adata = adata[:, adata.var["chromosome"].notna()].copy()
