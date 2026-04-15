@@ -1091,8 +1091,8 @@ rule baseline:
         benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
         leakage_check = f"{CANONICAL}/leakage_validation.json"
     output:
-        results = f"{TRAINING}/baselines/{{baseline}}/fold{{fold}}_seed{{seed}}/results.json",
-        metrics = f"{TRAINING}/baselines/{{baseline}}/fold{{fold}}_seed{{seed}}/metrics.csv"
+        results = f"{TRAINING}/baselines/{{baseline}}_fold{{fold}}_seed{{seed}}/results.json",
+        metrics = f"{TRAINING}/baselines/{{baseline}}_fold{{fold}}_seed{{seed}}/metrics.csv"
     wildcard_constraints:
         baseline = "|".join(BASELINES),
         fold = "[0-4]",
@@ -1109,9 +1109,9 @@ rule baseline:
         f"{RUNS}/logs/baselines/{{baseline}}/fold{{fold}}_seed{{seed}}.log"
     shell:
         """
-        python -m stagebridge.baselines.evaluate_set_baselines \
+        python -m stagebridge.baselines.evaluate \
             --data_dir {params.canonical_dir} \
-            --output_dir {TRAINING}/baselines/{wildcards.baseline}/fold{wildcards.fold}_seed{wildcards.seed} \
+            --output_dir {TRAINING}/baselines \
             --baseline {wildcards.baseline} \
             --fold {wildcards.fold} \
             --seed {wildcards.seed} \
@@ -1123,7 +1123,7 @@ rule aggregate_baselines:
     input:
         # All baseline results (4 baselines × 5 folds × 3 seeds = 60 runs)
         baseline_results = expand(
-            f"{TRAINING}/baselines/{{baseline}}/fold{{fold}}_seed{{seed}}/results.json",
+            f"{TRAINING}/baselines/{{baseline}}_fold{{fold}}_seed{{seed}}/results.json",
             baseline=BASELINES, fold=FOLDS, seed=SEEDS
         ),
         # Main model results for comparison
