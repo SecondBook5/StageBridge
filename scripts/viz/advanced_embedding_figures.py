@@ -217,7 +217,8 @@ def figure5_trajectory_analysis(cells, output_dir):
     stage_numeric = cells_s['stage'].map({s: i for i, s in enumerate(STAGE_ORDER)}).values
 
     fig = plt.figure(figsize=(18, 14))
-    gs = GridSpec(3, 4, figure=fig, hspace=0.3, wspace=0.3)
+    gs = GridSpec(3, 4, figure=fig, hspace=0.45, wspace=0.35,
+                  left=0.05, right=0.95, top=0.93, bottom=0.05)
 
     # A: UMAP with velocity streamlines
     ax_vel = fig.add_subplot(gs[0, 0:2])
@@ -479,7 +480,8 @@ def figure7_statistical_analysis(cells, output_dir):
     fused = get_embeddings(cells, "z_fused_")
 
     fig = plt.figure(figsize=(18, 10))
-    gs = GridSpec(2, 4, figure=fig, hspace=0.35, wspace=0.3)
+    gs = GridSpec(2, 4, figure=fig, hspace=0.45, wspace=0.35,
+                  left=0.05, right=0.95, top=0.92, bottom=0.08)
 
     # A: Dimension-wise stage comparison (volcano-style)
     ax_vol = fig.add_subplot(gs[0, 0:2])

@@ -40,17 +40,18 @@ except ImportError:
 plt.rcParams.update({
     'font.family': 'sans-serif',
     'font.sans-serif': ['Arial', 'Helvetica', 'DejaVu Sans'],
-    'font.size': 10,
-    'axes.labelsize': 11,
-    'axes.titlesize': 12,
+    'font.size': 9,
+    'axes.labelsize': 10,
+    'axes.titlesize': 11,
     'axes.titleweight': 'bold',
-    'xtick.labelsize': 9,
-    'ytick.labelsize': 9,
-    'legend.fontsize': 9,
+    'axes.titlepad': 10,  # Extra padding to prevent overlap
+    'xtick.labelsize': 8,
+    'ytick.labelsize': 8,
+    'legend.fontsize': 8,
     'figure.dpi': 150,
     'savefig.dpi': 300,
     'savefig.bbox': 'tight',
-    'axes.linewidth': 1.2,
+    'axes.linewidth': 1,
     'axes.spines.top': False,
     'axes.spines.right': False,
     'figure.facecolor': 'white',
@@ -160,8 +161,9 @@ def figure1_embedding_overview(cells, output_dir):
     print("  Computing UMAP...")
     umap_coords = compute_umap(fused)
 
-    fig = plt.figure(figsize=(16, 12))
-    gs = GridSpec(3, 4, figure=fig, hspace=0.3, wspace=0.3)
+    fig = plt.figure(figsize=(16, 13))
+    gs = GridSpec(3, 4, figure=fig, hspace=0.4, wspace=0.35,
+                  left=0.05, right=0.95, top=0.93, bottom=0.05)
 
     # A: Main UMAP by stage (large panel)
     ax_main = fig.add_subplot(gs[0:2, 0:2])
@@ -316,8 +318,9 @@ def figure2_biological_features(cells, output_dir):
     fused = get_embeddings(cells_s, "z_fused_")
     umap_coords = compute_umap(fused)
 
-    fig = plt.figure(figsize=(16, 10))
-    gs = GridSpec(2, 4, figure=fig, hspace=0.35, wspace=0.3)
+    fig = plt.figure(figsize=(16, 11))
+    gs = GridSpec(2, 4, figure=fig, hspace=0.45, wspace=0.35,
+                  left=0.05, right=0.95, top=0.92, bottom=0.06)
 
     # Pathway columns
     pathway_cols = [c for c in cells_s.columns if c.startswith('pathway_')]
@@ -518,8 +521,9 @@ def figure2b_clonal_evolution(cells, output_dir):
     fused = get_embeddings(cells_s, "z_fused_")
     umap_coords = compute_umap(fused)
 
-    fig = plt.figure(figsize=(16, 12))
-    gs = GridSpec(3, 4, figure=fig, hspace=0.35, wspace=0.35)
+    fig = plt.figure(figsize=(16, 13))
+    gs = GridSpec(3, 4, figure=fig, hspace=0.45, wspace=0.4,
+                  left=0.05, right=0.95, top=0.93, bottom=0.05)
 
     # A: UMAP colored by evolutionary pattern
     ax_umap = fig.add_subplot(gs[0, 0:2])
@@ -718,8 +722,9 @@ def figure3_stage_transitions(cells, output_dir):
     fused = get_embeddings(cells_s, "z_fused_")
     umap_coords = compute_umap(fused)
 
-    fig = plt.figure(figsize=(16, 8))
-    gs = GridSpec(2, 4, figure=fig, hspace=0.35, wspace=0.3)
+    fig = plt.figure(figsize=(16, 9))
+    gs = GridSpec(2, 4, figure=fig, hspace=0.45, wspace=0.35,
+                  left=0.05, right=0.95, top=0.92, bottom=0.08)
 
     # A: Progression pseudotime (stage index)
     ax_pseudo = fig.add_subplot(gs[0, 0:2])
@@ -880,8 +885,9 @@ def figure4_reference_comparison(cells, output_dir):
     luca = get_embeddings(cells_s, "z_luca_")
     fused = get_embeddings(cells_s, "z_fused_")
 
-    fig = plt.figure(figsize=(16, 10))
-    gs = GridSpec(2, 4, figure=fig, hspace=0.35, wspace=0.3)
+    fig = plt.figure(figsize=(16, 11))
+    gs = GridSpec(2, 4, figure=fig, hspace=0.45, wspace=0.35,
+                  left=0.05, right=0.95, top=0.92, bottom=0.06)
 
     # A: HLCA PCA
     ax_hlca = fig.add_subplot(gs[0, 0])
