@@ -623,13 +623,11 @@ rule liana_analysis:
 rule data_preparation:
     input:
         fused = f"{REF_GEOM}/fused_embedding.parquet",
-        canonical_props = f"{SPATIAL}/canonical/cell_type_proportions.parquet",  # From canonical_backend_aggregate
-        canonical_metrics = f"{SPATIAL}/canonical/upstream_metrics.json",
         snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
         spatial = f"{PROCESSED}/spatial_merged.h5ad",
         wes = f"{PROCESSED}/wes_features.parquet",
         clonal = f"{CLONAL}/clonal_patterns.json",  # From clonal_extraction
-        # HLCA and LuCA deconvolution for spatial embedding composition
+        # Use DestVI directly (best backend, provides gamma values)
         hlca_deconv = f"{SPATIAL}/hlca/destvi/cell_type_proportions.parquet",
         luca_deconv = f"{SPATIAL}/luca/destvi/cell_type_proportions.parquet"
     output:
@@ -638,7 +636,6 @@ rule data_preparation:
         splits = f"{CANONICAL}/split_manifest.json",
         manifest = f"{CANONICAL}/data_manifest.json"
     params:
-        spatial_dir = SPATIAL,
         canonical_dir = CANONICAL,
         hlca_deconv_dir = f"{SPATIAL}/hlca/destvi",
         luca_deconv_dir = f"{SPATIAL}/luca/destvi"
@@ -646,8 +643,7 @@ rule data_preparation:
     resources:
         mem_mb = 256000,
         runtime = 120,  # 2 hours
-        slurm_partition = "gpu",
-        gpu = 1
+        slurm_partition = "cpu"
     log:
         f"{RUNS}/logs/data_preparation.log"
     shell:
@@ -656,7 +652,7 @@ rule data_preparation:
             --snrna {input.snrna} \
             --spatial {input.spatial} \
             --wes {input.wes} \
-            --spatial_backend_dir {params.spatial_dir}/canonical \
+            --spatial_backend_dir {params.hlca_deconv_dir} \
             --reference_geometry {REF_GEOM} \
             --output_dir {params.canonical_dir} \
             --clonal_patterns {input.clonal} \
