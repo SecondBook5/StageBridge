@@ -408,22 +408,61 @@ def figure2_biological_features(cells, output_dir):
     plt.colorbar(im, ax=ax_mut, shrink=0.7, label='% Mutated')
     ax_mut.set_title('F. Mutation Frequency', fontsize=11)
 
-    # G: Clonal pattern by stage
+    # G: Evolutionary clonal patterns (from paper Fig 2D)
     ax_clonal = fig.add_subplot(gs[1, 3])
-    if 'clonal_pattern' in cells.columns:
-        clonal_stage = pd.crosstab(cells['stage'], cells['clonal_pattern'], normalize='index')
-        clonal_stage = clonal_stage.reindex(STAGE_ORDER)
-        clonal_stage.plot(kind='bar', stacked=True, ax=ax_clonal, colormap='Set2',
-                         edgecolor='white', linewidth=0.5)
-        ax_clonal.set_ylabel('Proportion')
-        ax_clonal.set_xlabel('')
-        ax_clonal.legend(title='Pattern', fontsize=7, loc='upper right')
-        ax_clonal.tick_params(axis='x', rotation=45)
-        # Color x labels
+
+    # Load paper patterns if available
+    paper_patterns_path = Path("data/paper/clonal_patterns.json")
+    if paper_patterns_path.exists():
+        import json
+        with open(paper_patterns_path) as f:
+            paper_patterns = json.load(f)
+
+        # Map donor to pattern
+        patient_to_pattern = paper_patterns.get('patient_to_pattern', {})
+        cells_with_pattern = cells.copy()
+        cells_with_pattern['evo_pattern'] = cells_with_pattern['donor_id'].map(patient_to_pattern)
+        cells_with_pattern = cells_with_pattern.dropna(subset=['evo_pattern'])
+
+        # Pattern colors and labels matching paper
+        pattern_colors = {'1a': '#2E86AB', '1b': '#A23B72', '2': '#F18F01'}
+        pattern_labels = {
+            '1a': '1a: Direct lineage',
+            '1b': '1b: Branched',
+            '2': '2: Independent'
+        }
+
+        # Compute proportions by stage
+        pattern_by_stage = pd.crosstab(
+            cells_with_pattern['stage'],
+            cells_with_pattern['evo_pattern'],
+            normalize='index'
+        )
+        pattern_by_stage = pattern_by_stage.reindex(STAGE_ORDER).reindex(columns=['1a', '1b', '2'])
+
+        # Stacked bar
+        bottom = np.zeros(len(STAGE_ORDER))
+        x = np.arange(len(STAGE_ORDER))
+        for pattern in ['1a', '1b', '2']:
+            if pattern in pattern_by_stage.columns:
+                values = pattern_by_stage[pattern].values
+                ax_clonal.bar(x, values, bottom=bottom, color=pattern_colors[pattern],
+                            label=pattern_labels[pattern], edgecolor='white', linewidth=0.5)
+                bottom += values
+
+        ax_clonal.set_xticks(x)
+        ax_clonal.set_xticklabels(STAGE_ORDER, fontsize=9)
         for i, label in enumerate(ax_clonal.get_xticklabels()):
             label.set_color(STAGE_COLORS[STAGE_ORDER[i]])
             label.set_fontweight('bold')
-    ax_clonal.set_title('G. Clonal Patterns', fontsize=11)
+        ax_clonal.set_ylabel('Proportion')
+        ax_clonal.set_xlabel('')
+        ax_clonal.legend(title='Evolution', fontsize=7, loc='upper right')
+        ax_clonal.tick_params(axis='x', rotation=45)
+    else:
+        ax_clonal.text(0.5, 0.5, 'Clonal patterns\nnot available',
+                      ha='center', va='center', transform=ax_clonal.transAxes)
+    ax_clonal.set_title('G. Clonal Evolution', fontsize=11)
 
     plt.suptitle('Biological Feature Integration with Embeddings',
                 fontsize=15, fontweight='bold', y=1.01)
@@ -432,6 +471,239 @@ def figure2_biological_features(cells, output_dir):
     fig.savefig(output_dir / "fig2_biological_features.pdf", bbox_inches='tight', facecolor='white')
     plt.close(fig)
     print("  Saved fig2_biological_features.png/pdf")
+
+
+# =============================================================================
+# FIGURE 2B: CLONAL EVOLUTION ANALYSIS (like Peng et al. Figure 2)
+# =============================================================================
+
+def figure2b_clonal_evolution(cells, output_dir):
+    """Publication Figure 2B: Comprehensive clonal evolution analysis.
+
+    Inspired by Peng et al. Figure 2D showing evolutionary patterns:
+    - Pattern 1a: Direct lineage (monoclonal precursor shared with invasive)
+    - Pattern 1b: Branched evolution (polyclonal precursor partially shared)
+    - Pattern 2: Independent origins (precursor and invasive not related)
+    """
+    print("\nGenerating Figure 2B: Clonal Evolution Analysis...")
+
+    # Load paper patterns
+    paper_patterns_path = Path("data/paper/clonal_patterns.json")
+    if not paper_patterns_path.exists():
+        print("  WARNING: clonal_patterns.json not found, skipping figure")
+        return
+
+    import json
+    with open(paper_patterns_path) as f:
+        paper_patterns = json.load(f)
+
+    patient_to_pattern = paper_patterns.get('patient_to_pattern', {})
+    pattern_info = paper_patterns.get('patterns', {})
+
+    # Map patterns to cells
+    cells_with_pattern = cells.copy()
+    cells_with_pattern['evo_pattern'] = cells_with_pattern['donor_id'].map(patient_to_pattern)
+    cells_with_pattern = cells_with_pattern.dropna(subset=['evo_pattern'])
+
+    # Pattern styling
+    pattern_colors = {'1a': '#2E86AB', '1b': '#A23B72', '2': '#F18F01'}
+    pattern_names = {
+        '1a': 'Direct Lineage',
+        '1b': 'Branched Evolution',
+        '2': 'Independent Origins'
+    }
+
+    # Sample for UMAP
+    cells_s = sample_balanced(cells_with_pattern, n_per_stage=3000)
+    fused = get_embeddings(cells_s, "z_fused_")
+    umap_coords = compute_umap(fused)
+
+    fig = plt.figure(figsize=(16, 12))
+    gs = GridSpec(3, 4, figure=fig, hspace=0.35, wspace=0.35)
+
+    # A: UMAP colored by evolutionary pattern
+    ax_umap = fig.add_subplot(gs[0, 0:2])
+    for pattern in ['1a', '1b', '2']:
+        mask = cells_s['evo_pattern'] == pattern
+        if mask.sum() > 0:
+            ax_umap.scatter(umap_coords[mask, 0], umap_coords[mask, 1],
+                          c=pattern_colors[pattern], s=8, alpha=0.5,
+                          label=f'{pattern}: {pattern_names[pattern]}',
+                          rasterized=True)
+    ax_umap.legend(loc='upper right', fontsize=9, framealpha=0.9)
+    ax_umap.set_xlabel('UMAP 1')
+    ax_umap.set_ylabel('UMAP 2')
+    ax_umap.set_title('A. Evolutionary Patterns in Embedding Space', fontsize=11)
+    ax_umap.set_xticks([])
+    ax_umap.set_yticks([])
+
+    # B: Patient counts per pattern (pie chart)
+    ax_pie = fig.add_subplot(gs[0, 2])
+    pattern_counts = [pattern_info.get(p, {}).get('n', 0) for p in ['1a', '1b', '2']]
+    colors = [pattern_colors[p] for p in ['1a', '1b', '2']]
+    wedges, texts, autotexts = ax_pie.pie(
+        pattern_counts, colors=colors, autopct='%1.0f%%',
+        startangle=90, explode=[0.02, 0.02, 0.02],
+        textprops={'fontsize': 10}
+    )
+    ax_pie.set_title('B. Patient Distribution', fontsize=11)
+    # Legend with pattern names
+    ax_pie.legend(wedges, [f'{p}: {pattern_names[p]}' for p in ['1a', '1b', '2']],
+                 loc='lower center', fontsize=8, bbox_to_anchor=(0.5, -0.15))
+
+    # C: Cell counts per pattern (bar)
+    ax_bar = fig.add_subplot(gs[0, 3])
+    cell_counts = cells_with_pattern['evo_pattern'].value_counts()
+    bars = ax_bar.bar(['1a', '1b', '2'],
+                     [cell_counts.get(p, 0) for p in ['1a', '1b', '2']],
+                     color=[pattern_colors[p] for p in ['1a', '1b', '2']],
+                     edgecolor='white', linewidth=1)
+    ax_bar.set_ylabel('Cell Count')
+    ax_bar.set_xlabel('Pattern')
+    ax_bar.set_title('C. Cells per Pattern', fontsize=11)
+    # Add count labels
+    for bar, p in zip(bars, ['1a', '1b', '2']):
+        height = bar.get_height()
+        ax_bar.text(bar.get_x() + bar.get_width()/2, height,
+                   f'{int(height):,}', ha='center', va='bottom', fontsize=9)
+
+    # D: Stage composition within each pattern
+    ax_comp = fig.add_subplot(gs[1, 0:2])
+    stage_by_pattern = pd.crosstab(
+        cells_with_pattern['evo_pattern'],
+        cells_with_pattern['stage'],
+        normalize='index'
+    )
+    stage_by_pattern = stage_by_pattern.reindex(['1a', '1b', '2']).reindex(columns=STAGE_ORDER)
+
+    x = np.arange(3)
+    width = 0.15
+    for i, stage in enumerate(STAGE_ORDER):
+        offset = (i - 2) * width
+        if stage in stage_by_pattern.columns:
+            vals = stage_by_pattern[stage].values
+            ax_comp.bar(x + offset, vals, width, label=stage,
+                       color=STAGE_COLORS[stage], edgecolor='white')
+    ax_comp.set_xticks(x)
+    ax_comp.set_xticklabels([f'{p}\n{pattern_names[p]}' for p in ['1a', '1b', '2']], fontsize=9)
+    ax_comp.set_ylabel('Proportion')
+    ax_comp.set_title('D. Stage Distribution by Evolution Pattern', fontsize=11)
+    ax_comp.legend(loc='upper right', fontsize=8, ncol=5)
+
+    # E: Pattern distribution by stage (inverse view)
+    ax_inv = fig.add_subplot(gs[1, 2:4])
+    pattern_by_stage = pd.crosstab(
+        cells_with_pattern['stage'],
+        cells_with_pattern['evo_pattern'],
+        normalize='index'
+    )
+    pattern_by_stage = pattern_by_stage.reindex(STAGE_ORDER).reindex(columns=['1a', '1b', '2'])
+
+    x = np.arange(len(STAGE_ORDER))
+    width = 0.25
+    for i, pattern in enumerate(['1a', '1b', '2']):
+        offset = (i - 1) * width
+        if pattern in pattern_by_stage.columns:
+            vals = pattern_by_stage[pattern].values
+            ax_inv.bar(x + offset, vals, width, label=f'{pattern}: {pattern_names[pattern]}',
+                      color=pattern_colors[pattern], edgecolor='white')
+    ax_inv.set_xticks(x)
+    ax_inv.set_xticklabels(STAGE_ORDER, fontsize=9)
+    for i, label in enumerate(ax_inv.get_xticklabels()):
+        label.set_color(STAGE_COLORS[STAGE_ORDER[i]])
+        label.set_fontweight('bold')
+    ax_inv.set_ylabel('Proportion')
+    ax_inv.set_title('E. Evolution Pattern by Stage', fontsize=11)
+    ax_inv.legend(loc='upper right', fontsize=8)
+
+    # F: Schematic of evolutionary patterns
+    ax_schema = fig.add_subplot(gs[2, 0:2])
+    ax_schema.set_xlim(0, 10)
+    ax_schema.set_ylim(0, 6)
+    ax_schema.axis('off')
+
+    # Pattern 1a: Direct lineage
+    ax_schema.add_patch(plt.Circle((1.5, 4.5), 0.4, color=pattern_colors['1a'], alpha=0.8))
+    ax_schema.text(1.5, 4.5, 'N', ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+    ax_schema.annotate('', xy=(2.5, 4.5), xytext=(2, 4.5),
+                      arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+    ax_schema.add_patch(plt.Circle((3, 4.5), 0.4, color=pattern_colors['1a'], alpha=0.8))
+    ax_schema.text(3, 4.5, 'P', ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+    ax_schema.annotate('', xy=(4, 4.5), xytext=(3.5, 4.5),
+                      arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+    ax_schema.add_patch(plt.Circle((4.5, 4.5), 0.4, color=pattern_colors['1a'], alpha=0.8))
+    ax_schema.text(4.5, 4.5, 'I', ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+    ax_schema.text(6, 4.5, '1a: Direct Lineage\nMonoclonal precursor', fontsize=9, va='center')
+
+    # Pattern 1b: Branched
+    ax_schema.add_patch(plt.Circle((1.5, 2.5), 0.4, color=pattern_colors['1b'], alpha=0.8))
+    ax_schema.text(1.5, 2.5, 'N', ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+    ax_schema.annotate('', xy=(2.3, 3), xytext=(1.9, 2.7),
+                      arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+    ax_schema.annotate('', xy=(2.3, 2), xytext=(1.9, 2.3),
+                      arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+    ax_schema.add_patch(plt.Circle((2.8, 3.2), 0.35, color=pattern_colors['1b'], alpha=0.6))
+    ax_schema.add_patch(plt.Circle((2.8, 1.8), 0.35, color=pattern_colors['1b'], alpha=0.6))
+    ax_schema.text(2.8, 3.2, 'P1', ha='center', va='center', fontsize=8, color='white')
+    ax_schema.text(2.8, 1.8, 'P2', ha='center', va='center', fontsize=8, color='white')
+    ax_schema.annotate('', xy=(4, 2.5), xytext=(3.2, 3),
+                      arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+    ax_schema.add_patch(plt.Circle((4.5, 2.5), 0.4, color=pattern_colors['1b'], alpha=0.8))
+    ax_schema.text(4.5, 2.5, 'I', ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+    ax_schema.text(6, 2.5, '1b: Branched Evolution\nPolyclonal precursor', fontsize=9, va='center')
+
+    # Pattern 2: Independent
+    ax_schema.add_patch(plt.Circle((1.5, 0.5), 0.4, color=pattern_colors['2'], alpha=0.8))
+    ax_schema.text(1.5, 0.5, 'N', ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+    ax_schema.annotate('', xy=(2.5, 1), xytext=(1.9, 0.7),
+                      arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+    ax_schema.add_patch(plt.Circle((3, 1.2), 0.35, color=pattern_colors['2'], alpha=0.6))
+    ax_schema.text(3, 1.2, 'P', ha='center', va='center', fontsize=9, color='white')
+    ax_schema.add_patch(plt.Circle((3, -0.2), 0.35, color='#888888', alpha=0.6))
+    ax_schema.text(3, -0.2, '?', ha='center', va='center', fontsize=9, color='white')
+    ax_schema.annotate('', xy=(4, 0.3), xytext=(3.4, -0.1),
+                      arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+    ax_schema.add_patch(plt.Circle((4.5, 0.5), 0.4, color=pattern_colors['2'], alpha=0.8))
+    ax_schema.text(4.5, 0.5, 'I', ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+    ax_schema.text(6, 0.5, '2: Independent Origins\nUnrelated precursor', fontsize=9, va='center')
+
+    ax_schema.set_title('F. Evolutionary Pattern Schematics', fontsize=11)
+    ax_schema.text(0.5, 5.5, 'N=Normal  P=Precursor  I=Invasive', fontsize=8, style='italic')
+
+    # G: Per-patient pattern assignment
+    ax_patients = fig.add_subplot(gs[2, 2:4])
+    patient_df = pd.DataFrame([
+        {'Patient': p, 'Pattern': pat}
+        for p, pat in patient_to_pattern.items()
+    ])
+    patient_df['Pattern_num'] = patient_df['Pattern'].map({'1a': 0, '1b': 1, '2': 2})
+    patient_df = patient_df.sort_values(['Pattern_num', 'Patient'])
+
+    y_pos = 0
+    for pattern in ['1a', '1b', '2']:
+        patients = patient_df[patient_df['Pattern'] == pattern]['Patient'].tolist()
+        for i, patient in enumerate(patients):
+            ax_patients.add_patch(plt.Rectangle((i * 0.8, y_pos), 0.7, 0.8,
+                                               color=pattern_colors[pattern], alpha=0.8))
+            ax_patients.text(i * 0.8 + 0.35, y_pos + 0.4, patient,
+                           ha='center', va='center', fontsize=7, color='white', fontweight='bold')
+        ax_patients.text(-0.5, y_pos + 0.4, f'{pattern}:', ha='right', va='center',
+                        fontsize=10, fontweight='bold', color=pattern_colors[pattern])
+        y_pos += 1.2
+
+    ax_patients.set_xlim(-1, 12)
+    ax_patients.set_ylim(-0.2, 4)
+    ax_patients.axis('off')
+    ax_patients.set_title('G. Patient Assignments (n=23)', fontsize=11)
+
+    plt.suptitle('Clonal Evolution Patterns in LUAD Progression',
+                fontsize=15, fontweight='bold', y=0.98)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_dir / "fig2b_clonal_evolution.png", dpi=300, bbox_inches='tight', facecolor='white')
+    fig.savefig(output_dir / "fig2b_clonal_evolution.pdf", bbox_inches='tight', facecolor='white')
+    plt.close(fig)
+    print("  Saved fig2b_clonal_evolution.png/pdf")
 
 
 # =============================================================================
@@ -778,6 +1050,7 @@ def main():
 
     figure1_embedding_overview(cells, args.output_dir)
     figure2_biological_features(cells, args.output_dir)
+    figure2b_clonal_evolution(cells, args.output_dir)
     figure3_stage_transitions(cells, args.output_dir)
     figure4_reference_comparison(cells, args.output_dir)
 
