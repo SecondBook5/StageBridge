@@ -1,336 +1,302 @@
-"""Unified baseline evaluation on semi-synthetic benchmark.
+#!/usr/bin/env python3
+"""Unified baseline evaluation for StageBridge.
 
-Tests the core novelty claim:
-"Cross-sectional progression becomes more identifiable when cell representations
-are conditioned on receiver-centered local niche context."
+Tests the core hypothesis: "Cross-sectional progression becomes more
+identifiable when conditioned on receiver-centered local niche context."
 
-Baseline ladder:
-1. PoolingMLP - No structure (bag-of-cells)
-2. DeepSets - Permutation invariance only
-3. SetTransformer - Flat attention without spatial structure
-4. GraphSAGE - Spatial graph structure
-5. StageBridge - Receiver-centered niche + dual references (full model)
+Each sample is a NEIGHBORHOOD (9 tokens), not a single cell.
+Task: Classify the receiver's stage based on its niche context.
+
+Outputs:
+    - results.json: Full metrics
+    - model.pt: Model weights
+    - metrics.csv: Metrics in CSV format
+
+Usage:
+    python -m stagebridge.baselines.evaluate \
+        --data_dir /path/to/canonical \
+        --output_dir /path/to/results \
+        --baseline pooling_mlp \
+        --fold 0 \
+        --seed 42
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import argparse
+import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
 from tqdm import tqdm
 
+from stagebridge.baselines.set_baselines import create_baseline, BASELINE_REGISTRY
 from stagebridge.logging_utils import get_logger
 
 log = get_logger(__name__)
 
 
-@dataclass
-class EvaluationMetrics:
-    """Evaluation metrics for a single baseline."""
+class NeighborhoodDataset(Dataset):
+    """Dataset of neighborhoods for set-based classification.
 
-    baseline_name: str
-    split: str
-    accuracy: float
-    balanced_accuracy: float
-    f1_macro: float
-
-
-def load_benchmark_tensors(benchmark_dir: Path) -> dict:
-    """Load benchmark from semi_synthetic.pt file.
-
-    Args:
-        benchmark_dir: Path to benchmark directory containing semi_synthetic.pt
-
-    Returns:
-        Dictionary with tensors: expression, positions, stage_idx, is_interacting, etc.
+    Each sample is a 9-token neighborhood with the receiver's stage as label.
     """
-    benchmark_path = benchmark_dir / "semi_synthetic.pt"
-    if not benchmark_path.exists():
-        raise FileNotFoundError(f"Benchmark file not found: {benchmark_path}")
 
-    log.info(f"Loading benchmark from {benchmark_path}")
-    tensors = torch.load(benchmark_path, map_location="cpu", weights_only=False)
+    def __init__(
+        self,
+        neighborhoods_df: pd.DataFrame,
+        stage_to_idx: dict[str, int] | None = None,
+    ):
+        """
+        Args:
+            neighborhoods_df: DataFrame with columns [cell_id, donor_id, stage, tokens]
+            stage_to_idx: Mapping from stage name to index
+        """
+        self.neighborhoods = neighborhoods_df.reset_index(drop=True)
 
-    log.info(f"  Expression: {tensors['expression'].shape}")
-    log.info(f"  Stages: {tensors.get('stage_names', 'N/A')}")
+        # Create stage mapping if not provided
+        if stage_to_idx is None:
+            stages = sorted(self.neighborhoods["stage"].unique())
+            self.stage_to_idx = {s: i for i, s in enumerate(stages)}
+        else:
+            self.stage_to_idx = stage_to_idx
 
-    return tensors
+        self.idx_to_stage = {i: s for s, i in self.stage_to_idx.items()}
 
+    def __len__(self) -> int:
+        return len(self.neighborhoods)
 
-def create_splits(tensors: dict, val_ratio: float = 0.15, test_ratio: float = 0.15, seed: int = 42):
-    """Split benchmark tensors into train/val/test.
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Returns:
+            tokens: [K, D] token embeddings
+            stage_idx: scalar stage index
+            mask: [K] valid token mask
+        """
+        row = self.neighborhoods.iloc[idx]
+        tokens_list = row["tokens"]
 
-    Args:
-        tensors: Dictionary from load_benchmark_tensors
-        val_ratio: Fraction for validation
-        test_ratio: Fraction for test
-        seed: Random seed
-
-    Returns:
-        Tuple of (train_data, val_data, test_data) TensorDatasets
-    """
-    expression = tensors["expression"]
-    positions = tensors["positions"]
-    stage_idx = tensors["stage_idx"]
-
-    n_samples = len(expression)
-    indices = np.arange(n_samples)
-
-    # First split: train+val vs test
-    train_val_idx, test_idx = train_test_split(
-        indices, test_size=test_ratio, random_state=seed, stratify=stage_idx.numpy()
-    )
-
-    # Second split: train vs val
-    val_size = val_ratio / (1 - test_ratio)
-    train_idx, val_idx = train_test_split(
-        train_val_idx, test_size=val_size, random_state=seed,
-        stratify=stage_idx[train_val_idx].numpy()
-    )
-
-    log.info(f"Split sizes: train={len(train_idx)}, val={len(val_idx)}, test={len(test_idx)}")
-
-    def make_dataset(idx):
-        return TensorDataset(
-            expression[idx],
-            positions[idx],
-            stage_idx[idx],
-        )
-
-    return make_dataset(train_idx), make_dataset(val_idx), make_dataset(test_idx)
-
-
-class SimpleBaseline(nn.Module):
-    """Simple MLP baseline for stage classification."""
-
-    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(hidden_dim, n_classes),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class PoolingMLPBaseline(nn.Module):
-    """Mean pooling + MLP baseline."""
-
-    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, n_classes),
-        )
-
-    def forward(self, x):
-        # x: [batch, features]
-        h = self.encoder(x)
-        return self.classifier(h)
-
-
-class DeepSetsBaseline(nn.Module):
-    """DeepSets-style baseline with permutation invariance."""
-
-    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5):
-        super().__init__()
-        self.phi = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-        self.rho = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, n_classes),
-        )
-
-    def forward(self, x):
-        h = self.phi(x)
-        return self.rho(h)
-
-
-class SetTransformerBaseline(nn.Module):
-    """Simplified Set Transformer baseline."""
-
-    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5, n_heads: int = 4):
-        super().__init__()
-        self.embed = nn.Linear(input_dim, hidden_dim)
-        self.attn = nn.MultiheadAttention(hidden_dim, n_heads, batch_first=True)
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, n_classes),
-        )
-
-    def forward(self, x):
-        # x: [batch, features]
-        h = self.embed(x).unsqueeze(1)  # [batch, 1, hidden]
-        h, _ = self.attn(h, h, h)
-        h = h.squeeze(1)  # [batch, hidden]
-        return self.classifier(h)
-
-
-class GraphSAGEBaseline(nn.Module):
-    """Simplified GraphSAGE-style baseline (no actual graph, just spatial-aware)."""
-
-    def __init__(self, input_dim: int, hidden_dim: int = 128, n_classes: int = 5):
-        super().__init__()
-        # Include position info
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim + 2, hidden_dim),  # +2 for x,y coords
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-        )
-        self.classifier = nn.Linear(hidden_dim, n_classes)
-
-    def forward(self, x, coords=None):
-        if coords is not None:
-            x = torch.cat([x, coords], dim=-1)
-        h = self.encoder(x)
-        return self.classifier(h)
-
-
-def train_baseline(
-    model: nn.Module,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-    device: torch.device,
-    epochs: int = 50,
-    lr: float = 1e-3,
-    use_coords: bool = False,
-) -> nn.Module:
-    """Train a baseline model.
-
-    Args:
-        model: Baseline model
-        train_loader: Training data
-        val_loader: Validation data
-        device: Device
-        epochs: Number of epochs
-        lr: Learning rate
-        use_coords: Whether model uses coordinates
-
-    Returns:
-        Trained model
-    """
-    model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-    criterion = nn.CrossEntropyLoss()
-
-    best_val_acc = 0
-    best_state = None
-
-    for epoch in range(epochs):
-        # Training
-        model.train()
-        train_loss = 0
-        for batch in train_loader:
-            expr, coords, labels = [b.to(device) for b in batch]
-
-            optimizer.zero_grad()
-            if use_coords:
-                logits = model(expr, coords)
+        # Extract embeddings from tokens
+        embeddings = []
+        mask = []
+        for tok in tokens_list:
+            z = tok.get("z_fused")
+            if z is not None and np.array(z).sum() != 0:
+                embeddings.append(np.array(z, dtype=np.float32))
+                mask.append(True)
             else:
-                logits = model(expr)
-            loss = criterion(logits, labels)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
+                # Placeholder for missing embedding
+                embeddings.append(np.zeros(40, dtype=np.float32))
+                mask.append(False)
 
-        # Validation
-        model.eval()
-        val_preds, val_labels = [], []
-        with torch.no_grad():
-            for batch in val_loader:
-                expr, coords, labels = [b.to(device) for b in batch]
-                if use_coords:
-                    logits = model(expr, coords)
-                else:
-                    logits = model(expr)
-                val_preds.extend(logits.argmax(dim=-1).cpu().numpy())
-                val_labels.extend(labels.cpu().numpy())
+        tokens = torch.tensor(np.stack(embeddings), dtype=torch.float32)
+        mask = torch.tensor(mask, dtype=torch.bool)
+        stage_idx = torch.tensor(self.stage_to_idx[row["stage"]], dtype=torch.long)
 
-        val_acc = accuracy_score(val_labels, val_preds)
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            best_state = model.state_dict().copy()
-
-        if (epoch + 1) % 10 == 0:
-            log.info(f"  Epoch {epoch+1}: loss={train_loss/len(train_loader):.4f}, val_acc={val_acc:.4f}")
-
-    if best_state:
-        model.load_state_dict(best_state)
-
-    return model
+        return tokens, stage_idx, mask
 
 
-def evaluate_baseline(
+def collate_neighborhoods(batch):
+    """Collate function for neighborhood batches."""
+    tokens, stages, masks = zip(*batch)
+    return (
+        torch.stack(tokens),  # [B, K, D]
+        torch.stack(stages),  # [B]
+        torch.stack(masks),   # [B, K]
+    )
+
+
+def train_epoch(
+    model: nn.Module,
+    dataloader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    criterion: nn.Module,
+    device: torch.device,
+) -> float:
+    """Train for one epoch."""
+    model.train()
+    total_loss = 0.0
+
+    for tokens, stages, masks in dataloader:
+        tokens = tokens.to(device)
+        stages = stages.to(device)
+        masks = masks.to(device)
+
+        optimizer.zero_grad()
+        output = model(tokens, mask=masks)
+        loss = criterion(output.logits, stages)
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    return total_loss / len(dataloader)
+
+
+@torch.no_grad()
+def evaluate(
     model: nn.Module,
     dataloader: DataLoader,
     device: torch.device,
-    use_coords: bool = False,
-) -> tuple[float, float, float]:
-    """Evaluate baseline on a dataloader.
-
-    Returns:
-        Tuple of (accuracy, balanced_accuracy, f1_macro)
-    """
+) -> dict:
+    """Evaluate model on dataloader."""
     model.eval()
-    all_preds, all_labels = [], []
+    all_preds = []
+    all_labels = []
 
-    with torch.no_grad():
-        for batch in dataloader:
-            expr, coords, labels = [b.to(device) for b in batch]
-            if use_coords:
-                logits = model(expr, coords)
-            else:
-                logits = model(expr)
-            all_preds.extend(logits.argmax(dim=-1).cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
+    for tokens, stages, masks in dataloader:
+        tokens = tokens.to(device)
+        masks = masks.to(device)
 
-    return (
-        accuracy_score(all_labels, all_preds),
-        balanced_accuracy_score(all_labels, all_preds),
-        f1_score(all_labels, all_preds, average="macro", zero_division=0),
+        output = model(tokens, mask=masks)
+        preds = output.logits.argmax(dim=-1).cpu().numpy()
+
+        all_preds.extend(preds)
+        all_labels.extend(stages.numpy())
+
+    return {
+        "accuracy": accuracy_score(all_labels, all_preds),
+        "balanced_accuracy": balanced_accuracy_score(all_labels, all_preds),
+        "f1_macro": f1_score(all_labels, all_preds, average="macro", zero_division=0),
+    }
+
+
+def train_and_evaluate(
+    baseline_name: str,
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    stage_to_idx: dict[str, int],
+    device: torch.device,
+    epochs: int = 50,
+    batch_size: int = 64,
+    lr: float = 1e-3,
+    patience: int = 10,
+) -> dict:
+    """Train a baseline and evaluate on val/test sets."""
+    # Create datasets
+    train_dataset = NeighborhoodDataset(train_df, stage_to_idx)
+    val_dataset = NeighborhoodDataset(val_df, stage_to_idx)
+    test_dataset = NeighborhoodDataset(test_df, stage_to_idx)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_neighborhoods,
+        num_workers=0,
     )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_neighborhoods,
+        num_workers=0,
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_neighborhoods,
+        num_workers=0,
+    )
+
+    # Create model
+    model = create_baseline(
+        baseline_name,
+        input_dim=40,
+        hidden_dim=128,
+        num_classes=len(stage_to_idx),
+    ).to(device)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss()
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="max", factor=0.5, patience=5
+    )
+
+    # Training loop with early stopping
+    best_val_acc = 0.0
+    best_state = None
+    patience_counter = 0
+
+    for epoch in range(epochs):
+        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
+        val_metrics = evaluate(model, val_loader, device)
+
+        scheduler.step(val_metrics["balanced_accuracy"])
+
+        if val_metrics["balanced_accuracy"] > best_val_acc:
+            best_val_acc = val_metrics["balanced_accuracy"]
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            patience_counter = 0
+        else:
+            patience_counter += 1
+
+        if (epoch + 1) % 10 == 0:
+            log.info(
+                f"  Epoch {epoch+1}: loss={train_loss:.4f}, "
+                f"val_acc={val_metrics['accuracy']:.4f}, "
+                f"val_bal_acc={val_metrics['balanced_accuracy']:.4f}"
+            )
+
+        if patience_counter >= patience:
+            log.info(f"  Early stopping at epoch {epoch+1}")
+            break
+
+    # Load best model and evaluate on test
+    if best_state is not None:
+        model.load_state_dict(best_state)
+        model = model.to(device)
+
+    val_metrics = evaluate(model, val_loader, device)
+    test_metrics = evaluate(model, test_loader, device)
+
+    return {
+        "val_accuracy": val_metrics["accuracy"],
+        "val_balanced_accuracy": val_metrics["balanced_accuracy"],
+        "val_f1_macro": val_metrics["f1_macro"],
+        "test_accuracy": test_metrics["accuracy"],
+        "test_balanced_accuracy": test_metrics["balanced_accuracy"],
+        "test_f1_macro": test_metrics["f1_macro"],
+        "best_epoch": epochs - patience_counter,
+        "_model": model,  # Return model for saving
+    }
 
 
 def main():
-    """CLI entry point for baseline evaluation."""
-    import argparse
-    import json
-
-    parser = argparse.ArgumentParser(description="Evaluate baselines on semi-synthetic benchmark")
-    parser.add_argument("--data_dir", type=Path, required=True, help="Canonical data directory")
-    parser.add_argument("--output_dir", type=Path, required=True, help="Output directory")
-    parser.add_argument("--baseline", type=str, required=True,
-                        choices=["pooling_mlp", "deep_sets", "set_transformer", "graph_sage"],
-                        help="Baseline to evaluate")
-    parser.add_argument("--validation_fold", type=int, default=0, help="Validation fold (for seed variation)")
+    parser = argparse.ArgumentParser(description="Evaluate set-based baselines")
+    parser.add_argument(
+        "--data_dir",
+        type=Path,
+        required=True,
+        help="Directory containing neighborhoods.parquet",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=Path,
+        required=True,
+        help="Output directory for results",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=str,
+        required=True,
+        choices=list(BASELINE_REGISTRY.keys()),
+        help="Baseline to evaluate",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--epochs", type=int, default=50, help="Training epochs")
-    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
+    parser.add_argument("--fold", type=int, default=0, help="Cross-validation fold")
+    parser.add_argument("--n_folds", type=int, default=5, help="Number of CV folds")
+    parser.add_argument("--epochs", type=int, default=50, help="Max training epochs")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     args = parser.parse_args()
 
     # Set seeds
@@ -338,91 +304,128 @@ def main():
     np.random.seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    log.info(f"Using device: {device}")
+    log.info(f"Device: {device}")
     log.info(f"Baseline: {args.baseline}")
-    log.info(f"Fold: {args.validation_fold}, Seed: {args.seed}")
+    log.info(f"Fold: {args.fold}/{args.n_folds}, Seed: {args.seed}")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load benchmark
-    benchmark_dir = args.data_dir / "benchmark"
-    if not benchmark_dir.exists():
-        log.error(f"Benchmark directory not found: {benchmark_dir}")
-        raise FileNotFoundError(f"Run semi_synthetic_benchmark rule first: {benchmark_dir}")
+    # Check if already complete (skip logic)
+    run_dir = args.output_dir / f"{args.baseline}_fold{args.fold}_seed{args.seed}"
+    if (run_dir / "model.pt").exists():
+        log.info(f"Skipping - already complete: {run_dir / 'model.pt'} exists")
+        return
 
-    tensors = load_benchmark_tensors(benchmark_dir)
+    # Load neighborhoods
+    neighborhoods_path = args.data_dir / "neighborhoods.parquet"
+    if not neighborhoods_path.exists():
+        # Try results directory
+        neighborhoods_path = Path("results/neighborhoods.parquet")
 
-    # Create splits (use seed + fold for variation)
-    effective_seed = args.seed + args.validation_fold * 1000
-    train_data, val_data, test_data = create_splits(tensors, seed=effective_seed)
+    if not neighborhoods_path.exists():
+        raise FileNotFoundError(f"neighborhoods.parquet not found in {args.data_dir}")
 
-    train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_data, batch_size=args.batch_size)
-    test_loader = DataLoader(test_data, batch_size=args.batch_size)
+    log.info(f"Loading neighborhoods from {neighborhoods_path}")
+    neighborhoods = pd.read_parquet(neighborhoods_path)
+    log.info(f"  Loaded {len(neighborhoods)} neighborhoods")
 
-    # Get dimensions
-    input_dim = tensors["expression"].shape[1]
-    n_classes = len(tensors.get("stage_names", [])) or int(tensors["stage_idx"].max() + 1)
-    log.info(f"Input dim: {input_dim}, Classes: {n_classes}")
+    # Check for valid embeddings
+    sample_tokens = neighborhoods.iloc[0]["tokens"]
+    sample_z = sample_tokens[0].get("z_fused")
+    if sample_z is None or np.array(sample_z).sum() == 0:
+        log.warning("WARNING: z_fused embeddings appear to be missing or all zeros!")
+        log.warning("You may need to regenerate neighborhoods.parquet with the fixed pipeline.")
 
-    # Create baseline model
-    use_coords = args.baseline == "graph_sage"
+    # Create stage mapping
+    stages = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    stage_to_idx = {s: i for i, s in enumerate(stages)}
 
-    if args.baseline == "pooling_mlp":
-        model = PoolingMLPBaseline(input_dim, n_classes=n_classes)
-    elif args.baseline == "deep_sets":
-        model = DeepSetsBaseline(input_dim, n_classes=n_classes)
-    elif args.baseline == "set_transformer":
-        model = SetTransformerBaseline(input_dim, n_classes=n_classes)
-    elif args.baseline == "graph_sage":
-        model = GraphSAGEBaseline(input_dim, n_classes=n_classes)
-    else:
-        raise ValueError(f"Unknown baseline: {args.baseline}")
+    # Filter to known stages
+    neighborhoods = neighborhoods[neighborhoods["stage"].isin(stages)].reset_index(drop=True)
+    log.info(f"  Filtered to {len(neighborhoods)} neighborhoods with known stages")
 
-    log.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    # Donor-held-out cross-validation
+    donors = neighborhoods["donor_id"].unique()
+    log.info(f"  {len(donors)} unique donors")
 
-    # Train
-    log.info("Training...")
-    model = train_baseline(
-        model, train_loader, val_loader, device,
-        epochs=args.epochs, use_coords=use_coords
+    # Split donors into folds
+    kfold = StratifiedKFold(n_splits=args.n_folds, shuffle=True, random_state=args.seed)
+
+    # Get donor-level stage (majority stage per donor)
+    donor_stages = neighborhoods.groupby("donor_id")["stage"].agg(
+        lambda x: x.value_counts().index[0]
     )
 
-    # Evaluate
-    log.info("Evaluating...")
-    val_acc, val_bal_acc, val_f1 = evaluate_baseline(model, val_loader, device, use_coords)
-    test_acc, test_bal_acc, test_f1 = evaluate_baseline(model, test_loader, device, use_coords)
+    fold_idx = 0
+    for train_donors_idx, test_donors_idx in kfold.split(donors, [donor_stages[d] for d in donors]):
+        if fold_idx == args.fold:
+            train_donors = donors[train_donors_idx]
+            test_donors = donors[test_donors_idx]
+            break
+        fold_idx += 1
 
-    log.info(f"Validation: acc={val_acc:.4f}, bal_acc={val_bal_acc:.4f}, f1={val_f1:.4f}")
-    log.info(f"Test: acc={test_acc:.4f}, bal_acc={test_bal_acc:.4f}, f1={test_f1:.4f}")
+    # Further split train into train/val (by donor)
+    val_size = max(1, len(train_donors) // 5)
+    val_donors = train_donors[:val_size]
+    train_donors = train_donors[val_size:]
 
-    # Save results
-    results = {
-        "baseline": args.baseline,
-        "fold": args.validation_fold,
-        "seed": args.seed,
-        "accuracy": float(test_acc),
-        "balanced_accuracy": float(test_bal_acc),
-        "f1_macro": float(test_f1),
-        "val_accuracy": float(val_acc),
-        "val_balanced_accuracy": float(val_bal_acc),
-        "val_f1_macro": float(val_f1),
-    }
+    log.info(f"  Train donors: {len(train_donors)}, Val donors: {len(val_donors)}, Test donors: {len(test_donors)}")
 
-    with open(args.output_dir / "results.json", "w") as f:
+    train_df = neighborhoods[neighborhoods["donor_id"].isin(train_donors)]
+    val_df = neighborhoods[neighborhoods["donor_id"].isin(val_donors)]
+    test_df = neighborhoods[neighborhoods["donor_id"].isin(test_donors)]
+
+    log.info(f"  Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
+
+    # Train and evaluate
+    log.info(f"Training {args.baseline}...")
+    results = train_and_evaluate(
+        baseline_name=args.baseline,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        stage_to_idx=stage_to_idx,
+        device=device,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+    )
+
+    # Extract model before adding to results dict
+    model = results.pop("_model")
+
+    # Add metadata
+    results["baseline"] = args.baseline
+    results["fold"] = args.fold
+    results["seed"] = args.seed
+    results["n_train"] = len(train_df)
+    results["n_val"] = len(val_df)
+    results["n_test"] = len(test_df)
+
+    # Create output subdirectory for this run
+    run_dir = args.output_dir / f"{args.baseline}_fold{args.fold}_seed{args.seed}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save results JSON
+    with open(run_dir / "results.json", "w") as f:
         json.dump(results, f, indent=2)
+
+    # Save model checkpoint
+    torch.save(model.state_dict(), run_dir / "model.pt")
 
     # Save metrics CSV
     metrics_df = pd.DataFrame([
-        {"split": "val", "accuracy": val_acc, "balanced_accuracy": val_bal_acc, "f1_macro": val_f1},
-        {"split": "test", "accuracy": test_acc, "balanced_accuracy": test_bal_acc, "f1_macro": test_f1},
+        {"split": "val", "accuracy": results["val_accuracy"],
+         "balanced_accuracy": results["val_balanced_accuracy"], "f1_macro": results["val_f1_macro"]},
+        {"split": "test", "accuracy": results["test_accuracy"],
+         "balanced_accuracy": results["test_balanced_accuracy"], "f1_macro": results["test_f1_macro"]},
     ])
-    metrics_df.to_csv(args.output_dir / "metrics.csv", index=False)
+    metrics_df.to_csv(run_dir / "metrics.csv", index=False)
 
-    # Save model checkpoint
-    torch.save(model.state_dict(), args.output_dir / "model.pt")
-
-    log.info(f"Results saved to {args.output_dir}")
+    log.info(f"Results saved to {run_dir}")
+    log.info(f"  Test accuracy: {results['test_accuracy']:.4f}")
+    log.info(f"  Test balanced accuracy: {results['test_balanced_accuracy']:.4f}")
+    log.info(f"  Test F1 macro: {results['test_f1_macro']:.4f}")
 
 
 if __name__ == "__main__":

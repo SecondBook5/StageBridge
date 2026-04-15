@@ -30,15 +30,11 @@ echo "Running baseline: $BASELINE, fold: $FOLD, seed: $SEED"
 DATA=/scratch/chaunzt1/stagebridge
 CANONICAL=$DATA/processed/luad_evo/canonical
 OUTPUT_BASE=$DATA/runs/v1_complete/baselines
-OUTPUT_DIR=$OUTPUT_BASE/${BASELINE}/fold${FOLD}_seed${SEED}
 
-# Skip if already complete (has model.pt)
-if [ -f "$OUTPUT_DIR/model.pt" ]; then
-    echo "Skipping - already complete: $OUTPUT_DIR/model.pt exists"
-    exit 0
-fi
+# Output will be: OUTPUT_BASE/{baseline}_fold{fold}_seed{seed}/
+# Skip logic is in the Python script
 
-mkdir -p $OUTPUT_DIR
+mkdir -p $OUTPUT_BASE
 
 # Load environment
 module load miniforge3
@@ -49,9 +45,9 @@ cd ~/StageBridge
 
 python -m stagebridge.baselines.evaluate \
     --data_dir $CANONICAL \
-    --output_dir $OUTPUT_DIR \
+    --output_dir $OUTPUT_BASE \
     --baseline $BASELINE \
-    --validation_fold $FOLD \
+    --fold $FOLD \
     --seed $SEED \
     --epochs 50 \
     --batch_size 256
