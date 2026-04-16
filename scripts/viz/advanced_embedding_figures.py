@@ -404,10 +404,10 @@ def figure5_trajectory_analysis(cells, output_dir):
     ax_eig.set_title('I. Diffusion Spectrum', fontsize=12)
 
     plt.suptitle('Advanced Trajectory and Pseudotime Analysis',
-                fontsize=15, fontweight='bold', y=1.01)
+                fontsize=14, fontweight='bold', y=0.96)
 
-    fig.savefig(output_dir / "fig5_advanced_trajectory.png", dpi=300, bbox_inches='tight', facecolor='white')
-    fig.savefig(output_dir / "fig5_advanced_trajectory.pdf", bbox_inches='tight', facecolor='white')
+    fig.savefig(output_dir / "fig5_advanced_trajectory.png", dpi=300, facecolor='white')
+    fig.savefig(output_dir / "fig5_advanced_trajectory.pdf", facecolor='white')
     plt.close(fig)
     print("  Saved fig5_advanced_trajectory.png/pdf")
 
@@ -460,11 +460,11 @@ def figure6_3d_embedding(cells, output_dir):
         ax.yaxis.pane.set_edgecolor('lightgray')
         ax.zaxis.pane.set_edgecolor('lightgray')
 
-    plt.suptitle('3D Fused Embedding Visualization', fontsize=15, fontweight='bold', y=1.02)
+    plt.suptitle('3D Fused Embedding Visualization', fontsize=14, fontweight='bold', y=0.96)
     plt.tight_layout()
 
-    fig.savefig(output_dir / "fig6_3d_embedding.png", dpi=300, bbox_inches='tight', facecolor='white')
-    fig.savefig(output_dir / "fig6_3d_embedding.pdf", bbox_inches='tight', facecolor='white')
+    fig.savefig(output_dir / "fig6_3d_embedding.png", dpi=300, facecolor='white')
+    fig.savefig(output_dir / "fig6_3d_embedding.pdf", facecolor='white')
     plt.close(fig)
     print("  Saved fig6_3d_embedding.png/pdf")
 
@@ -627,8 +627,8 @@ def figure7_statistical_analysis(cells, output_dir):
     plt.suptitle('Statistical Analysis of Embedding Space',
                 fontsize=15, fontweight='bold', y=1.01)
 
-    fig.savefig(output_dir / "fig7_statistical_analysis.png", dpi=300, bbox_inches='tight', facecolor='white')
-    fig.savefig(output_dir / "fig7_statistical_analysis.pdf", bbox_inches='tight', facecolor='white')
+    fig.savefig(output_dir / "fig7_statistical_analysis.png", dpi=300, facecolor='white')
+    fig.savefig(output_dir / "fig7_statistical_analysis.pdf", facecolor='white')
     plt.close(fig)
     print("  Saved fig7_statistical_analysis.png/pdf")
 
