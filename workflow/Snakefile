@@ -335,12 +335,12 @@ rule spatial_r_backend_sample:
     wildcard_constraints:
         backend = "|".join(R_BACKENDS),
         label_source = "|".join(LABEL_SOURCES)
-    threads: 8
+    threads: 16
     resources:
         mem_mb = 256000,
-        runtime = 360,  # 6 hours for R backends
+        runtime = 720,  # 12 hours for R backends (RCTD with 33 cell types is slow)
         slurm_partition = "cpu",  # R backends don't use GPU (CARD/RCTD/SPOTlight are CPU-based)
-        cpus_per_task = 8
+        cpus_per_task = 16  # More cores for R parallelization
     log:
         f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
     shell:
