@@ -76,6 +76,9 @@ cat("SPOTlight: Spatial:", ncol(spatial_counts), "spots,", nrow(spatial_counts),
 cat("SPOTlight: Cell types:", length(unique(ref_celltypes)), "\\n")
 
 # Create SingleCellExperiment for reference
+# Ensure cell_type is a factor (required for SPOTlight NMF)
+ref_celltypes <- as.factor(ref_celltypes)
+
 sce <- SingleCellExperiment(
     assays = list(counts = ref_counts),
     colData = data.frame(
@@ -114,18 +117,25 @@ mgs_df <- lapply(names(mgs), function(ct) {
     )
 })
 mgs_df <- do.call(rbind, mgs_df)
+# Ensure cluster is factor matching sce$cell_type levels
+mgs_df$cluster <- factor(mgs_df$cluster, levels = levels(sce$cell_type))
 
 cat("SPOTlight: Running deconvolution...\\n")
 
-# Run SPOTlight
+# Run SPOTlight with explicit numeric parameters
+n_celltypes <- length(levels(sce$cell_type))
+cat("SPOTlight: Number of cell types:", n_celltypes, "\\n")
+
 res <- SPOTlight(
     x = sce,
     y = spe,
-    groups = sce$cell_type,
+    groups = as.character(sce$cell_type),  # SPOTlight converts internally
     mgs = mgs_df,
     weight_id = "cluster",
     group_id = "cluster",
-    gene_id = "gene"
+    gene_id = "gene",
+    n_top = as.integer(100),  # Explicit integer for marker genes per type
+    verbose = TRUE
 )
 
 cat("SPOTlight: Extracting results...\\n")
@@ -164,18 +174,21 @@ class SPOTlightBackend(SpatialBackend):
     Configuration options:
     - min_cells_per_type: Minimum cells required per cell type
     - n_hvg: Number of highly variable genes to use
+    - max_cells_per_type: Maximum cells to sample per type (SPOTlight can't handle 800K cells)
     """
 
     def __init__(
         self,
         min_cells_per_type: int = 5,
         n_hvg: int = 3000,
+        max_cells_per_type: int = 2000,  # Subsample to avoid 100GB+ memory
         r_executable: str = "Rscript",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.min_cells_per_type = min_cells_per_type
         self.n_hvg = n_hvg
+        self.max_cells_per_type = max_cells_per_type
         self.r_executable = r_executable
 
     def map(
@@ -202,6 +215,23 @@ class SPOTlightBackend(SpatialBackend):
                 mask = ~snrna.obs["cell_type"].isin(rare_types)
                 snrna = snrna[mask].copy()
                 snrna.obs["cell_type"] = snrna.obs["cell_type"].cat.remove_unused_categories()
+
+        # Subsample reference to avoid memory explosion (SPOTlight converts to dense)
+        # 800K cells x 18K genes = 100+ GB as dense matrix
+        if self.max_cells_per_type > 0:
+            cell_type_counts = snrna.obs["cell_type"].value_counts()
+            needs_subsample = (cell_type_counts > self.max_cells_per_type).any()
+            if needs_subsample:
+                print(f"  Subsampling to max {self.max_cells_per_type} cells per type...")
+                # Stratified subsample
+                indices = []
+                for ct in snrna.obs["cell_type"].cat.categories:
+                    ct_idx = snrna.obs[snrna.obs["cell_type"] == ct].index
+                    if len(ct_idx) > self.max_cells_per_type:
+                        ct_idx = np.random.choice(ct_idx, self.max_cells_per_type, replace=False)
+                    indices.extend(ct_idx)
+                snrna = snrna[indices].copy()
+                print(f"  Subsampled reference: {snrna.shape[0]} cells")
 
         # Create temporary directory for R data exchange
         with tempfile.TemporaryDirectory() as tmpdir:
