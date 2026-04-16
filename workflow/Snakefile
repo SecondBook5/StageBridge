@@ -301,8 +301,8 @@ rule spatial_backend_sample:
         mem_mb = 256000,  # 256GB for 35GB spatial + 19GB snRNA
         runtime = lambda wildcards: 720 if wildcards.backend in ["cell2location", "destvi"] else 240,  # 12 hours for slow backends
         slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
+        gpu = 1
+        # No H100 constraint - A40/A100/L40S (48GB) sufficient for 10K spot samples
     log:
         f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
     shell:
