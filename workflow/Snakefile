@@ -339,9 +339,8 @@ rule spatial_r_backend_sample:
     resources:
         mem_mb = 256000,
         runtime = 360,  # 6 hours for R backends
-        slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
+        slurm_partition = "cpu",  # R backends don't use GPU (CARD/RCTD/SPOTlight are CPU-based)
+        cpus_per_task = 8
     log:
         f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
     shell:
