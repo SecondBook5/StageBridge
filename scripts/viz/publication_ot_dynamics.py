@@ -532,29 +532,23 @@ def figure_ot_dynamics(cells, output_dir):
     cbar = plt.colorbar(im, ax=ax, shrink=0.7)
     cbar.set_label('P(transition)', fontsize=8)
 
-    # K: Summary statistics
+    # K: Key metrics bar chart
     ax = fig.add_subplot(gs[2, 3])
-    ax.axis('off')
 
-    summary_text = f"""
-    Optimal Transport Analysis Summary
+    metrics = ['Total W', 'Mean Flux']
+    values = [sum(W_values), mean_fr]
+    colors = ['#1B4F72', '#922B21']
 
-    Total Wasserstein distance: {sum(W_values):.3f}
-    Mean flux ratio: {mean_fr:.2f}
+    bars = ax.bar(metrics, values, color=colors, edgecolor='white', linewidth=2)
 
-    Interpretation:
-    - Flux ratio > 0.5: Irreversible dynamics
-    - Current value suggests {'irreversible' if mean_fr > 0.5 else 'mixed'} progression
+    for bar, val in zip(bars, values):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
+               f'{val:.3f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
 
-    Stage transitions (OT distance):
-    """
-    for t, W in zip(transitions, W_values):
-        summary_text += f"\n      {t}: {W:.3f}"
-
-    ax.text(0.1, 0.95, summary_text, transform=ax.transAxes,
-           fontsize=9, verticalalignment='top', fontfamily='monospace',
-           bbox=dict(boxstyle='round', facecolor='#f8f9fa', edgecolor='#dee2e6'))
-    ax.set_title('K. Summary')
+    ax.axhline(0.5, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+    ax.set_ylabel('Value')
+    ax.set_title('K. Key Metrics')
+    ax.set_ylim(0, max(values) * 1.2)
 
     # Main title
     fig.suptitle('Optimal Transport Dynamics of LUAD Progression',
