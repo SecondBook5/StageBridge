@@ -172,6 +172,18 @@ ABLATION_CONFIGS = {
         "calibration_method": "temperature",
         "note": "Temperature scaling for calibrated confidence",
     },
+    # === NEW ABLATION: Prototype Bottleneck (Interpretability) ===
+    "with_prototypes": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_ude": False,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "attention",
+        "use_prototypes": True,
+        "num_prototypes": 16,
+        "note": "Enable prototype bottleneck for interpretable niche clusters",
+    },
 }
 
 
