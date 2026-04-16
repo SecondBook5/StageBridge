@@ -80,6 +80,8 @@ rule all:
         # Training (5-fold CV × 3 seeds, aggregated)
         f"{TRAINING}/aggregated/cv_results.json",
         f"{TRAINING}/aggregated/publication_metrics.json",
+        # Training with frozen encoder (SSL transfer test)
+        f"{TRAINING}/training_all.done",
         # H3 hypothesis validation (clonal ground truth)
         f"{TRAINING}/h3_validation/h3_validation.json",
         # H1.3 plasticity validation
@@ -1153,7 +1155,8 @@ rule aggregate_baselines:
 ABLATIONS_LIST = [
     "no_niche", "pooled_niche", "no_hierarchy", "no_hlca", "no_luca",
     "single_reference", "no_attention", "no_flow", "deterministic",
-    "no_genomics", "no_uncertainty", "reduced_latent", "no_ssl", "baseline_mlp"
+    "no_genomics", "no_uncertainty", "reduced_latent", "no_ssl", "baseline_mlp",
+    "with_prototypes"  # Interpretability: prototype bottleneck for niche clusters
 ]
 
 rule ablation:
