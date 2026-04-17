@@ -12,13 +12,13 @@ local:
   figures_dir: ./figures
 
 hpc:
-  data_root: /scratch/chaunzt1/stagebridge/processed
-  hlca_dir: /scratch/chaunzt1/stagebridge/processed/HLCA
-  luca_dir: /scratch/chaunzt1/stagebridge/processed/LuCA
-  evo_dir: /scratch/chaunzt1/stagebridge/processed/luad_evo
-  output_dir: /scratch/chaunzt1/stagebridge/outputs/v1_demo
-  results_dir: /scratch/chaunzt1/stagebridge/results
-  figures_dir: /scratch/chaunzt1/stagebridge/figures
+  data_root: /data1/chaunzt1/stagebridge/processed
+  hlca_dir: /data1/chaunzt1/stagebridge/processed/HLCA
+  luca_dir: /data1/chaunzt1/stagebridge/processed/LuCA
+  evo_dir: /data1/chaunzt1/stagebridge/processed/luad_evo
+  output_dir: /data1/chaunzt1/stagebridge/outputs/v1_demo
+  results_dir: /data1/chaunzt1/stagebridge/results
+  figures_dir: /data1/chaunzt1/stagebridge/figures
 
 # Expected files in each directory:
 # hlca_dir/hlca_scanvi.h5ad (or download via scvi-tools)

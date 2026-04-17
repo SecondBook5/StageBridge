@@ -279,7 +279,7 @@ snakemake --profile workflow/slurm --config data_root=/your/data/path
 
 Default paths (configured for HPC):
 ```yaml
-data_root: "/scratch/chaunzt1/stagebridge"
+data_root: "/data1/chaunzt1/stagebridge"
 ```
 
 ### Required Input Files

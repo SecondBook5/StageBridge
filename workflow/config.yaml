@@ -3,7 +3,7 @@
 # =============================================================================
 
 # Data paths (override via: snakemake --config data_root=/your/path)
-data_root: "/scratch/chaunzt1/stagebridge"
+data_root: "/data1/chaunzt1/stagebridge"
 
 # Reference mapping parameters
 # NOTE: These dimensions are fixed by the pretrained reference atlas models.

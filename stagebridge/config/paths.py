@@ -102,8 +102,8 @@ def detect_environment() -> Literal["local", "hpc"]:
     if env in ("local", "hpc"):
         return env
 
-    # Check if on HPC by looking for scratch directory
-    if Path("/scratch/chaunzt1").exists():
+    # Check if on HPC by looking for data1 directory
+    if Path("/data1/chaunzt1").exists():
         return "hpc"
 
     # Check hostname
@@ -145,13 +145,13 @@ def get_paths(env: Literal["local", "hpc"] | None = None) -> PathConfig:
         # Use defaults if no config file
         if env == "hpc":
             return PathConfig(
-                data_root="/scratch/chaunzt1/stagebridge/processed",
-                hlca_dir="/scratch/chaunzt1/stagebridge/processed/HLCA",
-                luca_dir="/scratch/chaunzt1/stagebridge/processed/LuCA",
-                evo_dir="/scratch/chaunzt1/stagebridge/processed/luad_evo",
-                output_dir="/scratch/chaunzt1/stagebridge/outputs/v1_demo",
-                results_dir="/scratch/chaunzt1/stagebridge/results",
-                figures_dir="/scratch/chaunzt1/stagebridge/figures",
+                data_root="/data1/chaunzt1/stagebridge/processed",
+                hlca_dir="/data1/chaunzt1/stagebridge/processed/HLCA",
+                luca_dir="/data1/chaunzt1/stagebridge/processed/LuCA",
+                evo_dir="/data1/chaunzt1/stagebridge/processed/luad_evo",
+                output_dir="/data1/chaunzt1/stagebridge/outputs/v1_demo",
+                results_dir="/data1/chaunzt1/stagebridge/results",
+                figures_dir="/data1/chaunzt1/stagebridge/figures",
             )
         else:
             return PathConfig(

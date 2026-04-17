@@ -126,8 +126,8 @@ def main():
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path("/scratch/chaunzt1/stagebridge"),
-        help="Root data directory (default: /scratch/chaunzt1/stagebridge)"
+        default=Path("/data1/chaunzt1/stagebridge"),
+        help="Root data directory (default: /data1/chaunzt1/stagebridge)"
     )
     parser.add_argument(
         "--fix-manifest",

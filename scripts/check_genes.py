@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from scvi.model import SCANVI
 
-model_path = "/scratch/chaunzt1/stagebridge/references/hlca/hub_cache/models--scvi-tools--human-lung-cell-atlas-scanvi/snapshots/6978d287b08ac777ca7c015e5220f2feec29ad0a"
+model_path = "/data1/chaunzt1/stagebridge/references/hlca/hub_cache/models--scvi-tools--human-lung-cell-atlas-scanvi/snapshots/6978d287b08ac777ca7c015e5220f2feec29ad0a"
 model = SCANVI.load(model_path, adata=None)
 
 # Check field_registries for var_names
@@ -31,13 +31,13 @@ if 'var_names' in state:
 
 # Also check the HLCA reference h5ad directly
 print("\n--- Checking HLCA reference h5ad ---")
-hlca = anndata.read_h5ad('/scratch/chaunzt1/stagebridge/references/hlca/hlca_reference.h5ad', backed='r')
+hlca = anndata.read_h5ad('/data1/chaunzt1/stagebridge/references/hlca/hlca_reference.h5ad', backed='r')
 print(f"HLCA ref: {hlca.n_vars} genes")
 print(f"First 5 var_names: {hlca.var_names.tolist()[:5]}")
 print(f"HLCA var columns: {hlca.var.columns.tolist()}")
 print(f"HLCA var head:\n{hlca.var.head(3)}")
 
-query = anndata.read_h5ad('/scratch/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized.h5ad', backed='r')
+query = anndata.read_h5ad('/data1/chaunzt1/stagebridge/processed/luad_evo/snrna_qc_normalized.h5ad', backed='r')
 print(f'Query: {query.n_vars} genes')
 print(f'First 5: {query.var_names.tolist()[:5]}')
 print(f'Query var columns: {query.var.columns.tolist()}')
