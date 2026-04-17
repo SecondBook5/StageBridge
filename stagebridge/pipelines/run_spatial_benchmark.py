@@ -207,6 +207,7 @@ def run_backend_comparison(
                 backend = SPOTlightBackend(
                     min_cells_per_type=5,
                     n_hvg=3000,
+                    max_cells_per_type=1000,  # Reduced from 2000 to fit in 256GB
                     r_executable=r_exec,
                 )
             else:
