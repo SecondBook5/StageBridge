@@ -8,7 +8,7 @@ Snakemake workflow for reproducible execution of the complete StageBridge V1 pip
 
 Ensure required input files exist:
 ```bash
-DATA=/scratch/chaunzt1/stagebridge  # or your data root
+DATA=/data1/chaunzt1/stagebridge  # or your data root
 
 # Required inputs
 ls $DATA/processed/luad_evo/snrna_qc_normalized_with_ensg.h5ad
@@ -86,7 +86,7 @@ snakemake --profile workflow/slurm -s workflow/Snakefile --jobs 20
 Edit `workflow/config.yaml`:
 
 ```yaml
-data_root: "/scratch/chaunzt1/stagebridge"
+data_root: "/data1/chaunzt1/stagebridge"
 
 # Reference mapping
 hlca_latent_key: "X_scANVI"

@@ -33,7 +33,7 @@ shell.prefix("module load miniforge3 && eval \"$(conda shell.bash hook)\" && con
 configfile: "workflow/config.yaml"
 
 # Data paths
-DATA = config.get("data_root", os.environ.get("DATA", "/scratch/chaunzt1/stagebridge"))
+DATA = config.get("data_root", os.environ.get("DATA", "/data1/chaunzt1/stagebridge"))
 PROCESSED = f"{DATA}/processed/luad_evo"
 REFERENCES = f"{DATA}/references"
 RUNS = f"{DATA}/runs"

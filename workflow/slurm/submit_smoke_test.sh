@@ -8,8 +8,8 @@
 set -e
 
 # Configuration
-ENV="/scratch/chaunzt1/stagebridge_env"
-DATA="/scratch/chaunzt1/stagebridge"
+ENV="/data1/chaunzt1/stagebridge_env"
+DATA="/data1/chaunzt1/stagebridge"
 SNRNA="${DATA}/processed/luad_evo/snrna_with_celltypes.h5ad"
 SPATIAL="${DATA}/processed/luad_evo/spatial_merged.h5ad"
 LABELS="${DATA}/processed/luad_evo/reference_geometry/cell_types.parquet"

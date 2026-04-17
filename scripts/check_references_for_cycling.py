@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 # Paths from workflow/config.yaml
-DATA_ROOT = Path("/scratch/chaunzt1/stagebridge")
+DATA_ROOT = Path("/data1/chaunzt1/stagebridge")
 HLCA_PATH = DATA_ROOT / "references/hlca/hlca_reference.h5ad"
 LUCA_PATH = DATA_ROOT / "references/luca/luca_core_atlas.h5ad"
 

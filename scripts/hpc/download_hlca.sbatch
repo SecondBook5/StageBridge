@@ -66,7 +66,7 @@ hubmodel.adata.obsm["X_scANVI"] = hubmodel.model.get_latent_representation()
 print(f"scANVI dims: {hubmodel.adata.obsm['X_scANVI'].shape[1]}")
 
 # Save
-output_path = "/scratch/chaunzt1/stagebridge/processed/HLCA/hlca_scanvi.h5ad"
+output_path = "/data1/chaunzt1/stagebridge/processed/HLCA/hlca_scanvi.h5ad"
 print(f"Saving to {output_path}...")
 hubmodel.adata.write_h5ad(output_path)
 print("Done!")

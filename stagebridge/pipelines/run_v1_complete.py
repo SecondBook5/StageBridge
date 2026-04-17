@@ -16,10 +16,10 @@ Pipeline stages:
 
 Usage:
     python -m stagebridge.pipelines.run_v1_complete \
-        --data_dir /scratch/chaunzt1/stagebridge/processed/luad_evo \
-        --output_dir /scratch/chaunzt1/stagebridge/outputs/v1_complete \
-        --hlca_path /scratch/chaunzt1/stagebridge/processed/HLCA/hlca_scanvi.h5ad \
-        --luca_path /scratch/chaunzt1/stagebridge/processed/LuCA/luca_extended.h5ad
+        --data_dir /data1/chaunzt1/stagebridge/processed/luad_evo \
+        --output_dir /data1/chaunzt1/stagebridge/outputs/v1_complete \
+        --hlca_path /data1/chaunzt1/stagebridge/processed/HLCA/hlca_scanvi.h5ad \
+        --luca_path /data1/chaunzt1/stagebridge/processed/LuCA/luca_extended.h5ad
 """
 
 from __future__ import annotations

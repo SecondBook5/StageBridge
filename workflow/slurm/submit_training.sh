@@ -6,8 +6,8 @@
 #SBATCH --mem=512G
 #SBATCH -t 720
 #SBATCH --nodes=1
-#SBATCH -o /scratch/chaunzt1/stagebridge/runs/logs/training/fold%a_seed%j.out
-#SBATCH -e /scratch/chaunzt1/stagebridge/runs/logs/training/fold%a_seed%j.err
+#SBATCH -o /data1/chaunzt1/stagebridge/runs/logs/training/fold%a_seed%j.out
+#SBATCH -e /data1/chaunzt1/stagebridge/runs/logs/training/fold%a_seed%j.err
 
 # Usage: sbatch --array=0-4 submit_training.sh <seed>
 # Example: sbatch --array=0-4 submit_training.sh 42
@@ -15,9 +15,9 @@
 SEED=${1:-42}
 FOLD=$SLURM_ARRAY_TASK_ID
 
-DATA_DIR=/scratch/chaunzt1/stagebridge/processed/luad_evo/canonical
-OUTPUT_DIR=/scratch/chaunzt1/stagebridge/runs/v1_complete/fold${FOLD}_seed${SEED}
-HPO_PARAMS=/scratch/chaunzt1/stagebridge/runs/v1_complete/hpo/best_params.json
+DATA_DIR=/data1/chaunzt1/stagebridge/processed/luad_evo/canonical
+OUTPUT_DIR=/data1/chaunzt1/stagebridge/runs/v1_complete/fold${FOLD}_seed${SEED}
+HPO_PARAMS=/data1/chaunzt1/stagebridge/runs/v1_complete/hpo/best_params.json
 
 echo "=============================================="
 echo "StageBridge V1 Training"
@@ -30,7 +30,7 @@ echo "=============================================="
 # Create output directories
 mkdir -p ${OUTPUT_DIR}/checkpoints
 mkdir -p ${OUTPUT_DIR}/metrics
-mkdir -p /scratch/chaunzt1/stagebridge/runs/logs/training
+mkdir -p /data1/chaunzt1/stagebridge/runs/logs/training
 
 # Run training with torchrun for DDP
 torchrun \
