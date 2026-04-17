@@ -9,6 +9,7 @@ https://github.com/dmcable/spacexr
 """
 
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -172,7 +173,9 @@ class RCTDBackend(SpatialBackend):
                 snrna.obs["cell_type"] = snrna.obs["cell_type"].cat.remove_unused_categories()
 
         # Create temporary directory for R data exchange
-        with tempfile.TemporaryDirectory() as tmpdir:
+        # Use explicit cleanup to handle SLURM job kills
+        tmpdir = tempfile.mkdtemp(prefix="rctd_")
+        try:
             input_dir = Path(tmpdir) / "input"
             r_output_dir = Path(tmpdir) / "output"
             input_dir.mkdir()
@@ -190,20 +193,25 @@ class RCTDBackend(SpatialBackend):
             print(f"RCTD: Calling R...")
             cmd = [self.r_executable, str(script_path), str(input_dir), str(r_output_dir), self.mode]
 
-            result = subprocess.run(
+            proc_result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
             )
 
-            if result.returncode != 0:
-                print(f"RCTD R stderr: {result.stderr}")
-                raise RuntimeError(f"RCTD R script failed: {result.stderr}")
+            if proc_result.returncode != 0:
+                print(f"RCTD R stderr: {proc_result.stderr}")
+                raise RuntimeError(f"RCTD R script failed: {proc_result.stderr}")
 
-            print(result.stdout)
+            print(proc_result.stdout)
 
             # Load results
             proportions = pd.read_csv(r_output_dir / "proportions.csv", index_col=0)
+        finally:
+            # Always cleanup temp directory
+            if Path(tmpdir).exists():
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                print(f"RCTD: Cleaned up temp directory {tmpdir}")
 
         # RCTD may drop some spots - reindex to match spatial
         # Fill missing with uniform distribution (max entropy = max uncertainty)

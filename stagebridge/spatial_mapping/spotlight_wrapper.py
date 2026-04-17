@@ -9,6 +9,7 @@ https://github.com/MarcElosworthy/SPOTlight
 """
 
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -234,7 +235,9 @@ class SPOTlightBackend(SpatialBackend):
                 print(f"  Subsampled reference: {snrna.shape[0]} cells")
 
         # Create temporary directory for R data exchange
-        with tempfile.TemporaryDirectory() as tmpdir:
+        # Use explicit cleanup to handle SLURM job kills
+        tmpdir = tempfile.mkdtemp(prefix="spotlight_")
+        try:
             input_dir = Path(tmpdir) / "input"
             r_output_dir = Path(tmpdir) / "output"
             input_dir.mkdir()
@@ -252,20 +255,25 @@ class SPOTlightBackend(SpatialBackend):
             print("SPOTlight: Calling R...")
             cmd = [self.r_executable, str(script_path), str(input_dir), str(r_output_dir)]
 
-            result = subprocess.run(
+            proc_result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
             )
 
-            if result.returncode != 0:
-                print(f"SPOTlight R stderr: {result.stderr}")
-                raise RuntimeError(f"SPOTlight R script failed: {result.stderr}")
+            if proc_result.returncode != 0:
+                print(f"SPOTlight R stderr: {proc_result.stderr}")
+                raise RuntimeError(f"SPOTlight R script failed: {proc_result.stderr}")
 
-            print(result.stdout)
+            print(proc_result.stdout)
 
             # Load results
             proportions = pd.read_csv(r_output_dir / "proportions.csv", index_col=0)
+        finally:
+            # Always cleanup temp directory
+            if Path(tmpdir).exists():
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                print(f"SPOTlight: Cleaned up temp directory {tmpdir}")
 
         # SPOTlight may drop some spots - reindex to match spatial
         # Fill missing with uniform distribution (max entropy = max uncertainty)
