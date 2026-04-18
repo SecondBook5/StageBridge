@@ -91,20 +91,19 @@ def build_model_from_checkpoint(
     model_config = config.get("model", {})
 
     # Determine model type from config
-    model_type = model_config.get("type", "hierarchical_set_transformer")
+    # Default to StageBridgeV1Complete which is what run_v1_ddp.py produces
+    model_type = model_config.get("type", "stagebridge_v1_complete")
 
-    if model_type == "hierarchical_set_transformer":
-        from stagebridge.context_model.lesion_set_transformer import (
-            LesionSetTransformer,
-        )
+    if model_type in ("stagebridge_v1_complete", "hierarchical_set_transformer"):
+        from stagebridge.pipelines.run_v1_complete import StageBridgeV1Complete
 
-        model = LesionSetTransformer(
-            input_dim=model_config.get("input_dim", 40),
-            hidden_dim=model_config.get("hidden_dim", 128),
-            n_heads=model_config.get("n_heads", 4),
-            n_layers=model_config.get("n_layers", 2),
-            n_stages=model_config.get("n_stages", 5),
-            dropout=model_config.get("dropout", 0.1),
+        model = StageBridgeV1Complete(
+            latent_dim=model_config.get("latent_dim", config.get("latent_dim", 40)),
+            niche_hidden_dim=model_config.get("niche_hidden_dim", config.get("niche_hidden_dim", 128)),
+            context_dim=model_config.get("context_dim", config.get("context_dim", 256)),
+            dropout=model_config.get("dropout", config.get("dropout", 0.1)),
+            hlca_dim=model_config.get("hlca_dim", config.get("hlca_dim", 30)),
+            luca_dim=model_config.get("luca_dim", config.get("luca_dim", 10)),
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
