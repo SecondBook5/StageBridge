@@ -45,6 +45,9 @@ print("=" * 60)
 results = {}
 for f in metric_files:
     path = Path(f)
+    # Skip non-JSON files (e.g., .done marker files)
+    if not str(f).endswith('.json'):
+        continue
     # Structure: {spatial_dir}/{label_source}/{backend}/upstream_metrics.json
     backend = path.parent.name
     label_source = path.parent.parent.name
