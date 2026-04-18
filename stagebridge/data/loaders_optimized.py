@@ -249,6 +249,11 @@ class StageBridgeDatasetOptimized(Dataset):
             self.niche_masks_cache[cell_id] = mask
 
         log.info("    Cached %s niche token sets", f"{len(self.niche_tokens_cache):,}")
+        # Report coverage
+        n_cells_with_nhood = len(set(self.niche_tokens_cache.keys()) & set(self.cells["cell_id"]))
+        log.info("    Cells with neighborhoods: %s / %s (%.1f%%)",
+                 f"{n_cells_with_nhood:,}", f"{len(self.cells):,}",
+                 100 * n_cells_with_nhood / len(self.cells) if len(self.cells) > 0 else 0)
 
     def _build_edge_index(self):
         """Build index mapping stage edges to source cells."""
@@ -318,16 +323,15 @@ class StageBridgeDatasetOptimized(Dataset):
         z_target = self.latent_matrix[target_cell_idx]
 
         # FAST: Cached niche tokens (pre-computed in __init__)
-        # Handle cells without neighborhood data (create empty tokens)
+        # Handle cells without neighborhood data (create receiver-only tokens)
         if source_cell_id in self.niche_tokens_cache:
             niche_tokens = self.niche_tokens_cache[source_cell_id]
             niche_mask = self.niche_masks_cache[source_cell_id]
         else:
-            # No neighborhood for this cell - create empty tokens with just receiver
+            # No spatial neighborhood for this cell - use receiver embedding only
             token_dim = self.latent_dim + 4
             niche_tokens = np.zeros((9, token_dim), dtype=np.float32)
             niche_mask = np.zeros(9, dtype=bool)
-            # Put receiver embedding in first slot
             niche_tokens[0, :self.latent_dim] = z_source[:self.latent_dim]
             niche_mask[0] = True
 
