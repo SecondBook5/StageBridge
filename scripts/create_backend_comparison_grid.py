@@ -107,14 +107,29 @@ def create_backend_comparison_figure(
     sample_id: str,
     output_path: Path,
     max_celltypes: int = 6,
-    spot_size: float = 5,
+    spot_size: float = 8,
 ):
     """
-    Create multi-backend comparison figure.
+    Create publication-quality multi-backend comparison figure.
 
     Rows = cell types, Columns = backends
     Marker scoring is separated as a baseline method at the end.
     """
+    # Parse sample_id for metadata (e.g., GSM9226168_P1_AAH -> P1, AAH)
+    parts = sample_id.split('_')
+    donor = parts[1] if len(parts) > 1 else ""
+    stage = parts[2] if len(parts) > 2 else ""
+
+    # Stage colors for annotation
+    STAGE_COLORS = {
+        "Normal": "#2ecc71",
+        "AAH": "#f39c12",
+        "AIS": "#e74c3c",
+        "MIA": "#9b59b6",
+        "LUAD": "#1a1a2e",
+    }
+    stage_color = STAGE_COLORS.get(stage.split('-')[0], "#333333")
+
     # Separate deconvolution methods from baselines
     BASELINE_BACKENDS = {"marker_scoring"}
 
@@ -125,7 +140,7 @@ def create_backend_comparison_figure(
     # Order: deconvolution methods first, then baselines at the end
     backends = deconv_backends + baseline_backends
     n_backends = len(backends)
-    baseline_start_idx = len(deconv_backends)  # Column index where baselines start
+    baseline_start_idx = len(deconv_backends)
 
     # Limit cell types shown
     cell_types = cell_types[:max_celltypes]
@@ -138,16 +153,24 @@ def create_backend_comparison_figure(
     # Create spatial coords DataFrame for alignment
     spatial_df = pd.DataFrame(spatial_coords, index=spatial_index, columns=["x", "y"])
 
-    # Create figure: rows = cell types, cols = backends
+    # Publication figure setup
+    plt.rcParams.update({
+        'font.family': 'sans-serif',
+        'font.sans-serif': ['Arial', 'Helvetica', 'DejaVu Sans'],
+        'font.size': 10,
+        'axes.linewidth': 0.8,
+    })
+
+    # Create figure with space for colorbars
     fig, axes = plt.subplots(
-        n_celltypes, n_backends,
-        figsize=(3 * n_backends, 3 * n_celltypes),
+        n_celltypes, n_backends + 1,  # +1 for colorbar column
+        figsize=(2.5 * n_backends + 0.8, 2.5 * n_celltypes + 0.5),
         squeeze=False,
+        gridspec_kw={'width_ratios': [1] * n_backends + [0.05], 'wspace': 0.05, 'hspace': 0.15}
     )
 
     # Color normalization per cell type (shared across backends)
     for row, ct in enumerate(cell_types):
-        # Get global min/max across all backends for this cell type
         all_vals = []
         for backend in backends:
             if ct in proportions[backend].columns:
@@ -156,25 +179,23 @@ def create_backend_comparison_figure(
         if not all_vals:
             continue
 
-        vmin = np.percentile(all_vals, 1)
-        vmax = np.percentile(all_vals, 99)
+        vmin = np.percentile(all_vals, 2)
+        vmax = np.percentile(all_vals, 98)
         norm = Normalize(vmin=vmin, vmax=vmax)
 
+        scatter_ref = None
         for col, backend in enumerate(backends):
             ax = axes[row, col]
 
             if ct in proportions[backend].columns:
                 props_df = proportions[backend]
-
-                # Align by index - get common spots
                 common_idx = props_df.index.intersection(spatial_df.index)
 
                 if len(common_idx) == 0:
-                    ax.text(0.5, 0.5, "No\noverlap", ha='center', va='center', transform=ax.transAxes)
-                    ax.set_xticks([])
-                    ax.set_yticks([])
+                    ax.text(0.5, 0.5, "No\noverlap", ha='center', va='center',
+                            transform=ax.transAxes, fontsize=9, color='#999999')
+                    ax.set_facecolor('#f8f8f8')
                 else:
-                    # Get aligned values and coords
                     values = props_df.loc[common_idx, ct].values
                     coords = spatial_df.loc[common_idx, ["x", "y"]].values
 
@@ -182,56 +203,65 @@ def create_backend_comparison_figure(
                         coords[:, 0],
                         coords[:, 1],
                         c=values,
-                        cmap="Reds",
+                        cmap="magma",
                         norm=norm,
                         s=spot_size,
                         edgecolors='none',
                         rasterized=True,
+                        alpha=0.9,
                     )
-                    ax.set_aspect('equal')
-                    ax.set_xticks([])
-                    ax.set_yticks([])
+                    if scatter_ref is None:
+                        scatter_ref = scatter
+                    ax.set_facecolor('black')
             else:
-                ax.text(0.5, 0.5, "N/A", ha='center', va='center', transform=ax.transAxes)
-                ax.set_xticks([])
-                ax.set_yticks([])
+                ax.text(0.5, 0.5, "N/A", ha='center', va='center',
+                        transform=ax.transAxes, fontsize=9, color='#999999')
+                ax.set_facecolor('#f8f8f8')
 
-            # Column header (backend name)
+            ax.set_aspect('equal')
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            # Clean spines
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+
+            # Column header (backend name) - only on first row
             if row == 0:
                 is_baseline = backend in BASELINE_BACKENDS
-                title_text = f"{backend.upper()}\n(Baseline)" if is_baseline else backend.upper()
-                title_color = '#666666' if is_baseline else 'black'
-                ax.set_title(title_text, fontsize=11, fontweight='bold', color=title_color)
+                title_text = backend.replace('_', ' ').title()
+                if is_baseline:
+                    title_text += "\n(Baseline)"
+                ax.set_title(title_text, fontsize=9, fontweight='bold',
+                            color='#666666' if is_baseline else '#333333', pad=4)
 
-            # Row label (cell type)
+            # Row label (cell type) - only on first column
             if col == 0:
-                ax.set_ylabel(ct, fontsize=10, fontweight='bold')
+                ax.set_ylabel(ct.replace('_', ' '), fontsize=9, fontweight='bold',
+                             labelpad=2, color='#333333')
 
-            # Add vertical separator line before baseline section
-            if col == baseline_start_idx and baseline_start_idx > 0:
-                # Draw line on left edge of baseline columns
-                ax.axvline(x=ax.get_xlim()[0], color='#333333', linewidth=2, linestyle='--')
+        # Add colorbar in the last column for this row
+        cax = axes[row, -1]
+        if scatter_ref is not None:
+            cbar = plt.colorbar(scatter_ref, cax=cax)
+            cbar.ax.tick_params(labelsize=7, length=2, width=0.5)
+            cbar.outline.set_linewidth(0.5)
+        else:
+            cax.axis('off')
 
-    # Add a visible separator between deconvolution and baseline sections
-    if baseline_start_idx > 0 and baseline_start_idx < n_backends:
-        # Add text annotation for the sections
-        fig.text(
-            baseline_start_idx / n_backends - 0.02, 0.5,
-            '|', fontsize=40, ha='center', va='center',
-            transform=fig.transFigure, color='#999999'
-        )
-
-    # Overall title
+    # Overall title with stage color accent
+    title_text = f"{donor} - {stage}" if donor and stage else sample_id
     fig.suptitle(
-        f"Backend Comparison: {sample_id}",
-        fontsize=14,
+        title_text,
+        fontsize=12,
         fontweight='bold',
-        y=1.02,
+        color=stage_color,
+        y=0.98,
     )
 
-    plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white',
+                edgecolor='none', pad_inches=0.1)
     plt.close()
 
     print(f"  Saved: {output_path}")
@@ -243,8 +273,19 @@ def create_correlation_heatmap(
     sample_id: str,
     output_path: Path,
 ):
-    """Create correlation heatmap between backends."""
-    # Separate deconvolution methods from baselines (same ordering as spatial figure)
+    """Create publication-quality correlation heatmap between backends."""
+    # Parse sample_id for metadata
+    parts = sample_id.split('_')
+    donor = parts[1] if len(parts) > 1 else ""
+    stage = parts[2] if len(parts) > 2 else ""
+
+    STAGE_COLORS = {
+        "Normal": "#2ecc71", "AAH": "#f39c12", "AIS": "#e74c3c",
+        "MIA": "#9b59b6", "LUAD": "#1a1a2e",
+    }
+    stage_color = STAGE_COLORS.get(stage.split('-')[0], "#333333")
+
+    # Separate deconvolution methods from baselines
     BASELINE_BACKENDS = {"marker_scoring"}
 
     all_backends = set(proportions.keys())
@@ -262,52 +303,71 @@ def create_correlation_heatmap(
 
     for i, b1 in enumerate(backends):
         for j, b2 in enumerate(backends):
-            # Get common indices
             common_idx = proportions[b1].index.intersection(proportions[b2].index)
             common_cols = [c for c in cell_types if c in proportions[b1].columns and c in proportions[b2].columns]
 
             if len(common_idx) > 0 and len(common_cols) > 0:
                 v1 = proportions[b1].loc[common_idx, common_cols].values.flatten()
                 v2 = proportions[b2].loc[common_idx, common_cols].values.flatten()
-
-                # Pearson correlation
                 corr = np.corrcoef(v1, v2)[0, 1]
                 corr_matrix[i, j] = corr
             else:
                 corr_matrix[i, j] = np.nan
 
-    # Plot
-    fig, ax = plt.subplots(figsize=(8, 6))
-    im = ax.imshow(corr_matrix, cmap='RdBu_r', vmin=0, vmax=1)
+    # Publication figure setup
+    plt.rcParams.update({
+        'font.family': 'sans-serif',
+        'font.sans-serif': ['Arial', 'Helvetica', 'DejaVu Sans'],
+        'font.size': 10,
+    })
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+
+    # Use a perceptually uniform diverging colormap
+    im = ax.imshow(corr_matrix, cmap='RdYlBu_r', vmin=0, vmax=1, aspect='equal')
 
     ax.set_xticks(range(n_backends))
     ax.set_yticks(range(n_backends))
 
-    # Format labels - mark baselines
-    xlabels = [f"{b.upper()}\n(Baseline)" if b in BASELINE_BACKENDS else b.upper() for b in backends]
-    ylabels = [f"{b.upper()} (B)" if b in BASELINE_BACKENDS else b.upper() for b in backends]
-    ax.set_xticklabels(xlabels, rotation=45, ha='right')
-    ax.set_yticklabels(ylabels)
+    # Clean backend labels
+    labels = [b.replace('_', ' ').title() for b in backends]
+    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
+    ax.set_yticklabels(labels, fontsize=9)
 
     # Add separator lines before baseline section
     if baseline_start_idx > 0 and baseline_start_idx < n_backends:
-        ax.axhline(y=baseline_start_idx - 0.5, color='white', linewidth=3)
-        ax.axvline(x=baseline_start_idx - 0.5, color='white', linewidth=3)
+        ax.axhline(y=baseline_start_idx - 0.5, color='#333333', linewidth=1.5, linestyle='--')
+        ax.axvline(x=baseline_start_idx - 0.5, color='#333333', linewidth=1.5, linestyle='--')
 
-    # Add correlation values
+    # Add correlation values with smart text coloring
     for i in range(n_backends):
         for j in range(n_backends):
             val = corr_matrix[i, j]
             if not np.isnan(val):
-                color = 'white' if val < 0.5 else 'black'
-                ax.text(j, i, f'{val:.2f}', ha='center', va='center', color=color, fontsize=10)
+                # White text on dark backgrounds, black on light
+                text_color = 'white' if val > 0.65 or val < 0.35 else '#333333'
+                fontweight = 'bold' if i == j else 'normal'
+                ax.text(j, i, f'{val:.2f}', ha='center', va='center',
+                       color=text_color, fontsize=8, fontweight=fontweight)
 
-    plt.colorbar(im, ax=ax, label='Pearson Correlation')
-    ax.set_title(f'Backend Agreement: {sample_id}', fontsize=12, fontweight='bold')
+    # Colorbar
+    cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+    cbar.set_label('Pearson r', fontsize=10)
+    cbar.ax.tick_params(labelsize=8)
+
+    # Title with stage color
+    title_text = f"{donor} - {stage}" if donor and stage else sample_id
+    ax.set_title(f'Backend Agreement\n{title_text}', fontsize=11, fontweight='bold',
+                color=stage_color, pad=10)
+
+    # Clean up spines
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.5)
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white',
+               edgecolor='none', pad_inches=0.1)
     plt.close()
 
 
