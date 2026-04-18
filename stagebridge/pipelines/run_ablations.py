@@ -175,8 +175,9 @@ def run_all_ablations(
     output_base_dir.mkdir(parents=True, exist_ok=True)
 
     base_args = base_args or {
-        "batch_size": 32,
-        "n_epochs": 50,
+        "batch_size": 128,
+        "ssl_epochs": 50,
+        "transition_epochs": 100,
         "lr": 1e-3,
         "latent_dim": FUSED_LATENT_DIM,
     }
