@@ -1154,10 +1154,16 @@ rule aggregate_baselines:
 # =============================================================================
 
 ABLATIONS_LIST = [
-    "no_niche", "pooled_niche", "no_hierarchy", "no_hlca", "no_luca",
-    "single_reference", "no_attention", "no_flow", "deterministic",
-    "no_genomics", "no_uncertainty", "reduced_latent", "no_ssl", "baseline_mlp",
-    "with_prototypes"  # Interpretability: prototype bottleneck for niche clusters
+    # Core ablations (must match ABLATION_CONFIGS in run_ablations.py)
+    "no_niche",           # Remove niche encoder entirely
+    "pooled_niche",       # Mean pool instead of attention
+    "flat_hierarchy",     # No hierarchical Set Transformer
+    "hlca_only",          # Single reference: HLCA only
+    "luca_only",          # Single reference: LuCA only
+    "deterministic",      # No stochastic dynamics
+    "no_wes",             # No genomic/WES features
+    "no_auxiliary_losses", # No IL1B/KAC/pathway supervision
+    "with_prototypes",    # Interpretability: prototype bottleneck
 ]
 
 rule ablation:
