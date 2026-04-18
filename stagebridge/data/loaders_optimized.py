@@ -359,7 +359,7 @@ class StageBridgeDatasetOptimized(Dataset):
             "wes_features": torch.from_numpy(wes_features).float()
             if wes_features is not None
             else None,
-            "has_wes": torch.tensor(has_wes).bool(),
+            "has_wes": torch.tensor(bool(has_wes)),
             "niche_influence": torch.tensor(niche_influence).float()
             if niche_influence is not None
             else None,
