@@ -222,16 +222,19 @@ class StageBridgeDatasetOptimized(Dataset):
 
                 elif token_type.startswith("ring"):
                     z = token["z_pooled"]
-                    niche_array[token_idx, : self.latent_dim] = z[: self.latent_dim]
+                    z_len = min(len(z), self.latent_dim)
+                    niche_array[token_idx, :z_len] = z[:z_len]
                     niche_array[token_idx, self.latent_dim] = token.get("n_cells", 0) / 5.0
 
                 elif token_type == "hlca":
                     z = token["z_hlca"]
-                    niche_array[token_idx, : self.latent_dim] = z[: self.latent_dim]
+                    z_len = min(len(z), self.latent_dim)
+                    niche_array[token_idx, :z_len] = z[:z_len]
 
                 elif token_type == "luca":
                     z = token["z_luca"]
-                    niche_array[token_idx, : self.latent_dim] = z[: self.latent_dim]
+                    z_len = min(len(z), self.latent_dim)
+                    niche_array[token_idx, :z_len] = z[:z_len]
 
                 elif token_type == "pathway":
                     niche_array[token_idx, 0] = token.get("emt_score", 0.0)
