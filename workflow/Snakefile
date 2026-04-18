@@ -91,7 +91,9 @@ rule all:
         # Ablations
         f"{ABLATIONS}/ablation_summary.json",
         # Publication figures
-        f"{FIGURES}/manifests/figure_manifest.json"
+        f"{FIGURES}/manifests/figure_manifest.json",
+        # OT dynamics / flow field visualization
+        f"{FIGURES}/dynamics/fig_ot_dynamics.png"
 
 
 # =============================================================================
@@ -1265,6 +1267,42 @@ rule embedding_figures:
 
         # Create manifest
         echo '{{"generated": "'$(date -Iseconds)'", "figures": 7}}' > {output.manifest}
+        """
+
+
+rule ot_dynamics_figures:
+    """Generate optimal transport flow field and dynamics visualizations.
+
+    Key figure for flow matching paper showing:
+    - Velocity streamlines on UMAP/latent space
+    - Wasserstein distances between consecutive stages
+    - Helmholtz decomposition (divergence/curl)
+    - Irreversibility analysis
+    """
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        training_done = f"{TRAINING}/aggregated/cv_results.json"
+    output:
+        main_fig = f"{FIGURES}/dynamics/fig_ot_dynamics.png",
+        pdf = f"{FIGURES}/dynamics/fig_ot_dynamics.pdf",
+        metrics = f"{FIGURES}/dynamics/ot_metrics.json"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/ot_dynamics_figures.log"
+    shell:
+        """
+        mkdir -p {FIGURES}/dynamics
+
+        python scripts/viz/publication_ot_dynamics.py \
+            --data_dir {CANONICAL} \
+            --output_dir {FIGURES}/dynamics \
+            2>&1 | tee {log}
+
+        # Save metrics as JSON
+        echo '{{"generated": "'$(date -Iseconds)'"}}' > {output.metrics}
         """
 
 
