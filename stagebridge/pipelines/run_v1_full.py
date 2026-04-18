@@ -68,7 +68,7 @@ class StageBridgeV1Full(nn.Module):
         num_edges: int = 3,
         # Layer F: WES
         use_wes: bool = True,
-        wes_dim: int = 3,
+        wes_dim: int = 8,  # tmb + 7 mutation columns
         wes_hidden_dim: int = 64,
         # Prototype bottleneck (interpretability)
         use_prototypes: bool = False,
