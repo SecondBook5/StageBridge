@@ -72,10 +72,42 @@ ABLATION_CONFIGS = {
         "wes_weight": 0.1,
         "note": "No hierarchical Set Transformer",
     },
-    # TODO: These need additional args added to run_v1_full.py
-    # "hlca_only": { "fusion_mode": "hlca_only" },
-    # "luca_only": { "fusion_mode": "luca_only" },
-    # "deterministic": { "stochastic": False },
+    # Single reference ablations
+    "hlca_only": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "hlca_only",
+        "note": "Use only HLCA (healthy) reference",
+    },
+    "luca_only": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "fusion_mode": "luca_only",
+        "note": "Use only LuCA (cancer) reference",
+    },
+    # Stochastic vs deterministic
+    "deterministic": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "no_stochastic": True,
+        "note": "Deterministic dynamics only (no flow matching noise)",
+    },
+    # Interpretability
+    "with_prototypes": {
+        "niche_encoder": "transformer",
+        "use_set_encoder": True,
+        "use_wes": True,
+        "wes_weight": 0.1,
+        "use_prototypes": True,
+        "num_prototypes": 16,
+        "note": "Prototype bottleneck for interpretable niche clusters",
+    },
 }
 
 
