@@ -31,13 +31,14 @@ from stagebridge.config import FUSED_LATENT_DIM
 
 
 ABLATION_CONFIGS = {
+    # Only include args that run_v1_full.py actually supports:
+    # --niche_encoder, --use_set_encoder, --use_ude, --use_wes, --wes_weight
     "full_model": {
         "niche_encoder": "transformer",
         "use_set_encoder": True,
         "use_ude": False,
         "use_wes": True,
         "wes_weight": 0.1,
-        "fusion_mode": "attention",
     },
     "no_niche": {
         "niche_encoder": "mlp",
@@ -45,8 +46,7 @@ ABLATION_CONFIGS = {
         "use_ude": False,
         "use_wes": True,
         "wes_weight": 0.1,
-        "fusion_mode": "attention",
-        "note": "Replace niche with mean pooling",
+        "note": "Replace niche with mean pooling - KEY ABLATION",
     },
     "no_wes": {
         "niche_encoder": "transformer",
@@ -54,7 +54,7 @@ ABLATION_CONFIGS = {
         "use_ude": False,
         "use_wes": False,
         "wes_weight": 0.0,
-        "fusion_mode": "attention",
+        "note": "No genomic/WES features",
     },
     "pooled_niche": {
         "niche_encoder": "mlp",
@@ -62,36 +62,7 @@ ABLATION_CONFIGS = {
         "use_ude": False,
         "use_wes": True,
         "wes_weight": 0.1,
-        "fusion_mode": "attention",
         "note": "Mean pool niche instead of attention",
-    },
-    "hlca_only": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "hlca_only",
-        "note": "Use only HLCA reference",
-    },
-    "luca_only": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "luca_only",
-        "note": "Use only LuCA reference",
-    },
-    "deterministic": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "attention",
-        "stochastic": False,
-        "note": "No stochastic dynamics (deterministic ODE only)",
     },
     "flat_hierarchy": {
         "niche_encoder": "transformer",
@@ -99,91 +70,12 @@ ABLATION_CONFIGS = {
         "use_ude": False,
         "use_wes": True,
         "wes_weight": 0.1,
-        "fusion_mode": "attention",
         "note": "No hierarchical Set Transformer",
     },
-    # === NEW ABLATIONS: Fusion Strategy ===
-    "learned_fusion": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "learned",
-        "fusion_hlca_weight": 0.5,
-        "note": "Learned weighted fusion instead of concatenation",
-    },
-    "weighted_fusion": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "weighted",
-        "note": "Confidence-weighted fusion",
-    },
-    # === NEW ABLATIONS: SSL Loss Weights ===
-    "equal_loss_weights": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "attention",
-        "ssl_masked_token_weight": 0.20,
-        "ssl_ranking_weight": 0.20,
-        "ssl_provider_consistency_weight": 0.20,
-        "ssl_coordinate_corruption_weight": 0.20,
-        "ssl_group_relation_weight": 0.20,
-        "note": "Equal weights for all SSL losses",
-    },
-    "no_auxiliary_losses": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "attention",
-        "ssl_masked_token_weight": 1.0,
-        "ssl_ranking_weight": 0.0,
-        "ssl_provider_consistency_weight": 0.0,
-        "ssl_coordinate_corruption_weight": 0.0,
-        "ssl_group_relation_weight": 0.0,
-        "note": "Only masked token loss, no auxiliary objectives",
-    },
-    # === NEW ABLATIONS: Confidence Calibration ===
-    "no_calibration": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "attention",
-        "calibration_method": "none",
-        "note": "No temperature scaling for confidence",
-    },
-    "temperature_calibration": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "attention",
-        "calibration_method": "temperature",
-        "note": "Temperature scaling for calibrated confidence",
-    },
-    # === NEW ABLATION: Prototype Bottleneck (Interpretability) ===
-    "with_prototypes": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "fusion_mode": "attention",
-        "use_prototypes": True,
-        "num_prototypes": 16,
-        "note": "Enable prototype bottleneck for interpretable niche clusters",
-    },
+    # TODO: These need additional args added to run_v1_full.py
+    # "hlca_only": { "fusion_mode": "hlca_only" },
+    # "luca_only": { "fusion_mode": "luca_only" },
+    # "deterministic": { "stochastic": False },
 }
 
 
