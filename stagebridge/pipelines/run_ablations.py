@@ -200,10 +200,11 @@ def run_single_ablation(
     print(f"Running: {ablation_name} (fold {fold})")
     print(f"{'=' * 80}")
 
-    # Build command
+    # Build command - use module execution to avoid path issues
     cmd = [
         "python",
-        "stagebridge/pipelines/run_v1_full.py",
+        "-m",
+        "stagebridge.pipelines.run_v1_full",
         "--data_dir",
         str(data_dir),
         "--fold",
