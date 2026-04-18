@@ -1149,19 +1149,34 @@ def train_epoch(
 
             # =================================================================
             # AUXILIARY LOSSES: Pathway + Proliferation (SpatialFusion/OSDR-inspired)
+            # These losses are CRITICAL for hypothesis testing - they ground the
+            # learned representations in biology (IL1B, KAC, pathway activity).
             # =================================================================
             # Get context representation for auxiliary heads
-            if 'context' in dir() and hasattr(context, 'context'):
-                aux_repr = context.context
-            elif 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+            # Must match config.context_dim (128 from HPO or 256 default)
+            aux_repr = None
+            if 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+                # SSL phase: outputs dict contains context
                 aux_repr = outputs['context']
-            else:
-                # Use receiver embedding as fallback
-                aux_repr = niche_tokens[:, 0, :]
+            elif 'context' in dir() and torch.is_tensor(context) and context.dim() == 2:
+                # Transition phase: context from encode_niche is [B, context_dim]
+                aux_repr = context
+            elif 'context' in dir() and hasattr(context, 'context'):
+                # Fallback path (should not hit with StageBridgeV1Complete)
+                aux_repr = context.context
+
+            # Validate aux_repr dimension - critical for hypothesis testing
+            if aux_repr is None:
+                if batch_idx == 0:
+                    log(f"[WARN] aux_repr unavailable in {phase} phase - auxiliary losses disabled!")
+            elif aux_repr.shape[-1] != config.context_dim:
+                if batch_idx == 0:
+                    log(f"[WARN] aux_repr dim {aux_repr.shape[-1]} != context_dim {config.context_dim}")
+                aux_repr = None  # Don't use wrong-dim tensor
 
             # Pathway auxiliary loss (weight: 0.05)
             pathway_loss = torch.tensor(0.0, device=device)
-            if pathway_head is not None and pathway_targets is not None:
+            if aux_repr is not None and pathway_head is not None and pathway_targets is not None:
                 # Only compute if targets have actual signal (not all zeros)
                 if pathway_targets.abs().sum() > 0:
                     pathway_pred = pathway_head(aux_repr)
@@ -1171,7 +1186,7 @@ def train_epoch(
 
             # Proliferation auxiliary loss (weight: 0.05)
             prolif_loss = torch.tensor(0.0, device=device)
-            if prolif_head is not None and prolif_targets is not None:
+            if aux_repr is not None and prolif_head is not None and prolif_targets is not None:
                 if prolif_targets.abs().sum() > 0:
                     prolif_pred = prolif_head(aux_repr)
                     prolif_loss = torch.nn.functional.binary_cross_entropy_with_logits(
@@ -1183,7 +1198,7 @@ def train_epoch(
             # IL1B is pathway index 4 in standard PROGENy ordering
             # This is THE key biological claim: IL1B+ macrophages → epithelial IL1B-IL1R1 signaling
             il1b_loss = torch.tensor(0.0, device=device)
-            if il1b_head is not None and pathway_targets is not None:
+            if aux_repr is not None and il1b_head is not None and pathway_targets is not None:
                 if pathway_targets.shape[1] > 4:  # Ensure IL1B index exists
                     il1b_targets = pathway_targets[:, 4:5]  # Extract IL1B (index 4)
                     if il1b_targets.abs().sum() > 0:
@@ -1194,7 +1209,7 @@ def train_epoch(
             # KAC signature loss (weight: 0.10) - Nature 2024 key intermediate state
             # KAC is computed from a subset of pathway genes (indices vary by dataset)
             kac_loss = torch.tensor(0.0, device=device)
-            if kac_head is not None and pathway_targets is not None:
+            if aux_repr is not None and kac_head is not None and pathway_targets is not None:
                 # KAC score computed as mean z-score of KAC markers in pathway targets
                 # For now, use p53 pathway (index 7) as proxy since CDKN1A/2A are in it
                 if pathway_targets.shape[1] > 7:
@@ -1375,25 +1390,32 @@ def validate(
                     )
                     loss = torch.mean((context.context - z_target) ** 2)
 
-            # Auxiliary losses for validation metrics
+            # Auxiliary losses for validation metrics (must match training)
+            aux_repr = None
             if 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
                 aux_repr = outputs['context']
-            else:
-                aux_repr = niche_tokens[:, 0, :]
+            elif 'context' in dir() and torch.is_tensor(context) and context.dim() == 2:
+                aux_repr = context
+            elif 'context' in dir() and hasattr(context, 'context'):
+                aux_repr = context.context
 
-            if pathway_head is not None and pathway_targets is not None and pathway_targets.abs().sum() > 0:
+            # Validate dimension matches auxiliary heads
+            if aux_repr is not None and aux_repr.shape[-1] != config.context_dim:
+                aux_repr = None
+
+            if aux_repr is not None and pathway_head is not None and pathway_targets is not None and pathway_targets.abs().sum() > 0:
                 pathway_pred = pathway_head(aux_repr)
                 total_pathway_loss += torch.nn.functional.mse_loss(pathway_pred, pathway_targets).item()
                 n_aux_batches += 1
 
-            if prolif_head is not None and prolif_targets is not None and prolif_targets.abs().sum() > 0:
+            if aux_repr is not None and prolif_head is not None and prolif_targets is not None and prolif_targets.abs().sum() > 0:
                 prolif_pred = prolif_head(aux_repr)
                 total_prolif_loss += torch.nn.functional.binary_cross_entropy_with_logits(
                     prolif_pred, prolif_targets
                 ).item()
 
             # IL1B validation loss (Peng/Kadara hypothesis test)
-            if il1b_head is not None and pathway_targets is not None:
+            if aux_repr is not None and il1b_head is not None and pathway_targets is not None:
                 if pathway_targets.shape[1] > 4:
                     il1b_targets = pathway_targets[:, 4:5]
                     if il1b_targets.abs().sum() > 0:
@@ -1401,7 +1423,7 @@ def validate(
                         total_il1b_loss += torch.nn.functional.mse_loss(il1b_pred, il1b_targets).item()
 
             # KAC validation loss (Nature 2024 intermediate state)
-            if kac_head is not None and pathway_targets is not None:
+            if aux_repr is not None and kac_head is not None and pathway_targets is not None:
                 if pathway_targets.shape[1] > 7:
                     kac_proxy = pathway_targets[:, 7:8]  # p53 as proxy for senescence
                     if kac_proxy.abs().sum() > 0:
