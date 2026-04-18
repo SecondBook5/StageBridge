@@ -227,6 +227,11 @@ def run_single_ablation(
         else:
             cmd.extend([f"--{key}", str(val)])
 
+    # Debug: print full command
+    print(f"  Command: {' '.join(cmd)}")
+    print(f"  Working dir: {Path.cwd()}")
+    print(f"  Output dir: {output_dir}")
+
     # Run
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -249,10 +254,17 @@ def run_single_ablation(
             }
 
     except subprocess.CalledProcessError as e:
+        print(f"   Failed: {e}")
+        print(f"   Return code: {e.returncode}")
+        if e.stdout:
+            print(f"   STDOUT (last 1000): {e.stdout[-1000:]}")
+        if e.stderr:
+            print(f"   STDERR (last 1000): {e.stderr[-1000:]}")
         return {
             "success": False,
             "error": str(e),
-            "stderr": e.stderr[-500:] if e.stderr else "",
+            "stderr": e.stderr[-1000:] if e.stderr else "",
+            "stdout": e.stdout[-1000:] if e.stdout else "",
         }
 
 
