@@ -328,28 +328,38 @@ def generate_table3(results_df: pd.DataFrame, output_dir: Path):
     """Generate Table 3 (Main Results)."""
     print("\nGenerating Table 3 (Main Results)...")
 
+    # Check if we have any successful results
+    required_cols = ["wasserstein", "mse", "mae"]
+    available_cols = [c for c in required_cols if c in results_df.columns]
+
+    if not available_cols:
+        print("  WARNING: No metric columns found - all ablations may have failed")
+        print(f"  Available columns: {list(results_df.columns)}")
+        # Create empty output files
+        empty_df = pd.DataFrame({"Ablation": [], "Status": []})
+        empty_df.to_csv(output_dir / "table3_main_results.csv", index=False)
+        with open(output_dir / "table3_main_results.tex", "w") as f:
+            f.write("% No results - ablations failed\n")
+        return
+
     # Aggregate by ablation
+    agg_dict = {col: ["mean", "std"] for col in available_cols}
     summary = (
         results_df.groupby("ablation")
-        .agg(
-            {
-                "wasserstein": ["mean", "std"],
-                "mse": ["mean", "std"],
-                "mae": ["mean", "std"],
-            }
-        )
+        .agg(agg_dict)
         .round(4)
     )
 
     # Format for paper
     table = []
     for ablation in summary.index:
-        row = {
-            "Ablation": ablation.replace("_", " ").title(),
-            "W-dist": f"{summary.loc[ablation, ('wasserstein', 'mean')]:.4f} ± {summary.loc[ablation, ('wasserstein', 'std')]:.4f}",
-            "MSE": f"{summary.loc[ablation, ('mse', 'mean')]:.4f} ± {summary.loc[ablation, ('mse', 'std')]:.4f}",
-            "MAE": f"{summary.loc[ablation, ('mae', 'mean')]:.4f} ± {summary.loc[ablation, ('mae', 'std')]:.4f}",
-        }
+        row = {"Ablation": ablation.replace("_", " ").title()}
+        if "wasserstein" in available_cols:
+            row["W-dist"] = f"{summary.loc[ablation, ('wasserstein', 'mean')]:.4f} ± {summary.loc[ablation, ('wasserstein', 'std')]:.4f}"
+        if "mse" in available_cols:
+            row["MSE"] = f"{summary.loc[ablation, ('mse', 'mean')]:.4f} ± {summary.loc[ablation, ('mse', 'std')]:.4f}"
+        if "mae" in available_cols:
+            row["MAE"] = f"{summary.loc[ablation, ('mae', 'mean')]:.4f} ± {summary.loc[ablation, ('mae', 'std')]:.4f}"
         table.append(row)
 
     table_df = pd.DataFrame(table)
