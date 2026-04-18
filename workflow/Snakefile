@@ -1154,15 +1154,18 @@ rule aggregate_baselines:
 # =============================================================================
 
 ABLATIONS_LIST = [
-    # Core ablations that work with run_v1_full.py current args
-    "no_niche",           # niche_encoder=mlp, use_set_encoder=False
-    "pooled_niche",       # niche_encoder=mlp, use_set_encoder=True
-    "flat_hierarchy",     # use_set_encoder=False
-    "no_wes",             # use_wes=False
-    # TODO: These need --fusion_mode and --stochastic args added to run_v1_full.py
-    # "hlca_only",        # fusion_mode=hlca_only
-    # "luca_only",        # fusion_mode=luca_only
-    # "deterministic",    # stochastic=False
+    # Core ablations
+    "no_niche",           # KEY: tests niche hypothesis
+    "pooled_niche",       # Mean pool instead of attention
+    "flat_hierarchy",     # No hierarchical Set Transformer
+    "no_wes",             # No genomic/WES features
+    # Reference ablations
+    "hlca_only",          # Single reference: healthy only
+    "luca_only",          # Single reference: cancer only
+    # Dynamics ablations
+    "deterministic",      # No stochastic flow matching
+    # Interpretability
+    "with_prototypes",    # Prototype bottleneck for niche clusters
 ]
 
 rule ablation:

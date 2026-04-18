@@ -402,6 +402,16 @@ def main():
     parser.add_argument("--use_set_encoder", action="store_true")
     parser.add_argument("--use_ude", action="store_true")
     parser.add_argument("--use_wes", action="store_true", default=True)
+    parser.add_argument("--fusion_mode", type=str, default="concat",
+                       choices=["concat", "attention", "hlca_only", "luca_only"])
+    parser.add_argument("--stochastic", action="store_true", default=True,
+                       help="Use stochastic flow matching (default: True)")
+    parser.add_argument("--no_stochastic", action="store_true",
+                       help="Disable stochastic dynamics (deterministic only)")
+    parser.add_argument("--use_prototypes", action="store_true",
+                       help="Enable prototype bottleneck for interpretable niche clusters")
+    parser.add_argument("--num_prototypes", type=int, default=16,
+                       help="Number of prototypes for bottleneck")
 
     # Training
     parser.add_argument("--batch_size", type=int, default=32)
@@ -466,6 +476,10 @@ def main():
 
     # Initialize model
     print("\n[2/5] Initializing model...")
+
+    # Handle stochastic flag
+    use_stochastic = not args.no_stochastic if hasattr(args, 'no_stochastic') else True
+
     model = StageBridgeV1Full(
         reference_mode="precomputed",
         latent_dim=args.latent_dim,
@@ -473,7 +487,15 @@ def main():
         use_set_encoder=args.use_set_encoder,
         use_ude=args.use_ude,
         use_wes=args.use_wes,
+        fusion_mode=getattr(args, 'fusion_mode', 'concat'),
     ).to(device)
+
+    # Log ablation settings
+    print(f"  Niche encoder: {args.niche_encoder}")
+    print(f"  Set encoder: {args.use_set_encoder}")
+    print(f"  Fusion mode: {getattr(args, 'fusion_mode', 'concat')}")
+    print(f"  Stochastic: {use_stochastic}")
+    print(f"  Prototypes: {getattr(args, 'use_prototypes', False)}")
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"  Parameters: {n_params:,}")
