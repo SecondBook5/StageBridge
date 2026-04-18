@@ -318,8 +318,18 @@ class StageBridgeDatasetOptimized(Dataset):
         z_target = self.latent_matrix[target_cell_idx]
 
         # FAST: Cached niche tokens (pre-computed in __init__)
-        niche_tokens = self.niche_tokens_cache[source_cell_id]
-        niche_mask = self.niche_masks_cache[source_cell_id]
+        # Handle cells without neighborhood data (create empty tokens)
+        if source_cell_id in self.niche_tokens_cache:
+            niche_tokens = self.niche_tokens_cache[source_cell_id]
+            niche_mask = self.niche_masks_cache[source_cell_id]
+        else:
+            # No neighborhood for this cell - create empty tokens with just receiver
+            token_dim = self.latent_dim + 4
+            niche_tokens = np.zeros((9, token_dim), dtype=np.float32)
+            niche_mask = np.zeros(9, dtype=bool)
+            # Put receiver embedding in first slot
+            niche_tokens[0, :self.latent_dim] = z_source[:self.latent_dim]
+            niche_mask[0] = True
 
         # FAST: Direct array indexing for WES
         wes_features = self.wes_matrix[cell_idx] if self.wes_matrix is not None else None
