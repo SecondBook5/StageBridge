@@ -1162,10 +1162,10 @@ ABLATIONS_LIST = [
     # Reference ablations
     "hlca_only",          # Single reference: healthy only
     "luca_only",          # Single reference: cancer only
-    # Dynamics ablations
-    "deterministic",      # No stochastic flow matching
+    # Methods comparison
+    "deterministic",      # Direct prediction (no flow matching) - key for Nature Methods
     # Interpretability
-    "with_prototypes",    # Prototype bottleneck for niche clusters
+    "with_prototypes",    # Prototype bottleneck for interpretable niche clusters
 ]
 
 rule ablation:

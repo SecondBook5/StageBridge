@@ -70,6 +70,13 @@ class StageBridgeV1Full(nn.Module):
         use_wes: bool = True,
         wes_dim: int = 3,
         wes_hidden_dim: int = 64,
+        # Prototype bottleneck (interpretability)
+        use_prototypes: bool = False,
+        num_prototypes: int = 16,
+        # Stochastic vs deterministic
+        deterministic: bool = False,
+        # Ablation: receiver-only (no niche context)
+        no_niche: bool = False,
         # Training
         dropout: float = 0.1,
     ):
@@ -82,7 +89,16 @@ class StageBridgeV1Full(nn.Module):
             "use_set_encoder": use_set_encoder,
             "use_ude": use_ude,
             "use_wes": use_wes,
+            "use_prototypes": use_prototypes,
+            "num_prototypes": num_prototypes,
+            "deterministic": deterministic,
+            "no_niche": no_niche,
         }
+
+        self.use_prototypes = use_prototypes
+        self.num_prototypes = num_prototypes
+        self.deterministic = deterministic
+        self.no_niche = no_niche
 
         # Layer A: Dual-Reference Mapper
         self.dual_reference = create_dual_reference_mapper(
@@ -154,6 +170,16 @@ class StageBridgeV1Full(nn.Module):
         else:
             self.wes_encoder = None
 
+        # Prototype Bottleneck (interpretability)
+        if use_prototypes:
+            self.prototype_vectors = nn.Parameter(
+                torch.randn(num_prototypes, context_dim) * 0.1
+            )
+            self.prototype_proj = nn.Linear(context_dim, context_dim)
+        else:
+            self.prototype_vectors = None
+            self.prototype_proj = None
+
     def forward(
         self,
         batch: StageBridgeBatch,
@@ -174,13 +200,20 @@ class StageBridgeV1Full(nn.Module):
         z_target = batch.z_target
 
         # Layer B: Encode niche context
-        # For transformer: need to parse 9-token structure
-        if isinstance(self.niche_encoder, LocalNicheTransformerEncoder):
-            # Extract tokens from neighborhoods
-            # This requires proper tokenization - for now use MLP path
+        # Token structure: [receiver, ring1, ring2, ring3, ring4, hlca, luca, pathway, stats]
+        #                  [   0    ,   1  ,   2  ,   3  ,   4  ,  5  ,  6  ,    7   ,   8  ]
+        if self.no_niche:
+            # NO_NICHE ABLATION: Use ONLY receiver token (index 0), ignore all neighborhood
+            # This tests: does spatial niche context add information beyond cell-intrinsic features?
+            receiver_only = batch.niche_tokens[:, 0, :]  # (B, token_dim) - just receiver
+            niche_flat = receiver_only
+        else:
+            # Full model: use all 9 tokens (receiver + 4 spatial rings + hlca + luca + pathway + stats)
             niche_flat = batch.niche_tokens.reshape(batch.niche_tokens.shape[0], -1)
-            from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder
 
+        # Encode (MLP or transformer both work on flattened input here)
+        if isinstance(self.niche_encoder, LocalNicheTransformerEncoder):
+            from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder
             temp_encoder = LocalNicheMLPEncoder(
                 input_dim=niche_flat.shape[1],
                 hidden_dim=128,
@@ -188,9 +221,13 @@ class StageBridgeV1Full(nn.Module):
             niche_output = temp_encoder(niche_flat)
             niche_embedding = niche_output.neighborhood_embedding
         else:
-            # MLP encoder
-            niche_flat = batch.niche_tokens.reshape(batch.niche_tokens.shape[0], -1)
-            niche_output = self.niche_encoder(niche_flat)
+            # MLP encoder - input dim must match
+            from stagebridge.context_model.local_niche_encoder import LocalNicheMLPEncoder
+            encoder = LocalNicheMLPEncoder(
+                input_dim=niche_flat.shape[1],
+                hidden_dim=128,
+            ).to(z_source.device)
+            niche_output = encoder(niche_flat)
             niche_embedding = niche_output.neighborhood_embedding
 
         # Layer C: Set encoding (optional)
@@ -203,30 +240,52 @@ class StageBridgeV1Full(nn.Module):
         else:
             context = niche_embedding
 
-        # Layer D: Stochastic transition
-        # Sample time and compute flow
+        # Prototype Bottleneck (interpretability)
+        prototype_assignments = None
+        if self.use_prototypes and self.prototype_vectors is not None:
+            # Project context and compute soft assignments to prototypes
+            context_proj = self.prototype_proj(context)  # (B, context_dim)
+            # Cosine similarity to prototypes
+            context_norm = context_proj / (context_proj.norm(dim=-1, keepdim=True) + 1e-8)
+            proto_norm = self.prototype_vectors / (self.prototype_vectors.norm(dim=-1, keepdim=True) + 1e-8)
+            similarities = torch.matmul(context_norm, proto_norm.T)  # (B, num_prototypes)
+            prototype_assignments = torch.softmax(similarities * 10.0, dim=-1)  # Temperature-scaled softmax
+            # Weighted combination of prototypes becomes new context
+            context = torch.matmul(prototype_assignments, self.prototype_vectors)  # (B, context_dim)
+
+        # Layer D: Transition modeling
         batch_size = z_source.shape[0]
-        t = torch.rand(batch_size, device=z_source.device)
-
-        # Conditional flow: x_t = t * x1 + (1-t) * x0
-        z_t = t.unsqueeze(1) * z_target + (1 - t).unsqueeze(1) * z_source
-
-        # Edge IDs (assume first edge for now - should come from batch)
         edge_ids = torch.zeros(batch_size, dtype=torch.long, device=z_source.device)
 
-        # Compute drift
-        drift = self.transition_model.forward_drift(
-            x_t=z_t,
-            t=t,
-            context=context,
-            edge_ids=edge_ids,
-        )
-
-        # Target drift (true velocity)
-        target_drift = z_target - z_source
-
-        # Flow matching loss
-        loss_transition = torch.mean((drift - target_drift) ** 2)
+        if self.deterministic:
+            # Deterministic mode: direct prediction from source to target
+            # Use t=0 (start) and predict full displacement
+            t = torch.zeros(batch_size, device=z_source.device)
+            drift = self.transition_model.forward_drift(
+                x_t=z_source,
+                t=t,
+                context=context,
+                edge_ids=edge_ids,
+            )
+            target_drift = z_target - z_source
+            loss_transition = torch.mean((drift - target_drift) ** 2)
+            z_t = z_source  # For diagnostics
+        else:
+            # Stochastic flow matching: sample random time, learn velocity field
+            t = torch.rand(batch_size, device=z_source.device)
+            # Conditional flow: x_t = t * x1 + (1-t) * x0
+            z_t = t.unsqueeze(1) * z_target + (1 - t).unsqueeze(1) * z_source
+            # Compute drift at intermediate point
+            drift = self.transition_model.forward_drift(
+                x_t=z_t,
+                t=t,
+                context=context,
+                edge_ids=edge_ids,
+            )
+            # Target drift (true velocity)
+            target_drift = z_target - z_source
+            # Flow matching loss
+            loss_transition = torch.mean((drift - target_drift) ** 2)
 
         # Layer F: WES compatibility (if available)
         loss_wes = torch.tensor(0.0, device=z_source.device)
@@ -252,6 +311,8 @@ class StageBridgeV1Full(nn.Module):
         if return_diagnostics:
             results["context"] = context
             results["niche_embedding"] = niche_embedding
+            if prototype_assignments is not None:
+                results["prototype_assignments"] = prototype_assignments
 
         return results
 
@@ -412,6 +473,8 @@ def main():
                        help="Enable prototype bottleneck for interpretable niche clusters")
     parser.add_argument("--num_prototypes", type=int, default=16,
                        help="Number of prototypes for bottleneck")
+    parser.add_argument("--no_niche", action="store_true",
+                       help="Ablation: use only receiver cell, no neighborhood context")
 
     # Training
     parser.add_argument("--batch_size", type=int, default=32)
@@ -443,32 +506,38 @@ def main():
 
     # Create dataloaders
     print("\n[1/5] Creating dataloaders...")
-    train_loader = get_dataloader_optimized(
-        data_dir=args.data_dir,
-        fold=args.fold,
-        split="train",
-        batch_size=args.batch_size,
-        latent_dim=args.latent_dim,
-        shuffle=True,
-    )
+    import traceback
+    try:
+        train_loader = get_dataloader_optimized(
+            data_dir=args.data_dir,
+            fold=args.fold,
+            split="train",
+            batch_size=args.batch_size,
+            latent_dim=args.latent_dim,
+            shuffle=True,
+        )
 
-    val_loader = get_dataloader_optimized(
-        data_dir=args.data_dir,
-        fold=args.fold,
-        split="val",
-        batch_size=args.batch_size,
-        latent_dim=args.latent_dim,
-        shuffle=False,
-    )
+        val_loader = get_dataloader_optimized(
+            data_dir=args.data_dir,
+            fold=args.fold,
+            split="val",
+            batch_size=args.batch_size,
+            latent_dim=args.latent_dim,
+            shuffle=False,
+        )
 
-    test_loader = get_dataloader_optimized(
-        data_dir=args.data_dir,
-        fold=args.fold,
-        split="test",
-        batch_size=args.batch_size,
-        latent_dim=args.latent_dim,
-        shuffle=False,
-    )
+        test_loader = get_dataloader_optimized(
+            data_dir=args.data_dir,
+            fold=args.fold,
+            split="test",
+            batch_size=args.batch_size,
+            latent_dim=args.latent_dim,
+            shuffle=False,
+        )
+    except Exception as e:
+        print(f"ERROR creating dataloader: {e}")
+        traceback.print_exc()
+        raise
 
     print(f"  Train: {len(train_loader)} batches")
     print(f"  Val: {len(val_loader)} batches")
@@ -477,8 +546,8 @@ def main():
     # Initialize model
     print("\n[2/5] Initializing model...")
 
-    # Handle stochastic flag
-    use_stochastic = not args.no_stochastic if hasattr(args, 'no_stochastic') else True
+    # Handle stochastic/deterministic flag
+    use_deterministic = getattr(args, 'no_stochastic', False)
 
     model = StageBridgeV1Full(
         reference_mode="precomputed",
@@ -488,13 +557,18 @@ def main():
         use_ude=args.use_ude,
         use_wes=args.use_wes,
         fusion_mode=getattr(args, 'fusion_mode', 'concat'),
+        use_prototypes=getattr(args, 'use_prototypes', False),
+        num_prototypes=getattr(args, 'num_prototypes', 16),
+        deterministic=use_deterministic,
+        no_niche=getattr(args, 'no_niche', False),
     ).to(device)
 
     # Log ablation settings
     print(f"  Niche encoder: {args.niche_encoder}")
     print(f"  Set encoder: {args.use_set_encoder}")
     print(f"  Fusion mode: {getattr(args, 'fusion_mode', 'concat')}")
-    print(f"  Stochastic: {use_stochastic}")
+    print(f"  No niche (receiver only): {getattr(args, 'no_niche', False)}")
+    print(f"  Deterministic: {use_deterministic}")
     print(f"  Prototypes: {getattr(args, 'use_prototypes', False)}")
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
