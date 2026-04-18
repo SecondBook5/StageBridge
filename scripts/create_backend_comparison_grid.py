@@ -44,10 +44,33 @@ def load_spatial_coords(
     sample_id: str,
     label_source: str = "hlca",
 ) -> tuple[np.ndarray, pd.Index] | None:
-    """Load spatial coordinates and index from any available h5ad file."""
+    """Load spatial coordinates and index from a consistent backend.
+
+    Uses destvi as primary source (canonical for StageBridge), with tangram
+    as fallback. This ensures all backends use the same spot indices for
+    alignment in comparison figures.
+    """
     base = results_dir / label_source
 
-    # Try to find an h5ad with spatial coords
+    # Prioritize marker_scoring (baseline reference) for consistent coords
+    # All other backends should align to marker_scoring indices
+    preferred_backends = ["marker_scoring", "destvi", "tangram", "tacco", "cell2location"]
+
+    for backend in preferred_backends:
+        backend_dir = base / backend
+        if not backend_dir.is_dir():
+            continue
+
+        sample_dir = backend_dir / "samples" / sample_id
+        for h5ad_file in sample_dir.glob("*_spatial_annotated.h5ad"):
+            try:
+                adata = ad.read_h5ad(h5ad_file)
+                if "spatial" in adata.obsm:
+                    return adata.obsm["spatial"], adata.obs_names
+            except Exception:
+                continue
+
+    # Fallback: try any backend
     for backend_dir in base.iterdir():
         if not backend_dir.is_dir():
             continue
