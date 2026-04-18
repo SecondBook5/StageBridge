@@ -1154,16 +1154,16 @@ rule aggregate_baselines:
 # =============================================================================
 
 ABLATIONS_LIST = [
-    # Core ablations
-    "no_niche",           # KEY: tests niche hypothesis
-    "pooled_niche",       # Mean pool instead of attention
-    "flat_hierarchy",     # No hierarchical Set Transformer
-    "no_wes",             # No genomic/WES features
-    # Reference ablations
-    "hlca_only",          # Single reference: healthy only
-    "luca_only",          # Single reference: cancer only
-    # Methods comparison
-    "deterministic",      # Direct prediction (no flow matching) - key for Nature Methods
+    # Core ablations - tests main hypotheses
+    "no_niche",           # KEY: Receiver only, no neighborhood context
+    "no_wes",             # No genomic/WES features (evolutionary regularization)
+    "pooled_niche",       # Self-attention instead of receiver-centered cross-attention
+    "flat_hierarchy",     # Disable hierarchical Set Transformer aggregation
+    # Reference ablations - tests dual-reference contribution
+    "hlca_only",          # Single reference: healthy only (no LuCA)
+    "luca_only",          # Single reference: cancer only (no HLCA)
+    # Methods comparison - key for Nature Methods
+    "deterministic",      # Direct endpoint prediction (no flow matching)
     # Interpretability
     "with_prototypes",    # Prototype bottleneck for interpretable niche clusters
 ]

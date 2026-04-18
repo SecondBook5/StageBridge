@@ -31,80 +31,45 @@ from stagebridge.config import FUSED_LATENT_DIM
 
 
 ABLATION_CONFIGS = {
-    # Only include args that run_v1_full.py actually supports:
-    # --niche_encoder, --use_set_encoder, --use_ude, --use_wes, --wes_weight
+    # These args map to run_v1_ablations.py flags:
+    # --no_niche, --no_wes, --deterministic, --use_prototypes, --num_prototypes,
+    # --fusion_mode, --niche_encoder_type, --no_hierarchical
+    #
+    # Uses StageBridgeV1Complete (same as production run_v1_ddp.py)
+    # NOT run_v1_full.py which uses a different model
     "full_model": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
+        # Full model - no ablation flags, baseline performance
+        "note": "Full model baseline with all components enabled",
     },
     "no_niche": {
-        "niche_encoder": "mlp",
-        "use_set_encoder": False,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
         "no_niche": True,
         "note": "Receiver cell ONLY - no neighborhood context. KEY ABLATION for niche hypothesis.",
     },
     "no_wes": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": False,
-        "wes_weight": 0.0,
-        "note": "No genomic/WES features",
+        "no_wes": True,
+        "note": "No WES/genomic features - tests evolutionary regularization contribution",
     },
     "pooled_niche": {
-        "niche_encoder": "mlp",
-        "use_set_encoder": True,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "note": "Mean pool niche instead of attention",
+        "niche_encoder_type": "self_attention",
+        "note": "Self-attention over all tokens instead of receiver-centered cross-attention",
     },
     "flat_hierarchy": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": False,
-        "use_ude": False,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "note": "No hierarchical Set Transformer",
+        "use_hierarchical": False,
+        "note": "Disable hierarchical Set Transformer aggregation",
     },
-    # Single reference ablations
     "hlca_only": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_wes": True,
-        "wes_weight": 0.1,
         "fusion_mode": "hlca_only",
-        "note": "Use only HLCA (healthy) reference",
+        "note": "Use only HLCA (healthy) reference - tests LuCA contribution",
     },
     "luca_only": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_wes": True,
-        "wes_weight": 0.1,
         "fusion_mode": "luca_only",
-        "note": "Use only LuCA (cancer) reference",
+        "note": "Use only LuCA (cancer) reference - tests HLCA contribution",
     },
-    # Stochastic vs deterministic
     "deterministic": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_wes": True,
-        "wes_weight": 0.1,
-        "no_stochastic": True,
-        "note": "Deterministic dynamics only (no flow matching noise)",
+        "deterministic": True,
+        "note": "Direct endpoint prediction - tests flow matching contribution",
     },
-    # Interpretability
     "with_prototypes": {
-        "niche_encoder": "transformer",
-        "use_set_encoder": True,
-        "use_wes": True,
-        "wes_weight": 0.1,
         "use_prototypes": True,
         "num_prototypes": 16,
         "note": "Prototype bottleneck for interpretable niche clusters",
@@ -125,14 +90,15 @@ def run_single_ablation(
     print(f"Running: {ablation_name} (fold {fold})")
     print(f"{'=' * 80}")
 
-    # Build command - use module execution to avoid path issues
+    # Build command - use run_v1_ablations.py (same model as production run_v1_ddp.py)
+    # NOT run_v1_full.py which uses a different model (StageBridgeV1Full)
     cmd = [
         "python",
         "-m",
-        "stagebridge.pipelines.run_v1_full",
+        "stagebridge.pipelines.run_v1_ablations",
         "--data_dir",
         str(data_dir),
-        "--fold",
+        "--validation_fold",
         str(fold),
         "--output_dir",
         str(output_dir),
@@ -146,7 +112,10 @@ def run_single_ablation(
     for key, val in config.items():
         if key == "note":
             continue
-        if isinstance(val, bool):
+        # Special handling: use_hierarchical=False -> --no_hierarchical
+        if key == "use_hierarchical" and val is False:
+            cmd.append("--no_hierarchical")
+        elif isinstance(val, bool):
             if val:
                 cmd.append(f"--{key}")
         else:
