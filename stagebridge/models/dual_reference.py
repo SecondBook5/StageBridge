@@ -81,6 +81,14 @@ class DualReferenceMapper(nn.Module):
             self.hlca_proj = nn.Linear(hlca_dim, latent_dim)
             self.luca_proj = nn.Linear(luca_dim, latent_dim)
 
+        elif fusion_mode == "hlca_only":
+            # Single reference: HLCA only (ablation)
+            self.hlca_proj = nn.Linear(hlca_dim, latent_dim)
+
+        elif fusion_mode == "luca_only":
+            # Single reference: LuCA only (ablation)
+            self.luca_proj = nn.Linear(luca_dim, latent_dim)
+
         else:
             raise ValueError(f"Unknown fusion_mode: {fusion_mode}")
 
@@ -162,6 +170,14 @@ class DualReferenceMapper(nn.Module):
             l_proj = self.luca_proj(z_luca)  # (batch_size, latent_dim)
 
             z_fused = gate * h_proj + (1 - gate) * l_proj
+
+        elif self.fusion_mode == "hlca_only":
+            # Single reference ablation: HLCA only
+            z_fused = self.hlca_proj(z_hlca)
+
+        elif self.fusion_mode == "luca_only":
+            # Single reference ablation: LuCA only
+            z_fused = self.luca_proj(z_luca)
 
         # Optional projection
         if self.use_projection:

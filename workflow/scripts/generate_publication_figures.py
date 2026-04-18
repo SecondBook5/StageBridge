@@ -249,24 +249,26 @@ try:
     fig, ax = plt.subplots(figsize=(8, 10), dpi=150)
     fig.patch.set_facecolor('white')
 
-    # Build heatmap data
+    # Build heatmap data - handle both old and new format
     ablations = ablation_results.get('ablations', [])
-    metrics = ['transition_mae', 'flow_correlation', 'stage_accuracy', 'niche_sensitivity']
-    metrics = [m for m in metrics if any(
-        m in ablation_results.get('results', {}).get(abl, {}).get('metrics', {})
-        for abl in ablations
-    )]
+
+    # New format: test_metrics with wasserstein, mae, mse
+    metrics = ['wasserstein', 'mae', 'mse', 'loss']
 
     data = []
     valid_ablations = []
     for abl in ablations:
         row = []
-        abl_data = ablation_results.get('results', {}).get(abl, {}).get('metrics', {})
+        abl_result = ablation_results.get('results', {}).get(abl, {})
+        # Try new format first (test_metrics), then old format (metrics)
+        abl_data = abl_result.get('test_metrics', abl_result.get('metrics', {}))
         if abl_data:
             for m in metrics:
                 row.append(abl_data.get(m, np.nan))
-            data.append(row)
-            valid_ablations.append(abl)
+            # Only include if we have at least one valid metric
+            if any(not np.isnan(v) for v in row):
+                data.append(row)
+                valid_ablations.append(abl)
 
     if data:
         data = np.array(data)

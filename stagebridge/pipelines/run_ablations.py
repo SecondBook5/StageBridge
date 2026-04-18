@@ -46,7 +46,8 @@ ABLATION_CONFIGS = {
         "use_ude": False,
         "use_wes": True,
         "wes_weight": 0.1,
-        "note": "Replace niche with mean pooling - KEY ABLATION",
+        "no_niche": True,
+        "note": "Receiver cell ONLY - no neighborhood context. KEY ABLATION for niche hypothesis.",
     },
     "no_wes": {
         "niche_encoder": "transformer",
@@ -180,15 +181,16 @@ def run_single_ablation(
     except subprocess.CalledProcessError as e:
         print(f"   Failed: {e}")
         print(f"   Return code: {e.returncode}")
-        if e.stdout:
-            print(f"   STDOUT (last 1000): {e.stdout[-1000:]}")
+        # Print FULL stderr to catch tracebacks (they appear early, not at end)
         if e.stderr:
-            print(f"   STDERR (last 1000): {e.stderr[-1000:]}")
+            print(f"   STDERR (FULL):\n{e.stderr}")
+        if e.stdout:
+            print(f"   STDOUT (last 2000): {e.stdout[-2000:]}")
         return {
             "success": False,
             "error": str(e),
-            "stderr": e.stderr[-1000:] if e.stderr else "",
-            "stdout": e.stdout[-1000:] if e.stdout else "",
+            "stderr": e.stderr if e.stderr else "",
+            "stdout": e.stdout[-2000:] if e.stdout else "",
         }
 
 

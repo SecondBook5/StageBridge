@@ -112,13 +112,21 @@ class StageBridgeDatasetOptimized(Dataset):
         latent_cols = [f"z_fused_{i}" for i in range(latent_dim)]
         required_cols = ["cell_id", "donor_id", "stage"] + latent_cols
 
+        wes_cols = []
         if load_wes:
-            wes_cols = ["tmb", "smoking_signature", "uv_signature"]
-            # Check if WES columns exist
-            pd.read_parquet(self.data_dir / "cells.parquet", columns=["cell_id"])
-            full_df = pd.read_parquet(self.data_dir / "cells.parquet")
-            if "tmb" in full_df.columns:
+            # Check which WES columns actually exist in the parquet
+            import pyarrow.parquet as pq
+            schema = pq.read_schema(self.data_dir / "cells.parquet")
+            available_cols = set(schema.names)
+
+            # Possible WES columns (add what's available)
+            possible_wes_cols = ["tmb", "smoking_signature", "uv_signature",
+                                 "kras_mut", "egfr_mut", "tp53_mut", "stk11_mut",
+                                 "keap1_mut", "smad4_mut", "braf_mut"]
+            wes_cols = [c for c in possible_wes_cols if c in available_cols]
+            if wes_cols:
                 required_cols.extend(wes_cols)
+                log.info("  WES columns found: %s", wes_cols)
 
         # Load with selective columns
         if cache:
