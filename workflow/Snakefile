@@ -93,7 +93,7 @@ rule all:
         # Publication figures
         f"{FIGURES}/manifests/figure_manifest.json",
         # OT dynamics / flow field visualization
-        f"{FIGURES}/dynamics/fig_ot_dynamics.png"
+        f"{FIGURES}/dynamics/fig_flow_hero.png"
 
 
 # =============================================================================
@@ -1273,19 +1273,18 @@ rule embedding_figures:
 rule ot_dynamics_figures:
     """Generate optimal transport flow field and dynamics visualizations.
 
-    Key figure for flow matching paper showing:
-    - Velocity streamlines on UMAP/latent space
-    - Wasserstein distances between consecutive stages
-    - Helmholtz decomposition (divergence/curl)
-    - Irreversibility analysis
+    Generates two figure sets:
+    1. Hero figure (main paper): Clean 2-panel with trajectories + Wasserstein ladder
+    2. Supplementary: Full 12-panel with Helmholtz decomposition, flux analysis
     """
     input:
         cells = f"{CANONICAL}/cells.parquet",
         training_done = f"{TRAINING}/aggregated/cv_results.json"
     output:
         main_fig = f"{FIGURES}/dynamics/fig_ot_dynamics.png",
-        pdf = f"{FIGURES}/dynamics/fig_ot_dynamics.pdf",
-        metrics = f"{FIGURES}/dynamics/ot_metrics.json"
+        hero_fig = f"{FIGURES}/dynamics/fig_flow_hero.png",
+        hero_pdf = f"{FIGURES}/dynamics/fig_flow_hero.pdf",
+        metrics = f"{FIGURES}/dynamics/flow_metrics.json"
     threads: 4
     resources:
         mem_mb = 64000,
@@ -1296,13 +1295,17 @@ rule ot_dynamics_figures:
         """
         mkdir -p {FIGURES}/dynamics
 
-        python scripts/viz/publication_ot_dynamics.py \
+        # Hero figure for main paper (Nature Methods style)
+        python scripts/viz/publication_flow_hero.py \
             --data_dir {CANONICAL} \
             --output_dir {FIGURES}/dynamics \
             2>&1 | tee {log}
 
-        # Save metrics as JSON
-        echo '{{"generated": "'$(date -Iseconds)'"}}' > {output.metrics}
+        # Supplementary figure with full analysis
+        python scripts/viz/publication_ot_dynamics.py \
+            --data_dir {CANONICAL} \
+            --output_dir {FIGURES}/dynamics \
+            2>&1 | tee -a {log}
         """
 
 
