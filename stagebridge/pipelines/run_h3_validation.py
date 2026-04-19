@@ -57,6 +57,16 @@ def main():
     cells_df = pd.read_parquet(cells_path)
     logger.info(f"Loaded {len(cells_df)} cells from {cells_path}")
 
+    # Load neighborhoods.parquet for proper niche context (optional but recommended)
+    neighborhoods_path = Path(args.data_dir) / "neighborhoods.parquet"
+    if neighborhoods_path.exists():
+        neighborhoods_df = pd.read_parquet(neighborhoods_path)
+        logger.info(f"Loaded {len(neighborhoods_df)} neighborhoods from {neighborhoods_path}")
+    else:
+        logger.warning(f"neighborhoods.parquet not found at {neighborhoods_path}")
+        logger.warning("Using receiver-only inference (degraded niche influence accuracy)")
+        neighborhoods_df = None
+
     # Check for clonal patterns
     if "clonal_pattern" not in cells_df.columns:
         logger.error("clonal_pattern column not found in cells.parquet")
@@ -64,17 +74,46 @@ def main():
         return 1
 
     # Filter to cells with known clonal patterns
+    # Canonical patterns: 1a (direct lineage), 1b (branched), 2 (independent)
     valid_patterns = {"1a", "1b", "2"}
     mask = cells_df["clonal_pattern"].isin(valid_patterns)
     n_valid = mask.sum()
-    logger.info(f"Cells with valid clonal patterns: {n_valid:,} / {len(cells_df):,}")
-
-    if n_valid < 100:
-        logger.warning(f"Only {n_valid} cells with valid patterns - H3 validation may be unreliable")
 
     # Pattern distribution
     pattern_counts = cells_df["clonal_pattern"].value_counts()
     logger.info(f"Pattern distribution:\n{pattern_counts}")
+
+    # If no canonical patterns found, check if CNV extraction was run
+    if n_valid == 0:
+        logger.error("=" * 60)
+        logger.error("NO CANONICAL CLONAL PATTERNS FOUND (1a, 1b, 2)")
+        logger.error("=" * 60)
+        logger.error("H3 validation requires clonal patterns from CNV inference.")
+        logger.error("Run clonal extraction first:")
+        logger.error("  python -m stagebridge.pipelines.run_clonal_extraction \\")
+        logger.error("      --spatial-h5ad <path_to_spatial.h5ad> \\")
+        logger.error("      --output-dir <output_dir>")
+        logger.error("")
+        logger.error("Then rerun data prep with --clonal_patterns flag.")
+
+        # Save report indicating H3 validation skipped
+        skip_report = {
+            "h3_supported": None,
+            "status": "SKIPPED",
+            "reason": "No canonical clonal patterns (1a/1b/2) found in data",
+            "pattern_distribution": pattern_counts.to_dict(),
+            "recommendation": "Run clonal extraction pipeline (CNV inference) first",
+        }
+        results_path = output_dir / "h3_validation.json"
+        with open(results_path, "w") as f:
+            json.dump(skip_report, f, indent=2)
+        logger.info(f"Saved skip report to {results_path}")
+        return 1
+
+    logger.info(f"Cells with valid clonal patterns: {n_valid:,} / {len(cells_df):,}")
+
+    if n_valid < 100:
+        logger.warning(f"Only {n_valid} cells with valid patterns - H3 validation may be unreliable")
 
     # Load checkpoint and run inference
     checkpoint_path = Path(args.checkpoint)
@@ -96,9 +135,11 @@ def main():
     checkpoint = load_checkpoint(checkpoint_path, device=args.device)
     model = build_model_from_checkpoint(checkpoint, device=args.device)
 
-    # Prepare data
+    # Prepare data (with neighborhood context if available)
     dataloader, cell_ids, current_stage = prepare_inference_data(
-        cells_df, batch_size=args.batch_size
+        cells_df,
+        neighborhoods_df=neighborhoods_df,
+        batch_size=args.batch_size,
     )
 
     # Run inference to get REAL outputs

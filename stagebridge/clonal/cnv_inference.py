@@ -28,6 +28,8 @@ def run_cnv_inference(
     method: Literal["infercnvpy", "copykat"] = "infercnvpy",
     use_raw: bool = True,
     layer: str | None = None,
+    patient_key: str | None = None,
+    cluster_resolution: float = 0.5,
 ) -> AnnData:
     """Run CNV inference on spatial/single-cell data.
 
@@ -54,6 +56,11 @@ def run_cnv_inference(
         Whether to use adata.raw for counts.
     layer
         Layer to use instead of X. Overrides use_raw.
+    patient_key
+        Column with patient IDs. If provided, leiden clustering is done
+        per-patient (required for correct clone identification).
+    cluster_resolution
+        Leiden clustering resolution (default: 0.5).
 
     Returns
     -------
@@ -157,11 +164,47 @@ def run_cnv_inference(
     )
 
     # Cluster by CNV profile to identify clones
-    cnv.tl.pca(adata)
-    cnv.pp.neighbors(adata)
-    cnv.tl.leiden(adata, key_added="cnv_leiden")
+    # Must be done PER PATIENT - clones are patient-specific
+    if patient_key is not None and patient_key in adata.obs.columns:
+        logger.info(f"Clustering CNV profiles per patient (key={patient_key})")
+        adata.obs["cnv_leiden"] = ""
 
-    # Compute per-cell CNV score (aneuploidy) - requires cnv_leiden
+        for patient_id in adata.obs[patient_key].unique():
+            patient_mask = adata.obs[patient_key] == patient_id
+            n_cells = patient_mask.sum()
+
+            if n_cells < 20:
+                logger.warning(f"Patient {patient_id}: Only {n_cells} cells, assigning single clone")
+                adata.obs.loc[patient_mask, "cnv_leiden"] = "0"
+                continue
+
+            # Subset to patient
+            patient_idx = np.where(patient_mask)[0]
+            adata_patient = adata[patient_mask].copy()
+
+            # PCA on CNV profiles for this patient
+            cnv.tl.pca(adata_patient)
+            cnv.pp.neighbors(adata_patient)
+            cnv.tl.leiden(adata_patient, resolution=cluster_resolution, key_added="cnv_leiden")
+
+            # Copy back with patient-prefixed clone IDs
+            clone_labels = adata_patient.obs["cnv_leiden"].values
+            adata.obs.loc[patient_mask, "cnv_leiden"] = [
+                f"{patient_id}_{c}" for c in clone_labels
+            ]
+
+            n_clones = adata_patient.obs["cnv_leiden"].nunique()
+            logger.info(f"Patient {patient_id}: {n_cells} cells, {n_clones} clones")
+
+        adata.obs["cnv_leiden"] = adata.obs["cnv_leiden"].astype("category")
+    else:
+        # Global clustering (legacy behavior - not recommended)
+        logger.warning("No patient_key provided - using global clustering (not recommended)")
+        cnv.tl.pca(adata)
+        cnv.pp.neighbors(adata)
+        cnv.tl.leiden(adata, resolution=cluster_resolution, key_added="cnv_leiden")
+
+    # Compute per-cell CNV score (aneuploidy)
     cnv.tl.cnv_score(adata)
 
     logger.info(

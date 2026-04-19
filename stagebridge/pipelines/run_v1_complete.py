@@ -634,6 +634,48 @@ class StageBridgeV1Complete(nn.Module):
 
         return context
 
+    def encode_niche_with_attention(
+        self,
+        niche_tokens: torch.Tensor,
+        distances: torch.Tensor = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Encode niche and return both context and attention weights.
+
+        Used for inference when we need interpretable attention weights.
+
+        Args:
+            niche_tokens: [B, K, D] niche token embeddings
+            distances: [B, K] optional distances
+
+        Returns:
+            context: [B, context_dim] context vector
+            attention_weights: [B, K-1] attention to neighbors (or uniform if not available)
+        """
+        batch_size = niche_tokens.shape[0]
+
+        if self.use_doctrine_encoder:
+            receiver = niche_tokens[:, 0, :]
+            neighbors = niche_tokens[:, 1:, :]
+
+            K = neighbors.shape[1]
+            if distances is None:
+                distances = torch.ones(batch_size, K, device=niche_tokens.device)
+
+            output: ReceiverNicheOutput = self.niche_encoder(
+                receiver=receiver,
+                neighbors=neighbors,
+                distances=distances,
+            )
+            context = self.context_projection(output.context)
+            attention_weights = output.attention_weights
+        else:
+            context = self.encode_niche(niche_tokens, distances)
+            # Fallback encoder has no explicit attention
+            K = niche_tokens.shape[1] - 1
+            attention_weights = torch.ones(batch_size, K, device=niche_tokens.device) / K
+
+        return context, attention_weights
+
     def ssl_forward(
         self,
         niche_tokens: torch.Tensor,
