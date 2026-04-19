@@ -59,7 +59,7 @@ def load_baseline_results(
     for baseline in baselines:
         for fold in range(n_folds):
             for seed in seeds:
-                results_path = baseline_dir / baseline / f"fold{fold}_seed{seed}" / "results.json"
+                results_path = baseline_dir / f"{baseline}_fold{fold}_seed{seed}" / "results.json"
 
                 if not results_path.exists():
                     print(f"  WARNING: Missing {results_path}")
