@@ -221,7 +221,7 @@ Run all ablations to validate each component.
     print("Running ablation suite...")
     
     cmd = [
-        "python", "stagebridge/pipelines/run_ablations.py",
+        "python", "stagebridge/pipelines/orchestrate_ablations.py",
         "--data_dir", DATA_DIR,
         "--output_dir", str(Path(OUTPUT_DIR) / "ablations"),
         "--n_folds", str(N_FOLDS),

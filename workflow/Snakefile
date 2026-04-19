@@ -1191,7 +1191,7 @@ rule ablation:
         f"{RUNS}/logs/ablations/{{ablation}}.log"
     shell:
         """
-        python -m stagebridge.pipelines.run_ablations \
+        python -m stagebridge.pipelines.orchestrate_ablations \
             --data_dir {params.canonical_dir} \
             --output_dir {params.ablations_dir}/{wildcards.ablation} \
             --ablations {wildcards.ablation} \
