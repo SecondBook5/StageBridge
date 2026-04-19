@@ -106,13 +106,14 @@ def extract_clonal_patterns(
 
     adata_epi = adata[epithelial_mask].copy()
 
-    # Run CNV inference
+    # Run CNV inference with per-patient clustering
     logger.info("Running CNV inference...")
     adata_cnv = run_cnv_inference(
         adata_epi,
         reference_key=cell_type_key,
         reference_cat=reference_types,
         window_size=window_size,
+        patient_key=patient_key,
     )
 
     if save_intermediate and output_dir is not None:

@@ -107,7 +107,7 @@ def classify_evolution_pattern(
     cnv_score_key: str = "cnv_score",
     precursor_stages: list[str] | None = None,
     invasive_stages: list[str] | None = None,
-    aneuploidy_threshold: float = 0.1,
+    aneuploidy_threshold: float = 0.005,
     min_clone_cells: int = 5,
 ) -> ClonalAnalysisResult:
     """Classify a patient's clonal evolution pattern.
