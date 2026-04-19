@@ -312,8 +312,8 @@ def main():
 
     # Check if already complete (skip logic)
     run_dir = args.output_dir / f"{args.baseline}_fold{args.fold}_seed{args.seed}"
-    if (run_dir / "model.pt").exists():
-        log.info(f"Skipping - already complete: {run_dir / 'model.pt'} exists")
+    if (run_dir / "results.json").exists() and (run_dir / "metrics.csv").exists():
+        log.info(f"Skipping - already complete: {run_dir / 'results.json'} exists")
         return
 
     # Load neighborhoods

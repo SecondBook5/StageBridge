@@ -397,7 +397,8 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory")
     parser.add_argument("--n_folds", type=int, default=5, help="Number of CV folds")
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--n_epochs", type=int, default=50)
+    parser.add_argument("--ssl_epochs", type=int, default=50)
+    parser.add_argument("--transition_epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--ablations", type=str, nargs="+", help="Specific ablations to run")
 
@@ -405,7 +406,8 @@ def main():
 
     base_args = {
         "batch_size": args.batch_size,
-        "n_epochs": args.n_epochs,
+        "ssl_epochs": args.ssl_epochs,
+        "transition_epochs": args.transition_epochs,
         "lr": args.lr,
         "latent_dim": FUSED_LATENT_DIM,
     }
