@@ -31,6 +31,13 @@ try:
 except ImportError:
     HAS_UMAP = False
 
+try:
+    from GraphRicciCurvature.OllivierRicci import OllivierRicci
+    import networkx as nx
+    HAS_RICCI = True
+except ImportError:
+    HAS_RICCI = False
+
 from sklearn.decomposition import PCA
 
 # =============================================================================
@@ -114,6 +121,66 @@ def compute_ot_plan(source_coords, target_coords, n_samples=1500, reg=0.05):
     W = np.sum(T * M)
 
     return src, tgt, velocities, W
+
+
+def compute_ricci_curvature(coords_2d, stages, ot_results):
+    """Compute Ollivier-Ricci curvature for stage transition graph.
+
+    Ricci curvature reveals geometric structure of transitions:
+    - Negative: bottleneck/funnel (obligate transition)
+    - Positive: stable state with redundant paths
+    - Near zero: linear progression
+
+    Args:
+        coords_2d: 2D embedding coordinates
+        stages: Stage labels for each cell
+        ot_results: Dict with OT results between consecutive stages
+
+    Returns:
+        Dict mapping edge tuples to curvature values
+    """
+    if not HAS_RICCI:
+        print("  Warning: GraphRicciCurvature not installed, skipping curvature")
+        return {}
+
+    # Build weighted graph from stage centroids
+    G = nx.Graph()
+
+    # Add nodes (stages) with positions
+    for stage in STAGE_ORDER:
+        mask = stages == stage
+        if mask.sum() > 0:
+            centroid = coords_2d[mask].mean(axis=0)
+            G.add_node(stage, pos=centroid)
+
+    # Add edges with Wasserstein distance as weight
+    for i in range(len(STAGE_ORDER) - 1):
+        s1, s2 = STAGE_ORDER[i], STAGE_ORDER[i+1]
+        key = f'{s1}->{s2}'
+        if key in ot_results and s1 in G.nodes() and s2 in G.nodes():
+            W = ot_results[key]['W']
+            # Use inverse of Wasserstein as weight (closer = higher weight)
+            G.add_edge(s1, s2, weight=1.0 / (W + 0.01))
+
+    if G.number_of_edges() == 0:
+        return {}
+
+    # Compute Ollivier-Ricci curvature
+    # alpha=0.5 balances local vs global transport
+    try:
+        orc = OllivierRicci(G, alpha=0.5, verbose="ERROR")
+        orc.compute_ricci_curvature()
+
+        curvatures = {}
+        for u, v in G.edges():
+            curv = G[u][v].get('ricciCurvature', 0.0)
+            curvatures[(u, v)] = curv
+            print(f"    {u} -> {v}: Ricci curvature = {curv:.4f}")
+
+        return curvatures
+    except Exception as e:
+        print(f"  Warning: Ricci curvature computation failed: {e}")
+        return {}
 
 
 def sample_trajectories(coords_2d, stages, n_trajectories=200, seed=42):
@@ -228,6 +295,10 @@ def figure_flow_hero(cells, output_dir):
     print("  Sampling trajectories...")
     trajectories = sample_trajectories(coords_2d, stages, n_trajectories=300)
     print(f"    Generated {len(trajectories)} trajectories")
+
+    # Compute Ricci curvature
+    print("  Computing Ricci curvature...")
+    ricci_curvatures = compute_ricci_curvature(coords_2d, stages, ot_results)
 
     # =========================================================================
     # CREATE FIGURE - 2 panel layout
@@ -363,7 +434,7 @@ def figure_flow_hero(cells, output_dir):
                 fontsize=12, fontweight='bold', color='white',
                 ha='left', va='center', transform=ax2.transAxes)
 
-    # Draw edges with Wasserstein distances
+    # Draw edges with Wasserstein distances and Ricci curvature
     for i in range(len(STAGE_ORDER) - 1):
         s1, s2 = STAGE_ORDER[i], STAGE_ORDER[i+1]
         key = f'{s1}->{s2}'
@@ -383,21 +454,41 @@ def figure_flow_hero(cells, output_dir):
             bar_width = W * 0.8  # Scale for visibility
             bar_y = (y1 + y2) / 2
 
-            ax2.barh(bar_y, bar_width, height=0.04,
+            ax2.barh(bar_y, bar_width, height=0.03,
                     left=x_center + 0.15, color=STAGE_COLORS[s1],
                     alpha=0.8, transform=ax2.transAxes, zorder=6)
 
-            ax2.text(x_center + 0.18 + bar_width, bar_y, f'W={W:.3f}',
-                    fontsize=9, color='white', alpha=0.9,
+            ax2.text(x_center + 0.18 + bar_width, bar_y + 0.02, f'W={W:.3f}',
+                    fontsize=8, color='white', alpha=0.9,
                     ha='left', va='center', transform=ax2.transAxes)
 
+            # Ricci curvature annotation (if available)
+            curv_key = (s1, s2)
+            if curv_key in ricci_curvatures:
+                curv = ricci_curvatures[curv_key]
+                # Color code: negative (red/bottleneck), positive (green/stable), near-zero (gray)
+                if curv < -0.1:
+                    curv_color = '#ef4444'  # Red - bottleneck
+                    curv_label = 'bottleneck'
+                elif curv > 0.1:
+                    curv_color = '#10b981'  # Green - stable
+                    curv_label = 'redundant'
+                else:
+                    curv_color = '#888888'  # Gray - linear
+                    curv_label = 'linear'
+
+                ax2.text(x_center + 0.18 + bar_width, bar_y - 0.02,
+                        f'R={curv:.2f} ({curv_label})',
+                        fontsize=7, color=curv_color, alpha=0.9,
+                        ha='left', va='center', transform=ax2.transAxes)
+
     # Title for panel B
-    ax2.text(0.5, 0.98, 'Progression Cost',
+    ax2.text(0.5, 0.98, 'Progression Geometry',
             fontsize=13, fontweight='bold', color='white',
             ha='center', va='top', transform=ax2.transAxes)
 
-    ax2.text(0.5, 0.02, 'Wasserstein distance\nmeasures transcriptional\nreorganization between stages',
-            fontsize=9, color='#888888',
+    ax2.text(0.5, 0.02, 'W = Wasserstein (transport cost)\nR = Ricci curvature (bottleneck < 0)',
+            fontsize=8, color='#888888',
             ha='center', va='bottom', transform=ax2.transAxes,
             style='italic')
 
@@ -450,6 +541,10 @@ def figure_flow_hero(cells, output_dir):
         'n_trajectories': len(trajectories),
         'wasserstein_distances': {k: float(v['W']) for k, v in ot_results.items()},
         'total_wasserstein': sum(v['W'] for v in ot_results.values()),
+        'ricci_curvatures': {f"{k[0]}->{k[1]}": float(v) for k, v in ricci_curvatures.items()},
+        'bottleneck_transitions': [
+            f"{k[0]}->{k[1]}" for k, v in ricci_curvatures.items() if v < -0.1
+        ],
     }
 
     import json
@@ -489,8 +584,16 @@ def main():
         print(f"\nMetrics:")
         print(f"  Trajectories: {metrics['n_trajectories']}")
         print(f"  Total Wasserstein: {metrics['total_wasserstein']:.4f}")
+        print(f"\n  Wasserstein distances:")
         for trans, W in metrics['wasserstein_distances'].items():
             print(f"    {trans}: {W:.4f}")
+        if metrics.get('ricci_curvatures'):
+            print(f"\n  Ricci curvatures:")
+            for trans, R in metrics['ricci_curvatures'].items():
+                label = "bottleneck" if R < -0.1 else ("redundant" if R > 0.1 else "linear")
+                print(f"    {trans}: {R:.4f} ({label})")
+            if metrics.get('bottleneck_transitions'):
+                print(f"\n  Bottleneck transitions: {', '.join(metrics['bottleneck_transitions'])}")
 
     print("=" * 60)
 
