@@ -464,32 +464,61 @@ def figure_flow_hero(cells, output_dir, neighborhoods=None):
     for traj in trajectories:
         draw_trajectory(ax1, traj, TRAJECTORY_CMAP, alpha=0.4, linewidth=0.8)
 
-    # Stage centroids with glow effect - smart label placement to avoid overlap
+    # Stage centroids with glow effect
     centroids = {}
     for stage in STAGE_ORDER:
         mask = stages == stage
         centroids[stage] = coords_2d[mask].mean(axis=0)
 
-    # Compute label offsets based on local density to avoid overlaps
-    def get_label_offset(centroid, all_centroids, stage_idx):
-        """Smart label placement - offset away from crowded areas."""
-        # Default: below the point
-        offset_y = -2.0
-        offset_x = 0.0
+    # Compute non-overlapping label positions using repulsion
+    def compute_label_positions(centroids, coords_2d, label_distance=3.0):
+        """Compute label positions that don't overlap with each other or centroids."""
+        positions = {}
+        label_radius = 2.5  # Approximate text bounding box radius
 
-        # Check if another centroid is directly below
-        for other_stage, other_centroid in all_centroids.items():
-            if other_stage == STAGE_ORDER[stage_idx]:
-                continue
-            dx = centroid[0] - other_centroid[0]
-            dy = centroid[1] - other_centroid[1]
+        for i, stage in enumerate(STAGE_ORDER):
+            centroid = centroids[stage]
 
-            # If another centroid is close and below, move label to side
-            if abs(dx) < 3 and -4 < dy < 0:
-                offset_x = 2.5 if centroid[0] < np.mean(coords_2d[:, 0]) else -2.5
-                offset_y = 0.5
+            # Try 8 directions: below, above, left, right, and diagonals
+            angles = [270, 90, 180, 0, 225, 315, 135, 45]  # degrees, 270=below
+            best_pos = None
+            best_score = -np.inf
 
-        return offset_x, offset_y
+            for angle in angles:
+                rad = np.radians(angle)
+                candidate = centroid + label_distance * np.array([np.cos(rad), np.sin(rad)])
+
+                # Score: prefer positions far from other centroids and labels
+                score = 0
+
+                # Distance from other centroids
+                for other_stage, other_centroid in centroids.items():
+                    if other_stage != stage:
+                        dist = np.linalg.norm(candidate - other_centroid)
+                        score += min(dist, 10)  # Cap contribution
+
+                # Distance from already placed labels
+                for placed_stage, placed_pos in positions.items():
+                    dist = np.linalg.norm(candidate - placed_pos)
+                    if dist < label_radius * 2:
+                        score -= 20  # Heavy penalty for overlap
+                    else:
+                        score += min(dist, 5)
+
+                # Prefer positions within plot bounds
+                if (coords_2d[:, 0].min() < candidate[0] < coords_2d[:, 0].max() and
+                    coords_2d[:, 1].min() < candidate[1] < coords_2d[:, 1].max()):
+                    score += 5
+
+                if score > best_score:
+                    best_score = score
+                    best_pos = candidate
+
+            positions[stage] = best_pos if best_pos is not None else centroid + np.array([0, -label_distance])
+
+        return positions
+
+    label_positions = compute_label_positions(centroids, coords_2d)
 
     for i, stage in enumerate(STAGE_ORDER):
         centroid = centroids[stage]
@@ -502,11 +531,11 @@ def figure_flow_hero(cells, output_dir, neighborhoods=None):
         ax1.scatter(*centroid, s=200, c=STAGE_COLORS[stage],
                    edgecolor='white', linewidth=2, zorder=10)
 
-        # Label with smart offset
-        off_x, off_y = get_label_offset(centroid, centroids, i)
-        txt = ax1.text(centroid[0] + off_x, centroid[1] + off_y, stage,
+        # Label at computed position
+        label_pos = label_positions[stage]
+        txt = ax1.text(label_pos[0], label_pos[1], stage,
                       fontsize=11, fontweight='bold', color='white',
-                      ha='center', va='top' if off_y < 0 else 'center', zorder=11)
+                      ha='center', va='center', zorder=11)
         txt.set_path_effects([
             pe.withStroke(linewidth=4, foreground=DARK_BG)
         ])
@@ -608,7 +637,7 @@ def figure_flow_hero(cells, output_dir, neighborhoods=None):
                 ha='center', va='top', transform=ax2.transAxes)
 
         y_text -= 0.05
-        for u, v, curv in bottlenecks[:4]:
+        for u, v, curv in bottlenecks[:3]:
             # Parse stage from node name (e.g., "AAH_N3" -> "AAH")
             s1 = u.split('_N')[0]
             s2 = v.split('_N')[0]
@@ -629,7 +658,7 @@ def figure_flow_hero(cells, output_dir, neighborhoods=None):
                     ha='center', va='top', transform=ax2.transAxes)
 
             y_text -= 0.05
-            for u, v, curv in redundant[:3]:
+            for u, v, curv in redundant[:2]:
                 s1 = u.split('_N')[0]
                 s2 = v.split('_N')[0]
                 n1 = u.split('_N')[1] if '_N' in u else '?'
