@@ -26,13 +26,15 @@ def load_model(checkpoint_path: Path, device: torch.device):
     model_config = config.get("model", {})
 
     model = StageBridgeV1Complete(
-        cell_input_dim=model_config.get("cell_input_dim", 64),
-        hidden_dim=model_config.get("hidden_dim", 256),
-        latent_dim=model_config.get("latent_dim", 128),
-        n_stages=model_config.get("n_stages", 4),
-        use_prototypes=model_config.get("use_prototypes", False),
-        n_prototypes=model_config.get("n_prototypes", 32),
-        wes_feature_dim=model_config.get("wes_feature_dim", 8),
+        latent_dim=model_config.get("latent_dim", config.get("latent_dim", 40)),
+        niche_hidden_dim=model_config.get("niche_hidden_dim", config.get("niche_hidden_dim", 128)),
+        context_dim=model_config.get("context_dim", config.get("context_dim", 256)),
+        dropout=model_config.get("dropout", config.get("dropout", 0.1)),
+        hlca_dim=model_config.get("hlca_dim", config.get("hlca_dim", 30)),
+        luca_dim=model_config.get("luca_dim", config.get("luca_dim", 10)),
+        wes_feature_dim=model_config.get("wes_feature_dim", config.get("wes_feature_dim", 8)),
+        use_prototypes=model_config.get("use_prototypes", config.get("use_prototypes", False)),
+        num_prototypes=model_config.get("num_prototypes", config.get("num_prototypes", 16)),
     )
 
     model.load_state_dict(checkpoint["model_state_dict"])
