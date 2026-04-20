@@ -88,6 +88,8 @@ rule all:
         f"{RUNS}/biological_validation/plasticity/plasticity_validation.json",
         # AP-1 stress signature validation
         f"{RUNS}/biological_validation/ap1/ap1_validation_report.json",
+        # Senescence/SASP validation
+        f"{RUNS}/biological_validation/senescence/senescence_validation_report.json",
         # Baseline ladder comparison
         f"{TRAINING}/baselines/baseline_comparison.json",
         # Ablations
@@ -1107,6 +1109,51 @@ rule ap1_validation:
             --neighborhoods {input.neighborhoods} \
             --output-dir {AP1_RESULTS} \
             --use-extended \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5d-sexies: Senescence/SASP Signature Validation
+# =============================================================================
+# Validates dual role of cellular senescence in precancer progression:
+#   - Early/transient senescence = tumor-suppressive barrier
+#   - Chronic senescence with SASP = tumor-promoting microenvironment
+#
+# Key insight (Hoi et al. Cancer Cell 2026):
+#   - SASP creates feedforward loops via IL6, GDF15, matrix remodeling
+#   - cGAS-STING pathway drives chronic inflammatory cytokine production
+#   - Connects to H1.2 (IL1B in SASP) and AP-1 (p38 convergence)
+#
+# Analyzes both single-cell and spatial data
+
+SENESCENCE_RESULTS = f"{RUNS}/biological_validation/senescence"
+
+rule senescence_validation:
+    input:
+        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        ap1_scores = f"{AP1_RESULTS}/ap1_cell_scores.parquet"
+    output:
+        report = f"{SENESCENCE_RESULTS}/senescence_validation_report.json",
+        cell_scores = f"{SENESCENCE_RESULTS}/senescence_cell_scores.parquet",
+        sc_stats = f"{SENESCENCE_RESULTS}/senescence_singlecell_stats.json",
+        spatial_stats = f"{SENESCENCE_RESULTS}/senescence_spatial_stats.json"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/biological_validation/senescence.log"
+    shell:
+        """
+        python scripts/run_senescence_validation.py \
+            --snrna {input.snrna} \
+            --cells {input.cells} \
+            --neighborhoods {input.neighborhoods} \
+            --ap1-scores {input.ap1_scores} \
+            --output-dir {SENESCENCE_RESULTS} \
             2>&1 | tee {log}
         """
 
