@@ -876,6 +876,74 @@ rule training:
 
 
 # =============================================================================
+# Stage 5b-fusion: Training with Fusion Mode Ablations
+# =============================================================================
+# Tests different dual-reference fusion strategies:
+# - concat (default): Simple concatenation [HLCA|LuCA]
+# - attention: Learned attention-weighted combination
+# - gate: FiLM-style gating between references
+
+rule training_fusion:
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        splits = f"{CANONICAL}/split_manifest.json",
+        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
+        hpo_params = f"{TRAINING}/hpo/best_params.json",
+        leakage_check = f"{CANONICAL}/leakage_validation.json"
+    output:
+        checkpoint = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/checkpoints/final_checkpoint.pt",
+        best = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/checkpoints/best_checkpoint.pt",
+        ssl_checkpoint = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/checkpoints/ssl_pretrained.pt",
+        metrics = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/metrics/training_metrics.csv",
+        config = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/config.json"
+    wildcard_constraints:
+        fold = "[0-4]",
+        seed = "[0-9]+",
+        fusion = "attention|gate|transport"  # concat is the default (main training rule)
+    params:
+        ssl_epochs = 100,
+        transition_epochs = 50,
+        canonical_dir = CANONICAL,
+        training_dir = TRAINING
+    threads: 8
+    resources:
+        mem_mb = 256000,
+        runtime = 480,
+        slurm_partition = "gpu",
+        gpu = 1,
+        constraint = "h100"
+    log:
+        f"{RUNS}/logs/training/fusion_{{fusion}}_fold{{fold}}_seed{{seed}}.log"
+    shell:
+        """
+        echo "=============================================="
+        echo "StageBridge V1 Training - Fusion Ablation"
+        echo "  Fusion mode: {wildcards.fusion}"
+        echo "  Fold: {wildcards.fold}/5"
+        echo "  Seed: {wildcards.seed}"
+        echo "=============================================="
+
+        torchrun \
+            --nproc_per_node=1 \
+            --master_port=$((29600 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
+            -m stagebridge.pipelines.run_v1_ddp \
+            --data_dir {params.canonical_dir} \
+            --output_dir {params.training_dir}/fusion_{wildcards.fusion}/fold{wildcards.fold}_seed{wildcards.seed} \
+            --validation_fold {wildcards.fold} \
+            --seed {wildcards.seed} \
+            --ssl_epochs {params.ssl_epochs} \
+            --transition_epochs {params.transition_epochs} \
+            --batch_size 256 \
+            --checkpoint_every 10 \
+            --hpo_params {input.hpo_params} \
+            --use_best_hparams \
+            --fusion_mode {wildcards.fusion} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
 # Stage 5c-ablation: Training with Frozen Encoder (SSL transfer test)
 # =============================================================================
 # Tests whether SSL representations transfer directly to transition task

@@ -408,6 +408,11 @@ class StageBridgeV1Complete(nn.Module):
         use_evolution_branch: bool = True,  # Gated WES fusion (vs simple projection)
         evolution_mode: str = "gated",  # "gated" or "film"
         num_stage_classes: int = 5,  # Normal, AAH, AIS, MIA, LUAD
+        # =====================================================================
+        # DUAL-REFERENCE FUSION MODE
+        # How to combine HLCA and LuCA embeddings
+        # =====================================================================
+        fusion_mode: str = "concat",  # "concat", "attention", "gate", or "transport"
     ):
         super().__init__()
 
@@ -420,8 +425,33 @@ class StageBridgeV1Complete(nn.Module):
         self.use_doctrine_encoder = use_doctrine_encoder and DOCTRINE_ENCODER_AVAILABLE
         self.use_hierarchical = use_hierarchical and HIERARCHICAL_AVAILABLE
         self.use_evolution_branch = use_evolution_branch and HIERARCHICAL_AVAILABLE
-        # Note: Dual-reference geometry is encoded in the fused embedding [HLCA | LuCA]
-        # The Linear projection learns to weight these features (see docs/architecture/dual_reference_encoder.md)
+        self.fusion_mode = fusion_mode
+
+        # Dual-reference fusion layer (applies to first 40d = 30 HLCA + 10 LuCA)
+        if fusion_mode == "attention":
+            # Attention-weighted fusion
+            self.fusion_query = nn.Linear(hlca_dim + luca_dim, latent_dim)
+            self.fusion_key_hlca = nn.Linear(hlca_dim, latent_dim)
+            self.fusion_key_luca = nn.Linear(luca_dim, latent_dim)
+            self.fusion_value_hlca = nn.Linear(hlca_dim, latent_dim)
+            self.fusion_value_luca = nn.Linear(luca_dim, latent_dim)
+        elif fusion_mode == "gate":
+            # Gated fusion (FiLM-style)
+            self.fusion_gate = nn.Sequential(
+                nn.Linear(hlca_dim + luca_dim, latent_dim),
+                nn.Sigmoid(),
+            )
+            self.fusion_hlca_proj = nn.Linear(hlca_dim, latent_dim)
+            self.fusion_luca_proj = nn.Linear(luca_dim, latent_dim)
+        elif fusion_mode == "transport":
+            # Optimal transport fusion - project both to common space, use Sinkhorn
+            self.fusion_hlca_proj = nn.Linear(hlca_dim, latent_dim)
+            self.fusion_luca_proj = nn.Linear(luca_dim, latent_dim)
+            self.fusion_output = nn.Linear(latent_dim * 2, latent_dim)
+            # OT params for fusion (separate from OT-CFM)
+            self.fusion_ot_epsilon = 0.1
+            self.fusion_ot_iters = 20
+        # else: concat - no extra layers, just use as-is
 
         # OT-CFM parameters
         self.ot_epsilon = ot_epsilon
@@ -578,6 +608,67 @@ class StageBridgeV1Complete(nn.Module):
             self.hierarchical_aggregator = None
             self.sample_heads = None
 
+    def _apply_fusion(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply dual-reference fusion to input embeddings.
+
+        Input x has shape [..., D] where D = hlca_dim + luca_dim (40 = 30 + 10).
+        Applies learned fusion based on fusion_mode.
+
+        Args:
+            x: [..., D] tensor with concatenated HLCA and LuCA embeddings
+
+        Returns:
+            [..., latent_dim] fused embedding
+        """
+        if self.fusion_mode == "concat":
+            return x  # No change, already concatenated
+
+        # Split into HLCA and LuCA components
+        z_hlca = x[..., :self.hlca_dim]  # [..., 30]
+        z_luca = x[..., self.hlca_dim:self.hlca_dim + self.luca_dim]  # [..., 10]
+
+        if self.fusion_mode == "attention":
+            # Attention-weighted combination
+            z_concat = torch.cat([z_hlca, z_luca], dim=-1)
+            query = self.fusion_query(z_concat)
+            key_h = self.fusion_key_hlca(z_hlca)
+            key_l = self.fusion_key_luca(z_luca)
+
+            # Compute attention scores
+            attn_h = torch.sum(query * key_h, dim=-1, keepdim=True)
+            attn_l = torch.sum(query * key_l, dim=-1, keepdim=True)
+            attn_weights = torch.softmax(torch.cat([attn_h, attn_l], dim=-1), dim=-1)
+
+            value_h = self.fusion_value_hlca(z_hlca)
+            value_l = self.fusion_value_luca(z_luca)
+
+            return attn_weights[..., 0:1] * value_h + attn_weights[..., 1:2] * value_l
+
+        elif self.fusion_mode == "gate":
+            # Gated fusion
+            z_concat = torch.cat([z_hlca, z_luca], dim=-1)
+            gate = self.fusion_gate(z_concat)
+            h_proj = self.fusion_hlca_proj(z_hlca)
+            l_proj = self.fusion_luca_proj(z_luca)
+            return gate * h_proj + (1 - gate) * l_proj
+
+        elif self.fusion_mode == "transport":
+            # Optimal transport fusion: align HLCA and LuCA in shared space
+            h_proj = self.fusion_hlca_proj(z_hlca)  # [..., latent_dim]
+            l_proj = self.fusion_luca_proj(z_luca)  # [..., latent_dim]
+
+            # Compute soft assignment via Sinkhorn (differentiable OT)
+            # Cost matrix: pairwise distances in projected space
+            # For efficiency, we do a simplified version: weighted by similarity
+            sim = torch.sum(h_proj * l_proj, dim=-1, keepdim=True)  # [..., 1]
+            weight = torch.sigmoid(sim)  # soft interpolation weight
+
+            # Transport-weighted combination
+            transported = weight * h_proj + (1 - weight) * l_proj
+            return self.fusion_output(torch.cat([transported, h_proj - l_proj], dim=-1))
+
+        return x  # Fallback
+
     def encode_niche(
         self,
         niche_tokens: torch.Tensor,
@@ -599,11 +690,13 @@ class StageBridgeV1Complete(nn.Module):
         """
         batch_size = niche_tokens.shape[0]
 
+        # Apply dual-reference fusion if not using simple concat
+        if self.fusion_mode != "concat":
+            niche_tokens = self._apply_fusion(niche_tokens)
+
         if self.use_doctrine_encoder:
             # Doctrine-compliant: receiver as query, neighbors as keys/values
-            # The fused embedding [HLCA | LuCA] contains dual-reference geometry
-            # Linear projection learns: h = W @ [hlca; luca] + b
-            receiver = niche_tokens[:, 0, :]  # [B, D] - fused = [HLCA | LuCA]
+            receiver = niche_tokens[:, 0, :]  # [B, D]
             neighbors = niche_tokens[:, 1:, :]  # [B, K-1, D]
 
             K = neighbors.shape[1]
@@ -2062,6 +2155,13 @@ def main():
         action="store_true",
         help="Use best params from HPO for final training",
     )
+    parser.add_argument(
+        "--fusion_mode",
+        type=str,
+        default="concat",
+        choices=["concat", "attention", "gate", "transport"],
+        help="Dual-reference fusion mode: concat (default), attention, gate, or transport",
+    )
 
     args = parser.parse_args()
 
@@ -2129,6 +2229,7 @@ def main():
         niche_hidden_dim=hidden_dim,
         context_dim=context_dim,
         dropout=dropout,
+        fusion_mode=args.fusion_mode,
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
