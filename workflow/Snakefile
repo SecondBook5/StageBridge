@@ -1777,7 +1777,7 @@ rule spatial_niche_figure:
     threads: 4
     resources:
         mem_mb = 64000,
-        runtime = 60
+        runtime = 180
     log:
         f"{RUNS}/logs/spatial_niche_figure.log"
     shell:
