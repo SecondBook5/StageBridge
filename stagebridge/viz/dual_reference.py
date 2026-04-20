@@ -201,6 +201,18 @@ def plot_reference_contribution(
     else:
         plot_df = cells_df.copy()
 
+    # Filter rows with NaN in HLCA or LuCA columns
+    hlca_valid = ~plot_df[hlca_cols].isna().any(axis=1)
+    luca_valid = ~plot_df[luca_cols].isna().any(axis=1)
+    valid_mask = hlca_valid & luca_valid
+    if valid_mask.sum() < len(plot_df):
+        print(f"  Filtering {len(plot_df) - valid_mask.sum()} rows with NaN in reference embeddings")
+        plot_df = plot_df[valid_mask].copy()
+
+    if len(plot_df) == 0:
+        print("  ERROR: No valid rows after NaN filtering")
+        return
+
     hlca_var = plot_df[hlca_cols].var().sum()
     luca_var = plot_df[luca_cols].var().sum()
     total_var = hlca_var + luca_var
