@@ -1673,12 +1673,41 @@ rule ablation_waterfall_figure:
         """
 
 
+rule extract_attention_weights:
+    """Extract attention weights from trained model for interpretability."""
+    input:
+        checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/final_checkpoint.pt",
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
+    output:
+        attention = f"{TRAINING}/fold0_seed42/evaluation/attention_weights.parquet",
+        summary = f"{TRAINING}/fold0_seed42/evaluation/attention_summary.json"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 120,
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/extract_attention_weights.log"
+    shell:
+        """
+        python workflow/scripts/extract_attention_weights.py \
+            --checkpoint {input.checkpoint} \
+            --cells {input.cells} \
+            --neighborhoods {input.neighborhoods} \
+            --output_dir {TRAINING}/fold0_seed42/evaluation \
+            --max_cells 50000 \
+            2>&1 | tee {log}
+        """
+
+
 rule niche_influence_figure:
     """Generate SHAP-style niche influence visualization."""
     input:
         cells = f"{CANONICAL}/cells.parquet",
         neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        training_done = f"{TRAINING}/aggregated/cv_results.json"
+        attention = f"{TRAINING}/fold0_seed42/evaluation/attention_weights.parquet"
     output:
         beeswarm = f"{FIGURES}/niche/fig_niche_beeswarm.png",
         summary = f"{FIGURES}/niche/fig_niche_summary.png",
@@ -1699,7 +1728,6 @@ rule niche_influence_figure:
             --neighborhoods {input.neighborhoods} \
             --output_dir {FIGURES}/niche \
             --inference_dir {params.inference_dir} \
-            --use_synthetic \
             2>&1 | tee {log}
         """
 
