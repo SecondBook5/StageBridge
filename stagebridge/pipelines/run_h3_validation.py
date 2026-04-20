@@ -182,7 +182,7 @@ def main():
     report = run_clonal_validation(
         transition_probs=transition_probs,
         niche_influence=niche_influence,
-        patterns=patterns,
+        clonal_patterns=patterns,
         donor_ids=donor_ids,
     )
 
