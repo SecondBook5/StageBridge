@@ -104,6 +104,9 @@ def build_model_from_checkpoint(
             dropout=model_config.get("dropout", config.get("dropout", 0.1)),
             hlca_dim=model_config.get("hlca_dim", config.get("hlca_dim", 30)),
             luca_dim=model_config.get("luca_dim", config.get("luca_dim", 10)),
+            wes_dim=model_config.get("wes_dim", config.get("wes_feature_dim", config.get("wes_dim", 8))),
+            no_niche=model_config.get("no_niche", config.get("no_niche", False)),
+            no_wes=model_config.get("no_wes", config.get("no_wes", False)),
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")

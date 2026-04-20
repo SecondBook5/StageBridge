@@ -54,7 +54,7 @@ def load_model_and_test_data(
         luca_dim=config.get("luca_dim", 10),
         niche_hidden_dim=config.get("niche_hidden_dim", 128),
         context_dim=config.get("context_dim", 256),
-        wes_dim=config.get("wes_feature_dim", 8),
+        wes_dim=config.get("wes_feature_dim", config.get("wes_dim", 8)),
         no_niche=config.get("no_niche", False),
         no_wes=config.get("no_wes", False),
         deterministic=config.get("deterministic", False),
