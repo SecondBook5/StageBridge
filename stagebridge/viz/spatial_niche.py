@@ -119,11 +119,18 @@ def get_spatial_coords(
         df["plot_x"] = df[x_col]
         df["plot_y"] = df[y_col]
     else:
-        n_cells = len(df)
-        np.random.seed(42)
-        df["plot_x"] = np.random.uniform(0, 100, n_cells)
-        df["plot_y"] = np.random.uniform(0, 100, n_cells)
-        x_col, y_col = "plot_x", "plot_y"
+        for candidate_x, candidate_y in [("x", "y"), ("X", "Y"), ("spatial_x", "spatial_y"), ("coord_x", "coord_y")]:
+            if candidate_x in df.columns and candidate_y in df.columns:
+                df["plot_x"] = df[candidate_x]
+                df["plot_y"] = df[candidate_y]
+                x_col, y_col = candidate_x, candidate_y
+                break
+        else:
+            raise ValueError(
+                f"No spatial coordinates found. Provide x_col/y_col or ensure data has "
+                f"coordinate columns (x/y, X/Y, spatial_x/spatial_y). "
+                f"Available: {list(df.columns)[:20]}..."
+            )
 
     return df, x_col, y_col
 
@@ -157,8 +164,10 @@ def plot_spatial_risk_map(
         df = df.sample(10000, random_state=42).copy()
 
     if risk_col not in df.columns:
-        np.random.seed(42)
-        df[risk_col] = _generate_spatial_risk_pattern(df)
+        raise ValueError(
+            f"Risk column '{risk_col}' not found in data. "
+            f"Available columns: {list(df.columns)[:20]}..."
+        )
 
     fig, ax = plt.subplots(figsize=figsize)
 
