@@ -55,10 +55,10 @@ def compute_reduced_embedding(
         embedding_cols = [c for c in embedding_df.columns if c.startswith("embedding_")]
 
     if not embedding_cols:
-        n_dim = 40
-        embedding_cols = [f"emb_{i}" for i in range(n_dim)]
-        for col in embedding_cols:
-            embedding_df[col] = np.random.randn(len(embedding_df))
+        raise ValueError(
+            f"No embedding columns found with prefix '{embedding_prefix}' or 'embedding_'. "
+            f"Available columns: {list(embedding_df.columns)[:20]}..."
+        )
 
     if len(embedding_df) > n_samples:
         sample_df = embedding_df.sample(n_samples, random_state=42)
@@ -183,10 +183,11 @@ def plot_reference_contribution(
     luca_cols = [c for c in cells_df.columns if c.startswith("luca_")]
 
     if not hlca_cols or not luca_cols:
-        hlca_cols = [f"hlca_{i}" for i in range(30)]
-        luca_cols = [f"luca_{i}" for i in range(10)]
-        for col in hlca_cols + luca_cols:
-            cells_df[col] = np.random.randn(len(cells_df))
+        raise ValueError(
+            f"Missing reference embedding columns. Need hlca_* and luca_* columns. "
+            f"Found hlca: {len(hlca_cols)}, luca: {len(luca_cols)}. "
+            f"Available: {[c for c in cells_df.columns if 'hlca' in c.lower() or 'luca' in c.lower()]}"
+        )
 
     if len(cells_df) > 5000:
         plot_df = cells_df.sample(5000, random_state=42)
