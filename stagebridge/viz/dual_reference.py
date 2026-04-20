@@ -72,7 +72,7 @@ def compute_reduced_embedding(
     if nan_mask.sum() < len(X):
         print(f"Warning: Filtering {len(X) - nan_mask.sum()} rows with NaN values")
         X = X[nan_mask]
-        sample_df = sample_df.iloc[nan_mask.values].copy()
+        sample_df = sample_df.iloc[nan_mask].copy()
 
     if method == "umap":
         try:
