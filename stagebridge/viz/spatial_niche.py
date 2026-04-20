@@ -52,15 +52,28 @@ def compute_niche_scores(
         "epithelial": ["AT1", "AT2", "Club", "Ciliated", "Basal"],
     }
 
-    scores = []
-
     # Handle both receiver_id and cell_id column names
     receiver_col = "receiver_id" if "receiver_id" in neighborhoods_df.columns else "cell_id"
 
-    for _, cell in cells_df.iterrows():
-        cell_id = cell["cell_id"]
+    # Build index for fast lookup
+    neighborhoods_df = neighborhoods_df.set_index(receiver_col, drop=False) if receiver_col in neighborhoods_df.columns else neighborhoods_df
 
-        neighbors = neighborhoods_df[neighborhoods_df[receiver_col] == cell_id]
+    # Sample for speed if too large
+    if len(cells_df) > 50000:
+        print(f"  Sampling {50000} cells from {len(cells_df)} for niche scoring...")
+        cells_df = cells_df.sample(50000, random_state=42)
+
+    scores = []
+    cell_ids = cells_df["cell_id"].values
+
+    for i, cell_id in enumerate(cell_ids):
+        if i % 10000 == 0:
+            print(f"  Processing cell {i}/{len(cell_ids)}...")
+
+        try:
+            neighbors = neighborhoods_df.loc[[cell_id]] if cell_id in neighborhoods_df.index else pd.DataFrame()
+        except KeyError:
+            neighbors = pd.DataFrame()
 
         if len(neighbors) == 0:
             scores.append({
@@ -80,9 +93,12 @@ def compute_niche_scores(
 
         total = len(neighbor_types) or 1
 
-        type_counts = pd.Series(neighbor_types).value_counts()
-        props = type_counts / type_counts.sum()
-        diversity = -np.sum(props * np.log(props + 1e-10))
+        if len(neighbor_types) > 0:
+            type_counts = pd.Series(neighbor_types).value_counts()
+            props = type_counts / type_counts.sum()
+            diversity = float(-np.sum(props * np.log(props + 1e-10)))
+        else:
+            diversity = 0.0
 
         scores.append({
             "cell_id": cell_id,
