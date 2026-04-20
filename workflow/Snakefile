@@ -71,11 +71,14 @@ ABLATIONS_LIST = [
     # Reference ablations - tests dual-reference contribution
     "hlca_only",          # Single reference: healthy only (no LuCA)
     "luca_only",          # Single reference: cancer only (no HLCA)
-    # Methods comparison - key for Nature Methods
+    # Methods comparison
     "deterministic",      # Direct endpoint prediction (no flow matching)
     # Interpretability
     "with_prototypes",    # Prototype bottleneck for interpretable niche clusters
 ]
+
+# Baseline models for comparison
+BASELINES = ["pooling_mlp", "deep_sets", "set_transformer", "graph_sage", "receiver_centered"]
 
 # =============================================================================
 # Final Targets (what we want to produce)
@@ -1500,8 +1503,6 @@ rule senescence_validation:
 # 5. stagebridge - Full model (receiver-centered niche + dual references)
 #
 
-BASELINES = ["pooling_mlp", "deep_sets", "set_transformer", "graph_sage", "receiver_centered"]
-
 rule baseline:
     input:
         cells = f"{CANONICAL}/cells.parquet",
@@ -1589,7 +1590,7 @@ rule ablation:
     threads: 8
     resources:
         mem_mb = 128000,
-        runtime = 360,  # 6 hours per ablation
+        runtime = 720,  # 12 hours per ablation (150 epochs on 800k+ cells)
         slurm_partition = "gpu",
         gpu = 1
     log:
