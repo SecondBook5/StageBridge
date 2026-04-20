@@ -43,7 +43,7 @@ def load_model_and_test_data(
     Returns:
         Tuple of (model, test_cells_df, test_neighborhoods_df, config)
     """
-    from stagebridge.model.stagebridge_v1 import StageBridgeV1Complete
+    from stagebridge.pipelines.run_v1_complete import StageBridgeV1Complete
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     config = checkpoint.get("config", {})
