@@ -98,6 +98,9 @@ class TrainingConfig:
     hpo_params: str = ""
     use_best_hparams: bool = False
 
+    # Dual-reference fusion
+    fusion_mode: str = "concat"  # "concat", "attention", or "gate"
+
     # Other
     seed: int = 42
     num_workers: int = 4
@@ -497,8 +500,9 @@ def create_model(
             dropout=config.dropout,
             hlca_dim=hlca_dim,  # Dual-reference geometry
             luca_dim=luca_dim,  # Dual-reference geometry
+            fusion_mode=config.fusion_mode,  # concat, attention, or gate
         )
-        log(f"Created StageBridgeV1Complete with dual-reference encoder (HLCA={hlca_dim}d, LuCA={luca_dim}d)")
+        log(f"Created StageBridgeV1Complete with dual-reference encoder (HLCA={hlca_dim}d, LuCA={luca_dim}d, fusion={config.fusion_mode})")
     except ImportError:
         # Fallback to basic model
         from stagebridge.context_model.receiver_niche_encoder import ReceiverCenteredNicheEncoder
@@ -1942,6 +1946,13 @@ def main():
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--no_mixed_precision", action="store_true")
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument(
+        "--fusion_mode",
+        type=str,
+        default="concat",
+        choices=["concat", "attention", "gate", "transport"],
+        help="Dual-reference fusion: concat (default), attention, gate, or transport",
+    )
 
     # Ablation flags
     parser.add_argument(
@@ -1982,6 +1993,7 @@ def main():
         num_workers=args.num_workers,
         mixed_precision=not args.no_mixed_precision,
         freeze_encoder=args.freeze_encoder,
+        fusion_mode=args.fusion_mode,
     )
 
     train(config)
