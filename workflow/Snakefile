@@ -136,6 +136,8 @@ rule all:
         f"{FIGURES}/spatial/fig_spatial_combined.png",
         # Dual-reference embedding figures
         f"{FIGURES}/embedding/fig_embedding_combined.png",
+        # Spatial backend comparison grid figures
+        f"{FIGURES}/spatial_backends/fig_backend_grid_showcase.png",
         # Reproducibility artifacts (Nature Methods requirement)
         f"{RUNS}/reproducibility/reproducibility_artifacts.json"
 
@@ -1911,6 +1913,36 @@ rule ot_dynamics_figures:
             --data_dir {CANONICAL} \
             --output_dir {FIGURES}/dynamics \
             2>&1 | tee -a {log}
+        """
+
+
+rule spatial_backend_figures:
+    """Generate publication-quality spatial backend comparison figures.
+
+    Collects the per-sample backend comparison grids and creates a showcase
+    figure with representative samples from each stage.
+    """
+    input:
+        comparison = f"{SPATIAL}/backend_comparison.json",
+        unified_hlca = f"{SPATIAL}/hlca/figures/unified_comparison/.done",
+    output:
+        showcase = f"{FIGURES}/spatial_backends/fig_backend_grid_showcase.png",
+        showcase_pdf = f"{FIGURES}/spatial_backends/fig_backend_grid_showcase.pdf",
+        manifest = f"{FIGURES}/spatial_backends/manifest.json"
+    threads: 4
+    resources:
+        mem_mb = 32000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/spatial_backend_figures.log"
+    shell:
+        """
+        mkdir -p {FIGURES}/spatial_backends
+
+        python scripts/viz/publication_spatial_backends.py \
+            --spatial_dir {SPATIAL} \
+            --output_dir {FIGURES}/spatial_backends \
+            2>&1 | tee {log}
         """
 
 
