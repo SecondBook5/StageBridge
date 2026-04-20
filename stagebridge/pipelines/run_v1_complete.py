@@ -382,7 +382,7 @@ class StageBridgeV1Complete(nn.Module):
         n_token_types: int = 9,
         dropout: float = 0.1,
         use_doctrine_encoder: bool = True,
-        wes_feature_dim: int = 3,  # tmb, smoking_signature, uv_signature
+        wes_feature_dim: int = 8,  # tmb + 7 mutations (kras, egfr, tp53, stk11, keap1, smad4, braf)
         wes_hidden_dim: int = 16,
         # Dual-reference geometry dimensions
         hlca_dim: int = 30,  # HLCA scANVI latent
