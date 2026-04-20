@@ -1419,12 +1419,11 @@ rule ap1_validation:
     input:
         snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
         cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        inference = f"{PLASTICITY}/full_model_inference.parquet"  # Model outputs from plasticity validation
     output:
         report = f"{AP1_RESULTS}/ap1_validation_report.json",
-        cell_scores = f"{AP1_RESULTS}/ap1_cell_scores.parquet",
-        sc_stats = f"{AP1_RESULTS}/ap1_singlecell_stats.json",
-        spatial_stats = f"{AP1_RESULTS}/ap1_spatial_stats.json"
+        cell_scores = f"{AP1_RESULTS}/ap1_cell_scores.parquet"
     threads: 4
     resources:
         mem_mb = 64000,
@@ -1437,6 +1436,7 @@ rule ap1_validation:
             --snrna {input.snrna} \
             --cells {input.cells} \
             --neighborhoods {input.neighborhoods} \
+            --inference-outputs {input.inference} \
             --output-dir {AP1_RESULTS} \
             --use-extended \
             2>&1 | tee {log}
@@ -1464,12 +1464,11 @@ rule senescence_validation:
         snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
         cells = f"{CANONICAL}/cells.parquet",
         neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        inference = f"{PLASTICITY}/full_model_inference.parquet",  # Model outputs
         ap1_scores = f"{AP1_RESULTS}/ap1_cell_scores.parquet"
     output:
         report = f"{SENESCENCE_RESULTS}/senescence_validation_report.json",
-        cell_scores = f"{SENESCENCE_RESULTS}/senescence_cell_scores.parquet",
-        sc_stats = f"{SENESCENCE_RESULTS}/senescence_singlecell_stats.json",
-        spatial_stats = f"{SENESCENCE_RESULTS}/senescence_spatial_stats.json"
+        cell_scores = f"{SENESCENCE_RESULTS}/senescence_cell_scores.parquet"
     threads: 4
     resources:
         mem_mb = 64000,
@@ -1482,6 +1481,7 @@ rule senescence_validation:
             --snrna {input.snrna} \
             --cells {input.cells} \
             --neighborhoods {input.neighborhoods} \
+            --inference-outputs {input.inference} \
             --ap1-scores {input.ap1_scores} \
             --output-dir {SENESCENCE_RESULTS} \
             2>&1 | tee {log}
