@@ -5,10 +5,12 @@ mappings into a unified representation that captures both healthy structure
 (from HLCA) and disease-aware structure (from LuCa).
 
 Fusion methods:
-- concat: Simple concatenation
+- concat: Simple concatenation (unprincipled but effective)
 - average: Element-wise average (requires same dimensions)
 - weighted: Confidence-weighted combination
-- learned: Placeholder for learned fusion (future)
+- learned: Fixed-weight learned projection
+- gated: Gated conditioning (learns when to trust each reference)
+- transport: OT-based alignment between manifolds
 """
 
 from __future__ import annotations
@@ -105,7 +107,7 @@ def fuse_dual_reference(
     hlca_result: MappingResult,
     luca_result: MappingResult,
     *,
-    method: Literal["concat", "average", "weighted", "learned"] = "concat",
+    method: Literal["concat", "average", "weighted", "learned", "gated", "transport"] = "concat",
     hlca_confidence: np.ndarray | None = None,
     luca_confidence: np.ndarray | None = None,
     normalize: bool = True,
@@ -176,6 +178,18 @@ def fuse_dual_reference(
             luca_emb,
             hlca_weight=learned_hlca_weight,
             output_dim=learned_output_dim,
+        )
+    elif method == "gated":
+        fused, ref_mode = _fuse_gated(
+            hlca_emb,
+            luca_emb,
+            hlca_confidence,
+            luca_confidence,
+        )
+    elif method == "transport":
+        fused, ref_mode = _fuse_transport(
+            hlca_emb,
+            luca_emb,
         )
     else:
         raise ValueError(f"Unknown fusion method: {method}")
@@ -348,6 +362,244 @@ def _fuse_learned(
         luca_dim,
         output_dim,
         w,
+    )
+
+    return fused.astype(np.float32), ref_mode
+
+
+def _fuse_gated(
+    hlca_emb: np.ndarray,
+    luca_emb: np.ndarray,
+    hlca_conf: np.ndarray | None,
+    luca_conf: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Gated conditioning fusion: learns per-cell gate based on confidence and content.
+
+    Implements: fused = gate * hlca_shared + (1-gate) * luca_shared + specific
+    where gate is computed from both confidence and embedding similarity.
+
+    This is more principled than simple weighted averaging because:
+    1. Gate depends on cell-specific features, not just confidence
+    2. Preserves reference-specific information in the specific component
+    3. Allows smooth interpolation based on mapping quality
+
+    Parameters
+    ----------
+    hlca_emb : np.ndarray
+        HLCA embeddings (n_cells, hlca_dim)
+    luca_emb : np.ndarray
+        LuCA embeddings (n_cells, luca_dim)
+    hlca_conf : np.ndarray, optional
+        HLCA mapping confidence per cell
+    luca_conf : np.ndarray, optional
+        LuCA mapping confidence per cell
+
+    Returns
+    -------
+    fused : np.ndarray
+        Gated fused embeddings
+    ref_mode : np.ndarray
+        Which reference dominated per cell
+    """
+    n_cells = hlca_emb.shape[0]
+    hlca_dim = hlca_emb.shape[1]
+    luca_dim = luca_emb.shape[1]
+
+    # Default confidence
+    if hlca_conf is None:
+        hlca_conf = np.ones(n_cells, dtype=np.float32)
+    if luca_conf is None:
+        luca_conf = np.ones(n_cells, dtype=np.float32)
+
+    # Normalize embeddings
+    hlca_norm = hlca_emb / (np.linalg.norm(hlca_emb, axis=1, keepdims=True) + 1e-8)
+    luca_norm = luca_emb / (np.linalg.norm(luca_emb, axis=1, keepdims=True) + 1e-8)
+
+    # Project to common dimension for shared component
+    shared_dim = min(hlca_dim, luca_dim)
+    hlca_shared = hlca_norm[:, :shared_dim]
+    luca_shared = luca_norm[:, :shared_dim]
+
+    # Specific components (dimensions unique to each reference)
+    hlca_specific = hlca_norm[:, shared_dim:] if hlca_dim > shared_dim else np.zeros((n_cells, 0))
+    luca_specific = luca_norm[:, shared_dim:] if luca_dim > shared_dim else np.zeros((n_cells, 0))
+
+    # Compute gate from confidence + content similarity
+    # Similarity in shared space
+    similarity = np.sum(hlca_shared * luca_shared, axis=1)  # cosine sim (already normalized)
+
+    # Gate combines confidence ratio and agreement
+    conf_ratio = hlca_conf / (hlca_conf + luca_conf + 1e-8)
+    agreement_boost = (1 + similarity) / 2  # Map [-1, 1] to [0, 1]
+
+    # Final gate: confidence-based with agreement modulation
+    # High agreement -> gate closer to 0.5 (trust both)
+    # Low agreement -> gate follows confidence more strictly
+    gate = conf_ratio * (1 - 0.3 * agreement_boost) + 0.5 * (0.3 * agreement_boost)
+    gate = np.clip(gate, 0.1, 0.9)[:, np.newaxis]  # Prevent extremes
+
+    # Gated fusion of shared component
+    shared_fused = gate * hlca_shared + (1 - gate) * luca_shared
+
+    # Concatenate: shared (gated) + hlca_specific + luca_specific
+    fused = np.concatenate([shared_fused, hlca_specific, luca_specific], axis=1)
+
+    # Determine reference mode
+    gate_flat = gate.flatten()
+    ref_mode = np.where(gate_flat > 0.6, "hlca", np.where(gate_flat < 0.4, "luca", "both"))
+
+    log.info(
+        "Gated fusion: shared=%d (gated), HLCA-specific=%d, LuCA-specific=%d -> %d dims",
+        shared_dim,
+        hlca_specific.shape[1],
+        luca_specific.shape[1],
+        fused.shape[1],
+    )
+    log.info(
+        "Gate distribution: HLCA-dominant=%d, LuCA-dominant=%d, balanced=%d",
+        int((ref_mode == "hlca").sum()),
+        int((ref_mode == "luca").sum()),
+        int((ref_mode == "both").sum()),
+    )
+
+    return fused.astype(np.float32), ref_mode
+
+
+def _fuse_transport(
+    hlca_emb: np.ndarray,
+    luca_emb: np.ndarray,
+    reg: float = 0.1,
+    n_anchors: int = 500,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Optimal transport-based fusion: aligns healthy and disease manifolds.
+
+    Uses entropic OT to find correspondences between HLCA and LuCA embeddings,
+    then creates a fused representation that preserves both manifold structures.
+
+    This is principled because:
+    1. OT respects the geometry of both manifolds
+    2. Transport plan reveals cell-level healthy<->disease correspondence
+    3. Fused space captures deviation from healthy reference
+
+    Parameters
+    ----------
+    hlca_emb : np.ndarray
+        HLCA embeddings (n_cells, hlca_dim)
+    luca_emb : np.ndarray
+        LuCA embeddings (n_cells, luca_dim)
+    reg : float
+        Entropic regularization for Sinkhorn algorithm
+    n_anchors : int
+        Number of anchor points for scalable OT
+
+    Returns
+    -------
+    fused : np.ndarray
+        Transport-aligned fused embeddings
+    ref_mode : np.ndarray
+        Reference mode per cell
+    """
+    try:
+        import ot
+    except ImportError:
+        log.warning("POT not installed, falling back to weighted fusion")
+        return _fuse_weighted(hlca_emb, luca_emb, None, None)
+
+    from scipy.spatial.distance import cdist
+
+    n_cells = hlca_emb.shape[0]
+    hlca_dim = hlca_emb.shape[1]
+    luca_dim = luca_emb.shape[1]
+
+    # Project to common dimension
+    common_dim = min(hlca_dim, luca_dim)
+    hlca_proj = hlca_emb[:, :common_dim]
+    luca_proj = luca_emb[:, :common_dim]
+
+    # Normalize for OT
+    hlca_norm = hlca_proj / (np.linalg.norm(hlca_proj, axis=1, keepdims=True) + 1e-8)
+    luca_norm = luca_proj / (np.linalg.norm(luca_proj, axis=1, keepdims=True) + 1e-8)
+
+    # For scalability, use anchor-based OT
+    if n_cells > n_anchors:
+        # Select anchors via k-means on HLCA
+        from sklearn.cluster import MiniBatchKMeans
+        kmeans = MiniBatchKMeans(n_clusters=n_anchors, random_state=42, n_init=3)
+        kmeans.fit(hlca_norm)
+        anchor_hlca = kmeans.cluster_centers_
+        anchor_labels = kmeans.predict(hlca_norm)
+
+        # Find corresponding LuCA anchors (mean of cells in each cluster)
+        anchor_luca = np.zeros_like(anchor_hlca)
+        for k in range(n_anchors):
+            mask = anchor_labels == k
+            if mask.sum() > 0:
+                anchor_luca[k] = luca_norm[mask].mean(axis=0)
+
+        # Compute OT between anchors
+        M = cdist(anchor_hlca, anchor_luca, metric='sqeuclidean')
+        M = M / (M.max() + 1e-8)
+
+        a = np.ones(n_anchors) / n_anchors
+        b = np.ones(n_anchors) / n_anchors
+
+        try:
+            T = ot.sinkhorn(a, b, M, reg=reg, numItermax=500)
+        except Exception as e:
+            log.warning(f"OT failed: {e}, falling back to weighted fusion")
+            return _fuse_weighted(hlca_emb, luca_emb, None, None)
+
+        # Transport HLCA anchors toward LuCA
+        transported_anchors = T @ anchor_luca / (T.sum(axis=1, keepdims=True) + 1e-8)
+
+        # Interpolate for all cells based on anchor assignment
+        transported_hlca = transported_anchors[anchor_labels]
+    else:
+        # Direct OT for small datasets
+        M = cdist(hlca_norm, luca_norm, metric='sqeuclidean')
+        M = M / (M.max() + 1e-8)
+
+        a = np.ones(n_cells) / n_cells
+        b = np.ones(n_cells) / n_cells
+
+        try:
+            T = ot.sinkhorn(a, b, M, reg=reg, numItermax=500)
+        except Exception as e:
+            log.warning(f"OT failed: {e}, falling back to weighted fusion")
+            return _fuse_weighted(hlca_emb, luca_emb, None, None)
+
+        transported_hlca = T @ luca_norm / (T.sum(axis=1, keepdims=True) + 1e-8)
+
+    # Fused representation: [original_hlca | transport_deviation | original_luca]
+    # Transport deviation captures how far disease state is from healthy
+    transport_deviation = transported_hlca - hlca_norm
+    deviation_magnitude = np.linalg.norm(transport_deviation, axis=1)
+
+    # Concatenate: HLCA + deviation + LuCA
+    fused = np.concatenate([hlca_proj, transport_deviation, luca_proj], axis=1)
+
+    # Reference mode based on deviation magnitude
+    # High deviation = disease-dominant, low deviation = healthy-dominant
+    dev_threshold_low = np.percentile(deviation_magnitude, 33)
+    dev_threshold_high = np.percentile(deviation_magnitude, 67)
+
+    ref_mode = np.where(
+        deviation_magnitude < dev_threshold_low, "hlca",
+        np.where(deviation_magnitude > dev_threshold_high, "luca", "both")
+    )
+
+    log.info(
+        "Transport fusion: HLCA(%d) + deviation(%d) + LuCA(%d) -> %d dims",
+        common_dim,
+        transport_deviation.shape[1],
+        common_dim,
+        fused.shape[1],
+    )
+    log.info(
+        "Deviation distribution: low=%d (HLCA-like), medium=%d, high=%d (LuCA-like)",
+        int((ref_mode == "hlca").sum()),
+        int((ref_mode == "both").sum()),
+        int((ref_mode == "luca").sum()),
     )
 
     return fused.astype(np.float32), ref_mode
