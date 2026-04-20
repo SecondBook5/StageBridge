@@ -1,7 +1,7 @@
 """
 Publication-grade figures for spatial backend benchmarking.
 
-Generates Nature Methods quality figures for:
+Generates publication-quality figures for:
 - Backend performance comparison
 - Spatial cell type visualization
 - Metric distributions and variability

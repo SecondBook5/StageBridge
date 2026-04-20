@@ -477,7 +477,7 @@ def create_comprehensive_report(
 
 
 # =============================================================================
-# Advanced Publication-Quality Visualizations (Nature Methods style)
+# Advanced Publication-Quality Visualizations (publication style)
 # =============================================================================
 #
 # These functions follow scvi-tools visual conventions and are designed for
@@ -1178,7 +1178,7 @@ def create_publication_figure_panel(
     """
     Create publication-ready multi-panel figure of cell type spatial distributions.
 
-    Produces a clean, Nature Methods-quality figure with:
+    Produces a clean, publication-quality figure with:
     - Consistent color scaling across all panels (crucial for comparison)
     - Auto-calculated spot sizing for tissue density
     - Shared colorbar with proper labeling

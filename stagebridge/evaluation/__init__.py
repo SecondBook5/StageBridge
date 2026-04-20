@@ -1,5 +1,41 @@
 """Evaluation and tissue-level interpretation."""
 
+from stagebridge.evaluation.statistics import (
+    cohens_d,
+    cliffs_delta,
+    bootstrap_ci,
+    interpret_effect_size,
+    paired_comparison,
+    apply_multiple_comparison_correction,
+    generate_latex_comparison_table,
+)
+from stagebridge.evaluation.aggregation import (
+    load_cv_results,
+    aggregate_metrics,
+    per_fold_summary,
+    load_baseline_results,
+    aggregate_by_baseline,
+    compute_improvements,
+    generate_latex_results_table,
+    generate_latex_baseline_table,
+)
+from stagebridge.evaluation.heldout import (
+    load_model_and_test_data,
+    compute_transition_metrics,
+    compute_context_sensitivity,
+    run_heldout_evaluation,
+)
+from stagebridge.evaluation.power import (
+    compute_icc,
+    compute_design_effect,
+    compute_effective_sample_size,
+    compute_power,
+    compute_min_detectable_effect,
+    run_power_analysis,
+    power_analysis_from_cv_results,
+    generate_power_report,
+    PowerAnalysisResult,
+)
 from stagebridge.evaluation.metrics import (
     compute_all_metrics,
     compute_ari,
@@ -89,4 +125,36 @@ __all__ = [
     "SHARED_CLONE_PATTERNS",
     "INDEPENDENT_PATTERNS",
     "VALID_PATTERNS",
+    # Statistics
+    "cohens_d",
+    "cliffs_delta",
+    "bootstrap_ci",
+    "interpret_effect_size",
+    "paired_comparison",
+    "apply_multiple_comparison_correction",
+    "generate_latex_comparison_table",
+    # CV aggregation
+    "load_cv_results",
+    "aggregate_metrics",
+    "per_fold_summary",
+    "load_baseline_results",
+    "aggregate_by_baseline",
+    "compute_improvements",
+    "generate_latex_results_table",
+    "generate_latex_baseline_table",
+    # Held-out evaluation
+    "load_model_and_test_data",
+    "compute_transition_metrics",
+    "compute_context_sensitivity",
+    "run_heldout_evaluation",
+    # Power analysis
+    "compute_icc",
+    "compute_design_effect",
+    "compute_effective_sample_size",
+    "compute_power",
+    "compute_min_detectable_effect",
+    "run_power_analysis",
+    "power_analysis_from_cv_results",
+    "generate_power_report",
+    "PowerAnalysisResult",
 ]

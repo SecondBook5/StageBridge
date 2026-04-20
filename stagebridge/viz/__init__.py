@@ -57,6 +57,41 @@ from .advanced_plots import (
     plot_3d_embedding,
     plot_ridge_distributions,
 )
+from .niche_influence import (
+    plot_niche_beeswarm,
+    plot_niche_importance_bar,
+    plot_niche_stage_heatmap,
+    plot_niche_influence_combined,
+    from_interpretability,
+)
+from .transition_flow import (
+    compute_transition_flows,
+    plot_sankey_flow,
+    plot_alluvial as plot_transition_alluvial,
+)
+from .spatial_niche import (
+    compute_niche_scores,
+    get_spatial_coords,
+    plot_spatial_risk_map,
+    plot_niche_composition_map,
+    plot_spatial_niche_combined,
+)
+from .dual_reference import (
+    compute_reduced_embedding,
+    plot_3d_trajectory,
+    plot_reference_contribution,
+    plot_flow_field,
+    plot_dual_reference_combined,
+)
+from .ablation_waterfall import (
+    compute_degradation,
+    plot_ablation_waterfall,
+    plot_multi_metric_waterfall,
+    plot_component_importance,
+    plot_ablation_summary,
+    ABLATION_LABELS,
+    COMPONENT_GROUPS,
+)
 from .publication_theme import (
     configure_publication_style,
     save_publication_figure,
@@ -254,4 +289,34 @@ __all__ = [
     "get_cache",
     "generate_fig2_pro",
     "generate_fig4_pro",
+    # Niche influence (SHAP-style)
+    "plot_niche_beeswarm",
+    "plot_niche_importance_bar",
+    "plot_niche_stage_heatmap",
+    "plot_niche_influence_combined",
+    "from_interpretability",
+    # Transition flow
+    "compute_transition_flows",
+    "plot_sankey_flow",
+    "plot_transition_alluvial",
+    # Spatial niche
+    "compute_niche_scores",
+    "get_spatial_coords",
+    "plot_spatial_risk_map",
+    "plot_niche_composition_map",
+    "plot_spatial_niche_combined",
+    # Dual reference
+    "compute_reduced_embedding",
+    "plot_3d_trajectory",
+    "plot_reference_contribution",
+    "plot_flow_field",
+    "plot_dual_reference_combined",
+    # Ablation waterfall
+    "compute_degradation",
+    "plot_ablation_waterfall",
+    "plot_multi_metric_waterfall",
+    "plot_component_importance",
+    "plot_ablation_summary",
+    "ABLATION_LABELS",
+    "COMPONENT_GROUPS",
 ]
