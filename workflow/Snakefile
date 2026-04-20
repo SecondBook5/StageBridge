@@ -86,6 +86,8 @@ rule all:
         f"{TRAINING}/h3_validation/h3_validation.json",
         # H1.3 plasticity validation
         f"{RUNS}/biological_validation/plasticity/plasticity_validation.json",
+        # AP-1 stress signature validation
+        f"{RUNS}/biological_validation/ap1/ap1_validation_report.json",
         # Baseline ladder comparison
         f"{TRAINING}/baselines/baseline_comparison.json",
         # Ablations
@@ -1061,6 +1063,50 @@ rule liana_cycling_posthoc:
             --liana-results {input.liana_results} \
             --cells {input.cells} \
             --output-dir $(dirname {output.summary}) \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5d-quinquies: AP-1 Stress Signature Validation
+# =============================================================================
+# Validates that AP-1/stress response activation marks progression-prone cells
+# and niches. Key biological insight from Marjanovic et al.:
+#   - AP-1 (JUN/FOS) marks plastic, high-plasticity state
+#   - Associated with fetal progenitor-like intermediate
+#   - JNK/ERK/p38 stress pathways converge on AP-1
+#   - Links to IL1B signaling (H1.2 connection)
+#
+# Analyzes both single-cell and spatial transcriptomics:
+#   - Single-cell: AP-1 score correlates with progression
+#   - Spatial: AP-1 hotspots enriched in early stages
+
+AP1_RESULTS = f"{RUNS}/biological_validation/ap1"
+
+rule ap1_validation:
+    input:
+        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
+    output:
+        report = f"{AP1_RESULTS}/ap1_validation_report.json",
+        cell_scores = f"{AP1_RESULTS}/ap1_cell_scores.parquet",
+        sc_stats = f"{AP1_RESULTS}/ap1_singlecell_stats.json",
+        spatial_stats = f"{AP1_RESULTS}/ap1_spatial_stats.json"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/biological_validation/ap1.log"
+    shell:
+        """
+        python scripts/run_ap1_validation.py \
+            --snrna {input.snrna} \
+            --cells {input.cells} \
+            --neighborhoods {input.neighborhoods} \
+            --output-dir {AP1_RESULTS} \
+            --use-extended \
             2>&1 | tee {log}
         """
 
