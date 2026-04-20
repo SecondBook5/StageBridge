@@ -123,64 +123,185 @@ def compute_ot_plan(source_coords, target_coords, n_samples=1500, reg=0.05):
     return src, tgt, velocities, W
 
 
-def compute_ricci_curvature(coords_2d, stages, ot_results):
-    """Compute Ollivier-Ricci curvature for stage transition graph.
-
-    Ricci curvature reveals geometric structure of transitions:
-    - Negative: bottleneck/funnel (obligate transition)
-    - Positive: stable state with redundant paths
-    - Near zero: linear progression
+def cluster_niches(neighborhoods_df, n_clusters=8, seed=42):
+    """Cluster cells by niche composition.
 
     Args:
-        coords_2d: 2D embedding coordinates
-        stages: Stage labels for each cell
-        ot_results: Dict with OT results between consecutive stages
+        neighborhoods_df: DataFrame with tokens column containing niche info
+        n_clusters: Number of niche clusters
+        seed: Random seed
 
     Returns:
-        Dict mapping edge tuples to curvature values
+        Tuple of (niche_labels, niche_features, feature_names)
+    """
+    from sklearn.cluster import KMeans
+
+    # Extract niche features from tokens
+    features = []
+    feature_names = ['caf_fraction', 'immune_fraction', 'emt_score', 'diversity']
+
+    for _, row in neighborhoods_df.iterrows():
+        tokens = row['tokens']
+        # Receiver token is index 0
+        receiver = tokens[0] if len(tokens) > 0 else {}
+
+        # Get niche composition from receiver token
+        feat = []
+        for fn in feature_names:
+            val = receiver.get(fn) if isinstance(receiver, dict) else None
+            feat.append(float(val) if val is not None else 0.0)
+        features.append(feat)
+
+    X = np.array(features)
+
+    # Handle NaN/inf
+    X = np.nan_to_num(X, nan=0.0, posinf=1.0, neginf=0.0)
+
+    # Cluster
+    kmeans = KMeans(n_clusters=n_clusters, random_state=seed, n_init=10)
+    labels = kmeans.fit_predict(X)
+
+    return labels, X, feature_names, kmeans.cluster_centers_
+
+
+def compute_niche_ricci_curvature(neighborhoods_df, stages, n_clusters=8):
+    """Compute Ollivier-Ricci curvature on niche transition graph across stages.
+
+    Builds a graph where:
+    - Nodes are (stage, niche_cluster) pairs
+    - Edges connect niches between consecutive stages weighted by transition frequency
+
+    Ricci curvature reveals geometric structure of niche transitions:
+    - Negative: bottleneck (obligate niche transition for progression)
+    - Positive: redundant paths (multiple niche routes available)
+    - Near zero: linear/neutral
+
+    Args:
+        neighborhoods_df: DataFrame with cell_id, stage, tokens
+        stages: Stage labels array (aligned with neighborhoods_df)
+        n_clusters: Number of niche clusters
+
+    Returns:
+        Dict with 'curvatures', 'niche_labels', 'niche_centers', 'graph_info'
     """
     if not HAS_RICCI:
-        print("  Warning: GraphRicciCurvature not installed, skipping curvature")
-        return {}
+        print("  Warning: GraphRicciCurvature not installed, skipping niche ORC")
+        return {'curvatures': {}, 'bottlenecks': [], 'redundant': []}
 
-    # Build weighted graph from stage centroids
-    G = nx.Graph()
+    print("  Clustering niches...")
+    niche_labels, niche_features, feature_names, centers = cluster_niches(
+        neighborhoods_df, n_clusters=n_clusters
+    )
 
-    # Add nodes (stages) with positions
-    for stage in STAGE_ORDER:
-        mask = stages == stage
-        if mask.sum() > 0:
-            centroid = coords_2d[mask].mean(axis=0)
-            G.add_node(stage, pos=centroid)
+    # Build niche transition graph
+    G = nx.DiGraph()
 
-    # Add edges with Wasserstein distance as weight
+    # Count transitions between (stage, niche) pairs
+    transition_counts = {}
+
+    # Group by stage
+    stage_niche = {}
+    for i, (_, row) in enumerate(neighborhoods_df.iterrows()):
+        stage = row['stage']
+        niche = niche_labels[i]
+        if stage not in stage_niche:
+            stage_niche[stage] = []
+        stage_niche[stage].append((row['cell_id'], niche))
+
+    # For each consecutive stage pair, count niche transitions
+    # Using cell similarity in embedding space to infer transitions
     for i in range(len(STAGE_ORDER) - 1):
         s1, s2 = STAGE_ORDER[i], STAGE_ORDER[i+1]
-        key = f'{s1}->{s2}'
-        if key in ot_results and s1 in G.nodes() and s2 in G.nodes():
-            W = ot_results[key]['W']
-            # Use inverse of Wasserstein as weight (closer = higher weight)
-            G.add_edge(s1, s2, weight=1.0 / (W + 0.01))
+
+        if s1 not in stage_niche or s2 not in stage_niche:
+            continue
+
+        cells_s1 = stage_niche[s1]
+        cells_s2 = stage_niche[s2]
+
+        # Count niche co-occurrence as proxy for transition
+        # (In reality this would use OT coupling or trajectory inference)
+        niche_counts_s1 = {}
+        niche_counts_s2 = {}
+
+        for _, niche in cells_s1:
+            niche_counts_s1[niche] = niche_counts_s1.get(niche, 0) + 1
+        for _, niche in cells_s2:
+            niche_counts_s2[niche] = niche_counts_s2.get(niche, 0) + 1
+
+        # Create edges between all niche pairs, weighted by product of frequencies
+        total_s1 = sum(niche_counts_s1.values())
+        total_s2 = sum(niche_counts_s2.values())
+
+        for n1, c1 in niche_counts_s1.items():
+            for n2, c2 in niche_counts_s2.items():
+                node1 = f"{s1}_N{n1}"
+                node2 = f"{s2}_N{n2}"
+
+                # Weight by transition probability estimate
+                weight = (c1 / total_s1) * (c2 / total_s2)
+
+                if weight > 0.001:  # Filter very rare transitions
+                    G.add_node(node1, stage=s1, niche=n1)
+                    G.add_node(node2, stage=s2, niche=n2)
+                    G.add_edge(node1, node2, weight=weight)
 
     if G.number_of_edges() == 0:
-        return {}
+        print("  Warning: No niche transitions found")
+        return {'curvatures': {}, 'bottlenecks': [], 'redundant': []}
+
+    print(f"  Built niche graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+    # Convert to undirected for ORC (required by GraphRicciCurvature)
+    G_undirected = G.to_undirected()
 
     # Compute Ollivier-Ricci curvature
-    # alpha=0.5 balances local vs global transport
     try:
-        orc = OllivierRicci(G, alpha=0.5, verbose="ERROR")
+        orc = OllivierRicci(G_undirected, alpha=0.5, verbose="ERROR")
         orc.compute_ricci_curvature()
 
         curvatures = {}
-        for u, v in G.edges():
-            curv = G[u][v].get('ricciCurvature', 0.0)
-            curvatures[(u, v)] = curv
-            print(f"    {u} -> {v}: Ricci curvature = {curv:.4f}")
+        bottlenecks = []
+        redundant = []
 
-        return curvatures
+        for u, v in G_undirected.edges():
+            curv = G_undirected[u][v].get('ricciCurvature', 0.0)
+            curvatures[(u, v)] = curv
+
+            if curv < -0.2:
+                bottlenecks.append((u, v, curv))
+            elif curv > 0.2:
+                redundant.append((u, v, curv))
+
+        # Sort by magnitude
+        bottlenecks.sort(key=lambda x: x[2])
+        redundant.sort(key=lambda x: -x[2])
+
+        print(f"  Computed ORC for {len(curvatures)} edges")
+        print(f"  Bottleneck transitions (ORC < -0.2): {len(bottlenecks)}")
+        print(f"  Redundant transitions (ORC > 0.2): {len(redundant)}")
+
+        # Report top bottlenecks
+        if bottlenecks:
+            print("  Top bottlenecks:")
+            for u, v, c in bottlenecks[:5]:
+                print(f"    {u} -> {v}: ORC = {c:.3f}")
+
+        return {
+            'curvatures': curvatures,
+            'bottlenecks': bottlenecks,
+            'redundant': redundant,
+            'niche_labels': niche_labels,
+            'niche_centers': centers,
+            'feature_names': feature_names,
+            'graph': G,
+        }
+
     except Exception as e:
-        print(f"  Warning: Ricci curvature computation failed: {e}")
-        return {}
+        print(f"  Warning: Niche ORC computation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'curvatures': {}, 'bottlenecks': [], 'redundant': []}
 
 
 def sample_trajectories(coords_2d, stages, n_trajectories=200, seed=42):
@@ -250,8 +371,14 @@ def draw_trajectory(ax, traj, cmap, alpha=0.6, linewidth=1.5):
                    zorder=5)
 
 
-def figure_flow_hero(cells, output_dir):
-    """Generate the hero flow dynamics figure."""
+def figure_flow_hero(cells, output_dir, neighborhoods=None):
+    """Generate the hero flow dynamics figure.
+
+    Args:
+        cells: DataFrame with cell data
+        output_dir: Path for output figures
+        neighborhoods: Optional DataFrame with niche tokens for ORC computation
+    """
     print("\nGenerating Flow Dynamics Hero Figure...")
 
     if not HAS_OT:
@@ -296,9 +423,18 @@ def figure_flow_hero(cells, output_dir):
     trajectories = sample_trajectories(coords_2d, stages, n_trajectories=300)
     print(f"    Generated {len(trajectories)} trajectories")
 
-    # Compute Ricci curvature
-    print("  Computing Ricci curvature...")
-    ricci_curvatures = compute_ricci_curvature(coords_2d, stages, ot_results)
+    # Compute Niche Ricci curvature (if neighborhoods available)
+    niche_orc_results = {}
+    if neighborhoods is not None and HAS_RICCI:
+        print("  Computing Niche Ricci curvature...")
+        niche_orc_results = compute_niche_ricci_curvature(
+            neighborhoods, neighborhoods['stage'].values, n_clusters=8
+        )
+    else:
+        if neighborhoods is None:
+            print("  Skipping niche ORC: no neighborhoods data")
+        elif not HAS_RICCI:
+            print("  Skipping niche ORC: GraphRicciCurvature not installed")
 
     # =========================================================================
     # CREATE FIGURE - 2 panel layout
@@ -411,30 +547,30 @@ def figure_flow_hero(cells, output_dir):
                  fontsize=14, fontweight='bold', color='white', pad=15)
 
     # =========================================================================
-    # Panel B: Stage ladder with Wasserstein distances
+    # Panel B: Niche transition geometry with Wasserstein and ORC
     # =========================================================================
 
     # Vertical stage progression
     y_positions = np.linspace(0.9, 0.1, len(STAGE_ORDER))
-    x_center = 0.3
+    x_center = 0.25
 
     # Draw stages as nodes
     for i, stage in enumerate(STAGE_ORDER):
         y = y_positions[i]
 
         # Node
-        circle = plt.Circle((x_center, y), 0.06,
+        circle = plt.Circle((x_center, y), 0.05,
                            facecolor=STAGE_COLORS[stage],
                            edgecolor='white', linewidth=2,
                            transform=ax2.transAxes, zorder=10)
         ax2.add_patch(circle)
 
-        # Label
-        ax2.text(x_center + 0.12, y, stage,
-                fontsize=12, fontweight='bold', color='white',
-                ha='left', va='center', transform=ax2.transAxes)
+        # Label - positioned to the left to avoid overlap
+        ax2.text(x_center - 0.08, y, stage,
+                fontsize=10, fontweight='bold', color='white',
+                ha='right', va='center', transform=ax2.transAxes)
 
-    # Draw edges with Wasserstein distances and Ricci curvature
+    # Draw edges with Wasserstein distances
     for i in range(len(STAGE_ORDER) - 1):
         s1, s2 = STAGE_ORDER[i], STAGE_ORDER[i+1]
         key = f'{s1}->{s2}'
@@ -442,53 +578,78 @@ def figure_flow_hero(cells, output_dir):
         y1, y2 = y_positions[i], y_positions[i+1]
 
         # Edge line
-        ax2.plot([x_center, x_center], [y1 - 0.06, y2 + 0.06],
+        ax2.plot([x_center, x_center], [y1 - 0.05, y2 + 0.05],
                 color='white', linewidth=2, alpha=0.5,
                 transform=ax2.transAxes, zorder=5)
 
         # Wasserstein distance annotation
         if key in ot_results:
             W = ot_results[key]['W']
-
-            # Bar showing relative distance
-            bar_width = W * 0.8  # Scale for visibility
             bar_y = (y1 + y2) / 2
 
-            ax2.barh(bar_y, bar_width, height=0.03,
-                    left=x_center + 0.15, color=STAGE_COLORS[s1],
-                    alpha=0.8, transform=ax2.transAxes, zorder=6)
-
-            ax2.text(x_center + 0.18 + bar_width, bar_y + 0.02, f'W={W:.3f}',
+            ax2.text(x_center + 0.08, bar_y, f'W={W:.3f}',
                     fontsize=8, color='white', alpha=0.9,
                     ha='left', va='center', transform=ax2.transAxes)
 
-            # Ricci curvature annotation (if available)
-            curv_key = (s1, s2)
-            if curv_key in ricci_curvatures:
-                curv = ricci_curvatures[curv_key]
-                # Color code: negative (red/bottleneck), positive (green/stable), near-zero (gray)
-                if curv < -0.1:
-                    curv_color = '#ef4444'  # Red - bottleneck
-                    curv_label = 'bottleneck'
-                elif curv > 0.1:
-                    curv_color = '#10b981'  # Green - stable
-                    curv_label = 'redundant'
-                else:
-                    curv_color = '#888888'  # Gray - linear
-                    curv_label = 'linear'
+    # Show niche ORC bottlenecks if available
+    bottlenecks = niche_orc_results.get('bottlenecks', [])
+    redundant = niche_orc_results.get('redundant', [])
 
-                ax2.text(x_center + 0.18 + bar_width, bar_y - 0.02,
-                        f'R={curv:.2f} ({curv_label})',
-                        fontsize=7, color=curv_color, alpha=0.9,
-                        ha='left', va='center', transform=ax2.transAxes)
+    if bottlenecks or redundant:
+        # Title
+        ax2.text(0.65, 0.95, 'Niche Bottlenecks',
+                fontsize=11, fontweight='bold', color='white',
+                ha='center', va='top', transform=ax2.transAxes)
 
-    # Title for panel B
+        # Show top bottleneck transitions
+        y_text = 0.85
+        ax2.text(0.65, y_text, 'Obligate transitions:',
+                fontsize=8, color='#ef4444', alpha=0.9,
+                ha='center', va='top', transform=ax2.transAxes)
+
+        y_text -= 0.05
+        for u, v, curv in bottlenecks[:4]:
+            # Parse stage from node name (e.g., "AAH_N3" -> "AAH")
+            s1 = u.split('_N')[0]
+            s2 = v.split('_N')[0]
+            n1 = u.split('_N')[1] if '_N' in u else '?'
+            n2 = v.split('_N')[1] if '_N' in v else '?'
+
+            label = f"{s1}:N{n1} -> {s2}:N{n2}"
+            ax2.text(0.65, y_text, f"{label}: {curv:.2f}",
+                    fontsize=7, color='#ef4444', alpha=0.8,
+                    ha='center', va='top', transform=ax2.transAxes)
+            y_text -= 0.04
+
+        # Show redundant transitions
+        if redundant:
+            y_text -= 0.03
+            ax2.text(0.65, y_text, 'Redundant paths:',
+                    fontsize=8, color='#10b981', alpha=0.9,
+                    ha='center', va='top', transform=ax2.transAxes)
+
+            y_text -= 0.05
+            for u, v, curv in redundant[:3]:
+                s1 = u.split('_N')[0]
+                s2 = v.split('_N')[0]
+                n1 = u.split('_N')[1] if '_N' in u else '?'
+                n2 = v.split('_N')[1] if '_N' in v else '?'
+
+                label = f"{s1}:N{n1} -> {s2}:N{n2}"
+                ax2.text(0.65, y_text, f"{label}: +{curv:.2f}",
+                        fontsize=7, color='#10b981', alpha=0.8,
+                        ha='center', va='top', transform=ax2.transAxes)
+                y_text -= 0.04
+
+    # Main title for panel B
     ax2.text(0.5, 0.98, 'Progression Geometry',
             fontsize=13, fontweight='bold', color='white',
             ha='center', va='top', transform=ax2.transAxes)
 
-    ax2.text(0.5, 0.02, 'W = Wasserstein (transport cost)\nR = Ricci curvature (bottleneck < 0)',
-            fontsize=8, color='#888888',
+    # Legend
+    legend_text = 'W = Wasserstein distance\nORC < 0 = bottleneck niche\nORC > 0 = redundant paths'
+    ax2.text(0.5, 0.02, legend_text,
+            fontsize=7, color='#888888',
             ha='center', va='bottom', transform=ax2.transAxes,
             style='italic')
 
@@ -541,10 +702,18 @@ def figure_flow_hero(cells, output_dir):
         'n_trajectories': len(trajectories),
         'wasserstein_distances': {k: float(v['W']) for k, v in ot_results.items()},
         'total_wasserstein': sum(v['W'] for v in ot_results.values()),
-        'ricci_curvatures': {f"{k[0]}->{k[1]}": float(v) for k, v in ricci_curvatures.items()},
-        'bottleneck_transitions': [
-            f"{k[0]}->{k[1]}" for k, v in ricci_curvatures.items() if v < -0.1
-        ],
+        'niche_orc': {
+            'n_bottlenecks': len(niche_orc_results.get('bottlenecks', [])),
+            'n_redundant': len(niche_orc_results.get('redundant', [])),
+            'bottlenecks': [
+                {'from': u, 'to': v, 'orc': float(c)}
+                for u, v, c in niche_orc_results.get('bottlenecks', [])[:10]
+            ],
+            'redundant': [
+                {'from': u, 'to': v, 'orc': float(c)}
+                for u, v, c in niche_orc_results.get('redundant', [])[:10]
+            ],
+        },
     }
 
     import json
@@ -578,7 +747,16 @@ def main():
     cells = load_data(data_path)
     print(f"Loaded {len(cells):,} cells")
 
-    metrics = figure_flow_hero(cells, args.output_dir)
+    # Load neighborhoods for niche ORC
+    neighborhoods = None
+    neighborhoods_path = data_path / "neighborhoods.parquet"
+    if neighborhoods_path.exists():
+        neighborhoods = pd.read_parquet(neighborhoods_path)
+        print(f"Loaded {len(neighborhoods):,} neighborhoods for niche ORC")
+    else:
+        print(f"Warning: No neighborhoods.parquet found, skipping niche ORC")
+
+    metrics = figure_flow_hero(cells, args.output_dir, neighborhoods=neighborhoods)
 
     if metrics:
         print(f"\nMetrics:")
@@ -587,13 +765,16 @@ def main():
         print(f"\n  Wasserstein distances:")
         for trans, W in metrics['wasserstein_distances'].items():
             print(f"    {trans}: {W:.4f}")
-        if metrics.get('ricci_curvatures'):
-            print(f"\n  Ricci curvatures:")
-            for trans, R in metrics['ricci_curvatures'].items():
-                label = "bottleneck" if R < -0.1 else ("redundant" if R > 0.1 else "linear")
-                print(f"    {trans}: {R:.4f} ({label})")
-            if metrics.get('bottleneck_transitions'):
-                print(f"\n  Bottleneck transitions: {', '.join(metrics['bottleneck_transitions'])}")
+
+        niche_orc = metrics.get('niche_orc', {})
+        if niche_orc.get('bottlenecks'):
+            print(f"\n  Niche ORC Bottlenecks ({niche_orc['n_bottlenecks']} total):")
+            for b in niche_orc['bottlenecks'][:5]:
+                print(f"    {b['from']} -> {b['to']}: ORC = {b['orc']:.3f}")
+        if niche_orc.get('redundant'):
+            print(f"\n  Niche ORC Redundant ({niche_orc['n_redundant']} total):")
+            for r in niche_orc['redundant'][:3]:
+                print(f"    {r['from']} -> {r['to']}: ORC = +{r['orc']:.3f}")
 
     print("=" * 60)
 
