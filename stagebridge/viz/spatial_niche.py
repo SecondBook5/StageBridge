@@ -54,10 +54,13 @@ def compute_niche_scores(
 
     scores = []
 
+    # Handle both receiver_id and cell_id column names
+    receiver_col = "receiver_id" if "receiver_id" in neighborhoods_df.columns else "cell_id"
+
     for _, cell in cells_df.iterrows():
         cell_id = cell["cell_id"]
 
-        neighbors = neighborhoods_df[neighborhoods_df["receiver_id"] == cell_id]
+        neighbors = neighborhoods_df[neighborhoods_df[receiver_col] == cell_id]
 
         if len(neighbors) == 0:
             scores.append({
