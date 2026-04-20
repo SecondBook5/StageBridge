@@ -2,9 +2,9 @@
 """
 Senescence/SASP Signature Validation for StageBridge.
 
-Validates the dual role of cellular senescence in precancer progression:
-- Early/transient senescence = tumor-suppressive barrier
-- Chronic senescence with SASP = tumor-promoting microenvironment
+Validates whether cellular senescence and SASP correlate with model-predicted
+progression risk. This tests whether the model's predictions align with
+senescence biology.
 
 Key biological insight (from Hoi et al. Cancer Cell 2026):
 - SASP (senescence-associated secretory phenotype) creates feedforward loops
@@ -12,25 +12,17 @@ Key biological insight (from Hoi et al. Cancer Cell 2026):
 - SASP activates ERK/p38/AKT in epithelial cells
 - cGAS-STING pathway drives chronic inflammatory cytokine production
 
-This connects to other StageBridge hypotheses:
-- H1.2: SASP includes IL1B secretion (IL1B-IL1R1 axis)
-- AP-1: p38 converges on AP-1 transcription factors
-
-Senescence Core Markers:
-  CDKN1A (p21), CDKN2A (p16), TP53, RB1
-
-SASP Signature:
-  IL6, IL1B, IL1A, CXCL8, CCL2, GDF15, SERPINE1 (PAI-1)
-  MMP1, MMP3, MMP9 (matrix remodeling)
-
-cGAS-STING Pathway:
-  MB21D1 (cGAS), TMEM173 (STING), IRF3, IFNB1
+The validation tests:
+1. Do cells with high SASP have higher MODEL-PREDICTED transition probability?
+2. Is chronic senescence enriched in cells the model flags as high-risk?
+3. Do high niche-influence regions show elevated SASP?
 
 Usage:
   python scripts/run_senescence_validation.py \
       --snrna /path/to/snrna_with_celltypes.h5ad \
       --cells /path/to/cells.parquet \
       --neighborhoods /path/to/neighborhoods.parquet \
+      --inference-outputs /path/to/inference_outputs.parquet \
       --output-dir /path/to/senescence_results
 """
 
@@ -70,10 +62,7 @@ CGAS_STING = ["MB21D1", "TMEM173", "IRF3", "IFNB1", "TBK1", "NFKB1"]
 # Full senescence signature
 SENESCENCE_FULL = SENESCENCE_CORE + SASP_ALL + CGAS_STING
 
-# Markers that decrease with senescence (for validation)
-SENESCENCE_DECREASED = ["LMNB1", "MKI67", "PCNA", "TOP2A"]
-
-# Stages for progression analysis
+# Stages for analysis
 STAGES = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
 STAGE_ORDER = {s: i for i, s in enumerate(STAGES)}
 
@@ -91,7 +80,7 @@ def parse_args():
         "--cells",
         type=Path,
         required=True,
-        help="Path to cells.parquet with cell metadata and embeddings"
+        help="Path to cells.parquet with cell metadata"
     )
     parser.add_argument(
         "--neighborhoods",
@@ -100,16 +89,22 @@ def parse_args():
         help="Path to neighborhoods.parquet with spatial context"
     )
     parser.add_argument(
-        "--output-dir",
+        "--inference-outputs",
         type=Path,
         required=True,
-        help="Output directory for senescence validation results"
+        help="Path to model inference outputs (parquet with transition_prob, niche_influence)"
     )
     parser.add_argument(
         "--ap1-scores",
         type=Path,
         default=None,
         help="Path to AP-1 cell scores (for cross-validation)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Output directory for senescence validation results"
     )
     return parser.parse_args()
 
@@ -136,27 +131,6 @@ def compute_signature_score(
     return adata.obs[score_name].values
 
 
-def compute_gene_expression_matrix(
-    adata: sc.AnnData,
-    gene_list: list[str]
-) -> pd.DataFrame:
-    """Extract expression matrix for specific genes."""
-    available_genes = [g for g in gene_list if g in adata.var_names]
-
-    if not available_genes:
-        return pd.DataFrame()
-
-    expr = adata[:, available_genes].X
-    if hasattr(expr, 'toarray'):
-        expr = expr.toarray()
-
-    return pd.DataFrame(
-        expr,
-        index=adata.obs_names,
-        columns=available_genes
-    )
-
-
 def classify_senescence_state(
     senescence_score: np.ndarray,
     sasp_score: np.ndarray,
@@ -171,12 +145,10 @@ def classify_senescence_state(
     """
     states = np.full(len(senescence_score), "unknown", dtype=object)
 
-    # Thresholds based on quartiles
     sen_high = np.nanpercentile(senescence_score, 75)
     sasp_high = np.nanpercentile(sasp_score, 75)
     prolif_high = np.nanpercentile(proliferation_score, 50)
 
-    # Classify
     proliferating = proliferation_score > prolif_high
     sen_pos = senescence_score > sen_high
     sasp_pos = sasp_score > sasp_high
@@ -189,402 +161,258 @@ def classify_senescence_state(
     return states
 
 
-def analyze_single_cell(
-    adata: sc.AnnData,
+def analyze_model_correlation(
+    senescence_scores: pd.DataFrame,
+    inference_df: pd.DataFrame,
     cells_df: pd.DataFrame,
-    ap1_scores_df: Optional[pd.DataFrame] = None
+    ap1_scores_df: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
-    Analyze senescence signatures in single-cell RNA-seq data.
+    Correlate senescence signatures with MODEL outputs.
 
-    Returns dict with:
-    - Per-cell senescence and SASP scores
-    - Stage-stratified statistics
-    - Senescence state classification
-    - Cell type enrichment
-    - Connection to AP-1 (if provided)
+    The key question: do cells the model predicts as high-risk have
+    elevated SASP / chronic senescence?
     """
     logger.info("=" * 60)
-    logger.info("SINGLE-CELL SENESCENCE ANALYSIS")
+    logger.info("SENESCENCE vs MODEL PREDICTIONS")
     logger.info("=" * 60)
 
-    # Compute signature scores
-    senescence_scores = compute_signature_score(adata, SENESCENCE_CORE, "senescence_score")
-    sasp_scores = compute_signature_score(adata, SASP_ALL, "sasp_score")
-    sasp_cytokine_scores = compute_signature_score(adata, SASP_CYTOKINES, "sasp_cytokine_score")
-    sasp_matrix_scores = compute_signature_score(adata, SASP_MATRIX, "sasp_matrix_score")
-    cgas_sting_scores = compute_signature_score(adata, CGAS_STING, "cgas_sting_score")
-
-    # Proliferation markers (should be low in senescent cells)
-    prolif_genes = ["MKI67", "PCNA", "TOP2A", "MCM2"]
-    prolif_scores = compute_signature_score(adata, prolif_genes, "proliferation_score")
-
-    # Build results dataframe
-    results_df = pd.DataFrame({
-        "cell_id": adata.obs_names,
-        "senescence_score": senescence_scores,
-        "sasp_score": sasp_scores,
-        "sasp_cytokine_score": sasp_cytokine_scores,
-        "sasp_matrix_score": sasp_matrix_scores,
-        "cgas_sting_score": cgas_sting_scores,
-        "proliferation_score": prolif_scores,
-    })
-
-    # Classify senescence states
-    results_df["senescence_state"] = classify_senescence_state(
-        senescence_scores, sasp_scores, prolif_scores
+    # Merge senescence scores with model outputs
+    merged = senescence_scores.merge(
+        inference_df[["cell_id", "transition_prob", "niche_influence"]],
+        on="cell_id",
+        how="inner"
     )
+    logger.info(f"Merged {len(merged):,} cells with model outputs")
 
-    # Add key individual genes
-    key_genes = ["CDKN1A", "CDKN2A", "IL6", "IL1B", "GDF15", "MMP1"]
-    gene_expr = compute_gene_expression_matrix(adata, key_genes)
-    for gene in gene_expr.columns:
-        results_df[f"expr_{gene}"] = gene_expr[gene].values
+    if len(merged) < 100:
+        logger.error("Too few cells for analysis")
+        return {"error": "insufficient_cells"}
 
-    # Merge with cell metadata
-    if "cell_id" in cells_df.columns:
-        results_df = results_df.merge(
-            cells_df[["cell_id", "stage", "cell_type", "donor_id"]].drop_duplicates(),
-            on="cell_id",
-            how="left"
-        )
+    results = {}
 
-    # Stage-stratified analysis
-    stage_stats = {}
-    if "stage" in results_df.columns:
-        for stage in STAGES:
-            mask = results_df["stage"] == stage
-            if mask.sum() > 0:
-                sen_scores = results_df.loc[mask, "senescence_score"].dropna()
-                sasp_scores_stage = results_df.loc[mask, "sasp_score"].dropna()
-
-                # Count senescence states
-                state_counts = results_df.loc[mask, "senescence_state"].value_counts()
-
-                stage_stats[stage] = {
-                    "n_cells": int(mask.sum()),
-                    "mean_senescence": float(sen_scores.mean()) if len(sen_scores) > 0 else None,
-                    "mean_sasp": float(sasp_scores_stage.mean()) if len(sasp_scores_stage) > 0 else None,
-                    "pct_chronic_senescent": float(
-                        state_counts.get("chronic_senescent", 0) / mask.sum() * 100
-                    ),
-                    "pct_early_senescent": float(
-                        state_counts.get("early_senescent", 0) / mask.sum() * 100
-                    ),
-                    "sasp_to_senescence_ratio": float(
-                        sasp_scores_stage.mean() / sen_scores.mean()
-                    ) if len(sen_scores) > 0 and sen_scores.mean() != 0 else None,
-                }
-
-        # Progression correlation
-        valid_mask = results_df["stage"].isin(STAGES) & results_df["senescence_score"].notna()
-        if valid_mask.sum() > 10:
-            stage_numeric = results_df.loc[valid_mask, "stage"].map(STAGE_ORDER)
-
-            # Senescence vs progression
-            rho_sen, pval_sen = stats.spearmanr(
-                stage_numeric,
-                results_df.loc[valid_mask, "senescence_score"]
-            )
-            # SASP vs progression
-            rho_sasp, pval_sasp = stats.spearmanr(
-                stage_numeric,
-                results_df.loc[valid_mask, "sasp_score"]
-            )
-
-            stage_stats["progression_correlation"] = {
-                "senescence_rho": float(rho_sen),
-                "senescence_pval": float(pval_sen),
-                "sasp_rho": float(rho_sasp),
-                "sasp_pval": float(pval_sasp),
-                "n_cells": int(valid_mask.sum()),
-            }
-
-    # Cell type enrichment for chronic senescence
-    cell_type_stats = {}
-    if "cell_type" in results_df.columns:
-        for ct in results_df["cell_type"].dropna().unique():
-            mask = results_df["cell_type"] == ct
-            if mask.sum() > 10:
-                state_counts = results_df.loc[mask, "senescence_state"].value_counts()
-                cell_type_stats[ct] = {
-                    "n_cells": int(mask.sum()),
-                    "pct_chronic_senescent": float(
-                        state_counts.get("chronic_senescent", 0) / mask.sum() * 100
-                    ),
-                    "mean_sasp": float(results_df.loc[mask, "sasp_score"].mean()),
-                }
-
-        # Rank by chronic senescence burden
-        if cell_type_stats:
-            ranked = sorted(
-                cell_type_stats.items(),
-                key=lambda x: x[1]["pct_chronic_senescent"],
-                reverse=True
-            )
-            cell_type_stats["ranking_chronic"] = [ct for ct, _ in ranked]
-
-    # IL1B connection (links to H1.2)
-    il1b_stats = {}
-    il1b_expr = compute_gene_expression_matrix(adata, ["IL1B", "IL6"])
-    if "IL1B" in il1b_expr.columns and results_df["sasp_score"].notna().sum() > 10:
+    # Core: SASP vs transition probability
+    valid = merged["sasp_score"].notna() & merged["transition_prob"].notna()
+    if valid.sum() > 10:
         rho, pval = stats.spearmanr(
-            il1b_expr["IL1B"],
-            results_df["sasp_score"],
-            nan_policy="omit"
+            merged.loc[valid, "sasp_score"],
+            merged.loc[valid, "transition_prob"]
         )
-        il1b_stats["il1b_sasp_correlation"] = float(rho) if not np.isnan(rho) else None
-        il1b_stats["il1b_sasp_pval"] = float(pval) if not np.isnan(pval) else None
+        results["sasp_transition_prob"] = {
+            "spearman_rho": float(rho),
+            "p_value": float(pval),
+            "n_cells": int(valid.sum()),
+            "interpretation": (
+                "POSITIVE: High SASP cells have higher model-predicted progression"
+                if rho > 0.05 else
+                "NEGATIVE: High SASP cells have lower model-predicted progression"
+                if rho < -0.05 else
+                "WEAK: No strong relationship"
+            )
+        }
+        logger.info(f"SASP vs transition_prob: rho={rho:.4f}, p={pval:.2e}")
 
-    # AP-1 connection (if provided)
-    ap1_stats = {}
-    if ap1_scores_df is not None and "cell_id" in ap1_scores_df.columns:
-        merged = results_df.merge(
+    # Senescence core vs transition probability
+    valid = merged["senescence_score"].notna() & merged["transition_prob"].notna()
+    if valid.sum() > 10:
+        rho, pval = stats.spearmanr(
+            merged.loc[valid, "senescence_score"],
+            merged.loc[valid, "transition_prob"]
+        )
+        results["senescence_transition_prob"] = {
+            "spearman_rho": float(rho),
+            "p_value": float(pval),
+            "n_cells": int(valid.sum()),
+        }
+        logger.info(f"Senescence vs transition_prob: rho={rho:.4f}, p={pval:.2e}")
+
+    # SASP vs niche influence
+    valid = merged["sasp_score"].notna() & merged["niche_influence"].notna()
+    if valid.sum() > 10:
+        rho, pval = stats.spearmanr(
+            merged.loc[valid, "sasp_score"],
+            merged.loc[valid, "niche_influence"]
+        )
+        results["sasp_niche_influence"] = {
+            "spearman_rho": float(rho),
+            "p_value": float(pval),
+            "n_cells": int(valid.sum()),
+        }
+        logger.info(f"SASP vs niche_influence: rho={rho:.4f}, p={pval:.2e}")
+
+    # Stratified analysis: senescence state in high-risk vs low-risk cells
+    high_risk = merged["transition_prob"] > merged["transition_prob"].quantile(0.75)
+    low_risk = merged["transition_prob"] < merged["transition_prob"].quantile(0.25)
+
+    if high_risk.sum() > 10 and low_risk.sum() > 10:
+        # SASP comparison
+        sasp_high_risk = merged.loc[high_risk, "sasp_score"].dropna()
+        sasp_low_risk = merged.loc[low_risk, "sasp_score"].dropna()
+
+        if len(sasp_high_risk) > 10 and len(sasp_low_risk) > 10:
+            stat, pval = stats.mannwhitneyu(sasp_high_risk, sasp_low_risk, alternative="two-sided")
+            effect_size = (sasp_high_risk.mean() - sasp_low_risk.mean()) / merged["sasp_score"].std()
+
+            results["sasp_risk_stratification"] = {
+                "high_risk_mean": float(sasp_high_risk.mean()),
+                "low_risk_mean": float(sasp_low_risk.mean()),
+                "cohens_d": float(effect_size),
+                "mannwhitney_pval": float(pval),
+            }
+            logger.info(f"SASP high vs low risk: Cohen's d={effect_size:.4f}, p={pval:.2e}")
+
+        # Chronic senescence proportion
+        chronic_high = (merged.loc[high_risk, "senescence_state"] == "chronic_senescent").mean()
+        chronic_low = (merged.loc[low_risk, "senescence_state"] == "chronic_senescent").mean()
+
+        results["chronic_senescence_by_risk"] = {
+            "pct_chronic_high_risk": float(chronic_high * 100),
+            "pct_chronic_low_risk": float(chronic_low * 100),
+            "fold_enrichment": float(chronic_high / chronic_low) if chronic_low > 0 else None,
+        }
+        logger.info(f"Chronic senescence: {chronic_high*100:.1f}% in high-risk vs {chronic_low*100:.1f}% in low-risk")
+
+    # AP-1 cross-validation if available
+    if ap1_scores_df is not None:
+        merged_ap1 = merged.merge(
             ap1_scores_df[["cell_id", "ap1_score"]],
             on="cell_id",
             how="left"
         )
-        valid = merged["sasp_score"].notna() & merged["ap1_score"].notna()
+        valid = merged_ap1["sasp_score"].notna() & merged_ap1["ap1_score"].notna()
         if valid.sum() > 10:
             rho, pval = stats.spearmanr(
-                merged.loc[valid, "sasp_score"],
-                merged.loc[valid, "ap1_score"]
+                merged_ap1.loc[valid, "sasp_score"],
+                merged_ap1.loc[valid, "ap1_score"]
             )
-            ap1_stats["sasp_ap1_correlation"] = float(rho)
-            ap1_stats["sasp_ap1_pval"] = float(pval)
-            logger.info(f"SASP-AP1 correlation: rho={rho:.4f}, p={pval:.2e}")
+            results["sasp_ap1_correlation"] = {
+                "spearman_rho": float(rho),
+                "p_value": float(pval),
+                "n_cells": int(valid.sum()),
+            }
+            logger.info(f"SASP-AP1 correlation: rho={rho:.4f}")
 
-    return {
-        "cell_scores": results_df,
-        "stage_stats": stage_stats,
-        "cell_type_stats": cell_type_stats,
-        "il1b_connection": il1b_stats,
-        "ap1_connection": ap1_stats,
-        "genes_used": {
-            "senescence_core": SENESCENCE_CORE,
-            "sasp_all": SASP_ALL,
-            "cgas_sting": CGAS_STING,
-        },
-    }
-
-
-def analyze_spatial_neighborhoods(
-    neighborhoods_df: pd.DataFrame,
-    cells_df: pd.DataFrame,
-    sc_senescence_scores: Optional[pd.DataFrame] = None
-) -> dict:
-    """
-    Analyze senescence in spatial neighborhood context.
-
-    Tests whether:
-    1. Chronic senescent cells cluster spatially (SASP feedforward)
-    2. Senescent niches associate with specific stages
-    3. SASP creates local inflammatory microenvironment
-    """
-    logger.info("=" * 60)
-    logger.info("SPATIAL NEIGHBORHOOD SENESCENCE ANALYSIS")
-    logger.info("=" * 60)
-
-    logger.info(f"Neighborhoods: {len(neighborhoods_df):,} rows")
-
-    results = {
-        "n_neighborhoods": len(neighborhoods_df),
-        "spatial_stats": {},
-    }
-
-    if sc_senescence_scores is not None and "cell_id" in neighborhoods_df.columns:
-        # Merge senescence scores with neighborhoods
-        score_cols = ["cell_id", "senescence_score", "sasp_score", "senescence_state"]
-        if "stage" in sc_senescence_scores.columns:
-            score_cols.append("stage")
-        if "cell_type" in sc_senescence_scores.columns:
-            score_cols.append("cell_type")
-
-        merged = neighborhoods_df.merge(
-            sc_senescence_scores[score_cols],
+    # Cell type analysis
+    if "cell_type" in cells_df.columns:
+        merged = merged.merge(
+            cells_df[["cell_id", "cell_type"]].drop_duplicates(),
             on="cell_id",
             how="left"
         )
 
-        n_with_scores = merged["senescence_score"].notna().sum()
-        logger.info(f"Neighborhoods with scores: {n_with_scores:,}/{len(merged):,}")
+        cell_type_corrs = {}
+        for ct in merged["cell_type"].dropna().unique():
+            ct_data = merged.loc[merged["cell_type"] == ct]
+            valid = ct_data["sasp_score"].notna() & ct_data["transition_prob"].notna()
+            if valid.sum() > 30:
+                rho, pval = stats.spearmanr(
+                    ct_data.loc[valid, "sasp_score"],
+                    ct_data.loc[valid, "transition_prob"]
+                )
+                cell_type_corrs[ct] = {"rho": float(rho), "pval": float(pval), "n": int(valid.sum())}
 
-        if n_with_scores > 0:
-            # Stage-stratified spatial analysis
-            if "stage" in merged.columns:
-                for stage in STAGES:
-                    mask = merged["stage"] == stage
-                    if mask.sum() > 10:
-                        sen_scores = merged.loc[mask, "senescence_score"].dropna()
-                        sasp_scores = merged.loc[mask, "sasp_score"].dropna()
-                        state_counts = merged.loc[mask, "senescence_state"].value_counts()
+        if cell_type_corrs:
+            sorted_cts = sorted(cell_type_corrs.items(), key=lambda x: abs(x[1]["rho"]), reverse=True)
+            results["cell_type_correlations"] = dict(sorted_cts[:10])
 
-                        results["spatial_stats"][stage] = {
-                            "n_neighborhoods": int(mask.sum()),
-                            "mean_senescence": float(sen_scores.mean()),
-                            "mean_sasp": float(sasp_scores.mean()),
-                            "pct_chronic": float(
-                                state_counts.get("chronic_senescent", 0) / mask.sum() * 100
-                            ),
-                        }
+    return results
 
-            # Identify SASP hotspots (high SASP neighborhoods)
-            sasp_threshold = merged["sasp_score"].quantile(0.9)
-            hotspot_mask = merged["sasp_score"] > sasp_threshold
 
-            results["sasp_hotspots"] = {
-                "threshold": float(sasp_threshold),
-                "n_hotspots": int(hotspot_mask.sum()),
-                "pct_hotspots": float(hotspot_mask.mean() * 100),
+def analyze_spatial_model_correlation(
+    neighborhoods_df: pd.DataFrame,
+    senescence_scores: pd.DataFrame,
+    inference_df: pd.DataFrame,
+) -> dict:
+    """Analyze senescence in spatial context with model predictions."""
+    logger.info("=" * 60)
+    logger.info("SPATIAL SENESCENCE vs MODEL PREDICTIONS")
+    logger.info("=" * 60)
+
+    merged = neighborhoods_df.merge(
+        senescence_scores[["cell_id", "sasp_score", "senescence_state"]],
+        on="cell_id",
+        how="left"
+    ).merge(
+        inference_df[["cell_id", "transition_prob", "niche_influence"]],
+        on="cell_id",
+        how="left"
+    )
+
+    results = {"n_neighborhoods": len(merged)}
+
+    # SASP hotspots vs model predictions
+    sasp_threshold = merged["sasp_score"].quantile(0.9)
+    hotspot_mask = merged["sasp_score"] > sasp_threshold
+
+    if hotspot_mask.sum() > 10:
+        hotspot_trans = merged.loc[hotspot_mask, "transition_prob"].dropna()
+        nonhotspot_trans = merged.loc[~hotspot_mask, "transition_prob"].dropna()
+
+        if len(hotspot_trans) > 10 and len(nonhotspot_trans) > 10:
+            stat, pval = stats.mannwhitneyu(hotspot_trans, nonhotspot_trans, alternative="two-sided")
+            results["sasp_hotspot_transition"] = {
+                "hotspot_mean_trans": float(hotspot_trans.mean()),
+                "nonhotspot_mean_trans": float(nonhotspot_trans.mean()),
+                "mannwhitney_pval": float(pval),
+                "n_hotspot": int(len(hotspot_trans)),
             }
-
-            # Stage enrichment in SASP hotspots
-            if "stage" in merged.columns:
-                hotspot_stages = merged.loc[hotspot_mask, "stage"].value_counts()
-                all_stages = merged["stage"].value_counts()
-                enrichment = {}
-                for stage in STAGES:
-                    if stage in hotspot_stages.index and stage in all_stages.index:
-                        obs_pct = hotspot_stages.get(stage, 0) / hotspot_mask.sum()
-                        exp_pct = all_stages.get(stage, 0) / len(merged)
-                        if exp_pct > 0:
-                            enrichment[stage] = {
-                                "observed_pct": float(obs_pct * 100),
-                                "expected_pct": float(exp_pct * 100),
-                                "fold_enrichment": float(obs_pct / exp_pct),
-                            }
-                results["sasp_hotspots"]["stage_enrichment"] = enrichment
-
-            # Cell type composition of SASP hotspots
-            if "cell_type" in merged.columns:
-                hotspot_cts = merged.loc[hotspot_mask, "cell_type"].value_counts()
-                ct_enrichment = {}
-                all_cts = merged["cell_type"].value_counts()
-                for ct in hotspot_cts.index[:10]:  # Top 10
-                    obs_pct = hotspot_cts.get(ct, 0) / hotspot_mask.sum()
-                    exp_pct = all_cts.get(ct, 0) / len(merged)
-                    if exp_pct > 0:
-                        ct_enrichment[ct] = {
-                            "fold_enrichment": float(obs_pct / exp_pct),
-                        }
-                results["sasp_hotspots"]["cell_type_enrichment"] = ct_enrichment
+            logger.info(
+                f"SASP hotspot transition: {hotspot_trans.mean():.4f} vs "
+                f"non-hotspot: {nonhotspot_trans.mean():.4f} (p={pval:.2e})"
+            )
 
     return results
 
 
 def generate_validation_report(
-    sc_results: dict,
+    model_results: dict,
     spatial_results: dict,
-    output_dir: Path
+    stage_baseline: dict,
 ) -> dict:
     """Generate comprehensive validation report."""
 
     report = {
-        "hypothesis": "Chronic senescence with SASP creates pro-tumorigenic microenvironment",
+        "hypothesis": "SASP/chronic senescence correlates with model-predicted progression risk",
         "biological_basis": {
             "key_finding": "Senescence is dual: early=protective, chronic+SASP=tumorigenic",
             "mechanism": "SASP creates feedforward loops via IL6, GDF15, matrix remodeling",
             "connection_to_h1_2": "SASP includes IL1B secretion",
             "connection_to_ap1": "p38 pathway converges on AP-1",
         },
-        "single_cell": {},
-        "spatial": {},
+        "model_validation": model_results,
+        "spatial_validation": spatial_results,
+        "stage_baseline": stage_baseline,
         "validation_status": {},
     }
 
-    # Single-cell summary
-    if sc_results:
-        stage_stats = sc_results.get("stage_stats", {})
-        prog_corr = stage_stats.get("progression_correlation", {})
+    # Determine validation status
+    sasp_trans = model_results.get("sasp_transition_prob", {})
+    rho = sasp_trans.get("spearman_rho")
 
-        report["single_cell"] = {
-            "n_cells_analyzed": len(sc_results.get("cell_scores", [])),
-            "stage_chronic_senescence": {
-                s: stage_stats.get(s, {}).get("pct_chronic_senescent")
-                for s in STAGES if s in stage_stats
-            },
-            "stage_sasp_means": {
-                s: stage_stats.get(s, {}).get("mean_sasp")
-                for s in STAGES if s in stage_stats
-            },
-            "senescence_progression_rho": prog_corr.get("senescence_rho"),
-            "sasp_progression_rho": prog_corr.get("sasp_rho"),
-        }
-
-        # Top cell types by chronic senescence
-        ct_stats = sc_results.get("cell_type_stats", {})
-        if "ranking_chronic" in ct_stats:
-            report["single_cell"]["top_chronic_cell_types"] = ct_stats["ranking_chronic"][:5]
-
-        # IL1B connection
-        il1b = sc_results.get("il1b_connection", {})
-        if il1b.get("il1b_sasp_correlation"):
-            report["single_cell"]["il1b_sasp_correlation"] = il1b["il1b_sasp_correlation"]
-
-        # AP1 connection
-        ap1 = sc_results.get("ap1_connection", {})
-        if ap1.get("sasp_ap1_correlation"):
-            report["single_cell"]["sasp_ap1_correlation"] = ap1["sasp_ap1_correlation"]
-
-    # Spatial summary
-    if spatial_results:
-        report["spatial"] = {
-            "n_neighborhoods": spatial_results.get("n_neighborhoods"),
-            "stage_spatial_stats": spatial_results.get("spatial_stats", {}),
-        }
-
-        hotspots = spatial_results.get("sasp_hotspots", {})
-        if hotspots:
-            report["spatial"]["sasp_hotspots"] = {
-                "n_hotspots": hotspots.get("n_hotspots"),
-                "pct_hotspots": hotspots.get("pct_hotspots"),
-                "stage_enrichment": hotspots.get("stage_enrichment", {}),
-            }
-
-    # Validation status
-    # Check if SASP correlates with progression (expected: positive in later stages)
-    sasp_rho = report["single_cell"].get("sasp_progression_rho")
-    if sasp_rho is not None:
-        if sasp_rho > 0.05:
-            report["validation_status"]["sasp_progression"] = "SUPPORTED"
-            report["validation_status"]["sasp_detail"] = (
-                f"SASP increases with progression (rho={sasp_rho:.3f})"
+    if rho is not None:
+        if rho > 0.1:
+            report["validation_status"]["sasp_model_prediction"] = "SUPPORTED"
+            report["validation_status"]["detail"] = (
+                f"Cells with high SASP have higher model-predicted transition probability (rho={rho:.3f})"
+            )
+        elif rho < -0.1:
+            report["validation_status"]["sasp_model_prediction"] = "INVERSE"
+            report["validation_status"]["detail"] = (
+                f"Cells with high SASP have LOWER model-predicted transition (rho={rho:.3f})"
             )
         else:
-            report["validation_status"]["sasp_progression"] = "WEAK_OR_ABSENT"
+            report["validation_status"]["sasp_model_prediction"] = "WEAK"
 
-    # Check chronic senescence pattern (expected: higher in intermediate stages)
-    chronic_pcts = report["single_cell"].get("stage_chronic_senescence", {})
-    if chronic_pcts:
-        early = np.mean([chronic_pcts.get(s, 0) or 0 for s in ["AAH", "AIS"]])
-        late = chronic_pcts.get("LUAD", 0) or 0
-        if early > late:
-            report["validation_status"]["chronic_pattern"] = "EARLY_ENRICHED"
-            report["validation_status"]["chronic_detail"] = (
-                f"Chronic senescence higher in early stages (early={early:.1f}%, LUAD={late:.1f}%)"
-            )
+    # Chronic senescence enrichment
+    chronic = model_results.get("chronic_senescence_by_risk", {})
+    if chronic.get("fold_enrichment"):
+        fe = chronic["fold_enrichment"]
+        if fe > 1.2:
+            report["validation_status"]["chronic_enrichment"] = "HIGH_RISK_ENRICHED"
+        elif fe < 0.8:
+            report["validation_status"]["chronic_enrichment"] = "LOW_RISK_ENRICHED"
         else:
-            report["validation_status"]["chronic_pattern"] = "LATE_ENRICHED"
-
-    # Check IL1B-SASP connection
-    il1b_corr = report["single_cell"].get("il1b_sasp_correlation")
-    if il1b_corr is not None:
-        if il1b_corr > 0.2:
-            report["validation_status"]["il1b_sasp_axis"] = "STRONG"
-        elif il1b_corr > 0.1:
-            report["validation_status"]["il1b_sasp_axis"] = "MODERATE"
-        else:
-            report["validation_status"]["il1b_sasp_axis"] = "WEAK"
-
-    # Check AP1-SASP connection
-    ap1_corr = report["single_cell"].get("sasp_ap1_correlation")
-    if ap1_corr is not None:
-        if ap1_corr > 0.2:
-            report["validation_status"]["sasp_ap1_axis"] = "STRONG"
-        elif ap1_corr > 0.1:
-            report["validation_status"]["sasp_ap1_axis"] = "MODERATE"
-        else:
-            report["validation_status"]["sasp_ap1_axis"] = "WEAK"
+            report["validation_status"]["chronic_enrichment"] = "NO_DIFFERENCE"
 
     return report
 
@@ -595,101 +423,121 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("=" * 70)
-    logger.info("SENESCENCE/SASP SIGNATURE VALIDATION")
+    logger.info("SENESCENCE/SASP SIGNATURE VALIDATION (MODEL-BASED)")
     logger.info("=" * 70)
     logger.info(f"Cells: {args.cells}")
-    logger.info(f"Neighborhoods: {args.neighborhoods}")
-    logger.info(f"snRNA: {args.snrna}")
+    logger.info(f"Inference outputs: {args.inference_outputs}")
     logger.info(f"Output: {args.output_dir}")
 
-    # Load cell metadata
+    # Load data
     logger.info("\n[1/5] Loading cell metadata...")
     cells_df = pd.read_parquet(args.cells)
     logger.info(f"  Loaded {len(cells_df):,} cells")
 
+    logger.info("\n[2/5] Loading model inference outputs...")
+    if not args.inference_outputs.exists():
+        logger.error(f"Inference outputs not found: {args.inference_outputs}")
+        logger.error("Run model inference first to generate transition_prob and niche_influence")
+        return 1
+
+    inference_df = pd.read_parquet(args.inference_outputs)
+    logger.info(f"  Loaded {len(inference_df):,} inference outputs")
+
     # Load neighborhoods
-    logger.info("\n[2/5] Loading spatial neighborhoods...")
+    logger.info("\n[3/5] Loading spatial neighborhoods...")
     neighborhoods_df = pd.read_parquet(args.neighborhoods)
     logger.info(f"  Loaded {len(neighborhoods_df):,} neighborhoods")
 
-    # Load AP-1 scores if available (for cross-validation)
+    # Load AP-1 scores if available
     ap1_scores_df = None
     if args.ap1_scores and args.ap1_scores.exists():
-        logger.info("\n[3/5] Loading AP-1 scores for cross-validation...")
+        logger.info("  Loading AP-1 scores for cross-validation...")
         ap1_scores_df = pd.read_parquet(args.ap1_scores)
-        logger.info(f"  Loaded {len(ap1_scores_df):,} AP-1 scores")
-    else:
-        logger.info("\n[3/5] No AP-1 scores provided, skipping cross-validation")
 
-    # Single-cell analysis
-    sc_results = None
+    # Compute senescence scores from expression
     if args.snrna and args.snrna.exists():
-        logger.info("\n[4/5] Single-cell senescence analysis...")
+        logger.info("\n[4/5] Computing senescence scores from expression...")
         adata = sc.read_h5ad(args.snrna)
         logger.info(f"  Loaded {adata.n_obs:,} cells x {adata.n_vars:,} genes")
 
-        sc_results = analyze_single_cell(adata, cells_df, ap1_scores_df)
+        senescence_scores = compute_signature_score(adata, SENESCENCE_CORE, "senescence_score")
+        sasp_scores = compute_signature_score(adata, SASP_ALL, "sasp_score")
 
-        # Save cell-level scores
-        sc_results["cell_scores"].to_parquet(
-            args.output_dir / "senescence_cell_scores.parquet",
-            index=False
-        )
+        # Proliferation for state classification
+        prolif_genes = ["MKI67", "PCNA", "TOP2A", "MCM2"]
+        prolif_scores = compute_signature_score(adata, prolif_genes, "proliferation_score")
+
+        # Classify states
+        senescence_states = classify_senescence_state(senescence_scores, sasp_scores, prolif_scores)
+
+        scores_df = pd.DataFrame({
+            "cell_id": adata.obs_names,
+            "senescence_score": senescence_scores,
+            "sasp_score": sasp_scores,
+            "senescence_state": senescence_states,
+        })
+
+        # Save
+        scores_df.to_parquet(args.output_dir / "senescence_cell_scores.parquet", index=False)
         logger.info(f"  Saved: senescence_cell_scores.parquet")
+
+        # Baseline: correlation with stage
+        if "cell_id" in cells_df.columns:
+            scores_with_stage = scores_df.merge(
+                cells_df[["cell_id", "stage"]].drop_duplicates(),
+                on="cell_id",
+                how="left"
+            )
+            valid = scores_with_stage["stage"].isin(STAGES) & scores_with_stage["sasp_score"].notna()
+            if valid.sum() > 10:
+                stage_numeric = scores_with_stage.loc[valid, "stage"].map(STAGE_ORDER)
+                rho, pval = stats.spearmanr(stage_numeric, scores_with_stage.loc[valid, "sasp_score"])
+                stage_baseline = {
+                    "sasp_vs_stage_rho": float(rho),
+                    "sasp_vs_stage_pval": float(pval),
+                    "note": "Baseline correlation with raw stage (not model prediction)"
+                }
+            else:
+                stage_baseline = {}
+        else:
+            stage_baseline = {}
     else:
-        logger.warning("\n[4/5] Skipping single-cell analysis (no snRNA h5ad)")
+        logger.error("snRNA h5ad required to compute senescence scores")
+        return 1
+
+    # Core validation: correlate with model outputs
+    logger.info("\n[5/5] Correlating senescence with model predictions...")
+    model_results = analyze_model_correlation(scores_df, inference_df, cells_df, ap1_scores_df)
 
     # Spatial analysis
-    logger.info("\n[5/5] Spatial neighborhood analysis...")
-    sc_scores = sc_results["cell_scores"] if sc_results else None
-    spatial_results = analyze_spatial_neighborhoods(
-        neighborhoods_df, cells_df, sc_scores
-    )
+    spatial_results = analyze_spatial_model_correlation(neighborhoods_df, scores_df, inference_df)
 
     # Generate report
     logger.info("\nGenerating validation report...")
-    report = generate_validation_report(sc_results, spatial_results, args.output_dir)
+    report = generate_validation_report(model_results, spatial_results, stage_baseline)
 
     # Save results
     with open(args.output_dir / "senescence_validation_report.json", "w") as f:
         json.dump(report, f, indent=2, default=str)
     logger.info(f"Saved: senescence_validation_report.json")
 
-    if sc_results:
-        with open(args.output_dir / "senescence_singlecell_stats.json", "w") as f:
-            stats_to_save = {k: v for k, v in sc_results.items() if k != "cell_scores"}
-            json.dump(stats_to_save, f, indent=2, default=str)
-        logger.info(f"Saved: senescence_singlecell_stats.json")
-
-    with open(args.output_dir / "senescence_spatial_stats.json", "w") as f:
-        json.dump(spatial_results, f, indent=2, default=str)
-    logger.info(f"Saved: senescence_spatial_stats.json")
-
     # Print summary
     logger.info("\n" + "=" * 70)
     logger.info("SENESCENCE VALIDATION SUMMARY")
     logger.info("=" * 70)
 
-    if sc_results:
-        stage_stats = sc_results.get("stage_stats", {})
-        logger.info("\nChronic Senescence by Stage:")
-        for stage in STAGES:
-            if stage in stage_stats:
-                s = stage_stats[stage]
-                logger.info(f"  {stage}: {s['pct_chronic_senescent']:.1f}% chronic, "
-                           f"SASP mean={s['mean_sasp']:.4f} (n={s['n_cells']:,})")
+    logger.info(f"\nBaseline (SASP vs raw stage): rho={stage_baseline.get('sasp_vs_stage_rho', 'N/A')}")
 
-        prog = stage_stats.get("progression_correlation", {})
-        if prog:
-            logger.info(f"\nSASP-progression correlation: rho={prog['sasp_rho']:.4f}")
+    sasp_trans = model_results.get("sasp_transition_prob", {})
+    logger.info(f"SASP vs MODEL transition_prob: rho={sasp_trans.get('spearman_rho', 'N/A')}")
 
-        il1b = sc_results.get("il1b_connection", {})
-        if il1b.get("il1b_sasp_correlation"):
-            logger.info(f"IL1B-SASP correlation: rho={il1b['il1b_sasp_correlation']:.4f}")
+    sasp_niche = model_results.get("sasp_niche_influence", {})
+    logger.info(f"SASP vs niche_influence: rho={sasp_niche.get('spearman_rho', 'N/A')}")
 
-        ap1 = sc_results.get("ap1_connection", {})
-        if ap1.get("sasp_ap1_correlation"):
-            logger.info(f"SASP-AP1 correlation: rho={ap1['sasp_ap1_correlation']:.4f}")
+    chronic = model_results.get("chronic_senescence_by_risk", {})
+    if chronic:
+        logger.info(f"Chronic senescence in high-risk: {chronic.get('pct_chronic_high_risk', 'N/A'):.1f}%")
+        logger.info(f"Chronic senescence in low-risk: {chronic.get('pct_chronic_low_risk', 'N/A'):.1f}%")
 
     logger.info("\nValidation Status:")
     for key, value in report.get("validation_status", {}).items():
