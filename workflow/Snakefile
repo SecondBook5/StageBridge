@@ -138,6 +138,8 @@ rule all:
         f"{FIGURES}/embedding/fig_embedding_combined.png",
         # Spatial backend comparison grid figures
         f"{FIGURES}/spatial_backends/fig_backend_grid_showcase.png",
+        # Showcase figures (poster/publication)
+        f"{FIGURES}/showcase/fig_hero_summary.png",
         # Reproducibility artifacts (Nature Methods requirement)
         f"{RUNS}/reproducibility/reproducibility_artifacts.json"
 
@@ -1942,6 +1944,46 @@ rule spatial_backend_figures:
         python scripts/viz/publication_spatial_backends.py \
             --spatial_dir {SPATIAL} \
             --output_dir {FIGURES}/spatial_backends \
+            2>&1 | tee {log}
+        """
+
+
+rule showcase_figures:
+    """Generate dramatic showcase figures for posters and publications.
+
+    Includes:
+    - 3D progression visualization
+    - Density contours
+    - PAGA-style connectivity graph
+    - Pseudotime ridge plot
+    - Cell type alluvial diagram
+    - Hero summary figure
+    """
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
+    output:
+        hero = f"{FIGURES}/showcase/fig_hero_summary.png",
+        hero_pdf = f"{FIGURES}/showcase/fig_hero_summary.pdf",
+        progression_3d = f"{FIGURES}/showcase/fig_3d_progression.png",
+        density = f"{FIGURES}/showcase/fig_density_contours.png",
+        paga = f"{FIGURES}/showcase/fig_paga_style.png",
+        ridge = f"{FIGURES}/showcase/fig_pseudotime_ridge.png",
+        alluvial = f"{FIGURES}/showcase/fig_celltype_alluvial.png",
+        manifest = f"{FIGURES}/showcase/manifest.json"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 90
+    log:
+        f"{RUNS}/logs/showcase_figures.log"
+    shell:
+        """
+        mkdir -p {FIGURES}/showcase
+
+        python scripts/viz/publication_showcase_figures.py \
+            --data_dir {CANONICAL} \
+            --output_dir {FIGURES}/showcase \
             2>&1 | tee {log}
         """
 
