@@ -76,6 +76,21 @@ from .calibration import (
     calibrate_reference_confidence,
 )
 
+# Marker gene validation
+from .markers import (
+    MARKER_GENES,
+    compute_marker_enrichment,
+    validate_cell_type,
+    validate_all_cell_types,
+)
+
+# Split validation (donor leakage)
+from .splits import (
+    validate_splits,
+    validate_splits_from_files,
+    check_paired_sample_leakage,
+)
+
 __all__ = [
     # Reference geometry
     "ReferenceGeometryValidator",
@@ -122,4 +137,13 @@ __all__ = [
     "temperature_scale",
     "apply_temperature",
     "calibrate_reference_confidence",
+    # Marker validation
+    "MARKER_GENES",
+    "compute_marker_enrichment",
+    "validate_cell_type",
+    "validate_all_cell_types",
+    # Split validation
+    "validate_splits",
+    "validate_splits_from_files",
+    "check_paired_sample_leakage",
 ]

@@ -1,5 +1,5 @@
 """
-Nature Methods publication style configuration.
+publication publication style configuration.
 
 Standards:
 - Single column: 88mm (3.46 in)
@@ -19,7 +19,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Nature Methods dimensions (in inches)
+# publication dimensions (in inches)
 SINGLE_COL_WIDTH = 3.46  # 88mm
 DOUBLE_COL_WIDTH = 7.09  # 180mm
 MAX_HEIGHT = 9.45  # 240mm
@@ -136,7 +136,7 @@ def get_color_palette(
 
 def apply_nature_style(style: NatureStyle | None = None) -> NatureStyle:
     """
-    Apply Nature Methods style to matplotlib.
+    Apply publication style to matplotlib.
 
     Args:
         style: Style configuration (uses defaults if None)

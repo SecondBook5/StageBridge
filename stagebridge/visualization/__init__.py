@@ -1,7 +1,7 @@
 """
 Publication-grade visualization for StageBridge.
 
-Generates figures meeting Nature Methods standards:
+Generates figures meeting publication standards:
 - Vector formats (PDF/SVG) + high-res PNG
 - Consistent typography and color palette
 - Proper dimensions and spacing

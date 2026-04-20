@@ -61,6 +61,22 @@ LABEL_SOURCES = ["hlca", "luca"]
 FOLDS = [0, 1, 2, 3, 4]  # 5-fold CV
 SEEDS = [42, 123, 456]   # 3 seeds per fold for variance estimation
 
+# Ablation configurations (defined here so they're available for all rules)
+ABLATIONS_LIST = [
+    # Core ablations - tests main hypotheses
+    "no_niche",           # KEY: Receiver only, no neighborhood context
+    "no_wes",             # No genomic/WES features (evolutionary regularization)
+    "pooled_niche",       # Self-attention instead of receiver-centered cross-attention
+    "flat_hierarchy",     # Disable hierarchical Set Transformer aggregation
+    # Reference ablations - tests dual-reference contribution
+    "hlca_only",          # Single reference: healthy only (no LuCA)
+    "luca_only",          # Single reference: cancer only (no HLCA)
+    # Methods comparison - key for Nature Methods
+    "deterministic",      # Direct endpoint prediction (no flow matching)
+    # Interpretability
+    "with_prototypes",    # Prototype bottleneck for interpretable niche clusters
+]
+
 # =============================================================================
 # Final Targets (what we want to produce)
 # =============================================================================
@@ -82,6 +98,10 @@ rule all:
         f"{TRAINING}/aggregated/publication_metrics.json",
         # Training with frozen encoder (SSL transfer test)
         f"{TRAINING}/training_all.done",
+        # HELD-OUT TEST EVALUATION (Nature Methods requirement)
+        f"{TRAINING}/evaluation/heldout_summary.json",
+        # Statistical comparison with effect sizes (Nature Methods requirement)
+        f"{TRAINING}/evaluation/statistical_comparison.json",
         # H3 hypothesis validation (clonal ground truth)
         f"{TRAINING}/h3_validation/h3_validation.json",
         # H1.3 plasticity validation
@@ -94,10 +114,27 @@ rule all:
         f"{TRAINING}/baselines/baseline_comparison.json",
         # Ablations
         f"{ABLATIONS}/ablation_summary.json",
+        # Ablation held-out evaluation
+        f"{ABLATIONS}/evaluation/heldout_summary.json",
         # Publication figures
         f"{FIGURES}/manifests/figure_manifest.json",
         # OT dynamics / flow field visualization
-        f"{FIGURES}/dynamics/fig_flow_hero.png"
+        f"{FIGURES}/dynamics/fig_flow_hero.png",
+        # Ablation comparison figure (Nature Methods requirement)
+        f"{FIGURES}/ablations/fig_ablation_comparison.png",
+        # Ablation waterfall figures
+        f"{FIGURES}/ablations/fig_waterfall_wasserstein.png",
+        f"{FIGURES}/ablations/fig_component_importance.png",
+        # SHAP-style niche influence figures
+        f"{FIGURES}/niche/fig_niche_influence_combined.png",
+        # Sankey/alluvial flow diagrams
+        f"{FIGURES}/flow/fig_sankey_flow.png",
+        # Spatial niche visualization
+        f"{FIGURES}/spatial/fig_spatial_combined.png",
+        # Dual-reference embedding figures
+        f"{FIGURES}/embedding/fig_embedding_combined.png",
+        # Reproducibility artifacts (Nature Methods requirement)
+        f"{RUNS}/reproducibility/reproducibility_artifacts.json"
 
 
 # =============================================================================
@@ -955,6 +992,296 @@ rule aggregate_cv_results:
 
 
 # =============================================================================
+# Stage 5d-alpha: Held-Out Test Evaluation (CRITICAL for Nature Methods)
+# =============================================================================
+# Computes REAL evaluation metrics on held-out test data:
+# - Wasserstein distance (transition quality)
+# - MMD (distribution matching)
+# - Stage classification accuracy/F1
+# - Context sensitivity (niche contribution)
+#
+# This is separate from validation loss tracked during training!
+
+rule heldout_evaluation:
+    """Run held-out test evaluation on a single trained model."""
+    input:
+        checkpoint = f"{TRAINING}/fold{{fold}}_seed{{seed}}/checkpoints/best_checkpoint.pt",
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        splits = f"{CANONICAL}/split_manifest.json"
+    output:
+        results = f"{TRAINING}/fold{{fold}}_seed{{seed}}/evaluation/heldout_evaluation.json"
+    wildcard_constraints:
+        fold = "[0-4]",
+        seed = "[0-9]+"
+    params:
+        canonical_dir = CANONICAL
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60,
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/evaluation/heldout_fold{{fold}}_seed{{seed}}.log"
+    shell:
+        """
+        python workflow/scripts/run_heldout_evaluation.py \
+            --checkpoint {input.checkpoint} \
+            --data_dir {params.canonical_dir} \
+            --output_dir {TRAINING}/fold{wildcards.fold}_seed{wildcards.seed}/evaluation \
+            --fold {wildcards.fold} \
+            2>&1 | tee {log}
+        """
+
+
+rule aggregate_heldout_evaluation:
+    """Aggregate held-out evaluation across all folds and seeds."""
+    input:
+        evaluations = expand(
+            f"{TRAINING}/fold{{fold}}_seed{{seed}}/evaluation/heldout_evaluation.json",
+            fold=FOLDS, seed=SEEDS
+        )
+    output:
+        summary = f"{TRAINING}/evaluation/heldout_summary.json",
+        latex = f"{TRAINING}/evaluation/table_heldout_metrics.tex"
+    threads: 2
+    resources:
+        mem_mb = 8000,
+        runtime = 15
+    log:
+        f"{RUNS}/logs/evaluation/aggregate_heldout.log"
+    shell:
+        """
+        python -c "
+import json
+from pathlib import Path
+import numpy as np
+
+results = []
+for f in Path('{TRAINING}').glob('fold*_seed*/evaluation/heldout_evaluation.json'):
+    with open(f) as fp:
+        results.append(json.load(fp))
+
+metrics = {}
+for key in ['wasserstein', 'mmd', 'mse', 'stage_accuracy', 'auroc']:
+    vals = [r['transition_metrics'].get(key) for r in results if r.get('transition_metrics', {{}}).get(key) is not None]
+    if vals:
+        metrics[key] = {{'mean': float(np.mean(vals)), 'std': float(np.std(vals)), 'n': len(vals)}}
+
+context_deltas = [r.get('context_sensitivity', {{}}).get('mean_context_delta') for r in results if r.get('context_sensitivity')]
+if context_deltas:
+    metrics['context_sensitivity'] = {{'mean': float(np.mean(context_deltas)), 'std': float(np.std(context_deltas))}}
+
+summary = {{'n_runs': len(results), 'metrics': metrics}}
+with open('{output.summary}', 'w') as f:
+    json.dump(summary, f, indent=2)
+
+# LaTeX table
+lines = [r'\\begin{{table}}[htbp]', r'\\centering', r'\\caption{{Held-Out Test Evaluation}}', r'\\begin{{tabular}}{{lcc}}', r'\\toprule', r'Metric & Mean & Std \\\\', r'\\midrule']
+for k, v in metrics.items():
+    if isinstance(v, dict) and 'mean' in v:
+        lines.append(f\"{k} & {v['mean']:.4f} & {v['std']:.4f} \\\\\\\\\")
+lines.extend([r'\\bottomrule', r'\\end{{tabular}}', r'\\end{{table}}'])
+Path('{output.latex}').write_text('\\n'.join(lines))
+" 2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5d-beta: Statistical Comparison (Nature Methods requirement)
+# =============================================================================
+# Effect sizes, p-values, confidence intervals for model comparisons
+
+rule statistical_comparison:
+    """Generate statistical comparison between StageBridge and baselines."""
+    input:
+        model_eval = f"{TRAINING}/evaluation/heldout_summary.json",
+        baseline_results = expand(
+            f"{TRAINING}/baselines/{{baseline}}_fold{{fold}}_seed{{seed}}/results.json",
+            baseline=BASELINES, fold=FOLDS, seed=SEEDS
+        ),
+        main_results = f"{TRAINING}/aggregated/cv_results.json"
+    output:
+        comparison = f"{TRAINING}/evaluation/statistical_comparison.json",
+        latex = f"{TRAINING}/evaluation/table_statistical_comparison.tex"
+    threads: 2
+    resources:
+        mem_mb = 8000,
+        runtime = 15
+    log:
+        f"{RUNS}/logs/evaluation/statistical_comparison.log"
+    shell:
+        """
+        python workflow/scripts/statistical_comparison.py \
+            --baseline_dir {TRAINING}/baselines \
+            --model_dir {TRAINING} \
+            --output_dir {TRAINING}/evaluation \
+            --metrics wasserstein mmd stage_accuracy auroc \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 5d-gamma: Ablation Held-Out Evaluation
+# =============================================================================
+# Run held-out evaluation on ablation models too
+
+rule ablation_heldout_evaluation:
+    """Run held-out test evaluation on ablation model."""
+    input:
+        results = f"{ABLATIONS}/{{ablation}}/results.json",
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        splits = f"{CANONICAL}/split_manifest.json"
+    output:
+        evaluation = f"{ABLATIONS}/{{ablation}}/evaluation/heldout_evaluation.json"
+    wildcard_constraints:
+        ablation = "|".join(ABLATIONS_LIST)
+    params:
+        canonical_dir = CANONICAL
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60,
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/ablations/eval_{{ablation}}.log"
+    shell:
+        """
+        # Find the checkpoint (could be final or best)
+        CKPT=""
+        for f in {ABLATIONS}/{wildcards.ablation}/checkpoints/best_checkpoint.pt \
+                 {ABLATIONS}/{wildcards.ablation}/checkpoints/final_checkpoint.pt \
+                 {ABLATIONS}/{wildcards.ablation}/best_model.pt; do
+            if [ -f "$f" ]; then
+                CKPT="$f"
+                break
+            fi
+        done
+
+        if [ -z "$CKPT" ]; then
+            echo "ERROR: No checkpoint found for {wildcards.ablation}"
+            exit 1
+        fi
+
+        python workflow/scripts/run_heldout_evaluation.py \
+            --checkpoint $CKPT \
+            --data_dir {params.canonical_dir} \
+            --output_dir {ABLATIONS}/{wildcards.ablation}/evaluation \
+            --fold 0 \
+            2>&1 | tee {log}
+        """
+
+
+rule aggregate_ablation_evaluation:
+    """Aggregate held-out evaluation across all ablations."""
+    input:
+        evaluations = expand(
+            f"{ABLATIONS}/{{ablation}}/evaluation/heldout_evaluation.json",
+            ablation=ABLATIONS_LIST
+        ),
+        full_model = f"{TRAINING}/evaluation/heldout_summary.json"
+    output:
+        summary = f"{ABLATIONS}/evaluation/heldout_summary.json",
+        latex = f"{ABLATIONS}/evaluation/table_ablation_evaluation.tex"
+    threads: 2
+    resources:
+        mem_mb = 8000,
+        runtime = 15
+    log:
+        f"{RUNS}/logs/ablations/aggregate_eval.log"
+    shell:
+        """
+        python -c "
+import json
+from pathlib import Path
+import numpy as np
+
+# Load full model baseline
+with open('{input.full_model}') as f:
+    full_model = json.load(f)
+
+ablation_results = {{}}
+for ablation in {ABLATIONS_LIST!r}:
+    eval_path = Path('{ABLATIONS}') / ablation / 'evaluation' / 'heldout_evaluation.json'
+    if eval_path.exists():
+        with open(eval_path) as f:
+            data = json.load(f)
+            ablation_results[ablation] = data.get('transition_metrics', {{}})
+
+# Compute degradation vs full model
+full_metrics = full_model.get('metrics', {{}})
+degradations = {{}}
+for ablation, metrics in ablation_results.items():
+    degradations[ablation] = {{}}
+    for key in ['wasserstein', 'mmd', 'stage_accuracy', 'auroc']:
+        if key in metrics and key in full_metrics:
+            full_val = full_metrics[key].get('mean', 0)
+            abl_val = metrics.get(key, 0)
+            if key in ['wasserstein', 'mmd']:
+                # Lower is better
+                degradations[ablation][key] = {{'ablation': abl_val, 'full': full_val, 'degradation_pct': (abl_val - full_val) / (abs(full_val) + 1e-10) * 100}}
+            else:
+                # Higher is better
+                degradations[ablation][key] = {{'ablation': abl_val, 'full': full_val, 'degradation_pct': (full_val - abl_val) / (abs(full_val) + 1e-10) * 100}}
+
+summary = {{'ablation_results': ablation_results, 'degradations': degradations}}
+with open('{output.summary}', 'w') as f:
+    json.dump(summary, f, indent=2)
+
+# LaTeX table
+lines = [r'\\begin{{table}}[htbp]', r'\\centering', r'\\caption{{Ablation Study: Held-Out Evaluation}}', r'\\begin{{tabular}}{{lccccc}}', r'\\toprule', r'Ablation & Wasserstein & MMD & Acc & AUROC & Degradation \\\\', r'\\midrule']
+for ablation, metrics in ablation_results.items():
+    w = metrics.get('wasserstein', 0)
+    m = metrics.get('mmd', 0)
+    a = metrics.get('stage_accuracy', 0)
+    au = metrics.get('auroc', 0)
+    deg = np.mean([abs(d.get('degradation_pct', 0)) for d in degradations.get(ablation, {{}}).values() if d])
+    lines.append(f\"{ablation.replace('_', ' ')} & {w:.3f} & {m:.3f} & {a:.3f} & {au:.3f} & {deg:.1f}\\\\% \\\\\\\\\")
+lines.extend([r'\\bottomrule', r'\\end{{tabular}}', r'\\end{{table}}'])
+Path('{output.latex}').write_text('\\n'.join(lines))
+" 2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Stage 8: Reproducibility Artifacts (Nature Methods requirement)
+# =============================================================================
+# Generates environment snapshots, checksums, git info for reproducibility
+
+rule reproducibility_artifacts:
+    """Generate all reproducibility artifacts for Nature Methods submission."""
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        cv_results = f"{TRAINING}/aggregated/cv_results.json",
+        ablation_summary = f"{ABLATIONS}/ablation_summary.json"
+    output:
+        artifacts = f"{RUNS}/reproducibility/reproducibility_artifacts.json",
+        requirements = f"{RUNS}/reproducibility/requirements_frozen.txt",
+        summary = f"{RUNS}/reproducibility/reproducibility_summary.md"
+    params:
+        canonical_dir = CANONICAL,
+        training_dir = TRAINING,
+        runs_dir = RUNS
+    threads: 1
+    resources:
+        mem_mb = 4000,
+        runtime = 10
+    log:
+        f"{RUNS}/logs/reproducibility.log"
+    shell:
+        """
+        python workflow/scripts/generate_reproducibility_artifacts.py \
+            --data_dir {params.canonical_dir} \
+            --results_dir {params.training_dir} \
+            --output_dir {params.runs_dir}/reproducibility \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
 # Stage 5d-bis: H3 Hypothesis Validation (clonal evolution patterns)
 # =============================================================================
 # Validates H3 hypothesis using trained model:
@@ -1246,21 +1573,6 @@ rule aggregate_baselines:
 # Stage 6: Ablation Studies
 # =============================================================================
 
-ABLATIONS_LIST = [
-    # Core ablations - tests main hypotheses
-    "no_niche",           # KEY: Receiver only, no neighborhood context
-    "no_wes",             # No genomic/WES features (evolutionary regularization)
-    "pooled_niche",       # Self-attention instead of receiver-centered cross-attention
-    "flat_hierarchy",     # Disable hierarchical Set Transformer aggregation
-    # Reference ablations - tests dual-reference contribution
-    "hlca_only",          # Single reference: healthy only (no LuCA)
-    "luca_only",          # Single reference: cancer only (no HLCA)
-    # Methods comparison - key for Nature Methods
-    "deterministic",      # Direct endpoint prediction (no flow matching)
-    # Interpretability
-    "with_prototypes",    # Prototype bottleneck for interpretable niche clusters
-]
-
 rule ablation:
     input:
         canonical = f"{CANONICAL}/data_manifest.json",
@@ -1307,6 +1619,169 @@ rule ablation_summary:
         f"{RUNS}/logs/ablation_summary.log"
     script:
         "scripts/summarize_ablations.py"
+
+
+rule ablation_comparison_figure:
+    """Generate publication-quality ablation comparison figure."""
+    input:
+        ablation_eval = f"{ABLATIONS}/evaluation/heldout_summary.json",
+        full_model_eval = f"{TRAINING}/evaluation/heldout_summary.json"
+    output:
+        figure = f"{FIGURES}/ablations/fig_ablation_comparison.png",
+        figure_pdf = f"{FIGURES}/ablations/fig_ablation_comparison.pdf"
+    threads: 2
+    resources:
+        mem_mb = 8000,
+        runtime = 15
+    log:
+        f"{RUNS}/logs/ablation_comparison_figure.log"
+    shell:
+        """
+        python workflow/scripts/generate_ablation_comparison_figure.py \
+            --ablation_dir {ABLATIONS} \
+            --training_dir {TRAINING} \
+            --output_dir {FIGURES}/ablations \
+            --metrics wasserstein stage_accuracy auroc \
+            2>&1 | tee {log}
+        """
+
+
+rule ablation_waterfall_figure:
+    """Generate ablation waterfall figures showing component importance."""
+    input:
+        ablation_eval = f"{ABLATIONS}/evaluation/heldout_summary.json",
+        full_model_eval = f"{TRAINING}/evaluation/heldout_summary.json"
+    output:
+        waterfall = f"{FIGURES}/ablations/fig_waterfall_wasserstein.png",
+        multi = f"{FIGURES}/ablations/fig_waterfall_multi_metric.png",
+        importance = f"{FIGURES}/ablations/fig_component_importance.png"
+    threads: 2
+    resources:
+        mem_mb = 8000,
+        runtime = 15
+    log:
+        f"{RUNS}/logs/ablation_waterfall.log"
+    shell:
+        """
+        python workflow/scripts/generate_ablation_waterfall_figure.py \
+            --ablation_dir {ABLATIONS} \
+            --training_dir {TRAINING} \
+            --output_dir {FIGURES}/ablations \
+            --metrics wasserstein stage_accuracy auroc \
+            2>&1 | tee {log}
+        """
+
+
+rule niche_influence_figure:
+    """Generate SHAP-style niche influence visualization."""
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        training_done = f"{TRAINING}/aggregated/cv_results.json"
+    output:
+        beeswarm = f"{FIGURES}/niche/fig_niche_beeswarm.png",
+        summary = f"{FIGURES}/niche/fig_niche_summary.png",
+        heatmap = f"{FIGURES}/niche/fig_niche_heatmap.png",
+        combined = f"{FIGURES}/niche/fig_niche_influence_combined.png"
+    params:
+        inference_dir = f"{TRAINING}/fold0_seed42/evaluation"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/niche_influence_figure.log"
+    shell:
+        """
+        python workflow/scripts/generate_niche_influence_figure.py \
+            --cells {input.cells} \
+            --neighborhoods {input.neighborhoods} \
+            --output_dir {FIGURES}/niche \
+            --inference_dir {params.inference_dir} \
+            --use_synthetic \
+            2>&1 | tee {log}
+        """
+
+
+rule sankey_flow_figure:
+    """Generate Sankey/alluvial flow diagram showing cell transitions."""
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        training_done = f"{TRAINING}/aggregated/cv_results.json"
+    output:
+        sankey = f"{FIGURES}/flow/fig_sankey_flow.png",
+        alluvial = f"{FIGURES}/flow/fig_alluvial_composition.png"
+    params:
+        inference_dir = f"{TRAINING}/fold0_seed42/evaluation"
+    threads: 4
+    resources:
+        mem_mb = 32000,
+        runtime = 30
+    log:
+        f"{RUNS}/logs/sankey_flow_figure.log"
+    shell:
+        """
+        python workflow/scripts/generate_sankey_flow_figure.py \
+            --cells {input.cells} \
+            --output_dir {FIGURES}/flow \
+            --inference_dir {params.inference_dir} \
+            2>&1 | tee {log}
+        """
+
+
+rule spatial_niche_figure:
+    """Generate spatial niche visualization with risk maps."""
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
+        training_done = f"{TRAINING}/aggregated/cv_results.json"
+    output:
+        risk = f"{FIGURES}/spatial/fig_spatial_risk.png",
+        composition = f"{FIGURES}/spatial/fig_spatial_niche_composition.png",
+        combined = f"{FIGURES}/spatial/fig_spatial_combined.png"
+    params:
+        inference_dir = f"{TRAINING}/fold0_seed42/evaluation"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/spatial_niche_figure.log"
+    shell:
+        """
+        python workflow/scripts/generate_spatial_niche_figure.py \
+            --cells {input.cells} \
+            --neighborhoods {input.neighborhoods} \
+            --output_dir {FIGURES}/spatial \
+            --inference_dir {params.inference_dir} \
+            2>&1 | tee {log}
+        """
+
+
+rule dual_reference_figure:
+    """Generate dual-reference trajectory visualization."""
+    input:
+        cells = f"{CANONICAL}/cells.parquet",
+        fused = f"{REF_GEOM}/fused_embedding.parquet"
+    output:
+        trajectory_3d = f"{FIGURES}/embedding/fig_3d_trajectory.png",
+        reference_contrib = f"{FIGURES}/embedding/fig_reference_contribution.png",
+        flow_field = f"{FIGURES}/embedding/fig_flow_field.png",
+        combined = f"{FIGURES}/embedding/fig_embedding_combined.png"
+    threads: 4
+    resources:
+        mem_mb = 64000,
+        runtime = 60
+    log:
+        f"{RUNS}/logs/dual_reference_figure.log"
+    shell:
+        """
+        python workflow/scripts/generate_dual_reference_figure.py \
+            --cells {input.cells} \
+            --fused_embedding {input.fused} \
+            --output_dir {FIGURES}/embedding \
+            2>&1 | tee {log}
+        """
 
 
 # =============================================================================
