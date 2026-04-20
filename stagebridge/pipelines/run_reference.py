@@ -1834,9 +1834,12 @@ def main():
     parser.add_argument(
         "--fusion-method",
         type=str,
-        choices=["concat", "average", "weighted"],
+        choices=["concat", "average", "weighted", "gated", "transport"],
         default="concat",
-        help="Method for fusing HLCA and LuCA embeddings",
+        help="Method for fusing HLCA and LuCA embeddings. "
+             "'concat' (default) is simple but effective, "
+             "'gated' uses confidence-aware gating, "
+             "'transport' uses OT-based manifold alignment",
     )
     parser.add_argument(
         "--k-neighbors",
