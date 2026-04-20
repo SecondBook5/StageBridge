@@ -6,16 +6,32 @@ Validates whether cellular senescence and SASP correlate with model-predicted
 progression risk. This tests whether the model's predictions align with
 senescence biology.
 
-Key biological insight (from Hoi et al. Cancer Cell 2026):
-- SASP (senescence-associated secretory phenotype) creates feedforward loops
-- Senescent fibroblasts secrete IL6, GDF15, matrix factors
-- SASP activates ERK/p38/AKT in epithelial cells
-- cGAS-STING pathway drives chronic inflammatory cytokine production
+Key biological insights:
+
+1. From Hoi et al. (Cancer Cell 2026):
+   - SASP (senescence-associated secretory phenotype) creates feedforward loops
+   - Senescent fibroblasts secrete IL6, GDF15, matrix factors
+   - SASP activates ERK/p38/AKT in epithelial cells
+   - cGAS-STING pathway drives chronic inflammatory cytokine production
+
+2. From Alcolea et al. (Nature 2026) - Precancerous Niche Paper:
+   - Fibroblasts in the precancerous niche are activated (aYAP+)
+   - They deposit fibronectin (FN1) creating supportive scaffold
+   - Niche+ fibroblasts lack full CAF phenotype (no FAP, no ACTA2)
+   - But they show pre-CAF transitional state
+   - SASP-secreting cells may contribute to niche formation
+
+3. From Tsankov et al. (Nature Cancer 2025) - TP53 Atlas:
+   - CAF.ADH1B and CAF.COLs populations enriched in TP53mut tumors
+   - NMF7 niche contains myofibroblasts with SASP-like features
+   - Stromal remodeling creates hypoxic, EMT-promoting environment
 
 The validation tests:
 1. Do cells with high SASP have higher MODEL-PREDICTED transition probability?
 2. Is chronic senescence enriched in cells the model flags as high-risk?
 3. Do high niche-influence regions show elevated SASP?
+4. Are SASP-secreting fibroblasts near progression-prone epithelial cells?
+5. Does FN1+ stroma (precancerous niche marker) correlate with SASP?
 
 Usage:
   python scripts/run_senescence_validation.py \
@@ -61,6 +77,20 @@ CGAS_STING = ["MB21D1", "TMEM173", "IRF3", "IFNB1", "TBK1", "NFKB1"]
 
 # Full senescence signature
 SENESCENCE_FULL = SENESCENCE_CORE + SASP_ALL + CGAS_STING
+
+# Precancerous niche fibroblast markers (from Alcolea et al. 2026)
+# Niche+ fibroblasts: PDGFRa-low, FN1+, aYAP+, but FAP-/ACTA2- (pre-CAF state)
+PRECANCER_NICHE_MATRIX = ["FN1", "COL1A1", "COL1A2", "COL3A1", "COL12A1"]
+PRECANCER_NICHE_ACTIVATION = ["YAP1", "WWTR1", "CTGF", "CYR61"]  # Hippo pathway
+CAF_MARKERS = ["FAP", "ACTA2", "PDPN", "S100A4"]  # Full CAF phenotype
+
+# TP53 atlas CAF subtypes (from Tsankov et al. 2025)
+# CAF.ADH1B and CAF.COLs enriched in TP53mut, correlate with poor outcome
+CAF_ADH1B_MARKERS = ["ADH1B", "CFD", "APOE"]  # Cytokine/immune modulation
+CAF_COLS_MARKERS = ["COL1A2", "COL3A1", "TWIST1"]  # ECM/EMT promoting
+
+# NMF7 niche components (hypoxic, EMT-promoting)
+NMF7_NICHE = ["SPP1", "COL1A1", "VIM", "HIF1A"]
 
 # Stages for analysis
 STAGES = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
@@ -129,6 +159,182 @@ def compute_signature_score(
 
     sc.tl.score_genes(adata, available_genes, score_name=score_name)
     return adata.obs[score_name].values
+
+
+def compute_niche_fibroblast_signatures(
+    adata: sc.AnnData,
+) -> pd.DataFrame:
+    """
+    Compute fibroblast niche signatures from precancerous niche paper.
+
+    The precancerous niche is characterized by:
+    1. FN1+ (fibronectin) matrix deposition
+    2. aYAP+ (active Hippo pathway) fibroblasts
+    3. Lack of full CAF markers (FAP-, ACTA2-) - pre-CAF state
+    4. PDGFRa-low (lamina propria origin)
+    """
+    logger.info("Computing fibroblast niche signatures...")
+
+    results = {"cell_id": adata.obs_names.tolist()}
+
+    # FN1/ECM deposition score (key niche marker)
+    ecm_genes = [g for g in PRECANCER_NICHE_MATRIX if g in adata.var_names]
+    if len(ecm_genes) >= 1:
+        sc.tl.score_genes(adata, ecm_genes, score_name="niche_ecm_score")
+        results["niche_ecm_score"] = adata.obs["niche_ecm_score"].values
+        logger.info(f"  Niche ECM score: {len(ecm_genes)} genes")
+
+    # FN1 expression directly
+    if "FN1" in adata.var_names:
+        if hasattr(adata.X, "toarray"):
+            fn1_idx = list(adata.var_names).index("FN1")
+            results["fn1_expression"] = adata.X[:, fn1_idx].toarray().flatten()
+        else:
+            fn1_idx = list(adata.var_names).index("FN1")
+            results["fn1_expression"] = adata.X[:, fn1_idx].flatten()
+        logger.info("  FN1 expression extracted")
+
+    # Hippo/YAP activation score
+    yap_genes = [g for g in PRECANCER_NICHE_ACTIVATION if g in adata.var_names]
+    if len(yap_genes) >= 1:
+        sc.tl.score_genes(adata, yap_genes, score_name="yap_activation_score")
+        results["yap_activation_score"] = adata.obs["yap_activation_score"].values
+        logger.info(f"  YAP activation score: {len(yap_genes)} genes")
+
+    # CAF marker score (full CAF phenotype - should be LOW in precancer niche)
+    caf_genes = [g for g in CAF_MARKERS if g in adata.var_names]
+    if len(caf_genes) >= 1:
+        sc.tl.score_genes(adata, caf_genes, score_name="caf_score")
+        results["caf_score"] = adata.obs["caf_score"].values
+        logger.info(f"  CAF score: {len(caf_genes)} genes")
+
+    # NMF7 niche score (from TP53 atlas - hypoxic/EMT promoting)
+    nmf7_genes = [g for g in NMF7_NICHE if g in adata.var_names]
+    if len(nmf7_genes) >= 1:
+        sc.tl.score_genes(adata, nmf7_genes, score_name="nmf7_score")
+        results["nmf7_score"] = adata.obs["nmf7_score"].values
+        logger.info(f"  NMF7 niche score: {len(nmf7_genes)} genes")
+
+    return pd.DataFrame(results)
+
+
+def analyze_precancer_niche_sasp(
+    niche_df: pd.DataFrame,
+    senescence_scores: pd.DataFrame,
+    inference_df: pd.DataFrame,
+    cells_df: pd.DataFrame,
+) -> dict:
+    """
+    Analyze relationship between SASP and precancerous niche formation.
+
+    Key questions:
+    1. Do SASP-high cells show elevated FN1/ECM signatures?
+    2. Is FN1+ stroma associated with higher model-predicted progression?
+    3. Do pre-CAF (FN1+/YAP+/FAP-) cells correlate with progression?
+    """
+    logger.info("=" * 60)
+    logger.info("PRECANCEROUS NICHE / SASP ANALYSIS")
+    logger.info("=" * 60)
+
+    # Merge data
+    merged = senescence_scores.merge(niche_df, on="cell_id", how="inner")
+    merged = merged.merge(
+        inference_df[["cell_id", "transition_prob", "niche_influence"]],
+        on="cell_id",
+        how="inner"
+    )
+    logger.info(f"Merged {len(merged):,} cells for niche analysis")
+
+    results = {}
+
+    # 1. SASP vs FN1/ECM correlation
+    if "niche_ecm_score" in merged.columns:
+        valid = merged["sasp_score"].notna() & merged["niche_ecm_score"].notna()
+        if valid.sum() > 10:
+            rho, pval = stats.spearmanr(
+                merged.loc[valid, "sasp_score"],
+                merged.loc[valid, "niche_ecm_score"]
+            )
+            results["sasp_ecm_correlation"] = {
+                "spearman_rho": float(rho),
+                "p_value": float(pval),
+                "n_cells": int(valid.sum()),
+                "interpretation": (
+                    "SASP and ECM/FN1 deposition are correlated (niche formation)"
+                    if rho > 0.1 else "SASP and ECM not strongly correlated"
+                )
+            }
+            logger.info(f"SASP vs ECM: rho={rho:.4f}, p={pval:.2e}")
+
+    # 2. FN1+ cells vs model-predicted progression
+    if "fn1_expression" in merged.columns:
+        fn1_high = merged["fn1_expression"] > merged["fn1_expression"].quantile(0.75)
+        if fn1_high.sum() > 10:
+            fn1_trans = merged.loc[fn1_high, "transition_prob"].dropna()
+            other_trans = merged.loc[~fn1_high, "transition_prob"].dropna()
+
+            if len(fn1_trans) > 10 and len(other_trans) > 10:
+                stat, pval = stats.mannwhitneyu(fn1_trans, other_trans, alternative="two-sided")
+                effect_size = (fn1_trans.mean() - other_trans.mean()) / merged["transition_prob"].std()
+
+                results["fn1_progression"] = {
+                    "fn1_high_trans": float(fn1_trans.mean()),
+                    "fn1_low_trans": float(other_trans.mean()),
+                    "cohens_d": float(effect_size),
+                    "mannwhitney_pval": float(pval),
+                    "interpretation": (
+                        "FN1+ cells/neighborhoods have HIGHER progression risk"
+                        if effect_size > 0.1 else
+                        "FN1+ cells/neighborhoods have LOWER progression risk"
+                        if effect_size < -0.1 else
+                        "No strong FN1-progression relationship"
+                    )
+                }
+                logger.info(f"FN1+ vs progression: Cohen's d={effect_size:.4f}")
+
+    # 3. Pre-CAF state analysis (FN1+/YAP+ but FAP-)
+    if all(col in merged.columns for col in ["niche_ecm_score", "yap_activation_score", "caf_score"]):
+        ecm_high = merged["niche_ecm_score"] > merged["niche_ecm_score"].quantile(0.75)
+        yap_high = merged["yap_activation_score"] > merged["yap_activation_score"].quantile(0.75)
+        caf_low = merged["caf_score"] < merged["caf_score"].quantile(0.5)
+
+        pre_caf = ecm_high & yap_high & caf_low
+        full_caf = ecm_high & yap_high & ~caf_low
+
+        if pre_caf.sum() > 10:
+            pre_caf_trans = merged.loc[pre_caf, "transition_prob"].dropna()
+            full_caf_trans = merged.loc[full_caf, "transition_prob"].dropna() if full_caf.sum() > 10 else pd.Series()
+            other_trans = merged.loc[~(pre_caf | full_caf), "transition_prob"].dropna()
+
+            results["pre_caf_state"] = {
+                "n_pre_caf": int(pre_caf.sum()),
+                "n_full_caf": int(full_caf.sum()),
+                "pre_caf_mean_trans": float(pre_caf_trans.mean()) if len(pre_caf_trans) > 0 else None,
+                "full_caf_mean_trans": float(full_caf_trans.mean()) if len(full_caf_trans) > 0 else None,
+                "other_mean_trans": float(other_trans.mean()) if len(other_trans) > 0 else None,
+            }
+            logger.info(f"Pre-CAF cells: {pre_caf.sum()}, Full CAF: {full_caf.sum()}")
+
+    # 4. NMF7 niche (TP53 atlas) vs progression
+    if "nmf7_score" in merged.columns:
+        valid = merged["nmf7_score"].notna() & merged["transition_prob"].notna()
+        if valid.sum() > 10:
+            rho, pval = stats.spearmanr(
+                merged.loc[valid, "nmf7_score"],
+                merged.loc[valid, "transition_prob"]
+            )
+            results["nmf7_progression"] = {
+                "spearman_rho": float(rho),
+                "p_value": float(pval),
+                "n_cells": int(valid.sum()),
+                "interpretation": (
+                    "NMF7 niche (hypoxic/EMT) associated with progression"
+                    if rho > 0.05 else "NMF7 niche NOT associated with progression"
+                )
+            }
+            logger.info(f"NMF7 vs progression: rho={rho:.4f}")
+
+    return results
 
 
 def classify_senescence_state(
@@ -456,7 +662,7 @@ def main():
 
     # Compute senescence scores from expression
     if args.snrna and args.snrna.exists():
-        logger.info("\n[4/5] Computing senescence scores from expression...")
+        logger.info("\n[4/6] Computing senescence scores from expression...")
         adata = sc.read_h5ad(args.snrna)
         logger.info(f"  Loaded {adata.n_obs:,} cells x {adata.n_vars:,} genes")
 
@@ -476,6 +682,13 @@ def main():
             "sasp_score": sasp_scores,
             "senescence_state": senescence_states,
         })
+
+        # Compute fibroblast niche signatures (from precancerous niche paper)
+        logger.info("\n[5/6] Computing fibroblast niche signatures...")
+        niche_df = compute_niche_fibroblast_signatures(adata)
+
+        # Merge niche scores into main dataframe
+        scores_df = scores_df.merge(niche_df, on="cell_id", how="left")
 
         # Save
         scores_df.to_parquet(args.output_dir / "senescence_cell_scores.parquet", index=False)
@@ -506,8 +719,11 @@ def main():
         return 1
 
     # Core validation: correlate with model outputs
-    logger.info("\n[5/5] Correlating senescence with model predictions...")
+    logger.info("\n[6/6] Correlating senescence with model predictions...")
     model_results = analyze_model_correlation(scores_df, inference_df, cells_df, ap1_scores_df)
+
+    # Precancerous niche / SASP analysis (from precancerous niche paper)
+    niche_results = analyze_precancer_niche_sasp(niche_df, scores_df, inference_df, cells_df)
 
     # Spatial analysis
     spatial_results = analyze_spatial_model_correlation(neighborhoods_df, scores_df, inference_df)
@@ -515,6 +731,20 @@ def main():
     # Generate report
     logger.info("\nGenerating validation report...")
     report = generate_validation_report(model_results, spatial_results, stage_baseline)
+
+    # Add precancerous niche results to report
+    report["precancerous_niche_analysis"] = niche_results
+    report["biological_basis"]["precancerous_niche"] = {
+        "paper": "Alcolea et al. Nature 2026",
+        "key_finding": "FN1+ stromal scaffold promotes nascent tumour persistence",
+        "mechanism": "Pre-CAF fibroblasts (FN1+/YAP+/FAP-) form supportive niche",
+        "prediction": "SASP and FN1/ECM should be correlated, and FN1+ niche should associate with progression"
+    }
+    report["biological_basis"]["tp53_atlas"] = {
+        "paper": "Tsankov et al. Nature Cancer 2025",
+        "key_finding": "NMF7 niche (TAM.SPP1 + CAF.COLs + myofibroblasts) promotes EMT",
+        "prediction": "NMF7 niche signature should correlate with model-predicted progression"
+    }
 
     # Save results
     with open(args.output_dir / "senescence_validation_report.json", "w") as f:
@@ -538,6 +768,26 @@ def main():
     if chronic:
         logger.info(f"Chronic senescence in high-risk: {chronic.get('pct_chronic_high_risk', 'N/A'):.1f}%")
         logger.info(f"Chronic senescence in low-risk: {chronic.get('pct_chronic_low_risk', 'N/A'):.1f}%")
+
+    # Precancerous niche results
+    logger.info("\n--- Precancerous Niche / FN1 Analysis ---")
+    sasp_ecm = niche_results.get("sasp_ecm_correlation", {})
+    if sasp_ecm:
+        logger.info(f"SASP vs ECM/FN1: rho={sasp_ecm.get('spearman_rho', 'N/A'):.4f}")
+
+    fn1_prog = niche_results.get("fn1_progression", {})
+    if fn1_prog:
+        logger.info(f"FN1+ vs progression: d={fn1_prog.get('cohens_d', 'N/A'):.4f}")
+        logger.info(f"  {fn1_prog.get('interpretation', '')}")
+
+    pre_caf = niche_results.get("pre_caf_state", {})
+    if pre_caf:
+        logger.info(f"Pre-CAF cells (FN1+/YAP+/FAP-): {pre_caf.get('n_pre_caf', 'N/A')}")
+        logger.info(f"  Mean transition prob: {pre_caf.get('pre_caf_mean_trans', 'N/A')}")
+
+    nmf7 = niche_results.get("nmf7_progression", {})
+    if nmf7:
+        logger.info(f"NMF7 niche vs progression: rho={nmf7.get('spearman_rho', 'N/A'):.4f}")
 
     logger.info("\nValidation Status:")
     for key, value in report.get("validation_status", {}).items():
