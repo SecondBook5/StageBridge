@@ -1432,7 +1432,7 @@ rule ap1_validation:
         f"{RUNS}/logs/biological_validation/ap1.log"
     shell:
         """
-        python scripts/run_ap1_validation.py \
+        python -m stagebridge.pipelines.run_ap1_validation \
             --snrna {input.snrna} \
             --cells {input.cells} \
             --neighborhoods {input.neighborhoods} \
@@ -1477,7 +1477,7 @@ rule senescence_validation:
         f"{RUNS}/logs/biological_validation/senescence.log"
     shell:
         """
-        python scripts/run_senescence_validation.py \
+        python -m stagebridge.pipelines.run_senescence_validation \
             --snrna {input.snrna} \
             --cells {input.cells} \
             --neighborhoods {input.neighborhoods} \
