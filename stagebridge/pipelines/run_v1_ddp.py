@@ -1530,9 +1530,12 @@ def train(config: TrainingConfig):
     log(f"Training on device: {device}")
     log(f"Distributed: {distributed}, World size: {get_world_size()}")
 
-    # Set seeds
+    # Set seeds for reproducibility
     torch.manual_seed(config.seed + get_rank())
     np.random.seed(config.seed + get_rank())
+    torch.cuda.manual_seed_all(config.seed + get_rank())
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     # Create output directory
     output_dir = Path(config.output_dir)
