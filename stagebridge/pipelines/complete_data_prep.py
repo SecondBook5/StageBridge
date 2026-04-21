@@ -738,144 +738,162 @@ def generate_neighborhoods_table(
         print("  Warning: No spatial cells found, skipping neighborhoods")
         return pd.DataFrame()
 
-    # Compute k-NN graph
+    # CRITICAL: Build k-NN PER DONOR to prevent cross-donor leakage
+    # Spatial coordinates can overlap across donors (different tissue sections),
+    # so global k-NN would create neighbors across donors = data leakage
     from sklearn.neighbors import NearestNeighbors
 
-    coords = spatial_cells[["x_spatial", "y_spatial"]].values
-    nbrs = NearestNeighbors(n_neighbors=k_neighbors + 1).fit(coords)
-    distances, indices = nbrs.kneighbors(coords)
-
     records = []
+    donors = spatial_cells["donor_id"].unique()
+    print(f"  Building per-donor k-NN for {len(donors)} donors...")
 
-    # OPTIMIZED: Use enumerate + itertuples instead of iterrows (10× faster)
-    for pos_idx, row in enumerate(
-        tqdm(spatial_cells.itertuples(), total=len(spatial_cells), desc="  Building niches")
-    ):
-        cell_id = row.cell_id
-        donor_id = row.donor_id
-        stage = row.stage
+    for donor_id in tqdm(donors, desc="  Donors"):
+        donor_cells = spatial_cells[spatial_cells["donor_id"] == donor_id].copy()
+        donor_cells = donor_cells.reset_index(drop=True)
 
-        # Get neighbors (exclude self) - use positional index
-        neighbor_indices = indices[pos_idx][1:]
-        neighbor_distances = distances[pos_idx][1:]
+        if len(donor_cells) < k_neighbors + 1:
+            print(f"    Warning: Donor {donor_id} has only {len(donor_cells)} cells, skipping")
+            continue
 
-        # Build 9-token structure
-        tokens = []
+        # Build k-NN for this donor only
+        coords = donor_cells[["x_spatial", "y_spatial"]].values
+        nbrs = NearestNeighbors(n_neighbors=k_neighbors + 1).fit(coords)
+        distances, indices = nbrs.kneighbors(coords)
 
-        # Token 0: Receiver
-        tokens.append(
-            {
-                "token_idx": 0,
-                "token_type": "receiver",
-                "cell_id": cell_id,
-                "cell_type": row.cell_type,
-                "z_fused": row.z_fused,
-            }
-        )
+        # Process cells for this donor
+        for pos_idx, row in enumerate(donor_cells.itertuples()):
+            cell_id = row.cell_id
+            stage = row.stage
 
-        # Tokens 1-4: Rings (5 cells per ring)
-        cells_per_ring = 5
-        for ring in range(4):
-            start = ring * cells_per_ring
-            end = min((ring + 1) * cells_per_ring, len(neighbor_indices))
-            ring_neighbor_indices = neighbor_indices[start:end]
+            # Get neighbors (exclude self) - use positional index within donor
+            neighbor_indices = indices[pos_idx][1:]
+            neighbor_distances = distances[pos_idx][1:]
 
-            if len(ring_neighbor_indices) == 0:
-                # Empty ring
+            # Sanity check: all neighbors should be from same donor
+            neighbor_donors = donor_cells.iloc[neighbor_indices]["donor_id"].unique()
+            if len(neighbor_donors) != 1 or neighbor_donors[0] != donor_id:
+                raise ValueError(
+                    f"CRITICAL: Cross-donor neighbors detected for cell {cell_id} (donor {donor_id}). "
+                    f"Neighbor donors: {neighbor_donors}. This indicates a bug in per-donor k-NN."
+                )
+
+            # Build 9-token structure
+            tokens = []
+
+            # Token 0: Receiver
+            tokens.append(
+                {
+                    "token_idx": 0,
+                    "token_type": "receiver",
+                    "cell_id": cell_id,
+                    "cell_type": row.cell_type,
+                    "z_fused": row.z_fused,
+                }
+            )
+
+            # Tokens 1-4: Rings (5 cells per ring)
+            cells_per_ring = 5
+            for ring in range(4):
+                start = ring * cells_per_ring
+                end = min((ring + 1) * cells_per_ring, len(neighbor_indices))
+                ring_neighbor_indices = neighbor_indices[start:end]
+
+                if len(ring_neighbor_indices) == 0:
+                    # Empty ring
+                    tokens.append(
+                        {
+                            "token_idx": ring + 1,
+                            "token_type": f"ring_{ring + 1}",
+                            "n_cells": 0,
+                        }
+                    )
+                    continue
+
+                ring_neighbors = donor_cells.iloc[ring_neighbor_indices]
+
+                # Pool cell types in ring
+                celltype_counts = ring_neighbors["cell_type"].value_counts().to_dict()
+
+                # Pool embeddings
+                z_pooled = np.mean([z for z in ring_neighbors["z_fused"]], axis=0)
+
                 tokens.append(
                     {
                         "token_idx": ring + 1,
                         "token_type": f"ring_{ring + 1}",
-                        "n_cells": 0,
+                        "n_cells": len(ring_neighbors),
+                        "z_pooled": z_pooled.tolist(),
+                        "celltype_composition": celltype_counts,
+                        "mean_distance": float(neighbor_distances[start:end].mean()),
                     }
                 )
-                continue
 
-            ring_neighbors = spatial_cells.iloc[ring_neighbor_indices]
-
-            # Pool cell types in ring
-            celltype_counts = ring_neighbors["cell_type"].value_counts().to_dict()
-
-            # Pool embeddings
-            z_pooled = np.mean([z for z in ring_neighbors["z_fused"]], axis=0)
-
+            # Token 5: HLCA context
             tokens.append(
                 {
-                    "token_idx": ring + 1,
-                    "token_type": f"ring_{ring + 1}",
-                    "n_cells": len(ring_neighbors),
-                    "z_pooled": z_pooled.tolist(),
-                    "celltype_composition": celltype_counts,
-                    "mean_distance": float(neighbor_distances[start:end].mean()),
+                    "token_idx": 5,
+                    "token_type": "hlca",
+                    "z_hlca": row.z_hlca,
                 }
             )
 
-        # Token 5: HLCA context
-        tokens.append(
-            {
-                "token_idx": 5,
-                "token_type": "hlca",
-                "z_hlca": row.z_hlca,
-            }
-        )
-
-        # Token 6: LuCA context
-        tokens.append(
-            {
-                "token_idx": 6,
-                "token_type": "luca",
-                "z_luca": row.z_luca,
-            }
-        )
-
-        # Token 7: Pathway activity (from spatial backend cell type proportions)
-        spot_proportions = (
-            backend_results.loc[cell_id] if cell_id in backend_results.index else None
-        )
-
-        if spot_proportions is not None:
-            # Compute pathway scores from cell type composition
-            caf_fraction = spot_proportions.get("Fibroblast", 0.0) + spot_proportions.get(
-                "CAF", 0.0
+            # Token 6: LuCA context
+            tokens.append(
+                {
+                    "token_idx": 6,
+                    "token_type": "luca",
+                    "z_luca": row.z_luca,
+                }
             )
-            immune_fraction = spot_proportions.get("Macrophage", 0.0) + spot_proportions.get(
-                "T_cell", 0.0
+
+            # Token 7: Pathway activity (from spatial backend cell type proportions)
+            spot_proportions = (
+                backend_results.loc[cell_id] if cell_id in backend_results.index else None
             )
-            emt_score = 0.6 * caf_fraction + 0.4 * immune_fraction
-        else:
-            caf_fraction = 0.0
-            immune_fraction = 0.0
-            emt_score = 0.0
 
-        tokens.append(
-            {
-                "token_idx": 7,
-                "token_type": "pathway",
-                "emt_score": float(emt_score),
-                "caf_fraction": float(caf_fraction),
-                "immune_fraction": float(immune_fraction),
-            }
-        )
+            if spot_proportions is not None:
+                # Compute pathway scores from cell type composition
+                caf_fraction = spot_proportions.get("Fibroblast", 0.0) + spot_proportions.get(
+                    "CAF", 0.0
+                )
+                immune_fraction = spot_proportions.get("Macrophage", 0.0) + spot_proportions.get(
+                    "T_cell", 0.0
+                )
+                emt_score = 0.6 * caf_fraction + 0.4 * immune_fraction
+            else:
+                caf_fraction = 0.0
+                immune_fraction = 0.0
+                emt_score = 0.0
 
-        # Token 8: Summary stats
-        tokens.append(
-            {
-                "token_idx": 8,
-                "token_type": "stats",
-                "n_neighbors": k_neighbors,
-                "mean_distance": float(neighbor_distances.mean()),
-                "diversity": len(spatial_cells.iloc[neighbor_indices]["cell_type"].unique()),
-            }
-        )
+            tokens.append(
+                {
+                    "token_idx": 7,
+                    "token_type": "pathway",
+                    "emt_score": float(emt_score),
+                    "caf_fraction": float(caf_fraction),
+                    "immune_fraction": float(immune_fraction),
+                }
+            )
 
-        records.append(
-            {
-                "cell_id": cell_id,
-                "donor_id": donor_id,
-                "stage": stage,
-                "tokens": tokens,
-            }
-        )
+            # Token 8: Summary stats
+            tokens.append(
+                {
+                    "token_idx": 8,
+                    "token_type": "stats",
+                    "n_neighbors": k_neighbors,
+                    "mean_distance": float(neighbor_distances.mean()),
+                    "diversity": len(donor_cells.iloc[neighbor_indices]["cell_type"].unique()),
+                }
+            )
+
+            records.append(
+                {
+                    "cell_id": cell_id,
+                    "donor_id": donor_id,
+                    "stage": stage,
+                    "tokens": tokens,
+                }
+            )
 
     return pd.DataFrame(records)
 

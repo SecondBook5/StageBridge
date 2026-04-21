@@ -861,6 +861,32 @@ def create_dataloaders(
                 train_stages = stage_indices[train_idx]
                 val_stages = stage_indices[val_idx]
 
+                # CRITICAL: Compute z_target WITHIN each split to prevent leakage
+                # z_target = mean embedding of cells in the next stage
+                # If computed globally, val stage info leaks into train targets
+                def compute_z_target(z_subset: torch.Tensor, stages_subset: torch.Tensor) -> torch.Tensor:
+                    """Compute z_target as mean of next-stage cells, within this split only."""
+                    z_target_split = torch.zeros_like(z_subset)
+                    for stage in range(4):  # 0-3 can transition to next stage
+                        current_mask = (stages_subset == stage)
+                        next_mask = (stages_subset == stage + 1)
+                        if current_mask.sum() > 0 and next_mask.sum() > 0:
+                            next_stage_mean = z_subset[next_mask].mean(dim=0)
+                            z_target_split[current_mask] = next_stage_mean
+                        elif current_mask.sum() > 0:
+                            # No next-stage cells in this split - use self
+                            z_target_split[current_mask] = z_subset[current_mask]
+                    # Stage 4 (LUAD) has no next stage - use self
+                    luad_mask = (stages_subset == 4)
+                    if luad_mask.sum() > 0:
+                        z_target_split[luad_mask] = z_subset[luad_mask]
+                    return z_target_split
+
+                train_z_target = compute_z_target(z_source[train_idx], train_stages)
+                log(f"  Computed z_target for train split (within-split, no leakage)")
+                val_z_target = compute_z_target(z_source[val_idx], val_stages)
+                log(f"  Computed z_target for val split (within-split, no leakage)")
+
                 # Extract donor IDs for donor-consistency analysis
                 if "donor_id" in cells_df.columns:
                     donor_to_idx = {d: i for i, d in enumerate(cells_df["donor_id"].unique())}
@@ -880,7 +906,7 @@ def create_dataloaders(
                 train_data = TensorDataset(
                     niche_tokens[train_idx],
                     z_source[train_idx],
-                    z_target[train_idx],
+                    train_z_target,  # Computed within train split (no leakage)
                     train_pathway,
                     train_prolif,
                     train_stages,
@@ -890,7 +916,7 @@ def create_dataloaders(
                 val_data = TensorDataset(
                     niche_tokens[val_idx],
                     z_source[val_idx],
-                    z_target[val_idx],
+                    val_z_target,  # Computed within val split (no leakage)
                     val_pathway,
                     val_prolif,
                     val_stages,

@@ -157,17 +157,42 @@ def load_real_data(data_dir: Path, fold: int = 0) -> tuple[TensorDataset, Tensor
         perm = torch.randperm(n_cells)
         train_idx, val_idx = perm[:n_train], perm[n_train:]
 
+    # Compute z_target WITHIN each split to prevent leakage
+    # z_target = mean embedding of cells in the next stage (within the split)
+    def compute_z_target(z_fused_subset: torch.Tensor, stages_subset: torch.Tensor) -> torch.Tensor:
+        """Compute z_target as mean of next-stage cells, within this split only."""
+        z_target = torch.zeros_like(z_fused_subset)
+        for stage in range(4):  # 0-3 can transition to next stage
+            current_mask = (stages_subset == stage)
+            next_mask = (stages_subset == stage + 1)
+            if current_mask.sum() > 0 and next_mask.sum() > 0:
+                next_stage_mean = z_fused_subset[next_mask].mean(dim=0)
+                z_target[current_mask] = next_stage_mean
+            elif current_mask.sum() > 0:
+                # No next-stage cells in this split - use current mean as fallback
+                z_target[current_mask] = z_fused_subset[current_mask].mean(dim=0)
+        # Stage 4 (LUAD) has no next stage - use self
+        luad_mask = (stages_subset == 4)
+        if luad_mask.sum() > 0:
+            z_target[luad_mask] = z_fused_subset[luad_mask]
+        return z_target
+
+    train_z_target = compute_z_target(z_fused[train_idx], stage_indices[train_idx])
+    log.info(f"  Computed z_target for train split (within-split, no leakage)")
+    val_z_target = compute_z_target(z_fused[val_idx], stage_indices[val_idx])
+    log.info(f"  Computed z_target for val split (within-split, no leakage)")
+
     # Create datasets
     train_dataset = TensorDataset(
         niche_tokens[train_idx],
         z_fused[train_idx],  # source
-        z_fused[train_idx],  # target (placeholder for HPO)
+        train_z_target,  # target (computed within train split)
         stage_indices[train_idx],
     )
     val_dataset = TensorDataset(
         niche_tokens[val_idx],
         z_fused[val_idx],
-        z_fused[val_idx],
+        val_z_target,  # target (computed within val split)
         stage_indices[val_idx],
     )
 
