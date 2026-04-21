@@ -89,6 +89,10 @@ class TrainingConfig:
     resume_checkpoint: str = ""
     keep_top_k_checkpoints: int = 3
 
+    # Early stopping
+    early_stopping_patience: int = 15  # Stop if val_loss doesn't improve for N epochs
+    early_stopping_enabled: bool = True
+
     # Validation
     n_folds: int = 5
     validation_fold: int = 0
@@ -1791,6 +1795,7 @@ def train(config: TrainingConfig):
 
     best_transition_loss = float("inf")
     history["transition_loss"] = []
+    epochs_without_improvement = 0
 
     for epoch in range(config.transition_epochs):
         global_epoch = config.ssl_epochs + epoch
@@ -1854,6 +1859,15 @@ def train(config: TrainingConfig):
         is_best = val_metrics["val_loss"] < best_transition_loss
         if is_best:
             best_transition_loss = val_metrics["val_loss"]
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+
+        # Early stopping check
+        if config.early_stopping_enabled and epochs_without_improvement >= config.early_stopping_patience:
+            log(f"Early stopping triggered: no improvement for {config.early_stopping_patience} epochs")
+            log(f"Best transition val_loss: {best_transition_loss:.4f}")
+            break
 
         # Save checkpoint
         if (epoch + 1) % config.checkpoint_every == 0 or is_best:
@@ -1987,6 +2001,19 @@ def main():
         help="Freeze encoder during transition phase (tests SSL representation transfer)",
     )
 
+    # Early stopping
+    parser.add_argument(
+        "--early_stopping_patience",
+        type=int,
+        default=15,
+        help="Stop if val_loss doesn't improve for N epochs (default: 15)",
+    )
+    parser.add_argument(
+        "--no_early_stopping",
+        action="store_true",
+        help="Disable early stopping",
+    )
+
     args = parser.parse_args()
 
     config = TrainingConfig(
@@ -2020,6 +2047,8 @@ def main():
         mixed_precision=not args.no_mixed_precision,
         freeze_encoder=args.freeze_encoder,
         fusion_mode=args.fusion_mode,
+        early_stopping_patience=args.early_stopping_patience,
+        early_stopping_enabled=not args.no_early_stopping,
     )
 
     train(config)
