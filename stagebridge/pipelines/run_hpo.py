@@ -249,8 +249,9 @@ def run_hpo(
 
         # Hyperparameters to optimize
         lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-        hidden_dim = trial.suggest_categorical("hidden_dim", [64, 128, 256])
-        context_dim = trial.suggest_categorical("context_dim", [128, 256, 512])
+        hidden_dim = trial.suggest_categorical("hidden_dim", [128, 256, 512])
+        # context_dim must equal hidden_dim for reconstruction_head compatibility
+        context_dim = hidden_dim
         dropout = trial.suggest_float("dropout", 0.0, 0.3)
         ssl_weight = trial.suggest_float("ssl_weight", 0.5, 0.9)
 
