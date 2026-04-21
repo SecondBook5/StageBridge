@@ -1156,7 +1156,7 @@ with open('{output.summary}', 'w') as f:
 lines = [r'\\begin{{table}}[htbp]', r'\\centering', r'\\caption{{Held-Out Test Evaluation}}', r'\\begin{{tabular}}{{lcc}}', r'\\toprule', r'Metric & Mean & Std \\\\', r'\\midrule']
 for k, v in metrics.items():
     if isinstance(v, dict) and 'mean' in v:
-        lines.append(f\"{k} & {v['mean']:.4f} & {v['std']:.4f} \\\\\\\\\")
+        lines.append(k + ' & ' + str(round(v['mean'], 4)) + ' & ' + str(round(v['std'], 4)) + ' \\\\\\\\')
 lines.extend([r'\\bottomrule', r'\\end{{tabular}}', r'\\end{{table}}'])
 Path('{output.latex}').write_text('\\n'.join(lines))
 " 2>&1 | tee {log}
