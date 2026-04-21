@@ -1118,49 +1118,37 @@ rule aggregate_heldout_evaluation:
             fold=FOLDS, seed=SEEDS
         )
     output:
-        summary = f"{TRAINING}/evaluation/heldout_summary.json",
-        latex = f"{TRAINING}/evaluation/table_heldout_metrics.tex"
+        summary = f"{TRAINING}/evaluation/heldout_summary.json"
     threads: 2
     resources:
         mem_mb = 8000,
         runtime = 15
     log:
         f"{RUNS}/logs/evaluation/aggregate_heldout.log"
-    shell:
-        """
-        python -c "
-import json
-from pathlib import Path
-import numpy as np
+    run:
+        import json
+        from pathlib import Path
+        import numpy as np
 
-results = []
-for f in Path('{TRAINING}').glob('fold*_seed*/evaluation/heldout_evaluation.json'):
-    with open(f) as fp:
-        results.append(json.load(fp))
+        results = []
+        for f in input.evaluations:
+            with open(f) as fp:
+                results.append(json.load(fp))
 
-metrics = {}
-for key in ['wasserstein', 'mmd', 'mse', 'stage_accuracy', 'auroc']:
-    vals = [r['transition_metrics'].get(key) for r in results if r.get('transition_metrics', {{}}).get(key) is not None]
-    if vals:
-        metrics[key] = {{'mean': float(np.mean(vals)), 'std': float(np.std(vals)), 'n': len(vals)}}
+        metrics = {}
+        for key in ['wasserstein', 'mmd', 'mse', 'stage_accuracy', 'auroc']:
+            vals = [r['transition_metrics'].get(key) for r in results if r.get('transition_metrics', {}).get(key) is not None]
+            if vals:
+                metrics[key] = {'mean': float(np.mean(vals)), 'std': float(np.std(vals)), 'n': len(vals)}
 
-context_deltas = [r.get('context_sensitivity', {{}}).get('mean_context_delta') for r in results if r.get('context_sensitivity')]
-if context_deltas:
-    metrics['context_sensitivity'] = {{'mean': float(np.mean(context_deltas)), 'std': float(np.std(context_deltas))}}
+        context_deltas = [r.get('context_sensitivity', {}).get('mean_context_delta') for r in results if r.get('context_sensitivity')]
+        if context_deltas:
+            metrics['context_sensitivity'] = {'mean': float(np.mean(context_deltas)), 'std': float(np.std(context_deltas))}
 
-summary = {{'n_runs': len(results), 'metrics': metrics}}
-with open('{output.summary}', 'w') as f:
-    json.dump(summary, f, indent=2)
-
-# LaTeX table
-lines = [r'\\begin{{table}}[htbp]', r'\\centering', r'\\caption{{Held-Out Test Evaluation}}', r'\\begin{{tabular}}{{lcc}}', r'\\toprule', r'Metric & Mean & Std \\\\', r'\\midrule']
-for k, v in metrics.items():
-    if isinstance(v, dict) and 'mean' in v:
-        lines.append(k + ' & ' + str(round(v['mean'], 4)) + ' & ' + str(round(v['std'], 4)) + ' \\\\\\\\')
-lines.extend([r'\\bottomrule', r'\\end{{tabular}}', r'\\end{{table}}'])
-Path('{output.latex}').write_text('\\n'.join(lines))
-" 2>&1 | tee {log}
-        """
+        summary = {'n_runs': len(results), 'metrics': metrics}
+        Path(output.summary).parent.mkdir(parents=True, exist_ok=True)
+        with open(output.summary, 'w') as f:
+            json.dump(summary, f, indent=2)
 
 
 # =============================================================================
