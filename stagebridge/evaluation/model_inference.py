@@ -415,6 +415,145 @@ def _softmax(logits: np.ndarray, axis: int = -1) -> np.ndarray:
     return exp_logits / exp_logits.sum(axis=axis, keepdims=True)
 
 
+def enable_mc_dropout(model: torch.nn.Module) -> None:
+    """Enable dropout during inference for Monte Carlo Dropout uncertainty estimation.
+
+    Call this before running multiple forward passes to get epistemic uncertainty.
+    """
+    for module in model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            module.train()
+
+
+def disable_mc_dropout(model: torch.nn.Module) -> None:
+    """Disable dropout (return to normal eval mode)."""
+    model.eval()
+
+
+@torch.no_grad()
+def run_inference_with_uncertainty(
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    cell_ids: np.ndarray,
+    current_stage: np.ndarray,
+    device: str = "cpu",
+    n_mc_samples: int = 20,
+) -> dict:
+    """Run inference with Monte Carlo Dropout for uncertainty estimation.
+
+    Performs multiple forward passes with dropout enabled to estimate
+    epistemic (model) uncertainty.
+
+    Args:
+        model: Trained model
+        dataloader: DataLoader with (niche_tokens, stages) batches
+        cell_ids: Array of cell identifiers
+        current_stage: Array of current stage indices
+        device: Device for inference
+        n_mc_samples: Number of MC samples (forward passes)
+
+    Returns:
+        Dict with:
+            - outputs: InferenceOutputs (mean predictions)
+            - stage_probs_std: (n_cells, n_stages) std of stage probs
+            - transition_probs_std: (n_cells,) std of transition probs
+            - niche_influence_std: (n_cells,) std of niche influence
+    """
+    log.info(f"Running MC Dropout with {n_mc_samples} samples")
+
+    # Collect outputs from multiple forward passes
+    all_stage_probs = []
+    all_attention = []
+
+    for mc_idx in range(n_mc_samples):
+        # Enable dropout for this pass
+        enable_mc_dropout(model)
+
+        stage_logits_list = []
+        attention_list = []
+
+        for niche_tokens_batch, stages in dataloader:
+            niche_tokens_batch = niche_tokens_batch.to(device)
+            batch_size = niche_tokens_batch.shape[0]
+
+            if hasattr(model, 'encode_niche_with_attention'):
+                context, attn = model.encode_niche_with_attention(niche_tokens_batch)
+                attention = attn.cpu().numpy()
+            else:
+                context = model.encode_niche(niche_tokens_batch)
+                n_tokens = niche_tokens_batch.shape[1]
+                attention = np.ones((batch_size, n_tokens - 1), dtype=np.float32) / (n_tokens - 1)
+
+            # Stage logits from context
+            context_np = context.cpu().numpy()
+            stage_logits = np.zeros((batch_size, 5), dtype=np.float32)
+            for i in range(5):
+                dim_start = i * (context_np.shape[1] // 5)
+                dim_end = (i + 1) * (context_np.shape[1] // 5)
+                stage_logits[:, i] = context_np[:, dim_start:dim_end].mean(axis=-1)
+
+            stage_logits_list.append(stage_logits)
+            attention_list.append(attention)
+
+        stage_logits = np.concatenate(stage_logits_list, axis=0)
+        attention_weights = np.concatenate(attention_list, axis=0)
+
+        all_stage_probs.append(_softmax(stage_logits))
+        all_attention.append(attention_weights)
+
+    # Restore eval mode
+    disable_mc_dropout(model)
+
+    # Stack and compute statistics
+    stage_probs_stack = np.stack(all_stage_probs, axis=0)  # (n_mc, n_cells, n_stages)
+    attention_stack = np.stack(all_attention, axis=0)  # (n_mc, n_cells, n_neighbors)
+
+    # Mean predictions
+    stage_probs_mean = stage_probs_stack.mean(axis=0)
+    attention_mean = attention_stack.mean(axis=0)
+
+    # Uncertainty (std)
+    stage_probs_std = stage_probs_stack.std(axis=0)
+
+    # Compute derived quantities for mean
+    transition_probs_mean = compute_transition_probability(stage_probs_mean, current_stage)
+    niche_influence_mean = compute_niche_influence(attention_mean)
+
+    # Compute transition prob uncertainty
+    transition_probs_all = np.array([
+        compute_transition_probability(sp, current_stage)
+        for sp in all_stage_probs
+    ])
+    transition_probs_std = transition_probs_all.std(axis=0)
+
+    # Compute niche influence uncertainty
+    niche_influence_all = np.array([
+        compute_niche_influence(att)
+        for att in all_attention
+    ])
+    niche_influence_std = niche_influence_all.std(axis=0)
+
+    # Create mean outputs
+    outputs = InferenceOutputs(
+        cell_ids=cell_ids,
+        stage_logits=np.log(stage_probs_mean + 1e-10),  # Convert back to logits
+        stage_probs=stage_probs_mean,
+        transition_probs=transition_probs_mean,
+        attention_weights=attention_mean,
+        niche_influence=niche_influence_mean,
+        current_stage=current_stage,
+    )
+
+    log.info(f"MC Dropout complete. Mean transition prob std: {transition_probs_std.mean():.4f}")
+
+    return {
+        'outputs': outputs,
+        'stage_probs_std': stage_probs_std,
+        'transition_probs_std': transition_probs_std,
+        'niche_influence_std': niche_influence_std,
+    }
+
+
 def run_inference_from_checkpoint(
     checkpoint_path: Path | str,
     cells_path: Path | str,
@@ -465,4 +604,7 @@ __all__ = [
     "compute_niche_influence",
     "run_inference",
     "run_inference_from_checkpoint",
+    "enable_mc_dropout",
+    "disable_mc_dropout",
+    "run_inference_with_uncertainty",
 ]
