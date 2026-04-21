@@ -1247,66 +1247,47 @@ rule aggregate_ablation_evaluation:
         ),
         full_model = f"{TRAINING}/evaluation/heldout_summary.json"
     output:
-        summary = f"{ABLATIONS}/evaluation/heldout_summary.json",
-        latex = f"{ABLATIONS}/evaluation/table_ablation_evaluation.tex"
+        summary = f"{ABLATIONS}/evaluation/heldout_summary.json"
     threads: 2
     resources:
         mem_mb = 8000,
         runtime = 15
     log:
         f"{RUNS}/logs/ablations/aggregate_eval.log"
-    shell:
-        """
-        python -c "
-import json
-from pathlib import Path
-import numpy as np
+    run:
+        import json
+        from pathlib import Path
+        import numpy as np
 
-# Load full model baseline
-with open('{input.full_model}') as f:
-    full_model = json.load(f)
+        # Load full model baseline
+        with open(input.full_model) as f:
+            full_model = json.load(f)
 
-ablation_results = {{}}
-for ablation in {ABLATIONS_LIST!r}:
-    eval_path = Path('{ABLATIONS}') / ablation / 'evaluation' / 'heldout_evaluation.json'
-    if eval_path.exists():
-        with open(eval_path) as f:
-            data = json.load(f)
-            ablation_results[ablation] = data.get('transition_metrics', {{}})
+        ablation_results = {}
+        for eval_path in input.evaluations:
+            ablation = Path(eval_path).parent.parent.name
+            with open(eval_path) as f:
+                data = json.load(f)
+                ablation_results[ablation] = data.get('transition_metrics', {})
 
-# Compute degradation vs full model
-full_metrics = full_model.get('metrics', {{}})
-degradations = {{}}
-for ablation, metrics in ablation_results.items():
-    degradations[ablation] = {{}}
-    for key in ['wasserstein', 'mmd', 'stage_accuracy', 'auroc']:
-        if key in metrics and key in full_metrics:
-            full_val = full_metrics[key].get('mean', 0)
-            abl_val = metrics.get(key, 0)
-            if key in ['wasserstein', 'mmd']:
-                # Lower is better
-                degradations[ablation][key] = {{'ablation': abl_val, 'full': full_val, 'degradation_pct': (abl_val - full_val) / (abs(full_val) + 1e-10) * 100}}
-            else:
-                # Higher is better
-                degradations[ablation][key] = {{'ablation': abl_val, 'full': full_val, 'degradation_pct': (full_val - abl_val) / (abs(full_val) + 1e-10) * 100}}
+        # Compute degradation vs full model
+        full_metrics = full_model.get('metrics', {})
+        degradations = {}
+        for ablation, metrics in ablation_results.items():
+            degradations[ablation] = {}
+            for key in ['wasserstein', 'mmd', 'stage_accuracy', 'auroc']:
+                if key in metrics and key in full_metrics:
+                    full_val = full_metrics[key].get('mean', 0)
+                    abl_val = metrics.get(key, 0)
+                    if key in ['wasserstein', 'mmd']:
+                        degradations[ablation][key] = {'ablation': abl_val, 'full': full_val, 'degradation_pct': (abl_val - full_val) / (abs(full_val) + 1e-10) * 100}
+                    else:
+                        degradations[ablation][key] = {'ablation': abl_val, 'full': full_val, 'degradation_pct': (full_val - abl_val) / (abs(full_val) + 1e-10) * 100}
 
-summary = {{'ablation_results': ablation_results, 'degradations': degradations}}
-with open('{output.summary}', 'w') as f:
-    json.dump(summary, f, indent=2)
-
-# LaTeX table
-lines = [r'\\begin{{table}}[htbp]', r'\\centering', r'\\caption{{Ablation Study: Held-Out Evaluation}}', r'\\begin{{tabular}}{{lccccc}}', r'\\toprule', r'Ablation & Wasserstein & MMD & Acc & AUROC & Degradation \\\\', r'\\midrule']
-for ablation, metrics in ablation_results.items():
-    w = metrics.get('wasserstein', 0)
-    m = metrics.get('mmd', 0)
-    a = metrics.get('stage_accuracy', 0)
-    au = metrics.get('auroc', 0)
-    deg = np.mean([abs(d.get('degradation_pct', 0)) for d in degradations.get(ablation, {{}}).values() if d])
-    lines.append(f\"{ablation.replace('_', ' ')} & {w:.3f} & {m:.3f} & {a:.3f} & {au:.3f} & {deg:.1f}\\\\% \\\\\\\\\")
-lines.extend([r'\\bottomrule', r'\\end{{tabular}}', r'\\end{{table}}'])
-Path('{output.latex}').write_text('\\n'.join(lines))
-" 2>&1 | tee {log}
-        """
+        summary = {'ablation_results': ablation_results, 'degradations': degradations}
+        Path(output.summary).parent.mkdir(parents=True, exist_ok=True)
+        with open(output.summary, 'w') as f:
+            json.dump(summary, f, indent=2)
 
 
 # =============================================================================
