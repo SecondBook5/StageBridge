@@ -250,8 +250,7 @@ def run_hpo(
         # Hyperparameters to optimize
         lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         hidden_dim = trial.suggest_categorical("hidden_dim", [128, 256, 512])
-        # context_dim must equal hidden_dim for reconstruction_head compatibility
-        context_dim = hidden_dim
+        context_dim = trial.suggest_categorical("context_dim", [128, 256, 512])
         dropout = trial.suggest_float("dropout", 0.0, 0.3)
         ssl_weight = trial.suggest_float("ssl_weight", 0.5, 0.9)
 
@@ -275,16 +274,13 @@ def run_hpo(
 
                 optimizer.zero_grad()
 
-                # SSL: masked token reconstruction
-                context = model.encode_niche(niche_tokens)
+                # SSL: receiver reconstruction via model's ssl_decoder
+                receiver = niche_tokens[:, 0, :]  # [B, latent_dim]
+                context = model.encode_niche(niche_tokens)  # [B, context_dim]
 
-                # Simple reconstruction loss
-                if hasattr(model, 'niche_encoder') and hasattr(model.niche_encoder, 'reconstruction_head'):
-                    recon = model.niche_encoder.reconstruction_head(context)
-                    receiver = niche_tokens[:, 0, :]
-                    ssl_loss = nn.functional.mse_loss(recon, receiver)
-                else:
-                    ssl_loss = torch.tensor(0.0, device=device)
+                # Use model's ssl_decoder (takes context_dim, outputs latent_dim)
+                recon = model.ssl_decoder(context)
+                ssl_loss = nn.functional.mse_loss(recon, receiver)
 
                 # Transition loss placeholder (context similarity)
                 transition_loss = nn.functional.mse_loss(context[:, :latent_dim], z_source)
@@ -310,14 +306,12 @@ def run_hpo(
         with torch.no_grad():
             for batch in val_loader:
                 niche_tokens, z_source, z_target, stages = [b.to(device) for b in batch]
+                receiver = niche_tokens[:, 0, :]
                 context = model.encode_niche(niche_tokens)
 
-                if hasattr(model, 'niche_encoder') and hasattr(model.niche_encoder, 'reconstruction_head'):
-                    recon = model.niche_encoder.reconstruction_head(context)
-                    receiver = niche_tokens[:, 0, :]
-                    ssl_loss = nn.functional.mse_loss(recon, receiver)
-                else:
-                    ssl_loss = torch.tensor(0.0, device=device)
+                # Use model's ssl_decoder (takes context_dim, outputs latent_dim)
+                recon = model.ssl_decoder(context)
+                ssl_loss = nn.functional.mse_loss(recon, receiver)
 
                 transition_loss = nn.functional.mse_loss(context[:, :latent_dim], z_source)
                 loss = ssl_weight * ssl_loss + (1 - ssl_weight) * transition_loss
