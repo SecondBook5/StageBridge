@@ -208,6 +208,10 @@ class SetTransformerBaseline(nn.Module):
         src_key_padding_mask = None
         if mask is not None:
             src_key_padding_mask = ~mask  # Invert: True = ignore
+            # Handle edge case: if all tokens are masked in a sample, unmask at least one
+            all_masked = src_key_padding_mask.all(dim=1)
+            if all_masked.any():
+                src_key_padding_mask[all_masked, 0] = False
 
         h = self.transformer(h, src_key_padding_mask=src_key_padding_mask)  # [B, K, hidden]
 

@@ -55,12 +55,11 @@ def load_model_and_test_data(
         niche_hidden_dim=config.get("niche_hidden_dim", 128),
         context_dim=config.get("context_dim", 256),
         wes_feature_dim=config.get("wes_feature_dim", config.get("wes_dim", 8)),
-        no_niche=config.get("no_niche", False),
-        no_wes=config.get("no_wes", False),
-        deterministic=config.get("deterministic", False),
         use_prototypes=config.get("use_prototypes", False),
         num_prototypes=config.get("num_prototypes", 16),
         fusion_mode=config.get("fusion_mode", "concat"),
+        niche_encoder_type=config.get("niche_encoder_type", "cross_attention"),
+        use_hierarchical=config.get("use_hierarchical", True),
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
