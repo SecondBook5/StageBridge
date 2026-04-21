@@ -113,6 +113,9 @@ class TrainingConfig:
     # Ablation flags
     freeze_encoder: bool = False  # Freeze encoder during transition phase (for ablation)
 
+    # Regularization
+    input_noise_std: float = 0.01  # Gaussian noise added to inputs during training (0 to disable)
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -1105,6 +1108,11 @@ def train_epoch(
 
         optimizer.zero_grad()
 
+        # Input noise injection for regularization (training only)
+        if config.input_noise_std > 0:
+            noise = torch.randn_like(niche_tokens) * config.input_noise_std
+            niche_tokens = niche_tokens + noise
+
         with torch.cuda.amp.autocast(enabled=config.mixed_precision):
             # Forward pass
             if hasattr(model, "module"):
@@ -2017,6 +2025,14 @@ def main():
         help="Disable early stopping",
     )
 
+    # Regularization
+    parser.add_argument(
+        "--input_noise_std",
+        type=float,
+        default=0.01,
+        help="Gaussian noise std added to inputs during training (0 to disable)",
+    )
+
     args = parser.parse_args()
 
     config = TrainingConfig(
@@ -2052,6 +2068,7 @@ def main():
         fusion_mode=args.fusion_mode,
         early_stopping_patience=args.early_stopping_patience,
         early_stopping_enabled=not args.no_early_stopping,
+        input_noise_std=args.input_noise_std,
     )
 
     train(config)
