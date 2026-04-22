@@ -1479,8 +1479,11 @@ def train_epoch(
                 # STAGE 2: Transition - Learn flow with CROSS-STAGE OT pairing
                 if hasattr(actual_model, "transition_forward"):
                     # Encode niche context with REAL distances and mask
-                    distances = token_distances if token_distances is not None else None
-                    context = actual_model.encode_niche(niche_tokens, distances=distances)
+                    context = actual_model.encode_niche(
+                        niche_tokens,
+                        distances=token_distances,
+                        neighbor_mask=token_mask,
+                    )
 
                     # Use cross-stage OT: pair cells from stage s with cells from stage s+1
                     # Pass stage_indices so transition_forward can do principled pairing
@@ -1607,15 +1610,23 @@ def train_epoch(
             if wes_features is not None and phase == "transition":
                 from stagebridge.transition_model.wes_regularizer import wes_drift_consistency_loss
                 # Only compute for cells that are transitioning and have drift predictions
-                if 'trans_z_source' in dir() and 'outputs' in dir() and 'drift_pred' in outputs:
-                    trans_wes = wes_features[can_transition]
+                if 'outputs' in dir() and 'drift_pred' in outputs and 'src_idx' in outputs:
                     drift_pred = outputs['drift_pred']  # [N_pairs, D] from transition_forward
-                    if drift_pred.shape[0] > 1 and trans_wes.shape[0] > 1:
-                        # Need to align WES features with drift pairs (sampled from OT coupling)
-                        # The drift predictions are for OT-paired samples, not all transitioning cells
-                        # Use the source indices from OT pairing if available
+                    src_idx = outputs['src_idx']  # [N_pairs] indices into transition-eligible cells
+                    # CRITICAL: Index WES by OT source indices to align with drift pairs
+                    # trans_wes is [N_transition, wes_dim], src_idx maps pairs to transition cells
+                    if 'trans_wes' in dir() and trans_wes is not None:
+                        paired_wes = trans_wes[src_idx]  # [N_pairs, wes_dim]
+                    elif 'can_transition' in dir():
+                        # Fallback: index from full wes_features
+                        trans_wes_full = wes_features[can_transition]
+                        paired_wes = trans_wes_full[src_idx]
+                    else:
+                        paired_wes = None
+
+                    if paired_wes is not None and drift_pred.shape[0] > 1:
                         wes_loss = wes_drift_consistency_loss(
-                            trans_wes, drift_pred, n_pairs=256, margin=0.1
+                            paired_wes, drift_pred, n_pairs=256, margin=0.1
                         )
                         total_wes_loss += wes_loss.item()
 
@@ -1764,9 +1775,14 @@ def validate(
 
             if phase == "ssl":
                 # SSL validation: reconstruction loss
+                # MUST mirror training: pass distances and token_mask
                 if hasattr(actual_model, "ssl_forward"):
                     receiver = niche_tokens[:, 0, :]
-                    outputs = actual_model.ssl_forward(niche_tokens, receiver)
+                    outputs = actual_model.ssl_forward(
+                        niche_tokens, receiver,
+                        distances=token_distances,
+                        token_mask=token_mask,
+                    )
                     loss = outputs["loss_reconstruction"]
 
                     # Stage-stratified validation loss
@@ -1802,8 +1818,12 @@ def validate(
                 # Transition validation: flow prediction loss
                 # MUST mirror training: only include cells that can transition (stages 0-3)
                 if hasattr(actual_model, "transition_forward"):
-                    distances = token_distances if token_distances is not None else None
-                    context = actual_model.encode_niche(niche_tokens, distances=distances)
+                    # Encode niche context with distances and mask (mirror training)
+                    context = actual_model.encode_niche(
+                        niche_tokens,
+                        distances=token_distances,
+                        neighbor_mask=token_mask,
+                    )
 
                     # Filter to cells that can transition (stages 0-3), matching training
                     if stage_indices is not None:
@@ -1817,8 +1837,11 @@ def validate(
                             # Also filter pathway/prolif targets for auxiliary loss computation
                             trans_pathway_targets = pathway_targets[can_transition] if pathway_targets is not None else None
                             trans_prolif_targets = prolif_targets[can_transition] if prolif_targets is not None else None
+                            # MUST mirror training: pass stage_indices for cross-stage OT
                             outputs = actual_model.transition_forward(
-                                trans_z_source, trans_z_target, trans_context, use_ot=True, wes_features=trans_wes
+                                trans_z_source, trans_z_target, trans_context,
+                                use_ot=True, wes_features=trans_wes,
+                                stage_indices=trans_stages,
                             )
                             loss = outputs["loss_transition"]
                             # Collect drift for trajectory validation
@@ -1835,6 +1858,7 @@ def validate(
                             # No transitioning cells in batch, skip
                             continue
                     else:
+                        # No stage info - use standard OT (not cross-stage)
                         outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True, wes_features=wes_features)
                         loss = outputs["loss_transition"]
                         # Collect drift for trajectory validation (non-filtered case)
