@@ -1542,12 +1542,26 @@ def train_epoch(
             # =================================================================
             # Get context representation for auxiliary heads
             # Must match config.context_dim (128 from HPO or 256 default)
+            # CRITICAL: In transition phase, use trans_context (filtered) to match targets
             aux_repr = None
             if 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
                 # SSL phase: outputs dict contains context
                 aux_repr = outputs['context']
+            elif phase == "transition" and 'trans_context' in dir():
+                # Transition phase with stage filtering: use filtered context
+                aux_repr = trans_context
+                # Also filter auxiliary targets to match
+                if 'can_transition' in dir():
+                    if il1b_targets is not None:
+                        il1b_targets = il1b_targets[can_transition]
+                    if kac_targets is not None:
+                        kac_targets = kac_targets[can_transition]
+                    if pathway_targets is not None:
+                        pathway_targets = pathway_targets[can_transition]
+                    if prolif_targets is not None:
+                        prolif_targets = prolif_targets[can_transition]
             elif 'context' in dir() and torch.is_tensor(context) and context.dim() == 2:
-                # Transition phase: context from encode_niche is [B, context_dim]
+                # Transition phase without filtering: use full context
                 aux_repr = context
             elif 'context' in dir() and hasattr(context, 'context'):
                 # Fallback path (should not hit with StageBridgeV1Complete)
@@ -1834,9 +1848,11 @@ def validate(
                             trans_context = context[can_transition]
                             trans_stages = stage_indices[can_transition]  # Stages for filtered cells
                             trans_wes = wes_features[can_transition] if wes_features is not None else None
-                            # Also filter pathway/prolif targets for auxiliary loss computation
+                            # Filter ALL auxiliary targets for transition-eligible cells
                             trans_pathway_targets = pathway_targets[can_transition] if pathway_targets is not None else None
                             trans_prolif_targets = prolif_targets[can_transition] if prolif_targets is not None else None
+                            trans_il1b_targets = il1b_targets[can_transition] if il1b_targets is not None else None
+                            trans_kac_targets = kac_targets[can_transition] if kac_targets is not None else None
                             # MUST mirror training: pass stage_indices for cross-stage OT
                             outputs = actual_model.transition_forward(
                                 trans_z_source, trans_z_target, trans_context,
@@ -1851,9 +1867,11 @@ def validate(
                                 if "src_idx" in outputs:
                                     pair_stages = trans_stages[outputs["src_idx"]].detach().cpu()
                                     all_transition_stages.append(pair_stages)
-                            # Update targets to filtered versions for auxiliary loss computation below
+                            # Update ALL targets to filtered versions for auxiliary loss computation below
                             pathway_targets = trans_pathway_targets
                             prolif_targets = trans_prolif_targets
+                            il1b_targets = trans_il1b_targets
+                            kac_targets = trans_kac_targets
                         else:
                             # No transitioning cells in batch, skip
                             continue
