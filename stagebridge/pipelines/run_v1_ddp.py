@@ -1472,7 +1472,26 @@ def validate(
                         kac_pred = kac_head(aux_repr)
                         total_kac_loss += torch.nn.functional.mse_loss(kac_pred, kac_proxy).item()
 
-        total_loss += loss.item()
+            # Add auxiliary losses to main loss (match training weighting)
+            if phase == "transition" and aux_repr is not None:
+                aux_loss = 0.0
+                if pathway_head is not None and pathway_targets is not None and pathway_targets.abs().sum() > 0:
+                    aux_loss += 0.05 * torch.nn.functional.mse_loss(pathway_head(aux_repr), pathway_targets).item()
+                if prolif_head is not None and prolif_targets is not None and prolif_targets.abs().sum() > 0:
+                    aux_loss += 0.05 * torch.nn.functional.binary_cross_entropy_with_logits(prolif_head(aux_repr), prolif_targets).item()
+                if il1b_head is not None and pathway_targets is not None and pathway_targets.shape[1] > 4:
+                    il1b_targets = pathway_targets[:, 4:5]
+                    if il1b_targets.abs().sum() > 0:
+                        aux_loss += 0.10 * torch.nn.functional.mse_loss(il1b_head(aux_repr), il1b_targets).item()
+                if kac_head is not None and pathway_targets is not None and pathway_targets.shape[1] > 7:
+                    kac_proxy = pathway_targets[:, 7:8]
+                    if kac_proxy.abs().sum() > 0:
+                        aux_loss += 0.10 * torch.nn.functional.mse_loss(kac_head(aux_repr), kac_proxy).item()
+                loss = loss.item() + aux_loss
+            else:
+                loss = loss.item()
+
+        total_loss += loss
         n_batches += 1
 
     # Aggregate across processes
