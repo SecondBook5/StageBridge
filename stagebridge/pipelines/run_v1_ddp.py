@@ -1946,7 +1946,10 @@ def validate(
                     all_prolif_targets.append(prolif_targets.detach().cpu())
 
             # Collect stage indices for stage-specific analysis
-            if stage_indices is not None:
+            # CRITICAL: In transition phase, use filtered trans_stages to match aux_repr
+            if phase == "transition" and 'trans_stages' in dir():
+                all_stages.append(trans_stages.detach().cpu())
+            elif stage_indices is not None:
                 all_stages.append(stage_indices.detach().cpu())
 
             # Add auxiliary losses to main loss (match training weighting)
