@@ -1252,7 +1252,7 @@ def train_epoch(
     # Stage-stratified metrics tracking
     stage_losses = {i: [] for i in range(5)}  # Normal=0, AAH=1, AIS=2, MIA=3, LUAD=4
 
-    for batch in progress:
+    for batch_idx, batch in enumerate(progress):
         # Unpack batch (8 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
@@ -1329,7 +1329,7 @@ def train_epoch(
                                 )
                             else:
                                 outputs = actual_model.transition_forward(
-                                    trans_z_source, trans_z_target, trans_context, use_ot=True
+                                    trans_z_source, trans_z_target, trans_context, use_ot=True, wes_features=trans_wes
                                 )
                             loss = outputs["loss_transition"]
 
@@ -1346,7 +1346,7 @@ def train_epoch(
                                     model, z_source, z_target, context, wes_features
                                 )
                             else:
-                                outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True)
+                                outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True, wes_features=wes_features)
                             loss = outputs["loss_transition"]
                     else:
                         if config.deterministic:
@@ -1354,7 +1354,7 @@ def train_epoch(
                                 model, z_source, z_target, context, wes_features
                             )
                         else:
-                            outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True)
+                            outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True, wes_features=wes_features)
                         loss = outputs["loss_transition"]
                 else:
                     # Fallback: predict target from context
@@ -1609,7 +1609,7 @@ def validate(
                             model, z_source, z_target, context, wes_features
                         )
                     else:
-                        outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True)
+                        outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True, wes_features=wes_features)
                     loss = outputs["loss_transition"]
                 else:
                     context = actual_model(
