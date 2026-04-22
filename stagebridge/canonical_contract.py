@@ -37,6 +37,7 @@ CANONICAL_HLCA_DIM = 30
 CANONICAL_LUCA_DIM = 10
 
 # WES features - EXACTLY these, in this order
+# Matches VCF parser output in stagebridge/data/luad_evo/wes.py
 CANONICAL_WES_COLS = (
     "tmb",
     "kras_mut",
@@ -44,8 +45,8 @@ CANONICAL_WES_COLS = (
     "tp53_mut",
     "stk11_mut",
     "keap1_mut",
-    "nfe2l2_mut",
-    "rb1_mut",
+    "smad4_mut",
+    "braf_mut",
 )
 CANONICAL_WES_DIM = len(CANONICAL_WES_COLS)
 
