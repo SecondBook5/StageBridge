@@ -363,6 +363,10 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         use_reconstruction_head: Add decoder for masked receiver reconstruction
     """
 
+    # Token type indices for 9-token structure
+    # Receiver = 0, Ring1-4 = 1-4, HLCA = 5, LuCA = 6, Pathway = 7, Stats = 8
+    NUM_TOKEN_TYPES = 9
+
     def __init__(
         self,
         input_dim: int,
@@ -376,16 +380,26 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         topk: int = 5,
         dropout: float = 0.1,
         use_reconstruction_head: bool = True,
+        use_token_type_embeddings: bool = True,
     ):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.sparsity_type = SparsityType(sparsity_type)
         self.sparsity_weight = sparsity_weight
+        self.use_token_type_embeddings = use_token_type_embeddings
 
         # Input projections
         self.receiver_proj = nn.Linear(input_dim, hidden_dim)
         self.neighbor_proj = nn.Linear(input_dim, hidden_dim)
+
+        # Token-type embeddings for semantic distinction (Issue #6)
+        # 9 types: receiver(0), ring1-4(1-4), hlca(5), luca(6), pathway(7), stats(8)
+        # This helps the model distinguish between spatial, reference, and metadata tokens
+        if use_token_type_embeddings:
+            self.token_type_embedding = nn.Embedding(self.NUM_TOKEN_TYPES, hidden_dim)
+        else:
+            self.token_type_embedding = None
 
         # Receiver-centered attention layers
         self.attention_layers = nn.ModuleList(
@@ -444,23 +458,46 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         neighbor_mask: Tensor | None = None,
         cell_type_hint: Tensor | None = None,
         return_reconstruction: bool = False,
+        token_type_ids: Tensor | None = None,
     ) -> ReceiverNicheOutput:
         """Encode receiver's neighborhood context.
 
         Args:
             receiver: [B, D] receiver cell embedding
-            neighbors: [B, K, D] neighbor cell embeddings
+            neighbors: [B, K, D] neighbor cell embeddings (K=8 for 9-token structure)
+                Token order: [ring1, ring2, ring3, ring4, hlca, luca, pathway, stats]
             distances: [B, K] distances from receiver to each neighbor
             neighbor_mask: [B, K] boolean, True = valid, False = ablated
             cell_type_hint: [B, D_type] optional cell type embedding (soft bias)
             return_reconstruction: Whether to compute receiver reconstruction
+            token_type_ids: [B, K] optional explicit token types (1-8 for neighbor tokens)
+                If None, assumes standard order [1,2,3,4,5,6,7,8]
 
         Returns:
             ReceiverNicheOutput with context, attention weights, and optional losses
         """
+        B, K, _ = neighbors.shape
+        device = receiver.device
+
         # Project to hidden dimension
-        h_receiver = self.receiver_proj(receiver)  # [B, D]
-        h_neighbors = self.neighbor_proj(neighbors)  # [B, K, D]
+        h_receiver = self.receiver_proj(receiver)  # [B, hidden_dim]
+        h_neighbors = self.neighbor_proj(neighbors)  # [B, K, hidden_dim]
+
+        # Add token-type embeddings for semantic distinction (Issue #6)
+        # This helps distinguish ring tokens from reference tokens from metadata tokens
+        if self.use_token_type_embeddings and self.token_type_embedding is not None:
+            # Receiver token type = 0
+            receiver_type = torch.zeros(B, 1, dtype=torch.long, device=device)
+            h_receiver = h_receiver + self.token_type_embedding(receiver_type).squeeze(1)
+
+            # Neighbor token types = 1-8 (ring1-4, hlca, luca, pathway, stats)
+            if token_type_ids is None:
+                # Default: assume standard 8-token order
+                token_type_ids = torch.arange(1, K + 1, dtype=torch.long, device=device)
+                token_type_ids = token_type_ids.unsqueeze(0).expand(B, -1)
+                # Clamp to valid range
+                token_type_ids = token_type_ids.clamp(max=self.NUM_TOKEN_TYPES - 1)
+            h_neighbors = h_neighbors + self.token_type_embedding(token_type_ids)
 
         # Optional cell type conditioning (soft bias, not rigid)
         if cell_type_hint is not None:
@@ -664,7 +701,21 @@ class SelfAttentionNicheEncoder(nn.Module):
         num_layers: Number of self-attention layers
         dropout: Dropout rate
         use_reconstruction_head: Add decoder for masked receiver reconstruction
+
+    Token types (9 total):
+        0: receiver - Central cell being characterized
+        1: ring1 - Innermost spatial ring (nearest neighbors)
+        2: ring2 - Second spatial ring
+        3: ring3 - Third spatial ring
+        4: ring4 - Outermost spatial ring
+        5: hlca - HLCA reference embedding
+        6: luca - LuCA reference embedding
+        7: pathway - Pathway activity scores
+        8: stats - Neighborhood statistics
     """
+
+    NUM_TOKEN_TYPES = 9
+    NUM_RINGS = 4
 
     def __init__(
         self,
@@ -673,22 +724,47 @@ class SelfAttentionNicheEncoder(nn.Module):
         num_heads: int = 4,
         num_layers: int = 2,
         max_neighbors: int = 20,  # For interface compatibility
-        distance_encoding: DistanceEncoding | str = DistanceEncoding.RBF,  # Unused but for interface
+        distance_encoding: DistanceEncoding | str = DistanceEncoding.RBF,
         sparsity_type: SparsityType | str = SparsityType.ENTROPY,  # Unused but for interface
         sparsity_weight: float = 0.01,  # Unused but for interface
         topk: int = 5,  # Unused but for interface
         dropout: float = 0.1,
         use_reconstruction_head: bool = True,
+        num_distance_bins: int = 16,
     ):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
+        # Parse distance encoding type
+        if isinstance(distance_encoding, str):
+            distance_encoding = DistanceEncoding(distance_encoding)
+        self.distance_encoding = distance_encoding
+
         # Unified projection for all tokens
         self.token_proj = nn.Linear(input_dim, hidden_dim)
 
-        # Token type embeddings: 0 = receiver, 1 = neighbor
-        self.token_type_embedding = nn.Embedding(2, hidden_dim)
+        # 9 distinct token type embeddings (not just receiver/neighbor)
+        self.token_type_embedding = nn.Embedding(self.NUM_TOKEN_TYPES, hidden_dim)
+
+        # Distance encoding for spatial modulation
+        self.num_distance_bins = num_distance_bins
+        if distance_encoding == DistanceEncoding.RBF:
+            # RBF centers spread across normalized distance range [0, 1]
+            self.register_buffer(
+                "rbf_centers",
+                torch.linspace(0.0, 1.0, num_distance_bins)
+            )
+            self.rbf_sigma = 1.0 / num_distance_bins
+            self.distance_proj = nn.Linear(num_distance_bins, hidden_dim)
+        elif distance_encoding == DistanceEncoding.BINNED:
+            self.distance_embedding = nn.Embedding(num_distance_bins, hidden_dim)
+        else:  # LEARNED or fallback
+            self.distance_mlp = nn.Sequential(
+                nn.Linear(1, hidden_dim // 2),
+                nn.GELU(),
+                nn.Linear(hidden_dim // 2, hidden_dim),
+            )
 
         # Standard transformer self-attention layers
         encoder_layer = nn.TransformerEncoderLayer(
@@ -717,40 +793,85 @@ class SelfAttentionNicheEncoder(nn.Module):
                 nn.Linear(hidden_dim, input_dim),
             )
 
+    def _encode_distances(self, distances: Tensor) -> Tensor:
+        """Encode distances into hidden_dim vectors.
+
+        Args:
+            distances: [B, K] normalized distances in [0, 1]
+
+        Returns:
+            [B, K, hidden_dim] distance encodings
+        """
+        if self.distance_encoding == DistanceEncoding.RBF:
+            # RBF encoding: exp(-||d - c||^2 / (2 * sigma^2))
+            # distances: [B, K], centers: [num_bins]
+            d = distances.unsqueeze(-1)  # [B, K, 1]
+            c = self.rbf_centers.view(1, 1, -1)  # [1, 1, num_bins]
+            rbf = torch.exp(-((d - c) ** 2) / (2 * self.rbf_sigma ** 2))  # [B, K, num_bins]
+            return self.distance_proj(rbf)  # [B, K, hidden_dim]
+        elif self.distance_encoding == DistanceEncoding.BINNED:
+            # Bin distances into discrete buckets
+            bins = (distances * (self.num_distance_bins - 1)).long().clamp(0, self.num_distance_bins - 1)
+            return self.distance_embedding(bins)  # [B, K, hidden_dim]
+        else:
+            # Learned MLP encoding
+            return self.distance_mlp(distances.unsqueeze(-1))  # [B, K, hidden_dim]
+
     def forward(
         self,
         receiver: Tensor,
         neighbors: Tensor,
-        distances: Tensor,  # Unused in self-attention (no distance modulation)
+        distances: Tensor,
         neighbor_mask: Tensor | None = None,
         cell_type_hint: Tensor | None = None,  # Unused but for interface
         return_reconstruction: bool = False,
+        token_type_ids: Tensor | None = None,
     ) -> ReceiverNicheOutput:
-        """Encode receiver's neighborhood using self-attention.
+        """Encode receiver's neighborhood using self-attention with typed tokens.
 
         Args:
             receiver: [B, D] receiver cell embedding
-            neighbors: [B, K, D] neighbor cell embeddings
-            distances: [B, K] distances (unused - no distance modulation in self-attention)
-            neighbor_mask: [B, K] boolean, True = valid, False = masked
-            cell_type_hint: [B, D_type] optional (unused, for interface compatibility)
+            neighbors: [B, K, D] neighbor token embeddings (K=8 for 9-token structure)
+                Token order: [ring1, ring2, ring3, ring4, hlca, luca, pathway, stats]
+            distances: [B, K] normalized distances for each token (0-1 range)
+                For non-spatial tokens (hlca, luca, pathway, stats), use 0.0
+            neighbor_mask: [B, K] boolean, True = valid token, False = masked/padding
+            token_type_ids: [B, K] optional explicit token types (1-8)
+                If None, assumes standard order [1,2,3,4,5,6,7,8]
             return_reconstruction: Whether to compute receiver reconstruction
 
         Returns:
             ReceiverNicheOutput with context, attention weights, and optional reconstruction
         """
         B, K, D = neighbors.shape
+        device = receiver.device
 
         # Project all tokens to hidden dimension
         h_receiver = self.token_proj(receiver).unsqueeze(1)  # [B, 1, H]
         h_neighbors = self.token_proj(neighbors)  # [B, K, H]
 
-        # Add token type embeddings
-        receiver_type = torch.zeros(B, 1, dtype=torch.long, device=receiver.device)
-        neighbor_type = torch.ones(B, K, dtype=torch.long, device=receiver.device)
-
+        # Add token type embeddings (9 distinct types)
+        receiver_type = torch.zeros(B, 1, dtype=torch.long, device=device)  # Type 0
         h_receiver = h_receiver + self.token_type_embedding(receiver_type)
-        h_neighbors = h_neighbors + self.token_type_embedding(neighbor_type)
+
+        # Token types for neighbors: [1,2,3,4,5,6,7,8] if not provided
+        if token_type_ids is None:
+            # Standard 9-token structure: receiver + 8 neighbor tokens
+            token_type_ids = torch.arange(1, K + 1, dtype=torch.long, device=device)
+            token_type_ids = token_type_ids.unsqueeze(0).expand(B, -1)
+            # Clamp to valid range in case K != 8
+            token_type_ids = token_type_ids.clamp(max=self.NUM_TOKEN_TYPES - 1)
+
+        h_neighbors = h_neighbors + self.token_type_embedding(token_type_ids)
+
+        # Add distance encoding for spatial tokens (rings 1-4, indices 0-3 in neighbors)
+        # Distance modulation helps model learn spatial decay of niche influence
+        if distances is not None:
+            distance_enc = self._encode_distances(distances)  # [B, K, H]
+            # Only apply distance encoding to spatial ring tokens (first 4)
+            # Non-spatial tokens (hlca, luca, pathway, stats) should have distances=0
+            # but we apply encoding anyway - zero distance just means "self" position
+            h_neighbors = h_neighbors + distance_enc
 
         # Concatenate: [receiver, neighbors] -> [B, K+1, H]
         tokens = torch.cat([h_receiver, h_neighbors], dim=1)
@@ -760,7 +881,7 @@ class SelfAttentionNicheEncoder(nn.Module):
         src_key_padding_mask = None
         if neighbor_mask is not None:
             # Receiver is always valid (False = attend), neighbors use provided mask
-            receiver_valid = torch.zeros(B, 1, dtype=torch.bool, device=receiver.device)
+            receiver_valid = torch.zeros(B, 1, dtype=torch.bool, device=device)
             # Invert: neighbor_mask True = valid -> False for transformer
             neighbor_invalid = ~neighbor_mask
             src_key_padding_mask = torch.cat([receiver_valid, neighbor_invalid], dim=1)
@@ -774,13 +895,9 @@ class SelfAttentionNicheEncoder(nn.Module):
         # Output projection
         context = self.output_proj(h_receiver_out)
 
-        # Compute pseudo-attention weights from final layer (for interpretability)
-        # Self-attention doesn't have explicit receiver->neighbor weights,
-        # so we report uniform weights as a placeholder
-        attention_weights = torch.ones(B, K, device=receiver.device) / K
-        if neighbor_mask is not None:
-            attention_weights = attention_weights * neighbor_mask.float()
-            attention_weights = attention_weights / attention_weights.sum(dim=-1, keepdim=True).clamp(min=1e-8)
+        # Compute attention weights from final transformer layer
+        # Extract actual attention pattern for interpretability
+        attention_weights = self._compute_attention_weights(tokens, src_key_padding_mask, K)
 
         # Optional reconstruction
         reconstruction = None
@@ -790,9 +907,43 @@ class SelfAttentionNicheEncoder(nn.Module):
         return ReceiverNicheOutput(
             context=context,
             attention_weights=attention_weights,
-            entropy_loss=None,  # No entropy loss for self-attention
+            entropy_loss=None,
             receiver_reconstruction=reconstruction,
         )
+
+    def _compute_attention_weights(
+        self,
+        tokens: Tensor,
+        mask: Tensor | None,
+        K: int,
+    ) -> Tensor:
+        """Extract receiver's attention weights to neighbor tokens.
+
+        Uses the first layer's attention as a proxy for interpretability.
+        """
+        B = tokens.shape[0]
+        device = tokens.device
+
+        # Get attention from first layer (most interpretable)
+        # nn.TransformerEncoder doesn't expose attention weights directly,
+        # so we compute them manually for the first layer
+        layer = self.transformer.layers[0]
+
+        # Self-attention: Q, K, V all from tokens
+        # TransformerEncoderLayer uses self_attn which is MultiheadAttention
+        with torch.no_grad():
+            # Get attention weights without gradient
+            _, attn_weights = layer.self_attn(
+                tokens, tokens, tokens,
+                key_padding_mask=mask,
+                need_weights=True,
+                average_attn_weights=True,  # Average across heads
+            )
+            # attn_weights: [B, K+1, K+1]
+            # Extract receiver's attention to neighbors (row 0, columns 1:K+1)
+            receiver_attn = attn_weights[:, 0, 1:K+1]  # [B, K]
+
+        return receiver_attn
 
     def compute_reconstruction_loss(
         self,
