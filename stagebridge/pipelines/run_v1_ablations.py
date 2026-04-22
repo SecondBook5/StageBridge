@@ -994,8 +994,9 @@ def create_dataloaders(
                     log(f"  Proliferation targets: {prolif_targets.shape}")
 
                 # Extract WES features for evolutionary regularization
-                # 8 features: tmb, kras_mut, egfr_mut, tp53_mut, stk11_mut, keap1_mut, smad4_mut, braf_mut
-                wes_cols = ["tmb", "kras_mut", "egfr_mut", "tp53_mut", "stk11_mut", "keap1_mut", "smad4_mut", "braf_mut"]
+                # Use canonical WES columns from contract
+                from stagebridge.canonical_contract import CANONICAL_WES_COLS
+                wes_cols = list(CANONICAL_WES_COLS)
                 wes_features = None
                 available_wes_cols = [c for c in wes_cols if c in cells_df.columns]
                 if available_wes_cols:
