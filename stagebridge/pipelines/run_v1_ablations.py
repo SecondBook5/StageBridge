@@ -120,14 +120,20 @@ class TrainingConfig:
 
 
 class MetricsLogger:
-    """Log training metrics to CSV for analysis."""
+    """Log training metrics to CSV for analysis.
+
+    Handles varying metric keys across phases (SSL vs transition) by:
+    1. Collecting all metrics in memory
+    2. Writing complete CSV with all observed columns at save_summary()
+    3. Intermediate writes use JSONL for robustness
+    """
 
     def __init__(self, output_dir: Path):
         self.output_dir = output_dir
-        self.metrics_file = output_dir / "metrics" / "training_metrics.csv"
-        self.metrics_file.parent.mkdir(parents=True, exist_ok=True)
-        self._header_written = False
+        self.metrics_dir = output_dir / "metrics"
+        self.metrics_dir.mkdir(parents=True, exist_ok=True)
         self._all_metrics = []
+        self._jsonl_file = self.metrics_dir / "training_metrics.jsonl"
 
     def log(self, epoch: int, phase: str, metrics: dict):
         """Log metrics for an epoch."""
@@ -149,25 +155,20 @@ class MetricsLogger:
 
         self._all_metrics.append(row)
 
-        # Write to CSV (append mode)
-        import csv
-
-        write_header = not self._header_written
-
-        with open(self.metrics_file, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(row.keys()))
-            if write_header:
-                writer.writeheader()
-                self._header_written = True
-            writer.writerow(row)
+        # Append to JSONL for crash-resilient logging
+        import json
+        with open(self._jsonl_file, "a") as f:
+            f.write(json.dumps(row) + "\n")
 
     def save_summary(self):
-        """Save complete metrics summary."""
+        """Save complete metrics summary as CSV with all columns."""
         import pandas as pd
 
         if self._all_metrics:
             df = pd.DataFrame(self._all_metrics)
-            df.to_csv(self.output_dir / "metrics" / "training_metrics_full.csv", index=False)
+            # Write with all columns from all phases
+            df.to_csv(self.metrics_dir / "training_metrics.csv", index=False)
+            df.to_csv(self.metrics_dir / "training_metrics_full.csv", index=False)
 
 
 def create_lr_scheduler(
@@ -300,8 +301,14 @@ class CheckpointManager:
         metrics: dict,
         config: dict,
         is_best: bool = False,
+        auxiliary_heads: dict[str, nn.Module] | None = None,
     ) -> Path:
-        """Save checkpoint."""
+        """Save checkpoint.
+
+        Args:
+            auxiliary_heads: Optional dict mapping head name to module
+                             (e.g., {"pathway_head": pathway_head, ...})
+        """
         if not is_main_process():
             return None
 
@@ -316,6 +323,12 @@ class CheckpointManager:
             "config": config,
             "timestamp": datetime.now().isoformat(),
         }
+
+        # Save auxiliary head state dicts
+        if auxiliary_heads:
+            for name, head in auxiliary_heads.items():
+                head_state = head.module.state_dict() if hasattr(head, "module") else head.state_dict()
+                checkpoint[f"{name}_state_dict"] = head_state
 
         # Save epoch checkpoint
         filepath = self.checkpoint_dir / f"checkpoint_epoch_{epoch:04d}.pt"
@@ -368,7 +381,13 @@ class CheckpointManager:
 
         self.checkpoint_history = [h for h in self.checkpoint_history if h["path"] in keep_paths]
 
-    def save_final(self, model: nn.Module, config: dict, metrics: dict):
+    def save_final(
+        self,
+        model: nn.Module,
+        config: dict,
+        metrics: dict,
+        auxiliary_heads: dict[str, nn.Module] | None = None,
+    ):
         """Save final checkpoint."""
         if not is_main_process():
             return None
@@ -382,6 +401,12 @@ class CheckpointManager:
             "timestamp": datetime.now().isoformat(),
             "is_final": True,
         }
+
+        # Save auxiliary head state dicts
+        if auxiliary_heads:
+            for name, head in auxiliary_heads.items():
+                head_state = head.module.state_dict() if hasattr(head, "module") else head.state_dict()
+                checkpoint[f"{name}_state_dict"] = head_state
 
         final_path = self.checkpoint_dir / "final_checkpoint.pt"
         torch.save(checkpoint, final_path)
@@ -917,16 +942,50 @@ def create_dataloaders(
                         niche_tokens[:, 7, :] = gamma_padded  # Token 7 = functional state
                         log(f"  Token 7 (pathway) enriched with gamma ({n_gamma} dims, padded to {embed_dim})")
 
-                # Extract pathway scores if available (pre-computed in complete_data_prep.py)
-                pathway_cols = [c for c in cells_df.columns if c.startswith("pathway_")]
-                pathway_targets = None
-                if pathway_cols:
-                    pathway_targets = torch.tensor(
-                        cells_df[sorted(pathway_cols)].values, dtype=torch.float32
+                # Extract RAW pathway/IL1B/KAC values (will be z-scored post-split)
+                pathway_raw_cols = [c for c in cells_df.columns if c.startswith("pathway_raw_")]
+                pathway_raw = None
+                if pathway_raw_cols:
+                    pathway_raw = torch.tensor(
+                        cells_df[sorted(pathway_raw_cols)].values, dtype=torch.float32
                     )
-                    log(f"  Pathway targets: {pathway_targets.shape[1]} pathways")
+                    log(f"  Pathway RAW: {pathway_raw.shape[1]} pathways (will z-score post-split)")
+                else:
+                    # Fallback: old-style pre-computed z-scores
+                    pathway_cols = [c for c in cells_df.columns if c.startswith("pathway_") and not c.startswith("pathway_raw_")]
+                    if pathway_cols:
+                        pathway_raw = torch.tensor(
+                            cells_df[sorted(pathway_cols)].values, dtype=torch.float32
+                        )
+                        log(f"  [WARN] Using pre-computed pathway z-scores (legacy format)")
 
-                # Extract proliferation label if available
+                # Extract RAW IL1B mean (will be z-scored post-split)
+                il1b_raw = None
+                if "il1b_raw" in cells_df.columns:
+                    il1b_raw = torch.tensor(
+                        cells_df["il1b_raw"].values, dtype=torch.float32
+                    ).unsqueeze(1)
+                    log(f"  IL1B RAW: loaded (will z-score post-split)")
+                elif "il1b_score" in cells_df.columns:
+                    il1b_raw = torch.tensor(
+                        cells_df["il1b_score"].values, dtype=torch.float32
+                    ).unsqueeze(1)
+                    log(f"  [WARN] Using pre-computed IL1B z-scores (legacy format)")
+
+                # Extract RAW KAC mean (will be z-scored post-split)
+                kac_raw = None
+                if "kac_raw" in cells_df.columns:
+                    kac_raw = torch.tensor(
+                        cells_df["kac_raw"].values, dtype=torch.float32
+                    ).unsqueeze(1)
+                    log(f"  KAC RAW: loaded (will z-score post-split)")
+                elif "kac_score" in cells_df.columns:
+                    kac_raw = torch.tensor(
+                        cells_df["kac_score"].values, dtype=torch.float32
+                    ).unsqueeze(1)
+                    log(f"  [WARN] Using pre-computed KAC z-scores (legacy format)")
+
+                # Extract proliferation label if available (binary, no z-scoring needed)
                 prolif_targets = None
                 if "proliferation_label" in cells_df.columns:
                     prolif_targets = torch.tensor(
@@ -1011,11 +1070,48 @@ def create_dataloaders(
                     indices = torch.randperm(n_cells)
                     train_idx, val_idx = indices[:n_train], indices[n_train:]
 
-                # Include pathway/proliferation targets in dataset (None-safe)
-                train_pathway = pathway_targets[train_idx] if pathway_targets is not None else torch.zeros(len(train_idx), 14)
-                val_pathway = pathway_targets[val_idx] if pathway_targets is not None else torch.zeros(len(val_idx), 14)
+                # =================================================================
+                # Z-SCORE RAW VALUES USING TRAIN-ONLY STATISTICS (NO LEAKAGE)
+                # =================================================================
+
+                def zscore_with_train_stats(raw_values, train_idx, val_idx):
+                    """Z-score using train-only mean/std, apply to both train and val."""
+                    if raw_values is None:
+                        return None, None
+                    train_raw = raw_values[train_idx]
+                    train_mean = train_raw.mean(dim=0, keepdim=True)
+                    train_std = train_raw.std(dim=0, keepdim=True, unbiased=False) + 1e-8
+                    train_zscored = (train_raw - train_mean) / train_std
+                    val_zscored = (raw_values[val_idx] - train_mean) / train_std
+                    return train_zscored, val_zscored
+
+                # Z-score pathway targets using train-only statistics
+                if pathway_raw is not None:
+                    train_pathway, val_pathway = zscore_with_train_stats(pathway_raw, train_idx, val_idx)
+                    log(f"  Pathway targets: z-scored using train-only stats (NO LEAKAGE)")
+                else:
+                    train_pathway = torch.zeros(len(train_idx), 14)
+                    val_pathway = torch.zeros(len(val_idx), 14)
+
+                # Proliferation is binary, no z-scoring needed
                 train_prolif = prolif_targets[train_idx] if prolif_targets is not None else torch.zeros(len(train_idx), 1)
                 val_prolif = prolif_targets[val_idx] if prolif_targets is not None else torch.zeros(len(val_idx), 1)
+
+                # Z-score IL1B targets using train-only statistics
+                if il1b_raw is not None:
+                    train_il1b, val_il1b = zscore_with_train_stats(il1b_raw, train_idx, val_idx)
+                    log(f"  IL1B targets: z-scored using train-only stats (NO LEAKAGE)")
+                else:
+                    train_il1b = torch.zeros(len(train_idx), 1)
+                    val_il1b = torch.zeros(len(val_idx), 1)
+
+                # Z-score KAC targets using train-only statistics
+                if kac_raw is not None:
+                    train_kac, val_kac = zscore_with_train_stats(kac_raw, train_idx, val_idx)
+                    log(f"  KAC targets: z-scored using train-only stats (NO LEAKAGE)")
+                else:
+                    train_kac = torch.zeros(len(train_idx), 1)
+                    val_kac = torch.zeros(len(val_idx), 1)
 
                 # Include WES features for evolutionary regularization (None-safe)
                 n_wes = 8  # tmb + 7 driver mutations
@@ -1041,33 +1137,14 @@ def create_dataloaders(
                 # NOTE: HLCA/LuCA are already in the fused embedding (niche_tokens)
                 # The Linear projection learns to weight them. See docs/architecture/dual_reference_encoder.md
 
-                # CRITICAL: Compute z_target WITHIN each split to prevent leakage
-                # z_target = mean embedding of cells in the next stage
-                # If computed globally, val stage info leaks into train targets
-                def compute_z_target(z_subset: torch.Tensor, stages_subset: torch.Tensor) -> torch.Tensor:
-                    """Compute z_target as mean of next-stage cells, within this split only."""
-                    z_target_split = torch.zeros_like(z_subset)
-                    for stage in range(4):  # 0-3 can transition to next stage
-                        current_mask = (stages_subset == stage)
-                        next_mask = (stages_subset == stage + 1)
-                        if current_mask.sum() > 0 and next_mask.sum() > 0:
-                            next_stage_mean = z_subset[next_mask].mean(dim=0)
-                            z_target_split[current_mask] = next_stage_mean
-                        elif current_mask.sum() > 0:
-                            # No next-stage cells in this split - use self
-                            z_target_split[current_mask] = z_subset[current_mask]
-                    # Stage 4 (LUAD) has no next stage - use self
-                    luad_mask = (stages_subset == 4)
-                    if luad_mask.sum() > 0:
-                        z_target_split[luad_mask] = z_subset[luad_mask]
-                    return z_target_split
+                # Cross-stage OT: z_target = actual cells (not means)
+                # transition_forward uses stage_indices for cross-stage pairing at batch time
+                # This is more principled than pre-computed means
+                train_z_target = z_source[train_idx].clone()
+                val_z_target = z_source[val_idx].clone()
+                log(f"  Using actual cells as z_target (cross-stage OT will pair them at batch time)")
 
-                train_z_target = compute_z_target(z_source[train_idx], train_stages)
-                log(f"  Computed z_target for train split (within-split, no leakage)")
-                val_z_target = compute_z_target(z_source[val_idx], val_stages)
-                log(f"  Computed z_target for val split (within-split, no leakage)")
-
-                # Dataset: [niche_tokens, z_source, z_target, pathway, prolif, stages, donors, wes]
+                # Dataset: [niche_tokens, z_source, z_target, pathway, prolif, stages, donors, wes, il1b, kac]
                 train_data = TensorDataset(
                     niche_tokens[train_idx],
                     z_source[train_idx],
@@ -1077,6 +1154,8 @@ def create_dataloaders(
                     train_stages,
                     train_donors_idx,
                     train_wes,
+                    train_il1b,  # IL1B signaling targets (z-scored with train-only stats)
+                    train_kac,   # KAC signature targets (z-scored with train-only stats)
                 )
                 val_data = TensorDataset(
                     niche_tokens[val_idx],
@@ -1087,6 +1166,8 @@ def create_dataloaders(
                     val_stages,
                     val_donors_idx,
                     val_wes,
+                    val_il1b,  # IL1B signaling targets (z-scored with train-only stats)
+                    val_kac,   # KAC signature targets (z-scored with train-only stats)
                 )
 
                 log(f"  Train: {len(train_idx):,} cells")
@@ -1253,7 +1334,7 @@ def train_epoch(
     stage_losses = {i: [] for i in range(5)}  # Normal=0, AAH=1, AIS=2, MIA=3, LUAD=4
 
     for batch_idx, batch in enumerate(progress):
-        # Unpack batch (8 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes)
+        # Unpack batch (10 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes, il1b, kac)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
         z_target = batch[2].to(device, non_blocking=True)
@@ -1262,6 +1343,8 @@ def train_epoch(
         stage_indices = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
         donor_indices = batch[6].to(device, non_blocking=True) if len(batch) > 6 else None
         wes_features = batch[7].to(device, non_blocking=True) if len(batch) > 7 else None
+        il1b_targets = batch[8].to(device, non_blocking=True) if len(batch) > 8 else None
+        kac_targets = batch[9].to(device, non_blocking=True) if len(batch) > 9 else None
 
         # ABLATION: no_wes - Zero out genomic/WES features
         # Tests whether evolutionary constraints improve transition prediction
@@ -1413,30 +1496,25 @@ def train_epoch(
                     )
                     total_prolif_loss += prolif_loss.item()
 
-            # IL1B-specific auxiliary loss (weight: 0.05) - Peng/Kadara hypothesis test
-            # IL1B is pathway index 4 in standard PROGENy ordering
-            # This is THE key biological claim: IL1B+ macrophages → epithelial IL1B-IL1R1 signaling
+            # IL1B-specific auxiliary loss (weight: 0.10) - Peng/Kadara hypothesis test
+            # IMPORTANT: Uses il1b_targets computed from IL1B signaling genes (IL1B, IL1R1, etc.)
+            # NOT pathway index 4 (which is JAK-STAT in PROGENy ordering)
             il1b_loss = torch.tensor(0.0, device=device)
-            if aux_repr is not None and il1b_head is not None and pathway_targets is not None:
-                if pathway_targets.shape[1] > 4:  # Ensure IL1B index exists
-                    il1b_targets = pathway_targets[:, 4:5]  # Extract IL1B (index 4)
-                    if il1b_targets.abs().sum() > 0:
-                        il1b_pred = il1b_head(aux_repr)
-                        il1b_loss = torch.nn.functional.mse_loss(il1b_pred, il1b_targets)
-                        total_il1b_loss += il1b_loss.item()
+            if aux_repr is not None and il1b_head is not None and il1b_targets is not None:
+                if il1b_targets.abs().sum() > 0:
+                    il1b_pred = il1b_head(aux_repr)
+                    il1b_loss = torch.nn.functional.mse_loss(il1b_pred, il1b_targets)
+                    total_il1b_loss += il1b_loss.item()
 
             # KAC signature loss (weight: 0.10) - Nature 2024 key intermediate state
-            # KAC is computed from a subset of pathway genes (indices vary by dataset)
+            # IMPORTANT: Uses kac_targets computed from KAC marker genes (KRT8, CLDN4, etc.)
+            # NOT p53 pathway index as a proxy
             kac_loss = torch.tensor(0.0, device=device)
-            if aux_repr is not None and kac_head is not None and pathway_targets is not None:
-                # KAC score computed as mean z-score of KAC markers in pathway targets
-                # For now, use p53 pathway (index 7) as proxy since CDKN1A/2A are in it
-                if pathway_targets.shape[1] > 7:
-                    kac_proxy = pathway_targets[:, 7:8]  # p53 pathway as proxy for senescence
-                    if kac_proxy.abs().sum() > 0:
-                        kac_pred = kac_head(aux_repr)
-                        kac_loss = torch.nn.functional.mse_loss(kac_pred, kac_proxy)
-                        total_kac_loss += kac_loss.item()
+            if aux_repr is not None and kac_head is not None and kac_targets is not None:
+                if kac_targets.abs().sum() > 0:
+                    kac_pred = kac_head(aux_repr)
+                    kac_loss = torch.nn.functional.mse_loss(kac_pred, kac_targets)
+                    total_kac_loss += kac_loss.item()
 
             # WES evolutionary regularization (weight: 0.05)
             # Penalizes transitions where cells with different driver mutations produce identical dynamics
@@ -1546,7 +1624,7 @@ def validate(
     donor_losses = {}  # donor_idx -> list of losses
 
     for batch in val_loader:
-        # Unpack batch (8 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes)
+        # Unpack batch (10 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes, il1b, kac)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
         z_target = batch[2].to(device, non_blocking=True)
@@ -1555,6 +1633,8 @@ def validate(
         stage_indices = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
         donor_indices = batch[6].to(device, non_blocking=True) if len(batch) > 6 else None
         wes_features = batch[7].to(device, non_blocking=True) if len(batch) > 7 else None
+        il1b_targets = batch[8].to(device, non_blocking=True) if len(batch) > 8 else None
+        kac_targets = batch[9].to(device, non_blocking=True) if len(batch) > 9 else None
 
         # ABLATION: no_wes - Zero out genomic/WES features (must match training)
         if config.no_wes and wes_features is not None:
@@ -1668,20 +1748,18 @@ def validate(
                 ).item()
 
             # IL1B validation loss (Peng/Kadara hypothesis test)
-            if aux_repr is not None and il1b_head is not None and pathway_targets is not None:
-                if pathway_targets.shape[1] > 4:
-                    il1b_targets = pathway_targets[:, 4:5]
-                    if il1b_targets.abs().sum() > 0:
-                        il1b_pred = il1b_head(aux_repr)
-                        total_il1b_loss += torch.nn.functional.mse_loss(il1b_pred, il1b_targets).item()
+            # IMPORTANT: Uses il1b_targets from batch, NOT pathway index
+            if aux_repr is not None and il1b_head is not None and il1b_targets is not None:
+                if il1b_targets.abs().sum() > 0:
+                    il1b_pred = il1b_head(aux_repr)
+                    total_il1b_loss += torch.nn.functional.mse_loss(il1b_pred, il1b_targets).item()
 
             # KAC validation loss (Nature 2024 intermediate state)
-            if aux_repr is not None and kac_head is not None and pathway_targets is not None:
-                if pathway_targets.shape[1] > 7:
-                    kac_proxy = pathway_targets[:, 7:8]  # p53 as proxy for senescence
-                    if kac_proxy.abs().sum() > 0:
-                        kac_pred = kac_head(aux_repr)
-                        total_kac_loss += torch.nn.functional.mse_loss(kac_pred, kac_proxy).item()
+            # IMPORTANT: Uses kac_targets from batch, NOT p53 proxy
+            if aux_repr is not None and kac_head is not None and kac_targets is not None:
+                if kac_targets.abs().sum() > 0:
+                    kac_pred = kac_head(aux_repr)
+                    total_kac_loss += torch.nn.functional.mse_loss(kac_pred, kac_targets).item()
 
             # Add auxiliary losses to main loss (match training weighting)
             if phase == "transition" and aux_repr is not None:
@@ -1690,14 +1768,10 @@ def validate(
                     aux_loss += 0.05 * torch.nn.functional.mse_loss(pathway_head(aux_repr), pathway_targets).item()
                 if prolif_head is not None and prolif_targets is not None and prolif_targets.abs().sum() > 0:
                     aux_loss += 0.05 * torch.nn.functional.binary_cross_entropy_with_logits(prolif_head(aux_repr), prolif_targets).item()
-                if il1b_head is not None and pathway_targets is not None and pathway_targets.shape[1] > 4:
-                    il1b_targets = pathway_targets[:, 4:5]
-                    if il1b_targets.abs().sum() > 0:
-                        aux_loss += 0.10 * torch.nn.functional.mse_loss(il1b_head(aux_repr), il1b_targets).item()
-                if kac_head is not None and pathway_targets is not None and pathway_targets.shape[1] > 7:
-                    kac_proxy = pathway_targets[:, 7:8]
-                    if kac_proxy.abs().sum() > 0:
-                        aux_loss += 0.10 * torch.nn.functional.mse_loss(kac_head(aux_repr), kac_proxy).item()
+                if il1b_head is not None and il1b_targets is not None and il1b_targets.abs().sum() > 0:
+                    aux_loss += 0.10 * torch.nn.functional.mse_loss(il1b_head(aux_repr), il1b_targets).item()
+                if kac_head is not None and kac_targets is not None and kac_targets.abs().sum() > 0:
+                    aux_loss += 0.10 * torch.nn.functional.mse_loss(kac_head(aux_repr), kac_targets).item()
                 loss = loss.item() + aux_loss
             else:
                 loss = loss.item()

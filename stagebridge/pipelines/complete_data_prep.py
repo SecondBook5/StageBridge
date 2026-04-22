@@ -26,6 +26,11 @@ from stagebridge.utils.data_cache import get_data_cache
 from stagebridge.biology.pathway_targets import (
     compute_pathway_targets,
     compute_proliferation_targets,
+    compute_il1b_targets,
+    compute_kac_targets,
+    compute_pathway_raw,
+    compute_il1b_raw,
+    compute_kac_raw,
     PROGENY_PATHWAYS,
 )
 from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS
@@ -503,17 +508,26 @@ def generate_cells_table(
     wes_id_col = "patient_id" if wes_df is not None and "patient_id" in wes_df.columns else "donor_id"
 
     # Pre-compute pathway/proliferation targets for all snRNA cells (batch)
-    print("  Computing pathway/proliferation targets...")
+    # IMPORTANT: Store RAW means (not z-scored) to prevent train/val leakage.
+    # Z-scoring will be done at training time using train-only statistics.
+    print("  Computing pathway/proliferation targets (RAW, no z-score)...")
     gene_names = list(snrna.var_names)
     snrna_expr = torch.tensor(
         snrna.X.toarray() if hasattr(snrna.X, "toarray") else snrna.X,
         dtype=torch.float32,
     )
-    pathway_targets = compute_pathway_targets(snrna_expr, gene_names, torch.device("cpu"))
+    # Store RAW pathway means - will be z-scored at training time
+    pathway_raw = compute_pathway_raw(snrna_expr, gene_names)
+    # Proliferation is binary (threshold-based), not z-scored - OK to compute here
     prolif_targets = compute_proliferation_targets(snrna_expr, gene_names, torch.device("cpu"))
+    # Store RAW IL1B/KAC means - will be z-scored at training time
+    il1b_raw = compute_il1b_raw(snrna_expr, gene_names)
+    kac_raw = compute_kac_raw(snrna_expr, gene_names)
     n_pathways = len(PROGENY_PATHWAYS)
-    print(f"    Pathway targets: {pathway_targets.shape if pathway_targets is not None else 'None'}")
+    print(f"    Pathway RAW: {pathway_raw.shape if pathway_raw is not None else 'None'}")
     print(f"    Proliferation targets: {prolif_targets.shape if prolif_targets is not None else 'None'}")
+    print(f"    IL1B RAW: {il1b_raw.shape if il1b_raw is not None else 'None'}")
+    print(f"    KAC RAW: {kac_raw.shape if kac_raw is not None else 'None'}")
 
     # Process snRNA cells
     for idx, cell_id in enumerate(tqdm(snrna.obs_names, desc="Processing snRNA")):
@@ -574,30 +588,45 @@ def generate_cells_table(
         for dim in range(luca_dim):
             record[f"z_luca_{dim}"] = z_luca[dim]
 
-        # Add pathway/proliferation targets (pre-computed from real expression)
-        if pathway_targets is not None:
+        # Add RAW pathway means (will be z-scored at training time using train-only stats)
+        # Column names: pathway_raw_0, pathway_raw_1, ... (not pathway_0 to signal raw values)
+        if pathway_raw is not None:
             for p_idx in range(n_pathways):
-                record[f"pathway_{p_idx}"] = float(pathway_targets[idx, p_idx].item())
+                record[f"pathway_raw_{p_idx}"] = float(pathway_raw[idx, p_idx].item())
         else:
             for p_idx in range(n_pathways):
-                record[f"pathway_{p_idx}"] = 0.0
+                record[f"pathway_raw_{p_idx}"] = 0.0
+
+        # Proliferation is binary (threshold-based), OK to store directly
         record["proliferation_label"] = (
             float(prolif_targets[idx, 0].item()) if prolif_targets is not None else 0.0
         )
 
+        # Store RAW IL1B/KAC means (will be z-scored at training time)
+        record["il1b_raw"] = (
+            float(il1b_raw[idx, 0].item()) if il1b_raw is not None else 0.0
+        )
+        record["kac_raw"] = (
+            float(kac_raw[idx, 0].item()) if kac_raw is not None else 0.0
+        )
+
         records.append(record)
 
-    # Pre-compute pathway/proliferation targets for spatial spots
-    print("  Computing spatial pathway/proliferation targets...")
+    # Pre-compute RAW pathway means for spatial spots (z-scored at training time)
+    print("  Computing spatial pathway/proliferation targets (RAW, no z-score)...")
     spatial_gene_names = list(spatial.var_names)
     spatial_expr = torch.tensor(
         spatial.X.toarray() if hasattr(spatial.X, "toarray") else spatial.X,
         dtype=torch.float32,
     )
-    spatial_pathway_targets = compute_pathway_targets(spatial_expr, spatial_gene_names, torch.device("cpu"))
+    spatial_pathway_raw = compute_pathway_raw(spatial_expr, spatial_gene_names)
     spatial_prolif_targets = compute_proliferation_targets(spatial_expr, spatial_gene_names, torch.device("cpu"))
-    print(f"    Spatial pathway targets: {spatial_pathway_targets.shape if spatial_pathway_targets is not None else 'None'}")
+    spatial_il1b_raw = compute_il1b_raw(spatial_expr, spatial_gene_names)
+    spatial_kac_raw = compute_kac_raw(spatial_expr, spatial_gene_names)
+    print(f"    Spatial pathway RAW: {spatial_pathway_raw.shape if spatial_pathway_raw is not None else 'None'}")
     print(f"    Spatial proliferation targets: {spatial_prolif_targets.shape if spatial_prolif_targets is not None else 'None'}")
+    print(f"    Spatial IL1B RAW: {spatial_il1b_raw.shape if spatial_il1b_raw is not None else 'None'}")
+    print(f"    Spatial KAC RAW: {spatial_kac_raw.shape if spatial_kac_raw is not None else 'None'}")
 
     # Process spatial spots
     for idx, spot_id in enumerate(tqdm(spatial.obs_names, desc="Processing spatial")):
@@ -659,15 +688,25 @@ def generate_cells_table(
         for dim in range(luca_dim):
             record[f"z_luca_{dim}"] = z_luca[dim]
 
-        # Add pathway/proliferation targets (pre-computed from real expression)
-        if spatial_pathway_targets is not None:
+        # Add RAW pathway means (will be z-scored at training time using train-only stats)
+        if spatial_pathway_raw is not None:
             for p_idx in range(n_pathways):
-                record[f"pathway_{p_idx}"] = float(spatial_pathway_targets[idx, p_idx].item())
+                record[f"pathway_raw_{p_idx}"] = float(spatial_pathway_raw[idx, p_idx].item())
         else:
             for p_idx in range(n_pathways):
-                record[f"pathway_{p_idx}"] = 0.0
+                record[f"pathway_raw_{p_idx}"] = 0.0
+
+        # Proliferation is binary (threshold-based), OK to store directly
         record["proliferation_label"] = (
             float(spatial_prolif_targets[idx, 0].item()) if spatial_prolif_targets is not None else 0.0
+        )
+
+        # Store RAW IL1B/KAC means (will be z-scored at training time)
+        record["il1b_raw"] = (
+            float(spatial_il1b_raw[idx, 0].item()) if spatial_il1b_raw is not None else 0.0
+        )
+        record["kac_raw"] = (
+            float(spatial_kac_raw[idx, 0].item()) if spatial_kac_raw is not None else 0.0
         )
 
         # Add DestVI gamma values (intra-cell-type variation) for spatial spots
@@ -791,20 +830,44 @@ def generate_neighborhoods_table(
                 }
             )
 
-            # Tokens 1-4: Rings (5 cells per ring)
-            cells_per_ring = 5
+            # Tokens 1-4: Distance-based concentric rings
+            # Ring boundaries defined by distance quantiles for biologically meaningful shells
+            # Ring 1: 0-25th percentile (immediate neighbors)
+            # Ring 2: 25-50th percentile
+            # Ring 3: 50-75th percentile
+            # Ring 4: 75-100th percentile (outermost ring)
+            max_dist = neighbor_distances.max()
+            if max_dist > 0:
+                # Normalize distances to [0, 1] for consistent ring boundaries
+                normalized_dists = neighbor_distances / max_dist
+                ring_boundaries = [0.0, 0.25, 0.5, 0.75, 1.0]
+            else:
+                # All distances are 0 (degenerate case)
+                normalized_dists = np.zeros_like(neighbor_distances)
+                ring_boundaries = [0.0, 0.25, 0.5, 0.75, 1.0]
+
             for ring in range(4):
-                start = ring * cells_per_ring
-                end = min((ring + 1) * cells_per_ring, len(neighbor_indices))
-                ring_neighbor_indices = neighbor_indices[start:end]
+                lower = ring_boundaries[ring]
+                upper = ring_boundaries[ring + 1]
+
+                # Include upper bound for last ring
+                if ring == 3:
+                    ring_mask = (normalized_dists >= lower) & (normalized_dists <= upper)
+                else:
+                    ring_mask = (normalized_dists >= lower) & (normalized_dists < upper)
+
+                ring_neighbor_indices = neighbor_indices[ring_mask]
+                ring_distances = neighbor_distances[ring_mask]
 
                 if len(ring_neighbor_indices) == 0:
-                    # Empty ring
+                    # Empty ring (gap in spatial distribution)
                     tokens.append(
                         {
                             "token_idx": ring + 1,
                             "token_type": f"ring_{ring + 1}",
                             "n_cells": 0,
+                            "mean_distance": float((lower + upper) / 2 * max_dist) if max_dist > 0 else 0.0,
+                            "normalized_distance": float((lower + upper) / 2),
                         }
                     )
                     continue
@@ -824,7 +887,8 @@ def generate_neighborhoods_table(
                         "n_cells": len(ring_neighbors),
                         "z_pooled": z_pooled.tolist(),
                         "celltype_composition": celltype_counts,
-                        "mean_distance": float(neighbor_distances[start:end].mean()),
+                        "mean_distance": float(ring_distances.mean()),
+                        "normalized_distance": float(normalized_dists[ring_mask].mean()),
                     }
                 )
 
