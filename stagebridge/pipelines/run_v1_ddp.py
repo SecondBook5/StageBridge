@@ -615,8 +615,21 @@ def create_dataloaders(
         )
 
     # Data loading block (canonical contract enforced above)
-    # Build niche tokens from neighborhoods
+    # ==========================================================================
+    # 9-TOKEN NICHE STRUCTURE
+    # ==========================================================================
     # Token order: [receiver, ring1, ring2, ring3, ring4, hlca, luca, pathway, stats]
+    #
+    # IMPORTANT SEMANTIC DISTINCTION (Issue #4):
+    # - Token 7 "pathway" = NICHE COMPOSITION features (emt_score, caf_fraction,
+    #   immune_fraction, gamma) computed from spatial deconvolution. This describes
+    #   the LOCAL MICROENVIRONMENT composition around this cell.
+    # - pathway_targets = PROGENy GENE SET z-scores (Hypoxia, NFkB, etc.) computed
+    #   from the cell's own gene expression. These are AUXILIARY SUPERVISION targets.
+    #
+    # These are conceptually different:
+    # - Token 7 answers: "What cell types surround this cell?"
+    # - pathway_targets answers: "What pathways are active in this cell?"
     embeddings = torch.tensor(cells_df[fused_cols].values, dtype=torch.float32)
     n_cells = len(embeddings)
 
@@ -648,6 +661,7 @@ def create_dataloaders(
     # neighborhoods_df has columns: cell_id, donor_id, stage, tokens
     # where 'tokens' is a list of 9 token dicts with z_pooled for rings
     n_rings_populated = 0
+    n_pathway_populated = 0
     n_stats_populated = 0
 
     # Token distances: [n_cells, 8] for 8 neighbor tokens
@@ -700,6 +714,22 @@ def create_dataloaders(
                         # Mark as valid token
                         token_mask[cell_idx, token_idx - 1] = True
 
+                # Token 7: Pathway (emt_score, caf_fraction, immune_fraction)
+                # These are computed from spatial cell type composition in complete_data_prep.py
+                elif token_idx == 7:
+                    emt_score = token_dict.get("emt_score", 0.0)
+                    caf_fraction = token_dict.get("caf_fraction", 0.0)
+                    immune_fraction = token_dict.get("immune_fraction", 0.0)
+                    # Encode pathway features into first few dims of token 7
+                    # All values are in [0, 1] range - no normalization needed
+                    niche_tokens[cell_idx, 7, 0] = float(emt_score)
+                    niche_tokens[cell_idx, 7, 1] = float(caf_fraction)
+                    niche_tokens[cell_idx, 7, 2] = float(immune_fraction)
+                    # Mark pathway token as valid if any feature is non-zero
+                    if emt_score > 0 or caf_fraction > 0 or immune_fraction > 0:
+                        token_mask[cell_idx, 6] = True  # Index 6 = token 7
+                        n_pathway_populated += 1
+
                 # Token 8: Stats (n_neighbors, mean_distance, diversity)
                 elif token_idx == 8:
                     n_neighbors = token_dict.get("n_neighbors", 0)
@@ -715,6 +745,7 @@ def create_dataloaders(
                     token_mask[cell_idx, 7] = True  # Index 7 = token 8
 
         log(f"  Ring tokens populated: {n_rings_populated} (from {len(neighborhoods_df)} neighborhoods)")
+        log(f"  Pathway tokens populated: {n_pathway_populated}")
         log(f"  Stats tokens populated: {n_stats_populated}")
 
         # Report distance statistics
@@ -731,11 +762,12 @@ def create_dataloaders(
             if ring_diff < 1e-6:
                 log("  WARNING: Ring tokens appear identical to receiver - check neighborhoods parsing")
     else:
-        # Fallback: use receiver embedding for rings (placeholder behavior)
-        log("  WARNING: No 'tokens' column in neighborhoods.parquet or empty DataFrame")
-        log("  FALLBACK: Using receiver embedding for ring tokens (degraded niche context)")
-        for ring_idx in range(1, 5):
-            niche_tokens[:, ring_idx, :] = embeddings
+        # HARD FAIL: No silent fallback - broken neighborhoods.parquet is a scientific error
+        raise ValueError(
+            "neighborhoods.parquet missing 'tokens' column or is empty. "
+            "This indicates a broken data pipeline - run complete_data_prep.py. "
+            "Copying receiver embedding for rings would teach the model to ignore niche context."
+        )
 
     # Fill any remaining cells without neighborhoods (snRNA cells) with donor-level pseudo-niche
     # Spatial cells should have neighborhoods; snRNA cells (no spatial coords) won't
@@ -819,10 +851,9 @@ def create_dataloaders(
         token_mask[:, 5] = True  # Still valid, using fused as fallback
         log("  Token 6 (LuCA): using fused (no separate LuCA)")
 
-    # Token 7: Pathway (will be filled with gamma below if available)
-    # Token mask index 6 = token 7 (pathway)
-    # Initially marked invalid - will be set True when gamma is populated
-    log(f"  Token 7 (pathway): zeros (gamma will be added if available)")
+    # Token 7: Pathway - already populated from neighborhoods.parquet (emt_score, caf_fraction, immune_fraction)
+    # Gamma values from DestVI can ENRICH the pathway token below if available
+    log(f"  Token 7 (pathway): {n_pathway_populated} cells have pathway features from neighborhoods.parquet")
 
     # Token 8: Stats (populated above from neighborhoods.parquet)
     # Token mask index 7 = token 8 (stats) - already set above when parsing
@@ -908,25 +939,41 @@ def create_dataloaders(
         n_gamma = gamma_features.shape[1]
         log(f"  Gamma values: {n_gamma} dims (DestVI functional state)")
 
-        # Add gamma to token 7 (pathway token) - represents functional state
-        # Pad or truncate gamma to fit niche_tokens dimension (from fused embeddings)
+        # ENRICH token 7 with gamma values - add to existing pathway features
+        # Token 7 already has emt_score, caf_fraction, immune_fraction in dims 0-2
+        # Gamma values go into dims 3+ to complement the pathway features
         embed_dim = niche_tokens.shape[2]  # Actual embedding dimension (40 for fused)
-        if n_gamma < embed_dim:
-            # Pad gamma with zeros to match embedding dim for token 7
-            gamma_padded = torch.zeros(n_cells, embed_dim)
-            gamma_padded[:, :n_gamma] = gamma_features
-            niche_tokens[:, 7, :] = gamma_padded  # Token 7 = functional state
-            # Mark token 7 as valid for all cells with gamma
-            token_mask[:, 6] = True  # Index 6 = token 7 (pathway)
-            log(f"  Token 7 (pathway) enriched with gamma ({n_gamma} dims, padded to {embed_dim})")
+        start_dim = 3  # After emt_score, caf_fraction, immune_fraction
+        available_dims = embed_dim - start_dim
+
+        if n_gamma <= available_dims:
+            # Gamma fits in remaining dimensions
+            niche_tokens[:, 7, start_dim:start_dim + n_gamma] = gamma_features
+            log(f"  Token 7 (pathway) enriched with gamma ({n_gamma} dims at positions {start_dim}-{start_dim + n_gamma - 1})")
+        else:
+            # Truncate gamma to fit
+            niche_tokens[:, 7, start_dim:] = gamma_features[:, :available_dims]
+            log(f"  Token 7 (pathway) enriched with gamma (truncated {n_gamma} -> {available_dims} dims)")
+
+        # Mark token 7 as valid for all cells (gamma provides signal even if pathway features were zero)
+        token_mask[:, 6] = True  # Index 6 = token 7 (pathway)
     else:
-        log("  Token 7 (pathway): NO gamma values - token masked as invalid")
+        log("  Token 7 (pathway): NO gamma values - using pathway features only")
 
     # =================================================================
-    # EXTRACT RAW PATHWAY/IL1B/KAC VALUES
-    # These are stored as raw means in cells.parquet. Z-scoring will be
-    # done AFTER train/val split using train-only statistics to prevent
-    # leakage. This is the correct way to handle normalization.
+    # EXTRACT RAW PATHWAY/IL1B/KAC VALUES FOR AUXILIARY SUPERVISION
+    # =================================================================
+    # These are AUXILIARY SUPERVISION TARGETS, NOT token features.
+    # - pathway_targets: PROGENy gene set z-scores (cell-intrinsic pathway activity)
+    # - il1b_targets: IL1B signaling gene mean (Peng/Kadara hypothesis)
+    # - kac_targets: KAC marker gene mean (Nature 2024 intermediate state)
+    #
+    # IMPORTANT: Do NOT confuse with Token 7 "pathway" which contains
+    # NICHE COMPOSITION (emt_score, caf_fraction, immune_fraction).
+    # Token 7 = neighborhood composition, pathway_targets = cell-intrinsic activity.
+    #
+    # Z-scoring is done AFTER train/val split using train-only statistics
+    # to prevent leakage.
     # =================================================================
 
     # Extract RAW pathway means (will be z-scored post-split)
@@ -1033,20 +1080,20 @@ def create_dataloaders(
             if overlap:
                 raise RuntimeError(f"DONOR LEAKAGE DETECTED: {overlap}")
         else:
-            log(
-                "  WARNING: No donor_id column, falling back to random split (LEAKAGE RISK)"
+            # HARD FAIL: donor_id is required for proper evaluation
+            raise ValueError(
+                "cells.parquet missing 'donor_id' column. "
+                "Donor ID is required for donor-held-out CV to prevent leakage. "
+                "Run complete_data_prep.py to ensure proper metadata."
             )
-            n_train = int(0.9 * n_cells)
-            indices = torch.randperm(n_cells)
-            train_idx, val_idx = indices[:n_train], indices[n_train:]
     else:
-        # Fallback to random split if no manifest (e.g., during development)
-        log(
-            "  WARNING: No split_manifest.json found, using random split (LEAKAGE RISK)"
+        # HARD FAIL: No split manifest means potential donor leakage
+        raise ValueError(
+            f"split_manifest.json not found at {config.data_dir}. "
+            "This file is required to ensure donor-held-out evaluation. "
+            "Run complete_data_prep.py to generate it. "
+            "Random splits risk donor leakage and invalidate scientific claims."
         )
-        n_train = int(0.9 * n_cells)
-        indices = torch.randperm(n_cells)
-        train_idx, val_idx = indices[:n_train], indices[n_train:]
 
     # =================================================================
     # Z-SCORE RAW VALUES USING TRAIN-ONLY STATISTICS
@@ -1391,18 +1438,31 @@ def train_epoch(
             if phase == "ssl":
                 # STAGE 1: SSL - Masked receiver reconstruction from niche context
                 # The fused embedding [HLCA | LuCA] already encodes dual-reference geometry
+                # CRITICAL: Pass real distances for distance-aware attention (Issue #5)
                 if hasattr(actual_model, "ssl_forward"):
                     receiver = niche_tokens[:, 0, :]  # [B, 40] = fused
-                    outputs = actual_model.ssl_forward(niche_tokens, receiver)
-                    loss = outputs["loss_reconstruction"]
+                    # Pass REAL distances from neighborhoods.parquet, not all-ones
+                    outputs = actual_model.ssl_forward(
+                        niche_tokens, receiver,
+                        distances=token_distances,  # [B, 8] or None
+                        token_mask=token_mask,      # [B, 8] or None
+                    )
+                    # Apply donor-balanced sample weights for fair donor representation
+                    if sample_weights is not None:
+                        # Compute per-sample MSE, weight, then mean
+                        per_sample_loss = ((outputs["receiver_pred"] - receiver) ** 2).mean(dim=-1)
+                        loss = (per_sample_loss * sample_weights).mean()
+                    else:
+                        loss = outputs["loss_reconstruction"]
 
-                    # Track stage-stratified SSL loss
+                    # Track GENUINE stage-stratified SSL loss (Issue #12)
+                    # Compute loss separately per stage, not just copy batch loss
                     if stage_indices is not None:
                         with torch.no_grad():
                             for s in range(5):
-                                mask = (stage_indices == s)
-                                if mask.any():
-                                    stage_loss = torch.mean((outputs["receiver_pred"][mask] - receiver[mask]) ** 2)
+                                s_mask = (stage_indices == s)
+                                if s_mask.sum() >= 2:  # Need at least 2 cells for meaningful loss
+                                    stage_loss = torch.mean((outputs["receiver_pred"][s_mask] - receiver[s_mask]) ** 2)
                                     stage_losses[s].append(stage_loss.item())
                 else:
                     # Fallback: predict receiver from neighbors with REAL distances and mask
@@ -1435,10 +1495,13 @@ def train_epoch(
                             trans_wes = wes_features[can_transition] if wes_features is not None else None
 
                             # Pass stage_indices for cross-stage OT pairing
+                            # Pass sample_weights for donor-balanced optimization
+                            trans_weights = sample_weights[can_transition] if sample_weights is not None else None
                             outputs = actual_model.transition_forward(
                                 trans_z_source, trans_z_target, trans_context,
                                 use_ot=True, wes_features=trans_wes,
-                                stage_indices=trans_stages  # NEW: enables cross-stage OT
+                                stage_indices=trans_stages,
+                                sample_weights=trans_weights,
                             )
                             loss = outputs["loss_transition"]
 
@@ -1449,12 +1512,14 @@ def train_epoch(
                         else:
                             # Fallback: use all cells with standard OT
                             outputs = actual_model.transition_forward(
-                                z_source, z_target, context, use_ot=True, wes_features=wes_features
+                                z_source, z_target, context, use_ot=True,
+                                wes_features=wes_features, sample_weights=sample_weights
                             )
                             loss = outputs["loss_transition"]
                     else:
                         outputs = actual_model.transition_forward(
-                            z_source, z_target, context, use_ot=True, wes_features=wes_features
+                            z_source, z_target, context, use_ot=True,
+                            wes_features=wes_features, sample_weights=sample_weights
                         )
                         loss = outputs["loss_transition"]
                 else:
@@ -1747,6 +1812,7 @@ def validate(
                             trans_z_source = z_source[can_transition]
                             trans_z_target = z_target[can_transition]
                             trans_context = context[can_transition]
+                            trans_stages = stage_indices[can_transition]  # Stages for filtered cells
                             trans_wes = wes_features[can_transition] if wes_features is not None else None
                             # Also filter pathway/prolif targets for auxiliary loss computation
                             trans_pathway_targets = pathway_targets[can_transition] if pathway_targets is not None else None
@@ -1759,7 +1825,7 @@ def validate(
                             if "drift_pred" in outputs and "drift_true" in outputs:
                                 all_drift_pred.append(outputs["drift_pred"].detach().cpu())
                                 all_drift_true.append(outputs["drift_true"].detach().cpu())
-                                if "src_idx" in outputs and trans_stages is not None:
+                                if "src_idx" in outputs:
                                     pair_stages = trans_stages[outputs["src_idx"]].detach().cpu()
                                     all_transition_stages.append(pair_stages)
                             # Update targets to filtered versions for auxiliary loss computation below
@@ -1859,14 +1925,27 @@ def validate(
         total_loss += loss
         n_batches += 1
 
-    # Aggregate across processes
+    # Aggregate across processes (all metrics, not just main loss)
     if dist.is_initialized():
-        total_loss_tensor = torch.tensor([total_loss], device=device)
-        n_batches_tensor = torch.tensor([n_batches], device=device)
-        dist.all_reduce(total_loss_tensor)
-        dist.all_reduce(n_batches_tensor)
-        total_loss = total_loss_tensor.item()
-        n_batches = int(n_batches_tensor.item())
+        # Pack all values for single all_reduce (mirrors training)
+        sync_tensor = torch.tensor([
+            total_loss,
+            float(n_batches),
+            total_pathway_loss,
+            total_prolif_loss,
+            total_il1b_loss,
+            total_kac_loss,
+            float(n_aux_batches),
+        ], device=device)
+        dist.all_reduce(sync_tensor)
+
+        total_loss = sync_tensor[0].item()
+        n_batches = int(sync_tensor[1].item())
+        total_pathway_loss = sync_tensor[2].item()
+        total_prolif_loss = sync_tensor[3].item()
+        total_il1b_loss = sync_tensor[4].item()
+        total_kac_loss = sync_tensor[5].item()
+        n_aux_batches = int(sync_tensor[6].item())
 
     metrics = {"val_loss": total_loss / max(n_batches, 1)}
     if n_aux_batches > 0:

@@ -673,6 +673,7 @@ class StageBridgeV1Complete(nn.Module):
         self,
         niche_tokens: torch.Tensor,
         distances: torch.Tensor = None,
+        neighbor_mask: torch.Tensor = None,
     ) -> torch.Tensor:
         """Encode 9-token niche structure into context vector.
 
@@ -683,7 +684,8 @@ class StageBridgeV1Complete(nn.Module):
         Args:
             niche_tokens: [B, K, D] niche token embeddings (token 0 = receiver)
                           D = 40 = fused dimension (30 HLCA + 10 LuCA)
-            distances: [B, K] optional distances for doctrine encoder
+            distances: [B, K-1] distances for neighbor tokens (doctrine encoder)
+            neighbor_mask: [B, K-1] boolean, True = valid token, False = masked
 
         Returns:
             [B, context_dim] context vector
@@ -707,6 +709,7 @@ class StageBridgeV1Complete(nn.Module):
                 receiver=receiver,
                 neighbors=neighbors,
                 distances=distances,
+                neighbor_mask=neighbor_mask,
             )
             context = self.context_projection(output.context)
         else:
@@ -731,6 +734,7 @@ class StageBridgeV1Complete(nn.Module):
         self,
         niche_tokens: torch.Tensor,
         distances: torch.Tensor = None,
+        neighbor_mask: torch.Tensor = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Encode niche and return both context and attention weights.
 
@@ -738,7 +742,8 @@ class StageBridgeV1Complete(nn.Module):
 
         Args:
             niche_tokens: [B, K, D] niche token embeddings
-            distances: [B, K] optional distances
+            distances: [B, K-1] distances for neighbor tokens
+            neighbor_mask: [B, K-1] boolean, True = valid token, False = masked
 
         Returns:
             context: [B, context_dim] context vector
@@ -758,11 +763,12 @@ class StageBridgeV1Complete(nn.Module):
                 receiver=receiver,
                 neighbors=neighbors,
                 distances=distances,
+                neighbor_mask=neighbor_mask,
             )
             context = self.context_projection(output.context)
             attention_weights = output.attention_weights
         else:
-            context = self.encode_niche(niche_tokens, distances)
+            context = self.encode_niche(niche_tokens, distances, neighbor_mask)
             # Fallback encoder has no explicit attention
             K = niche_tokens.shape[1] - 1
             attention_weights = torch.ones(batch_size, K, device=niche_tokens.device) / K
@@ -773,14 +779,20 @@ class StageBridgeV1Complete(nn.Module):
         self,
         niche_tokens: torch.Tensor,
         receiver_target: torch.Tensor,
+        distances: torch.Tensor | None = None,
+        token_mask: torch.Tensor | None = None,
     ) -> dict:
         """SSL pretraining forward pass.
 
         Args:
             niche_tokens: [B, K, D] niche token embeddings (D=40 fused)
             receiver_target: [B, D] target for receiver reconstruction
+            distances: [B, K-1] normalized distances for neighbor tokens (0-1 range)
+                       REQUIRED for distance-aware attention. Passing None defaults
+                       to all-ones which disables distance modulation.
+            token_mask: [B, K-1] boolean mask, True = valid token, False = masked
         """
-        context = self.encode_niche(niche_tokens)
+        context = self.encode_niche(niche_tokens, distances=distances, neighbor_mask=token_mask)
         receiver_pred = self.ssl_decoder(context)
         loss_reconstruction = torch.mean((receiver_pred - receiver_target) ** 2)
         ranking_score = self.ssl_ranking_head(context)
@@ -800,6 +812,8 @@ class StageBridgeV1Complete(nn.Module):
         t: torch.Tensor | None = None,
         wes_features: torch.Tensor | None = None,
         use_ot: bool = True,
+        stage_indices: torch.Tensor | None = None,
+        sample_weights: torch.Tensor | None = None,
     ) -> dict:
         """Transition model forward pass with OT-CFM (Optimal Transport Flow Matching).
 
@@ -807,13 +821,20 @@ class StageBridgeV1Complete(nn.Module):
         computing flow matching loss. This replaces random pairing with
         transport-optimal pairing.
 
+        When stage_indices is provided, uses CROSS-STAGE OT: pairs cells from
+        stage s with cells from stage s+1 using optimal transport within each
+        adjacent stage pair. This is more principled than using pre-computed
+        mean targets.
+
         Args:
-            z_source: [B, D] source latent batch
-            z_target: [B, D] target latent batch
+            z_source: [B, D] source latent batch (can include cells from multiple stages)
+            z_target: [B, D] target latent batch (actual cells, not means, when using cross-stage OT)
             context: [B, context_dim] niche context (will be indexed by OT pairs)
             t: [N] or [N, 1] time values (sampled if None), N = num_ot_pairs
             wes_features: [B, wes_dim] evolutionary constraint features (optional)
             use_ot: If True, use Sinkhorn OT coupling; if False, random pairs
+            stage_indices: [B] stage labels (0-4). If provided, uses cross-stage OT.
+            sample_weights: [B] donor-balanced weights for fair optimization
 
         Returns:
             dict with loss_transition, drift_pred, drift_true, z_t, ot_cost
@@ -821,8 +842,58 @@ class StageBridgeV1Complete(nn.Module):
         device = z_source.device
         batch_size = z_source.shape[0]
 
-        # Build OT coupling and sample pairs
-        if use_ot and batch_size >= 4:
+        # Cross-stage OT: pair cells from stage s with cells from stage s+1
+        if stage_indices is not None and use_ot:
+            all_src_idx = []
+            all_tgt_idx = []
+            total_ot_cost = 0.0
+
+            for s in range(4):  # Stages 0-3 can transition to s+1
+                src_mask = (stage_indices == s)
+                tgt_mask = (stage_indices == s + 1)
+
+                n_src = src_mask.sum().item()
+                n_tgt = tgt_mask.sum().item()
+
+                if n_src >= 2 and n_tgt >= 2:
+                    # Get indices within the batch
+                    src_batch_idx = torch.where(src_mask)[0]
+                    tgt_batch_idx = torch.where(tgt_mask)[0]
+
+                    # Build OT coupling between this stage pair
+                    coupling = build_sinkhorn_coupling(
+                        x_src=z_source[src_batch_idx].detach(),
+                        x_tgt=z_target[tgt_batch_idx].detach(),
+                        epsilon=self.ot_epsilon,
+                        n_iters=self.sinkhorn_iters,
+                    )
+
+                    # Sample pairs from this stage's coupling
+                    n_pairs_stage = min(self.num_ot_pairs // 4, n_src * n_tgt)
+                    local_src_idx, local_tgt_idx = sample_coupling_pairs(coupling, n_pairs_stage)
+
+                    # Map local indices back to batch indices
+                    all_src_idx.append(src_batch_idx[local_src_idx])
+                    all_tgt_idx.append(tgt_batch_idx[local_tgt_idx])
+
+                    # Track OT cost
+                    cost_matrix = torch.cdist(z_source[src_batch_idx], z_target[tgt_batch_idx], p=2).pow(2)
+                    total_ot_cost += (coupling * cost_matrix).sum().item()
+
+            if all_src_idx:
+                src_idx = torch.cat(all_src_idx)
+                tgt_idx = torch.cat(all_tgt_idx)
+                num_pairs = len(src_idx)
+                ot_cost = total_ot_cost
+            else:
+                # Fallback: no valid stage pairs
+                num_pairs = min(self.num_ot_pairs, batch_size)
+                src_idx = torch.randint(0, batch_size, (num_pairs,), device=device)
+                tgt_idx = torch.randint(0, batch_size, (num_pairs,), device=device)
+                ot_cost = float("nan")
+
+        # Standard OT (no stage info): pair within full batch
+        elif use_ot and batch_size >= 4:
             # Sinkhorn coupling for optimal pairing
             coupling = build_sinkhorn_coupling(
                 x_src=z_source.detach(),
@@ -873,7 +944,28 @@ class StageBridgeV1Complete(nn.Module):
 
         # Target velocity: direction from source to target
         drift_true = z_tgt_paired - z_src_paired
-        loss_transition = torch.mean((drift_pred - drift_true) ** 2)
+
+        # Per-pair squared error (for stage-stratified metrics)
+        per_pair_loss = ((drift_pred - drift_true) ** 2).mean(dim=-1)  # [num_pairs]
+
+        # Apply donor-balanced sample weights if provided
+        if sample_weights is not None:
+            # Index weights by source cell (donor balance based on source)
+            pair_weights = sample_weights[src_idx]  # [num_pairs]
+            loss_transition = (per_pair_loss * pair_weights).mean()
+        else:
+            loss_transition = per_pair_loss.mean()
+
+        # Compute per-stage losses if stage_indices provided
+        per_stage_loss = {}
+        if stage_indices is not None:
+            # src_idx maps pairs back to original batch indices
+            # Get stage for each pair's source cell
+            pair_stages = stage_indices[src_idx]  # [num_pairs]
+            for s in range(4):  # Stages 0-3 can transition
+                stage_mask = (pair_stages == s)
+                if stage_mask.any():
+                    per_stage_loss[s] = per_pair_loss[stage_mask].mean().item()
 
         return {
             "loss_transition": loss_transition,
@@ -882,6 +974,9 @@ class StageBridgeV1Complete(nn.Module):
             "z_t": z_t,
             "ot_cost": ot_cost,
             "num_pairs": num_pairs,
+            "per_pair_loss": per_pair_loss,  # For detailed analysis
+            "per_stage_loss": per_stage_loss,  # Real per-stage metrics
+            "src_idx": src_idx,  # For tracing pairs back to cells
         }
 
     def sample_trajectory(
@@ -1425,61 +1520,69 @@ def create_real_data_loaders(
     """
     Create train/val dataloaders from real processed data.
 
-    Falls back to synthetic if real data not available.
+    IMPORTANT: This function fails loudly if real data is not available.
+    Silent fallbacks hide real problems and produce invalid scientific results.
     """
     data_dir = Path(data_dir)
 
     # Check if processed data exists
     cells_path = data_dir / "cells.parquet"
     neighborhoods_path = data_dir / "neighborhoods.parquet"
+    split_path = data_dir / "split_manifest.json"
 
-    if REAL_DATA_LOADER_AVAILABLE and cells_path.exists() and neighborhoods_path.exists():
-        print(f"  Loading real data from {data_dir}")
-        try:
-            train_dataset = StageBridgeDataset(
-                data_dir=data_dir,
-                fold=fold,
-                split="train",
-                latent_dim=latent_dim,
-            )
-            val_dataset = StageBridgeDataset(
-                data_dir=data_dir,
-                fold=fold,
-                split="val",
-                latent_dim=latent_dim,
-            )
+    # Validate all required files exist - FAIL LOUDLY if missing
+    missing_files = []
+    if not cells_path.exists():
+        missing_files.append(str(cells_path))
+    if not neighborhoods_path.exists():
+        missing_files.append(str(neighborhoods_path))
+    if not split_path.exists():
+        missing_files.append(str(split_path))
 
-            train_loader = torch.utils.data.DataLoader(
-                train_dataset,
-                batch_size=batch_size,
-                shuffle=True,
-                collate_fn=collate_fn,
-                num_workers=4,
-                pin_memory=True,
-            )
-            val_loader = torch.utils.data.DataLoader(
-                val_dataset,
-                batch_size=batch_size,
-                shuffle=False,
-                collate_fn=collate_fn,
-                num_workers=4,
-                pin_memory=True,
-            )
-            return train_loader, val_loader, True
-        except Exception as e:
-            print(f"  Warning: Failed to load real data: {e}")
-            print("  Falling back to synthetic data")
-    else:
-        if not REAL_DATA_LOADER_AVAILABLE:
-            print("  Note: Real data loader not available (import error)")
-        else:
-            print(f"  Note: Processed data not found at {data_dir}")
-        print("  Using synthetic data for demonstration")
+    if missing_files:
+        raise FileNotFoundError(
+            f"Real data files missing: {missing_files}. "
+            f"Run complete_data_prep.py first. "
+            f"DO NOT use synthetic data for real experiments - it produces invalid results."
+        )
 
-    # Fallback to synthetic
-    train_loader, _ = create_semi_synthetic_dataloader(batch_size, 5000, latent_dim, seed=100)
-    val_loader, _ = create_semi_synthetic_dataloader(batch_size, 1000, latent_dim, seed=101)
-    return train_loader, val_loader, False
+    if not REAL_DATA_LOADER_AVAILABLE:
+        raise ImportError(
+            "StageBridgeDataset not available. Check stagebridge/data/loaders.py imports."
+        )
+
+    print(f"  Loading real data from {data_dir}")
+
+    train_dataset = StageBridgeDataset(
+        data_dir=data_dir,
+        fold=fold,
+        split="train",
+        latent_dim=latent_dim,
+    )
+    val_dataset = StageBridgeDataset(
+        data_dir=data_dir,
+        fold=fold,
+        split="val",
+        latent_dim=latent_dim,
+    )
+
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+        num_workers=4,
+        pin_memory=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_fn,
+        num_workers=4,
+        pin_memory=True,
+    )
+    return train_loader, val_loader, True
 
 
 # =============================================================================
