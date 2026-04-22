@@ -143,7 +143,7 @@ def compute_transition_metrics(
     # Get stage indices and filter to transition-eligible (stages 0-3)
     stage_col = "stage" if "stage" in test_cells.columns else "stage_label"
     if stage_col in test_cells.columns:
-        from stagebridge.data.canonical_contract import STAGE_TO_INDEX
+        from stagebridge.canonical_contract import STAGE_TO_INDEX
         stages = test_cells[stage_col].map(STAGE_TO_INDEX).fillna(4).astype(int)
         stage_indices = torch.tensor(stages.values, dtype=torch.long)
         can_transition = stage_indices < 4
