@@ -139,7 +139,14 @@ class StageBridgeConfig:
 
 @dataclass(slots=True)
 class StageBatch:
-    """Typed container for one stage-to-stage training batch."""
+    """DEPRECATED: Use StageBridgeBatch from stagebridge.data.loaders instead.
+
+    This batch type is from the pre-v1 architecture and has different field names
+    than the canonical StageBridgeBatch. Kept for backward compatibility with
+    legacy code in transition_model/losses.py but should not be used in new code.
+
+    Canonical batch type: stagebridge.data.loaders.StageBridgeBatch
+    """
 
     x_src: "torch.Tensor"
     x_tgt: "torch.Tensor"

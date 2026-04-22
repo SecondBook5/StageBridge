@@ -226,7 +226,11 @@ def pairwise_wes_penalty(
     penalty_scale: float = 0.5,
     normalize: bool = True,
 ) -> Tensor:
-    """Compute a pairwise WES compatibility penalty for transport regularization."""
+    """Compute a pairwise WES compatibility penalty for transport regularization.
+
+    DEPRECATED: This computes penalty on WES features only, not on model predictions.
+    Use wes_drift_consistency_loss instead for proper gradient flow.
+    """
     src = src_wes if isinstance(src_wes, Tensor) else torch.as_tensor(src_wes, dtype=torch.float32)
     tgt = tgt_wes if isinstance(tgt_wes, Tensor) else torch.as_tensor(tgt_wes, dtype=torch.float32)
     if src.ndim != 2 or tgt.ndim != 2:
@@ -243,3 +247,63 @@ def pairwise_wes_penalty(
     if normalize and src.shape[1] > 0:
         penalty = penalty / float(src.shape[1])
     return float(penalty_scale) * penalty
+
+
+def wes_drift_consistency_loss(
+    wes_features: Tensor,
+    drift_pred: Tensor,
+    n_pairs: int = 256,
+    margin: float = 0.1,
+) -> Tensor:
+    """WES-aware drift consistency loss.
+
+    Core idea: Cells with DIFFERENT driver mutations should have DIFFERENT
+    predicted drifts. This teaches the model to learn mutation-aware dynamics.
+
+    Loss formulation (contrastive):
+    - For each pair (i, j): compute WES distance d_wes and drift distance d_drift
+    - If d_wes > 0 (different mutations): want d_drift > margin (different dynamics)
+    - Loss = max(0, margin - d_drift) when d_wes > 0
+
+    This penalizes the model when cells with different mutations produce
+    similar transition dynamics.
+
+    Args:
+        wes_features: [N, wes_dim] WES features (TMB + driver mutations)
+        drift_pred: [N, D] predicted drift/velocity from model (must have grad)
+        n_pairs: Number of pairs to sample (avoid O(N^2))
+        margin: Minimum drift distance when WES differs
+
+    Returns:
+        Scalar loss (differentiable through drift_pred)
+    """
+    if wes_features.shape[0] < 2:
+        return torch.tensor(0.0, device=drift_pred.device, requires_grad=True)
+
+    device = drift_pred.device
+    n = wes_features.shape[0]
+    n_pairs = min(n_pairs, n * (n - 1) // 2)
+
+    # Sample random pairs
+    idx1 = torch.randint(0, n, (n_pairs,), device=device)
+    idx2 = torch.randint(0, n, (n_pairs,), device=device)
+
+    # Ensure i != j
+    same_mask = idx1 == idx2
+    idx2[same_mask] = (idx2[same_mask] + 1) % n
+
+    # Compute pairwise distances
+    wes_dist = (wes_features[idx1] - wes_features[idx2]).abs().sum(dim=-1)  # L1 distance
+    drift_dist = (drift_pred[idx1] - drift_pred[idx2]).norm(dim=-1)  # L2 distance
+
+    # Contrastive loss: when WES differs, drift should differ
+    # Mask for pairs with different WES profiles
+    different_wes = wes_dist > 0.5  # At least one driver mutation different
+
+    if not different_wes.any():
+        return torch.tensor(0.0, device=device, requires_grad=True)
+
+    # Hinge loss: penalize when drift_dist < margin for different WES
+    hinge = torch.clamp(margin - drift_dist[different_wes], min=0.0)
+
+    return hinge.mean()

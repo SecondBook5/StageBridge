@@ -88,18 +88,30 @@ class StageBridgeDataset(Dataset):
         load_wes: Whether to load WES features
     """
 
+    # Canonical dimensions from v1 architecture
+    CANONICAL_LATENT_DIM = 40  # HLCA(30) + LuCA(10) fused
+    CANONICAL_HLCA_DIM = 30
+    CANONICAL_LUCA_DIM = 10
+    CANONICAL_WES_DIM = 8  # tmb + 7 driver mutations
+
     def __init__(
         self,
         data_dir: Union[str, Path],
         fold: int = 0,
         split: str = "train",
-        latent_dim: int = 2,
+        latent_dim: int = 40,  # Default to canonical v1 dimension
+        hlca_dim: int = 30,
+        luca_dim: int = 10,
+        wes_dim: int = 8,
         load_wes: bool = True,
     ):
         self.data_dir = Path(data_dir)
         self.fold = fold
         self.split = split
         self.latent_dim = latent_dim
+        self.hlca_dim = hlca_dim
+        self.luca_dim = luca_dim
+        self.wes_dim = wes_dim
         self.load_wes = load_wes
 
         # Load data
@@ -185,21 +197,26 @@ class StageBridgeDataset(Dataset):
         z_target = np.array([target_cell[f"z_fused_{i}"] for i in range(self.latent_dim)])
 
         # Get niche context (9 tokens)
-        niche = self.neighborhoods[self.neighborhoods["cell_id"] == source_cell["cell_id"]].iloc[0]
+        niche_matches = self.neighborhoods[self.neighborhoods["cell_id"] == source_cell["cell_id"]]
+        if len(niche_matches) == 0:
+            raise ValueError(
+                f"Cell {source_cell['cell_id']} exists in cells.parquet but not in neighborhoods.parquet. "
+                f"Run complete_data_prep.py to ensure data consistency."
+            )
+        niche = niche_matches.iloc[0]
 
         niche_tokens, niche_mask = self._parse_niche_tokens(niche)
 
-        # Get WES features (optional)
+        # Get WES features (optional) - 8 features: tmb + 7 driver mutations
+        # Canonical WES columns from doctrine
+        WES_COLS = ["tmb", "kras_mut", "egfr_mut", "tp53_mut", "stk11_mut",
+                    "keap1_mut", "nfe2l2_mut", "rb1_mut"]
         wes_features = None
         has_wes = False
         if self.load_wes and "tmb" in source_cell:
-            wes_features = np.array(
-                [
-                    source_cell["tmb"],
-                    source_cell.get("smoking_signature", 0.0),
-                    source_cell.get("uv_signature", 0.0),
-                ]
-            )
+            wes_features = np.zeros(self.wes_dim, dtype=np.float32)
+            for i, col in enumerate(WES_COLS[:self.wes_dim]):
+                wes_features[i] = source_cell.get(col, 0.0)
             has_wes = True
 
         # Ground truth niche influence (for synthetic data only)
@@ -228,16 +245,24 @@ class StageBridgeDataset(Dataset):
         """
         Parse 9-token niche structure into tensor.
 
+        V1 token layout (9 tokens, each latent_dim=40):
+        - Token 0: Receiver (z_fused = HLCA[30] || LuCA[10])
+        - Tokens 1-4: Ring embeddings (spatial context)
+        - Token 5: HLCA reference embedding
+        - Token 6: LuCA reference embedding
+        - Token 7: Pathway activity
+        - Token 8: Summary stats
+
         Returns:
-            niche_tokens: (9, token_dim) array
+            niche_tokens: (9, latent_dim) array - all tokens same dim
             niche_mask: (9,) boolean mask
         """
         tokens = niche["tokens"]
 
-        # Token dimensionality: latent_dim + extra features
-        token_dim = self.latent_dim + 4  # +4 for cell type embedding, stats, etc.
+        # All tokens have latent_dim to match model input_dim
+        token_dim = self.latent_dim
 
-        niche_array = np.zeros((9, token_dim))
+        niche_array = np.zeros((9, token_dim), dtype=np.float32)
         mask = np.zeros(9, dtype=bool)
 
         for token in tokens:
@@ -245,37 +270,35 @@ class StageBridgeDataset(Dataset):
             mask[idx] = True
 
             if token["token_type"] == "receiver":
-                # Receiver: use z_fused
-                z = token["z_fused"]
-                niche_array[idx, : self.latent_dim] = z[: self.latent_dim]
+                # Receiver: z_fused is already [HLCA(30) || LuCA(10)] = 40d
+                z = np.array(token["z_fused"], dtype=np.float32)
+                niche_array[idx, :len(z)] = z[:token_dim]
 
             elif token["token_type"].startswith("ring"):
-                # Ring: use pooled embedding
-                z = token["z_pooled"]
-                niche_array[idx, : self.latent_dim] = z[: self.latent_dim]
-                # Add diversity as extra feature
-                niche_array[idx, self.latent_dim] = token.get("n_cells", 0) / 5.0
+                # Ring: pooled embedding from spatial neighbors
+                z = np.array(token["z_pooled"], dtype=np.float32)
+                niche_array[idx, :len(z)] = z[:token_dim]
 
             elif token["token_type"] == "hlca":
-                # HLCA reference
-                z = token["z_hlca"]
-                niche_array[idx, : self.latent_dim] = z[: self.latent_dim]
+                # HLCA reference: 30d, pad to token_dim
+                z = np.array(token["z_hlca"], dtype=np.float32)
+                niche_array[idx, :self.hlca_dim] = z[:self.hlca_dim]
 
             elif token["token_type"] == "luca":
-                # LuCA reference
-                z = token["z_luca"]
-                niche_array[idx, : self.latent_dim] = z[: self.latent_dim]
+                # LuCA reference: 10d, place after HLCA position for consistency
+                z = np.array(token["z_luca"], dtype=np.float32)
+                niche_array[idx, self.hlca_dim:self.hlca_dim + self.luca_dim] = z[:self.luca_dim]
 
             elif token["token_type"] == "pathway":
-                # Pathway activity
+                # Pathway activity: sparse features in latent space
                 niche_array[idx, 0] = token.get("emt_score", 0.0)
                 niche_array[idx, 1] = token.get("caf_fraction", 0.0)
                 niche_array[idx, 2] = token.get("immune_fraction", 0.0)
 
             elif token["token_type"] == "stats":
-                # Summary stats
-                niche_array[idx, 0] = token.get("n_neighbors", 0) / 20.0  # Normalize
-                niche_array[idx, 1] = token.get("diversity", 0) / 8.0  # Max 8 cell types
+                # Summary stats: sparse features
+                niche_array[idx, 0] = token.get("n_neighbors", 0) / 20.0
+                niche_array[idx, 1] = token.get("diversity", 0) / 8.0
 
         return niche_array, mask
 
@@ -404,16 +427,23 @@ class NegativeControlDataset(Dataset):
 
         elif self.control_type == "shuffled_niche":
             # Shuffle niche token order (break spatial structure)
-            tokens = sample["niche_tokens"]
+            tokens = sample["niche_tokens"].clone()
             mask = sample["niche_mask"]
 
             # Keep receiver (token 0) fixed, shuffle others
-            valid_tokens = tokens[1:][mask[1:]]
-            shuffled = valid_tokens[torch.randperm(len(valid_tokens))]
+            # IMPORTANT: Avoid chained indexing - use explicit index array
+            neighbor_indices = torch.where(mask[1:])[0] + 1  # Indices of valid neighbors
+            if len(neighbor_indices) > 1:
+                # Extract valid neighbor tokens
+                neighbor_tokens = tokens[neighbor_indices].clone()
+                # Shuffle them
+                perm = torch.randperm(len(neighbor_tokens))
+                shuffled_tokens = neighbor_tokens[perm]
+                # Write back using explicit indexing (not chained)
+                for i, idx in enumerate(neighbor_indices):
+                    tokens[idx] = shuffled_tokens[i]
 
-            tokens_shuffled = tokens.clone()
-            tokens_shuffled[1:][mask[1:]] = shuffled
-            sample["niche_tokens"] = tokens_shuffled
+            sample["niche_tokens"] = tokens
 
         elif self.control_type == "mismatched_donor":
             # Replace with different donor's genomic features
@@ -424,13 +454,12 @@ class NegativeControlDataset(Dataset):
 
                 if len(other_cells) > 0:
                     wrong_cell = other_cells.sample(n=1, random_state=idx).iloc[0]
-                    wes_wrong = np.array(
-                        [
-                            wrong_cell["tmb"],
-                            wrong_cell.get("smoking_signature", 0.0),
-                            wrong_cell.get("uv_signature", 0.0),
-                        ]
-                    )
+                    # Use canonical 8-feature WES
+                    WES_COLS = ["tmb", "kras_mut", "egfr_mut", "tp53_mut", "stk11_mut",
+                                "keap1_mut", "nfe2l2_mut", "rb1_mut"]
+                    wes_wrong = np.zeros(self.base_dataset.wes_dim, dtype=np.float32)
+                    for i, col in enumerate(WES_COLS[:self.base_dataset.wes_dim]):
+                        wes_wrong[i] = wrong_cell.get(col, 0.0)
                     sample["wes_features"] = torch.from_numpy(wes_wrong).float()
 
         return sample
@@ -464,13 +493,13 @@ if __name__ == "__main__":
     print("Generating synthetic dataset...")
     data_dir = generate_synthetic_dataset(n_cells=500, n_donors=5)
 
-    print("\nTesting data loader...")
+    print("\nTesting data loader with canonical v1 dimensions...")
     loader = get_dataloader(
         data_dir=data_dir,
         fold=0,
         split="train",
         batch_size=16,
-        latent_dim=2,
+        latent_dim=StageBridgeDataset.CANONICAL_LATENT_DIM,  # 40
     )
 
     print(f"DataLoader created: {len(loader)} batches")
@@ -478,11 +507,15 @@ if __name__ == "__main__":
     # Test one batch
     batch = next(iter(loader))
     print("\nSample batch:")
-    print(f"  z_source shape: {batch.z_source.shape}")
-    print(f"  z_target shape: {batch.z_target.shape}")
-    print(f"  niche_tokens shape: {batch.niche_tokens.shape}")
-    print(f"  niche_mask shape: {batch.niche_mask.shape}")
+    print(f"  z_source shape: {batch.z_source.shape} (expected: [16, 40])")
+    print(f"  z_target shape: {batch.z_target.shape} (expected: [16, 40])")
+    print(f"  niche_tokens shape: {batch.niche_tokens.shape} (expected: [16, 9, 40])")
+    print(f"  niche_mask shape: {batch.niche_mask.shape} (expected: [16, 9])")
     if batch.wes_features is not None:
-        print(f"  wes_features shape: {batch.wes_features.shape}")
+        print(f"  wes_features shape: {batch.wes_features.shape} (expected: [16, 8])")
 
-    print("\n Data loading works!")
+    # Validate shapes match canonical dimensions
+    assert batch.z_source.shape[1] == StageBridgeDataset.CANONICAL_LATENT_DIM, "z_source dim mismatch!"
+    assert batch.niche_tokens.shape[2] == StageBridgeDataset.CANONICAL_LATENT_DIM, "niche_tokens dim mismatch!"
+
+    print("\nData loading with canonical dimensions OK!")
