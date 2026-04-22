@@ -45,7 +45,7 @@ def load_model_and_test_data(
     """
     from stagebridge.pipelines.run_v1_complete import StageBridgeV1Complete
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     config = checkpoint.get("config", {})
 
     model = StageBridgeV1Complete(
