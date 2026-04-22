@@ -1601,16 +1601,40 @@ def validate(
                     loss = torch.mean((context.context - niche_tokens[:, 0, :]) ** 2)
             else:
                 # Transition validation: flow prediction loss
+                # MUST mirror training: only include cells that can transition (stages 0-3)
                 if hasattr(actual_model, "transition_forward"):
                     context = actual_model.encode_niche(niche_tokens)
-                    # ABLATION: deterministic validation must match training
-                    if config.deterministic:
-                        outputs = compute_deterministic_transition_loss(
-                            model, z_source, z_target, context, wes_features
-                        )
+
+                    # Filter to cells that can transition (stages 0-3), matching training
+                    if stage_indices is not None:
+                        can_transition = (stage_indices < 4)  # Stages 0-3 can transition
+                        if can_transition.any():
+                            trans_z_source = z_source[can_transition]
+                            trans_z_target = z_target[can_transition]
+                            trans_context = context[can_transition]
+                            trans_wes = wes_features[can_transition] if wes_features is not None else None
+
+                            # ABLATION: deterministic validation must match training
+                            if config.deterministic:
+                                outputs = compute_deterministic_transition_loss(
+                                    model, trans_z_source, trans_z_target, trans_context, trans_wes
+                                )
+                            else:
+                                outputs = actual_model.transition_forward(
+                                    trans_z_source, trans_z_target, trans_context, use_ot=True, wes_features=trans_wes
+                                )
+                            loss = outputs["loss_transition"]
+                        else:
+                            # No transitioning cells in batch, skip
+                            continue
                     else:
-                        outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True, wes_features=wes_features)
-                    loss = outputs["loss_transition"]
+                        if config.deterministic:
+                            outputs = compute_deterministic_transition_loss(
+                                model, z_source, z_target, context, wes_features
+                            )
+                        else:
+                            outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True, wes_features=wes_features)
+                        loss = outputs["loss_transition"]
                 else:
                     context = actual_model(
                         receiver=z_source,
