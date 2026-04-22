@@ -564,7 +564,7 @@ def create_dataloaders(
     # ==========================================================================
     # Load REAL data from canonical format - FAIL LOUDLY if not available
     # ==========================================================================
-    from stagebridge.data.canonical_contract import (
+    from stagebridge.canonical_contract import (
         validate_canonical_contract,
         CANONICAL_STAGES,
         CANONICAL_LATENT_DIM,
@@ -1399,10 +1399,18 @@ def train_epoch(
 
     # Stage-stratified metrics tracking
     # Stage-stratified loss tracking (canonical stages from contract)
-    from stagebridge.data.canonical_contract import CANONICAL_STAGES
+    from stagebridge.canonical_contract import CANONICAL_STAGES
     stage_losses = {i: [] for i in range(len(CANONICAL_STAGES))}
 
     for batch_idx, batch in enumerate(progress):
+        # Initialize batch-local variables to None to prevent stale value reuse
+        outputs = None
+        context = None
+        trans_context = None
+        trans_wes = None
+        trans_stages = None
+        can_transition = None
+
         # Unpack batch (13 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes, distances, mask, sample_weight, il1b, kac)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
@@ -1544,14 +1552,14 @@ def train_epoch(
             # Must match config.context_dim (128 from HPO or 256 default)
             # CRITICAL: In transition phase, use trans_context (filtered) to match targets
             aux_repr = None
-            if 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+            if outputs is not None and isinstance(outputs, dict) and 'context' in outputs:
                 # SSL phase: outputs dict contains context
                 aux_repr = outputs['context']
-            elif phase == "transition" and 'trans_context' in dir():
+            elif phase == "transition" and trans_context is not None:
                 # Transition phase with stage filtering: use filtered context
                 aux_repr = trans_context
                 # Also filter auxiliary targets to match
-                if 'can_transition' in dir():
+                if can_transition is not None:
                     if il1b_targets is not None:
                         il1b_targets = il1b_targets[can_transition]
                     if kac_targets is not None:
@@ -1560,10 +1568,10 @@ def train_epoch(
                         pathway_targets = pathway_targets[can_transition]
                     if prolif_targets is not None:
                         prolif_targets = prolif_targets[can_transition]
-            elif 'context' in dir() and torch.is_tensor(context) and context.dim() == 2:
+            elif context is not None and torch.is_tensor(context) and context.dim() == 2:
                 # Transition phase without filtering: use full context
                 aux_repr = context
-            elif 'context' in dir() and hasattr(context, 'context'):
+            elif context is not None and hasattr(context, 'context'):
                 # Fallback path (should not hit with StageBridgeV1Complete)
                 aux_repr = context.context
 
@@ -1624,14 +1632,14 @@ def train_epoch(
             if wes_features is not None and phase == "transition":
                 from stagebridge.transition_model.wes_regularizer import wes_drift_consistency_loss
                 # Only compute for cells that are transitioning and have drift predictions
-                if 'outputs' in dir() and 'drift_pred' in outputs and 'src_idx' in outputs:
+                if outputs is not None and 'drift_pred' in outputs and 'src_idx' in outputs:
                     drift_pred = outputs['drift_pred']  # [N_pairs, D] from transition_forward
                     src_idx = outputs['src_idx']  # [N_pairs] indices into transition-eligible cells
                     # CRITICAL: Index WES by OT source indices to align with drift pairs
                     # trans_wes is [N_transition, wes_dim], src_idx maps pairs to transition cells
-                    if 'trans_wes' in dir() and trans_wes is not None:
+                    if trans_wes is not None:
                         paired_wes = trans_wes[src_idx]  # [N_pairs, wes_dim]
-                    elif 'can_transition' in dir():
+                    elif can_transition is not None:
                         # Fallback: index from full wes_features
                         trans_wes_full = wes_features[can_transition]
                         paired_wes = trans_wes_full[src_idx]
@@ -1764,6 +1772,14 @@ def validate(
     all_transition_stages = []  # Source stages for each transition pair
 
     for batch in val_loader:
+        # Initialize batch-local variables to None to prevent stale value reuse
+        outputs = None
+        context = None
+        trans_context = None
+        trans_wes = None
+        trans_stages = None
+        can_transition = None
+
         # Unpack batch (13 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes, distances, mask, sample_weight, il1b, kac)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
@@ -1894,14 +1910,14 @@ def validate(
             # Auxiliary losses for validation metrics (must match training)
             # Use the FILTERED context (trans_context) in transition phase to match training
             aux_repr = None
-            if phase == "transition" and 'trans_context' in dir():
+            if phase == "transition" and trans_context is not None:
                 # Use filtered context that matches the transition forward pass
                 aux_repr = trans_context
-            elif 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+            elif outputs is not None and isinstance(outputs, dict) and 'context' in outputs:
                 aux_repr = outputs['context']
-            elif 'context' in dir() and torch.is_tensor(context) and context.dim() == 2:
+            elif context is not None and torch.is_tensor(context) and context.dim() == 2:
                 aux_repr = context
-            elif 'context' in dir() and hasattr(context, 'context'):
+            elif context is not None and hasattr(context, 'context'):
                 aux_repr = context.context
 
             # Validate dimension matches auxiliary heads
@@ -1947,7 +1963,7 @@ def validate(
 
             # Collect stage indices for stage-specific analysis
             # CRITICAL: In transition phase, use filtered trans_stages to match aux_repr
-            if phase == "transition" and 'trans_stages' in dir():
+            if phase == "transition" and trans_stages is not None:
                 all_stages.append(trans_stages.detach().cpu())
             elif stage_indices is not None:
                 all_stages.append(stage_indices.detach().cpu())

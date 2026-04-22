@@ -1334,6 +1334,13 @@ def train_epoch(
     stage_losses = {i: [] for i in range(5)}  # Normal=0, AAH=1, AIS=2, MIA=3, LUAD=4
 
     for batch_idx, batch in enumerate(progress):
+        # Initialize batch-local variables to None to prevent stale value reuse
+        outputs = None
+        context = None
+        trans_z_source = None
+        trans_z_target = None
+        trans_context = None
+
         # Unpack batch (10 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes, il1b, kac)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
@@ -1457,13 +1464,13 @@ def train_epoch(
             # Get context representation for auxiliary heads
             # Must match config.context_dim (128 from HPO or 256 default)
             aux_repr = None
-            if 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+            if outputs is not None and isinstance(outputs, dict) and 'context' in outputs:
                 # SSL phase: outputs dict contains context
                 aux_repr = outputs['context']
-            elif 'context' in dir() and torch.is_tensor(context) and context.dim() == 2:
+            elif context is not None and torch.is_tensor(context) and context.dim() == 2:
                 # Transition phase: context from encode_niche is [B, context_dim]
                 aux_repr = context
-            elif 'context' in dir() and hasattr(context, 'context'):
+            elif context is not None and hasattr(context, 'context'):
                 # Fallback path (should not hit with StageBridgeV1Complete)
                 aux_repr = context.context
 
@@ -1523,7 +1530,7 @@ def train_epoch(
             if wes_features is not None and phase == "transition":
                 from stagebridge.transition_model.wes_regularizer import pairwise_wes_penalty
                 # Only compute for cells that are transitioning
-                if 'trans_z_source' in dir() and len(trans_z_source) > 1:
+                if trans_z_source is not None and len(trans_z_source) > 1:
                     trans_wes = wes_features[can_transition]
                     # Compute pairwise penalty: cells with different WES profiles should have different dynamics
                     # We sample pairs to avoid O(N^2) computation
@@ -1624,6 +1631,10 @@ def validate(
     donor_losses = {}  # donor_idx -> list of losses
 
     for batch in val_loader:
+        # Initialize batch-local variables to None to prevent stale value reuse
+        outputs = None
+        context = None
+
         # Unpack batch (10 tensors: niche_tokens, z_source, z_target, pathway, prolif, stage, donor, wes, il1b, kac)
         niche_tokens = batch[0].to(device, non_blocking=True)
         z_source = batch[1].to(device, non_blocking=True)
@@ -1725,11 +1736,11 @@ def validate(
 
             # Auxiliary losses for validation metrics (must match training)
             aux_repr = None
-            if 'outputs' in dir() and isinstance(outputs, dict) and 'context' in outputs:
+            if outputs is not None and isinstance(outputs, dict) and 'context' in outputs:
                 aux_repr = outputs['context']
-            elif 'context' in dir() and torch.is_tensor(context) and context.dim() == 2:
+            elif context is not None and torch.is_tensor(context) and context.dim() == 2:
                 aux_repr = context
-            elif 'context' in dir() and hasattr(context, 'context'):
+            elif context is not None and hasattr(context, 'context'):
                 aux_repr = context.context
 
             # Validate dimension matches auxiliary heads
