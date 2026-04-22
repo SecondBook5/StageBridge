@@ -397,7 +397,7 @@ class CheckpointManager:
     @staticmethod
     def load(checkpoint_path: Path, device: torch.device) -> dict:
         """Load checkpoint."""
-        return torch.load(checkpoint_path, map_location=device)
+        return torch.load(checkpoint_path, map_location=device, weights_only=False)
 
 
 # Pathway/proliferation auxiliary heads (paper-inspired: SpatialFusion, OSDR)

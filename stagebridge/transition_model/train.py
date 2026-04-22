@@ -668,7 +668,7 @@ class StageBridgeTrainer:
                 )
                 break
 
-        payload = torch.load(best_ckpt, map_location=self.device)
+        payload = torch.load(best_ckpt, map_location=self.device, weights_only=False)
         self.model.load_state_dict(payload["model_state_dict"])
 
         benchmark = self._benchmark(test_sampler)

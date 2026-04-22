@@ -528,7 +528,7 @@ def load_pretrained_local_encoder(model: nn.Module, checkpoint_path: str | Path 
     path = Path(checkpoint_path)
     if not path.exists():
         raise FileNotFoundError(f"Requested pretrained encoder checkpoint does not exist: {path}")
-    payload = torch.load(path, map_location="cpu")
+    payload = torch.load(path, map_location="cpu", weights_only=False)
     state_dict = payload.get("state_dict", payload)
     encoder_state = {
         key.split("encoder.", 1)[1]: value
@@ -1511,7 +1511,7 @@ def run_train_lesion(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:
                         pretrained_checkpoint=pretrained_checkpoint,
                     )
 
-                    checkpoint = torch.load(fit_result["best_checkpoint"], map_location=device)
+                    checkpoint = torch.load(fit_result["best_checkpoint"], map_location=device, weights_only=False)
                     model = build_model_family(
                         model_family,
                         dims,
