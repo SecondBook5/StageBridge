@@ -78,7 +78,7 @@ def load_model_and_test_data(
     test_cells = cells_df[test_mask].copy()
     test_cell_ids = set(test_cells["cell_id"])
     test_neighborhoods = neighborhoods_df[
-        neighborhoods_df["receiver_id"].isin(test_cell_ids)
+        neighborhoods_df["cell_id"].isin(test_cell_ids)
     ].copy()
 
     return model, test_cells, test_neighborhoods, config
