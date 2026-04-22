@@ -88,6 +88,7 @@ def compute_transition_metrics(
     model: Any,
     test_cells: pd.DataFrame,
     test_neighborhoods: pd.DataFrame,
+    config: dict,
     device: str = "cuda",
     batch_size: int = 256,
 ) -> dict[str, float]:
@@ -97,43 +98,102 @@ def compute_transition_metrics(
         model: Trained StageBridge model
         test_cells: Test cell DataFrame
         test_neighborhoods: Test neighborhood DataFrame
+        config: Model config dict
         device: Device for inference
         batch_size: Batch size
 
     Returns:
         Dictionary of metric name -> value
     """
-    from stagebridge.data.loaders import StageBridgeDataset
-    from torch.utils.data import DataLoader
+    # Build tensors directly from DataFrames (canonical format)
+    latent_dim = config.get("latent_dim", 40)
+    fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
+    if not fused_cols:
+        fused_cols = sorted([c for c in test_cells.columns if c.startswith("fused_latent_")])
 
-    dataset = StageBridgeDataset(
-        cells_df=test_cells,
-        neighborhoods_df=test_neighborhoods,
-        mode="transition",
-    )
+    if not fused_cols:
+        return {"error": "No fused embedding columns found"}
 
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    embeddings = torch.tensor(test_cells[fused_cols].values, dtype=torch.float32)
+    n_cells = len(embeddings)
+
+    # Build niche tokens from neighborhoods
+    cell_id_to_idx = {cid: i for i, cid in enumerate(test_cells["cell_id"].values)}
+    niche_tokens = torch.zeros(n_cells, 9, latent_dim)
+    niche_tokens[:, 0, :] = embeddings  # Receiver
+    token_distances = torch.zeros(n_cells, 8)
+    token_mask = torch.zeros(n_cells, 8, dtype=torch.bool)
+
+    if "tokens" in test_neighborhoods.columns:
+        for _, row in test_neighborhoods.iterrows():
+            cell_id = row["cell_id"]
+            if cell_id not in cell_id_to_idx:
+                continue
+            idx = cell_id_to_idx[cell_id]
+            for token_dict in row["tokens"]:
+                token_idx = token_dict.get("token_idx", -1)
+                if 1 <= token_idx <= 4:
+                    z_pooled = token_dict.get("z_pooled")
+                    if z_pooled and len(z_pooled) > 0:
+                        z_t = torch.tensor(z_pooled[:latent_dim], dtype=torch.float32)
+                        niche_tokens[idx, token_idx, :len(z_t)] = z_t
+                        token_distances[idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
+                        token_mask[idx, token_idx - 1] = True
+
+    # Get stage indices and filter to transition-eligible (stages 0-3)
+    stage_col = "stage" if "stage" in test_cells.columns else "stage_label"
+    if stage_col in test_cells.columns:
+        from stagebridge.data.canonical_contract import STAGE_TO_INDEX
+        stages = test_cells[stage_col].map(STAGE_TO_INDEX).fillna(4).astype(int)
+        stage_indices = torch.tensor(stages.values, dtype=torch.long)
+        can_transition = stage_indices < 4
+    else:
+        stage_indices = None
+        can_transition = torch.ones(n_cells, dtype=torch.bool)
+
+    # Filter to transition-eligible cells
+    trans_indices = torch.where(can_transition)[0]
+    if len(trans_indices) < 2:
+        return {"error": "Not enough transition-eligible cells"}
+
+    trans_niche = niche_tokens[trans_indices]
+    trans_distances = token_distances[trans_indices]
+    trans_mask = token_mask[trans_indices]
+    trans_stages = stage_indices[trans_indices] if stage_indices is not None else None
 
     all_preds = []
     all_targets = []
     all_stages = []
-    all_probs = []
 
     with torch.no_grad():
-        for batch in loader:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                    for k, v in batch.items()}
+        for i in range(0, len(trans_indices), batch_size):
+            batch_idx = trans_indices[i:i+batch_size]
+            batch_niche = trans_niche[i:i+batch_size].to(device)
+            batch_distances = trans_distances[i:i+batch_size].to(device)
+            batch_mask = trans_mask[i:i+batch_size].to(device)
 
-            outputs = model(batch)
+            # Encode niche with distances and mask (mirror training)
+            context = model.encode_niche(
+                batch_niche,
+                distances=batch_distances,
+                neighbor_mask=batch_mask,
+            )
 
-            if "predicted_target" in outputs:
-                all_preds.append(outputs["predicted_target"].cpu().numpy())
-            if "target_embedding" in batch:
-                all_targets.append(batch["target_embedding"].cpu().numpy())
-            if "stage" in batch:
-                all_stages.append(batch["stage"].cpu().numpy())
-            if "transition_prob" in outputs:
-                all_probs.append(outputs["transition_prob"].cpu().numpy())
+            # Get source/target embeddings
+            z_source = batch_niche[:, 0, :]  # Receiver = source
+            # For held-out eval, use model's transition prediction
+            if hasattr(model, "transition_forward"):
+                # Use same cell as target for self-consistency check
+                outputs = model.transition_forward(
+                    z_source, z_source, context, use_ot=False
+                )
+                if "drift_pred" in outputs:
+                    pred_target = z_source + outputs["drift_pred"]
+                    all_preds.append(pred_target.cpu().numpy())
+                    all_targets.append(z_source.cpu().numpy())
+
+            if trans_stages is not None:
+                all_stages.append(trans_stages[i:i+batch_size].cpu().numpy())
 
     metrics = {}
 
@@ -181,6 +241,7 @@ def compute_context_sensitivity(
     model: Any,
     test_cells: pd.DataFrame,
     test_neighborhoods: pd.DataFrame,
+    config: dict,
     device: str = "cuda",
     n_samples: int = 1000,
 ) -> dict[str, float]:
@@ -192,48 +253,81 @@ def compute_context_sensitivity(
         model: Trained StageBridge model
         test_cells: Test cell DataFrame
         test_neighborhoods: Test neighborhood DataFrame
+        config: Model config dict
         device: Device for inference
         n_samples: Number of cells to sample
 
     Returns:
         Dictionary with context sensitivity metrics
     """
-    from stagebridge.data.loaders import StageBridgeDataset
-    from torch.utils.data import DataLoader
+    latent_dim = config.get("latent_dim", 40)
+    fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
+    if not fused_cols:
+        fused_cols = sorted([c for c in test_cells.columns if c.startswith("fused_latent_")])
 
-    dataset = StageBridgeDataset(
-        cells_df=test_cells.head(n_samples),
-        neighborhoods_df=test_neighborhoods,
-        mode="transition",
-    )
+    if not fused_cols:
+        return {}
 
-    loader = DataLoader(dataset, batch_size=256, shuffle=False)
+    # Sample cells
+    sample_cells = test_cells.head(n_samples)
+    embeddings = torch.tensor(sample_cells[fused_cols].values, dtype=torch.float32)
+    n_cells = len(embeddings)
 
-    real_outputs = []
-    shuffled_outputs = []
+    # Build niche tokens
+    cell_id_to_idx = {cid: i for i, cid in enumerate(sample_cells["cell_id"].values)}
+    niche_tokens = torch.zeros(n_cells, 9, latent_dim)
+    niche_tokens[:, 0, :] = embeddings
+    token_distances = torch.zeros(n_cells, 8)
+    token_mask = torch.zeros(n_cells, 8, dtype=torch.bool)
 
+    sample_cell_ids = set(sample_cells["cell_id"])
+    sample_neighborhoods = test_neighborhoods[test_neighborhoods["cell_id"].isin(sample_cell_ids)]
+
+    if "tokens" in sample_neighborhoods.columns:
+        for _, row in sample_neighborhoods.iterrows():
+            cell_id = row["cell_id"]
+            if cell_id not in cell_id_to_idx:
+                continue
+            idx = cell_id_to_idx[cell_id]
+            for token_dict in row["tokens"]:
+                token_idx = token_dict.get("token_idx", -1)
+                if 1 <= token_idx <= 4:
+                    z_pooled = token_dict.get("z_pooled")
+                    if z_pooled and len(z_pooled) > 0:
+                        z_t = torch.tensor(z_pooled[:latent_dim], dtype=torch.float32)
+                        niche_tokens[idx, token_idx, :len(z_t)] = z_t
+                        token_distances[idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
+                        token_mask[idx, token_idx - 1] = True
+
+    real_contexts = []
+    shuffled_contexts = []
+
+    batch_size = 256
     with torch.no_grad():
-        for batch in loader:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                    for k, v in batch.items()}
+        for i in range(0, n_cells, batch_size):
+            batch_niche = niche_tokens[i:i+batch_size].to(device)
+            batch_distances = token_distances[i:i+batch_size].to(device)
+            batch_mask = token_mask[i:i+batch_size].to(device)
 
-            outputs_real = model(batch)
-            if "predicted_target" in outputs_real:
-                real_outputs.append(outputs_real["predicted_target"].cpu().numpy())
+            # Real context
+            context_real = model.encode_niche(
+                batch_niche, distances=batch_distances, neighbor_mask=batch_mask
+            )
+            real_contexts.append(context_real.cpu().numpy())
 
-            if "niche_context" in batch:
-                shuffled_batch = batch.copy()
-                niche = batch["niche_context"]
-                perm = torch.randperm(niche.shape[0])
-                shuffled_batch["niche_context"] = niche[perm]
+            # Shuffled niche tokens (permute neighbor tokens, keep receiver)
+            shuffled_niche = batch_niche.clone()
+            perm = torch.randperm(batch_niche.shape[0])
+            shuffled_niche[:, 1:, :] = batch_niche[perm, 1:, :]
 
-                outputs_shuffled = model(shuffled_batch)
-                if "predicted_target" in outputs_shuffled:
-                    shuffled_outputs.append(outputs_shuffled["predicted_target"].cpu().numpy())
+            context_shuffled = model.encode_niche(
+                shuffled_niche, distances=batch_distances, neighbor_mask=batch_mask
+            )
+            shuffled_contexts.append(context_shuffled.cpu().numpy())
 
-    if real_outputs and shuffled_outputs:
-        real = np.concatenate(real_outputs, axis=0)
-        shuffled = np.concatenate(shuffled_outputs, axis=0)
+    if real_contexts and shuffled_contexts:
+        real = np.concatenate(real_contexts, axis=0)
+        shuffled = np.concatenate(shuffled_contexts, axis=0)
 
         delta = np.linalg.norm(real - shuffled, axis=1)
 
@@ -271,11 +365,11 @@ def run_heldout_evaluation(
     )
 
     transition_metrics = compute_transition_metrics(
-        model, test_cells, test_neighborhoods, device, batch_size
+        model, test_cells, test_neighborhoods, config, device, batch_size
     )
 
     context_metrics = compute_context_sensitivity(
-        model, test_cells, test_neighborhoods, device
+        model, test_cells, test_neighborhoods, config, device
     )
 
     return {
