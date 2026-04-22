@@ -47,7 +47,7 @@ def run_evaluate_lesion(
     if not resolved_checkpoint.exists():
         raise FileNotFoundError(f"Checkpoint not found: {resolved_checkpoint}")
     fold_root = resolved_checkpoint.parent
-    checkpoint = torch.load(resolved_checkpoint, map_location="cpu")
+    checkpoint = torch.load(resolved_checkpoint, map_location="cpu", weights_only=False)
     checkpoint_cfg = checkpoint.get("config", cfg)
     split_summary_path = fold_root / "split_summary.json"
     model_spec_path = fold_root / "model_spec.json"
