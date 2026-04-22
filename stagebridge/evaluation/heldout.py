@@ -69,7 +69,7 @@ def load_model_and_test_data(
     with open(splits_path) as f:
         splits = json.load(f)
 
-    test_donors = splits["folds"][fold]["test"]
+    test_donors = splits["folds"][fold]["test_donors"]
 
     cells_df = pd.read_parquet(data_dir / "cells.parquet")
     neighborhoods_df = pd.read_parquet(data_dir / "neighborhoods.parquet")
