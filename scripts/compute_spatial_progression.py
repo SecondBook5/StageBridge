@@ -119,9 +119,13 @@ def compute_spatial_progression_scores(
         # spatial_df cell_id is "spatial_{barcode}"
         spatial_df["spot_barcode"] = spatial_df["cell_id"].str.replace("spatial_", "", regex=False)
 
-        # Merge proportions
+        # Merge proportions - also get sample column if present
         prop_subset = proportions_df[prop_cols].copy()
         prop_subset.index = prop_subset.index.astype(str)
+
+        # Add sample info from proportions file if available
+        if "sample" in proportions_df.columns:
+            prop_subset["_prop_sample"] = proportions_df["sample"].values
 
         matched_spots = spatial_df["spot_barcode"].isin(prop_subset.index)
         print(f"  Matched {matched_spots.sum()} / {len(spatial_df)} spots to proportions")
@@ -130,8 +134,13 @@ def compute_spatial_progression_scores(
             raise ValueError("No spots matched between cells.parquet and proportions file")
 
         spatial_df = spatial_df[matched_spots].copy()
-        prop_matrix = prop_subset.loc[spatial_df["spot_barcode"].values, prop_cols].values
+        matched_props = prop_subset.loc[spatial_df["spot_barcode"].values]
+        prop_matrix = matched_props[prop_cols].values
         celltype_names = prop_cols
+
+        # Add sample_id from proportions if not in spatial_df
+        if "sample_id" not in spatial_df.columns and "_prop_sample" in matched_props.columns:
+            spatial_df["sample_id"] = matched_props["_prop_sample"].values
     else:
         # Fall back to looking for proportion columns in cells_df
         # Try common cell type names
