@@ -134,7 +134,7 @@ def compute_transition_metrics(
                 token_idx = token_dict.get("token_idx", -1)
                 if 1 <= token_idx <= 4:
                     z_pooled = token_dict.get("z_pooled")
-                    if z_pooled and len(z_pooled) > 0:
+                    if z_pooled is not None and len(z_pooled) > 0:
                         z_t = torch.tensor(z_pooled[:latent_dim], dtype=torch.float32)
                         niche_tokens[idx, token_idx, :len(z_t)] = z_t
                         token_distances[idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
@@ -293,7 +293,7 @@ def compute_context_sensitivity(
                 token_idx = token_dict.get("token_idx", -1)
                 if 1 <= token_idx <= 4:
                     z_pooled = token_dict.get("z_pooled")
-                    if z_pooled and len(z_pooled) > 0:
+                    if z_pooled is not None and len(z_pooled) > 0:
                         z_t = torch.tensor(z_pooled[:latent_dim], dtype=torch.float32)
                         niche_tokens[idx, token_idx, :len(z_t)] = z_t
                         token_distances[idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
