@@ -869,8 +869,13 @@ class StageBridgeV1Complete(nn.Module):
                     )
 
                     # Sample pairs from this stage's coupling
+                    # local indices will be in range [0, n_src) and [0, n_tgt)
                     n_pairs_stage = min(self.num_ot_pairs // 4, n_src * n_tgt)
                     local_src_idx, local_tgt_idx = sample_coupling_pairs(coupling, n_pairs_stage)
+
+                    # Clamp to valid range (defensive - multinomial can rarely exceed bounds)
+                    local_src_idx = local_src_idx.clamp(0, n_src - 1)
+                    local_tgt_idx = local_tgt_idx.clamp(0, n_tgt - 1)
 
                     # Map local indices back to batch indices
                     all_src_idx.append(src_batch_idx[local_src_idx])
