@@ -9,7 +9,6 @@ default-resources:
   mem_mb: 64000
   runtime: 360  # 6 hours default (in minutes)
   nodes: 1  # Always request single node (multi-GPU on same node)
-  slurm_extra: "'--gpus=1'"
 
 # GPU constraint (comment out for any GPU, uncomment for H100)
 # set-resources:
