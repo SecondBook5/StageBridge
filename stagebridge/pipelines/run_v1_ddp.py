@@ -47,6 +47,7 @@ from stagebridge.config import (
     LUCA_LATENT_DIM,
     N_NICHE_TOKENS,
 )
+from stagebridge.canonical_contract import CANONICAL_STAGES
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
