@@ -874,8 +874,9 @@ class StageBridgeV1Complete(nn.Module):
                     local_src_idx, local_tgt_idx = sample_coupling_pairs(coupling, n_pairs_stage)
 
                     # Clamp to valid range (defensive - multinomial can rarely exceed bounds)
-                    local_src_idx = local_src_idx.clamp(0, n_src - 1)
-                    local_tgt_idx = local_tgt_idx.clamp(0, n_tgt - 1)
+                    # Use actual tensor lengths, not mask sums, to be absolutely safe
+                    local_src_idx = local_src_idx.clamp(0, len(src_batch_idx) - 1)
+                    local_tgt_idx = local_tgt_idx.clamp(0, len(tgt_batch_idx) - 1)
 
                     # Map local indices back to batch indices
                     all_src_idx.append(src_batch_idx[local_src_idx])
