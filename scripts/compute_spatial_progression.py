@@ -23,7 +23,7 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import pandas as pd
-import scanpy as sc
+import scanpy as scp
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -91,11 +91,12 @@ def compute_spatial_progression_scores(
     cells_df: pd.DataFrame,
     cytotrace_means: dict,
     pseudotime_means: dict,
+    proportions_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
-    Compute weighted progression scores for spatial spots using deconvolution gamma.
+    Compute weighted progression scores for spatial spots using deconvolution proportions.
 
-    spatial_score = Σ(gamma_celltype × mean_score_celltype)
+    spatial_score = Σ(proportion_celltype × mean_score_celltype)
     """
     print("Computing spatial progression scores from deconvolution...")
 
@@ -103,45 +104,69 @@ def compute_spatial_progression_scores(
     if "data_type" in cells_df.columns:
         spatial_df = cells_df[cells_df["data_type"] == "spatial"].copy()
     else:
-        # Infer from cell_id pattern or gamma columns
-        gamma_cols = [c for c in cells_df.columns if c.startswith("gamma_")]
-        if gamma_cols:
-            spatial_df = cells_df[cells_df[gamma_cols[0]] > 0].copy()
-        else:
-            raise ValueError("Cannot identify spatial cells - no data_type column or gamma columns")
+        # Infer from cell_id pattern
+        spatial_df = cells_df[cells_df["cell_id"].str.startswith("spatial_")].copy()
 
     print(f"  {len(spatial_df)} spatial spots")
 
-    # Find gamma columns (cell type proportions from deconvolution)
-    gamma_cols = sorted([c for c in spatial_df.columns if c.startswith("gamma_")])
+    # Get cell type proportions - either from proportions_df or cells_df columns
+    if proportions_df is not None:
+        # Use provided proportions file (already normalized 0-1)
+        prop_cols = [c for c in proportions_df.columns if c not in ["sample", "sample_id", "spot_id", "barcode"]]
+        print(f"  Using {len(prop_cols)} cell types from proportions file: {prop_cols}")
 
-    if not gamma_cols:
-        raise ValueError("No gamma columns found - run deconvolution first")
+        # Match spots - proportions_df index should be spot barcodes
+        # spatial_df cell_id is "spatial_{barcode}"
+        spatial_df["spot_barcode"] = spatial_df["cell_id"].str.replace("spatial_", "", regex=False)
 
-    print(f"  Found {len(gamma_cols)} gamma columns (cell type proportions)")
+        # Merge proportions
+        prop_subset = proportions_df[prop_cols].copy()
+        prop_subset.index = prop_subset.index.astype(str)
 
-    # Extract cell type names from gamma columns
-    gamma_celltypes = [c.replace("gamma_", "") for c in gamma_cols]
+        matched_spots = spatial_df["spot_barcode"].isin(prop_subset.index)
+        print(f"  Matched {matched_spots.sum()} / {len(spatial_df)} spots to proportions")
 
-    # Get gamma matrix and normalize to proportions (sum to 1 per spot)
-    gamma_matrix = spatial_df[gamma_cols].values.copy()
+        if matched_spots.sum() == 0:
+            raise ValueError("No spots matched between cells.parquet and proportions file")
 
-    # Clip negative values (shouldn't exist but just in case)
-    gamma_matrix = np.clip(gamma_matrix, 0, None)
+        spatial_df = spatial_df[matched_spots].copy()
+        prop_matrix = prop_subset.loc[spatial_df["spot_barcode"].values, prop_cols].values
+        celltype_names = prop_cols
+    else:
+        # Fall back to looking for proportion columns in cells_df
+        # Try common cell type names
+        candidate_cols = ["AT2", "Basal", "Capillary", "Ciliated", "Fibroblast lineage",
+                         "Macrophages", "Mast cells", "Secretory", "T cell lineage"]
+        prop_cols = [c for c in candidate_cols if c in spatial_df.columns]
 
-    # Normalize each row to sum to 1
-    gamma_sum = gamma_matrix.sum(axis=1, keepdims=True)
-    gamma_sum[gamma_sum == 0] = 1  # Avoid division by zero
-    gamma_matrix = gamma_matrix / gamma_sum
+        if not prop_cols:
+            # Try gamma columns as fallback (will be normalized)
+            gamma_cols = sorted([c for c in spatial_df.columns if c.startswith("gamma_")])
+            if gamma_cols:
+                print(f"  Warning: Using gamma columns (latent factors, not proportions)")
+                prop_cols = gamma_cols
+                celltype_names = [c.replace("gamma_", "") for c in gamma_cols]
+            else:
+                raise ValueError("No cell type proportion columns found")
+        else:
+            celltype_names = prop_cols
 
-    print(f"  Gamma proportions: min={gamma_matrix.min():.3f}, max={gamma_matrix.max():.3f}")
+        prop_matrix = spatial_df[prop_cols].values.copy()
+
+    # Normalize to proportions (ensure sum to 1)
+    prop_matrix = np.clip(prop_matrix, 0, None)
+    row_sums = prop_matrix.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1
+    prop_matrix = prop_matrix / row_sums
+
+    print(f"  Proportions: min={prop_matrix.min():.3f}, max={prop_matrix.max():.3f}")
 
     # Compute weighted scores
     spatial_cytotrace = np.zeros(len(spatial_df))
     spatial_pseudotime = np.zeros(len(spatial_df))
     matched_celltypes = []
 
-    for i, celltype in enumerate(gamma_celltypes):
+    for i, celltype in enumerate(celltype_names):
         # Match cell type name (case insensitive, handle variations)
         ct_cytotrace = None
         ct_pseudotime = None
@@ -154,11 +179,11 @@ def compute_spatial_progression_scores(
                 break
 
         if ct_cytotrace is not None:
-            spatial_cytotrace += gamma_matrix[:, i] * ct_cytotrace
+            spatial_cytotrace += prop_matrix[:, i] * ct_cytotrace
             if not np.isnan(ct_pseudotime):
-                spatial_pseudotime += gamma_matrix[:, i] * ct_pseudotime
+                spatial_pseudotime += prop_matrix[:, i] * ct_pseudotime
 
-    print(f"  Matched {len(matched_celltypes)}/{len(gamma_celltypes)} cell types")
+    print(f"  Matched {len(matched_celltypes)}/{len(celltype_names)} cell types")
 
     # Build results
     results = pd.DataFrame({
@@ -497,6 +522,8 @@ def main():
     parser.add_argument("--cells", required=True, help="Path to cells.parquet")
     parser.add_argument("--progression", required=True, help="Path to progression_scores.parquet from snRNA")
     parser.add_argument("--spatial", required=True, help="Path to spatial_merged.h5ad")
+    parser.add_argument("--proportions", required=False, default=None,
+                       help="Path to cell_type_proportions.parquet from deconvolution (recommended)")
     parser.add_argument("--output_dir", required=True, help="Output directory")
     parser.add_argument("--n_samples", type=int, default=6, help="Number of samples for grid figures")
     args = parser.parse_args()
@@ -514,14 +541,26 @@ def main():
     print(f"  {len(progression_df)} snRNA cells with scores")
 
     print(f"Loading spatial data: {args.spatial}")
-    spatial_adata = sc.read_h5ad(args.spatial)
+    spatial_adata = scp.read_h5ad(args.spatial)
     print(f"  {spatial_adata.n_obs} spatial spots")
+
+    # Load proportions if provided
+    proportions_df = None
+    if args.proportions:
+        print(f"Loading cell type proportions: {args.proportions}")
+        proportions_df = pd.read_parquet(args.proportions)
+        # Set index to spot barcode if 'sample' column exists
+        if "sample" in proportions_df.columns:
+            proportions_df = proportions_df.set_index(proportions_df.index.astype(str))
+        print(f"  {len(proportions_df)} spots with proportions")
 
     # Compute cell type means from snRNA
     cytotrace_means, pseudotime_means = compute_celltype_progression_means(cells_df, progression_df)
 
     # Compute spatial progression scores
-    spatial_scores = compute_spatial_progression_scores(cells_df, cytotrace_means, pseudotime_means)
+    spatial_scores = compute_spatial_progression_scores(
+        cells_df, cytotrace_means, pseudotime_means, proportions_df
+    )
 
     # Save scores
     spatial_scores.to_parquet(output_dir / "spatial_progression_scores.parquet", index=False)
