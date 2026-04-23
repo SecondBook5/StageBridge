@@ -226,16 +226,37 @@ def create_spatial_progression_figures(
     print("Creating spatial progression figures...")
 
     # Merge scores with adata obs
+    # Handle both "spatial_{barcode}" and raw barcode formats
     score_dict = spatial_scores.set_index("cell_id")[["spatial_cytotrace", "spatial_pseudotime"]].to_dict('index')
 
+    # Also create lookup by raw barcode (without "spatial_" prefix)
+    score_dict_barcode = {}
+    for cell_id, scores in score_dict.items():
+        if cell_id.startswith("spatial_"):
+            barcode = cell_id[8:]
+            score_dict_barcode[barcode] = scores
+
+    def get_score(obs_name, key):
+        # Try full cell_id first, then raw barcode
+        if obs_name in score_dict:
+            return score_dict[obs_name].get(key, np.nan)
+        elif obs_name in score_dict_barcode:
+            return score_dict_barcode[obs_name].get(key, np.nan)
+        # Try adding "spatial_" prefix
+        prefixed = f"spatial_{obs_name}"
+        if prefixed in score_dict:
+            return score_dict[prefixed].get(key, np.nan)
+        return np.nan
+
     spatial_adata.obs["spatial_cytotrace"] = [
-        score_dict.get(c, {}).get("spatial_cytotrace", np.nan)
-        for c in spatial_adata.obs_names
+        get_score(c, "spatial_cytotrace") for c in spatial_adata.obs_names
     ]
     spatial_adata.obs["spatial_pseudotime"] = [
-        score_dict.get(c, {}).get("spatial_pseudotime", np.nan)
-        for c in spatial_adata.obs_names
+        get_score(c, "spatial_pseudotime") for c in spatial_adata.obs_names
     ]
+
+    n_matched = (~spatial_adata.obs["spatial_cytotrace"].isna()).sum()
+    print(f"  Matched {n_matched} / {spatial_adata.n_obs} spots to scores")
 
     # Get unique samples
     sample_col = None
