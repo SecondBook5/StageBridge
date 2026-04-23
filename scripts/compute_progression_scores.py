@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
-import scanpy as sc
+import scanpy as scp
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -95,15 +95,15 @@ def compute_diffusion_pseudotime(
     # PCA
     if "X_pca" not in adata.obsm:
         print("  Computing PCA...")
-        sc.pp.pca(adata, n_comps=min(n_pcs, adata.n_vars - 1))
+        scp.pp.pca(adata, n_comps=min(n_pcs, adata.n_vars - 1))
 
     # Neighbors
     print("  Computing neighbors...")
-    sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep="X_pca")
+    scp.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep="X_pca")
 
     # Diffusion map
     print("  Computing diffusion map...")
-    sc.tl.diffmap(adata, n_comps=15)
+    scp.tl.diffmap(adata, n_comps=15)
 
     # Find root cell
     stage_col = "stage" if "stage" in adata.obs.columns else None
@@ -124,7 +124,7 @@ def compute_diffusion_pseudotime(
 
     # DPT
     print("  Computing DPT...")
-    sc.tl.dpt(adata, n_branchings=0)
+    scp.tl.dpt(adata, n_branchings=0)
 
     return adata.obs["dpt_pseudotime"].values
 
@@ -149,8 +149,8 @@ def create_lungpca_style_figures(
     if "X_umap" not in adata.obsm:
         print("  Computing UMAP...")
         if "neighbors" not in adata.uns:
-            sc.pp.neighbors(adata, n_neighbors=30)
-        sc.tl.umap(adata)
+            scp.pp.neighbors(adata, n_neighbors=30)
+        scp.tl.umap(adata)
 
     umap = adata.obsm["X_umap"]
 
@@ -391,7 +391,7 @@ def main():
 
     # Load snRNA h5ad
     print(f"Loading snRNA: {args.snrna}")
-    adata = sc.read_h5ad(args.snrna)
+    adata = scp.read_h5ad(args.snrna)
     print(f"  {adata.n_obs} cells, {adata.n_vars} genes")
 
     # Subset to cells in canonical parquet
