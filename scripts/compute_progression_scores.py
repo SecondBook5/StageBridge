@@ -2,11 +2,10 @@
 """
 Compute CytoTRACE and pseudotime progression scores for StageBridge.
 
-This script adds:
-1. CytoTRACE - stemness/differentiation potential
-2. Diffusion pseudotime (DPT) - continuous progression coordinate
-
-These scores complement discrete stage labels for transition modeling.
+Generates LungPCA paper-style UMAP visualizations (Figure 3B-D style):
+1. UMAP colored by cell type
+2. UMAP colored by pseudotime with trajectory
+3. UMAP colored by CytoTRACE (turbo colormap)
 
 Usage:
     python scripts/compute_progression_scores.py \
@@ -19,6 +18,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -26,33 +26,56 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+# LungPCA paper color scheme
+STAGE_COLORS = {
+    'Normal': '#33a02c',
+    'AAH': '#b2df8a',
+    'AIS': '#fdbf6f',
+    'MIA': '#fb9a99',
+    'LUAD': '#ff7f00',
+}
+
+CELLTYPE_COLORS = {
+    'Basal': '#1f77b4',
+    'AT1': '#ff7f0e',
+    'AT2': '#e377c2',
+    'KAC': '#2ca02c',
+    'Ciliated': '#ffbb78',
+    'Club': '#ff9896',
+    'Club.secretory': '#9467bd',
+    'AIC': '#d62728',
+    'Tumor': '#f7b6d2',
+    # Additional cell types
+    'Epithelial': '#1f78b4',
+    'Fibroblast': '#cab2d6',
+    'Myeloid': '#6a3d9a',
+    'Lymphoid': '#ffff99',
+    'Endothelial': '#b15928',
+}
+
 
 def compute_cytotrace(adata: sc.AnnData) -> np.ndarray:
     """
     Compute CytoTRACE-like score based on gene count correlation.
 
-    CytoTRACE principle: more differentiated cells express fewer genes,
-    and genes correlating with gene count indicate differentiation state.
-
-    Returns array of scores (higher = more stem-like/less differentiated).
+    CytoTRACE principle: more differentiated cells express fewer genes.
+    Higher score = more stem-like/less differentiated.
     """
     print("Computing CytoTRACE scores...")
 
-    # Gene counts per cell (number of detected genes)
+    # Gene counts per cell
     if "n_genes" not in adata.obs.columns:
         adata.obs["n_genes"] = (adata.X > 0).sum(axis=1).A1 if hasattr(adata.X, 'A1') else (adata.X > 0).sum(axis=1)
 
     gene_counts = adata.obs["n_genes"].values.astype(float)
 
-    # Normalize gene counts to 0-1 range
+    # Normalize to 0-1
     gc_min, gc_max = gene_counts.min(), gene_counts.max()
     if gc_max > gc_min:
         cytotrace_score = (gene_counts - gc_min) / (gc_max - gc_min)
     else:
         cytotrace_score = np.zeros_like(gene_counts)
 
-    # CytoTRACE: higher gene count = more stem-like
-    # (inverse of differentiation)
     return cytotrace_score
 
 
@@ -64,34 +87,29 @@ def compute_diffusion_pseudotime(
 ) -> np.ndarray:
     """
     Compute diffusion pseudotime rooted at Normal epithelium.
-
-    Returns array of pseudotime values (0 = root/Normal, higher = more progressed).
     """
     print(f"Computing diffusion pseudotime (root: {root_stage})...")
 
-    # Work on a copy to avoid modifying original
     adata = adata.copy()
 
-    # Ensure we have PCA
+    # PCA
     if "X_pca" not in adata.obsm:
         print("  Computing PCA...")
         sc.pp.pca(adata, n_comps=min(n_pcs, adata.n_vars - 1))
 
-    # Compute neighbors
+    # Neighbors
     print("  Computing neighbors...")
     sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep="X_pca")
 
-    # Compute diffusion map
+    # Diffusion map
     print("  Computing diffusion map...")
     sc.tl.diffmap(adata, n_comps=15)
 
-    # Find root cell (most central Normal cell)
+    # Find root cell
     stage_col = "stage" if "stage" in adata.obs.columns else None
     if stage_col and root_stage in adata.obs[stage_col].values:
         root_mask = adata.obs[stage_col] == root_stage
         root_indices = np.where(root_mask)[0]
-
-        # Pick the Normal cell closest to centroid of Normal cells in diffmap
         diffmap = adata.obsm["X_diffmap"]
         normal_diffmap = diffmap[root_mask]
         centroid = normal_diffmap.mean(axis=0)
@@ -99,146 +117,250 @@ def compute_diffusion_pseudotime(
         root_cell_local = np.argmin(distances)
         root_cell = root_indices[root_cell_local]
     else:
-        # Fallback: use first cell
         print(f"  Warning: '{root_stage}' not found, using first cell as root")
         root_cell = 0
 
     adata.uns["iroot"] = root_cell
 
-    # Compute DPT
+    # DPT
     print("  Computing DPT...")
     sc.tl.dpt(adata, n_branchings=0)
 
     return adata.obs["dpt_pseudotime"].values
 
 
-def create_visualizations(
-    cells_df: pd.DataFrame,
+def create_lungpca_style_figures(
+    adata: sc.AnnData,
+    cytotrace: np.ndarray,
+    pseudotime: np.ndarray,
     output_dir: Path,
 ):
-    """Create progression score visualizations."""
-    print("Creating visualizations...")
+    """
+    Create LungPCA paper-style UMAP visualizations (Figure 3B-D).
 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    Three-panel figure:
+    - Left: UMAP by cell type / stage
+    - Middle: UMAP by pseudotime
+    - Right: UMAP by CytoTRACE (turbo colormap)
+    """
+    print("Creating LungPCA-style UMAP figures...")
+
+    # Ensure UMAP exists
+    if "X_umap" not in adata.obsm:
+        print("  Computing UMAP...")
+        if "neighbors" not in adata.uns:
+            sc.pp.neighbors(adata, n_neighbors=30)
+        sc.tl.umap(adata)
+
+    umap = adata.obsm["X_umap"]
+
+    # Add scores to adata
+    adata.obs["CytoTRACE"] = cytotrace
+    adata.obs["Pseudotime"] = pseudotime
+
+    # Subsample for plotting if too large
+    max_cells = 50000
+    if adata.n_obs > max_cells:
+        print(f"  Subsampling to {max_cells} cells for visualization...")
+        idx = np.random.choice(adata.n_obs, max_cells, replace=False)
+        umap_plot = umap[idx]
+        cytotrace_plot = cytotrace[idx]
+        pseudotime_plot = pseudotime[idx]
+        stage_plot = adata.obs["stage"].values[idx] if "stage" in adata.obs else None
+        celltype_plot = adata.obs["celltype"].values[idx] if "celltype" in adata.obs else None
+    else:
+        umap_plot = umap
+        cytotrace_plot = cytotrace
+        pseudotime_plot = pseudotime
+        stage_plot = adata.obs["stage"].values if "stage" in adata.obs else None
+        celltype_plot = adata.obs["celltype"].values if "celltype" in adata.obs else None
+
+    # =========================================================================
+    # Figure 1: Three-panel LungPCA style (Stage, Pseudotime, CytoTRACE)
+    # =========================================================================
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+    # Panel A: UMAP by stage
+    ax = axes[0]
+    if stage_plot is not None:
+        unique_stages = list(set(stage_plot))
+        colors = [STAGE_COLORS.get(s, '#cccccc') for s in unique_stages]
+        for i, stage in enumerate(unique_stages):
+            mask = stage_plot == stage
+            ax.scatter(umap_plot[mask, 0], umap_plot[mask, 1],
+                      c=colors[i], label=stage, s=0.5, alpha=0.6, rasterized=True)
+        ax.legend(markerscale=5, frameon=False, fontsize=10)
+    else:
+        ax.scatter(umap_plot[:, 0], umap_plot[:, 1], c='gray', s=0.5, alpha=0.6, rasterized=True)
+    ax.set_xlabel("UMAP1", fontsize=12)
+    ax.set_ylabel("UMAP2", fontsize=12)
+    ax.set_title("Stage", fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    # Panel B: UMAP by pseudotime
+    ax = axes[1]
+    valid_pt = ~np.isnan(pseudotime_plot)
+    sc = ax.scatter(umap_plot[valid_pt, 0], umap_plot[valid_pt, 1],
+                    c=pseudotime_plot[valid_pt], cmap='viridis', s=0.5, alpha=0.6, rasterized=True)
+    plt.colorbar(sc, ax=ax, label='Pseudotime', shrink=0.6)
+    ax.set_xlabel("UMAP1", fontsize=12)
+    ax.set_ylabel("UMAP2", fontsize=12)
+    ax.set_title("Pseudotime", fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    # Panel C: UMAP by CytoTRACE (turbo colormap like LungPCA paper)
+    ax = axes[2]
+    sc = ax.scatter(umap_plot[:, 0], umap_plot[:, 1],
+                    c=cytotrace_plot, cmap='turbo', s=0.5, alpha=0.6, rasterized=True)
+    plt.colorbar(sc, ax=ax, label='CytoTRACE', shrink=0.6)
+    ax.set_xlabel("UMAP1", fontsize=12)
+    ax.set_ylabel("UMAP2", fontsize=12)
+    ax.set_title("CytoTRACE", fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "umap_progression_3panel.png", dpi=300, bbox_inches='tight')
+    plt.savefig(output_dir / "umap_progression_3panel.pdf", bbox_inches='tight')
+    print(f"  Saved: {output_dir / 'umap_progression_3panel.png'}")
+    plt.close()
+
+    # =========================================================================
+    # Figure 2: Individual high-res UMAP panels
+    # =========================================================================
+
+    # Stage UMAP
+    fig, ax = plt.subplots(figsize=(8, 8))
+    if stage_plot is not None:
+        for stage in ["Normal", "AAH", "AIS", "MIA", "LUAD"]:
+            if stage in stage_plot:
+                mask = stage_plot == stage
+                ax.scatter(umap_plot[mask, 0], umap_plot[mask, 1],
+                          c=STAGE_COLORS.get(stage, '#cccccc'), label=stage,
+                          s=1, alpha=0.7, rasterized=True)
+        ax.legend(markerscale=8, frameon=False, fontsize=12, loc='upper right')
+    ax.set_xlabel("UMAP1", fontsize=14)
+    ax.set_ylabel("UMAP2", fontsize=14)
+    ax.set_title("LUAD Progression Stages", fontsize=16, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    plt.tight_layout()
+    plt.savefig(output_dir / "umap_stage.png", dpi=300, bbox_inches='tight')
+    plt.savefig(output_dir / "umap_stage.pdf", bbox_inches='tight')
+    plt.close()
+
+    # CytoTRACE UMAP (turbo colormap)
+    fig, ax = plt.subplots(figsize=(8, 8))
+    sc = ax.scatter(umap_plot[:, 0], umap_plot[:, 1],
+                    c=cytotrace_plot, cmap='turbo', s=1, alpha=0.7, rasterized=True)
+    cbar = plt.colorbar(sc, ax=ax, shrink=0.6, pad=0.02)
+    cbar.set_label('CytoTRACE Score', fontsize=12)
+    ax.set_xlabel("UMAP1", fontsize=14)
+    ax.set_ylabel("UMAP2", fontsize=14)
+    ax.set_title("CytoTRACE (Differentiation Potential)", fontsize=16, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    plt.tight_layout()
+    plt.savefig(output_dir / "umap_cytotrace.png", dpi=300, bbox_inches='tight')
+    plt.savefig(output_dir / "umap_cytotrace.pdf", bbox_inches='tight')
+    plt.close()
+
+    # Pseudotime UMAP
+    fig, ax = plt.subplots(figsize=(8, 8))
+    valid_pt = ~np.isnan(pseudotime_plot)
+    sc = ax.scatter(umap_plot[valid_pt, 0], umap_plot[valid_pt, 1],
+                    c=pseudotime_plot[valid_pt], cmap='viridis', s=1, alpha=0.7, rasterized=True)
+    cbar = plt.colorbar(sc, ax=ax, shrink=0.6, pad=0.02)
+    cbar.set_label('Pseudotime', fontsize=12)
+    ax.set_xlabel("UMAP1", fontsize=14)
+    ax.set_ylabel("UMAP2", fontsize=14)
+    ax.set_title("Diffusion Pseudotime", fontsize=16, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    plt.tight_layout()
+    plt.savefig(output_dir / "umap_pseudotime.png", dpi=300, bbox_inches='tight')
+    plt.savefig(output_dir / "umap_pseudotime.pdf", bbox_inches='tight')
+    plt.close()
+
+    # =========================================================================
+    # Figure 3: Summary statistics by stage
+    # =========================================================================
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
     stages = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
     stage_order = {s: i for i, s in enumerate(stages)}
 
-    # Filter to cells with stage info
-    if "stage" in cells_df.columns:
-        plot_df = cells_df[cells_df["stage"].isin(stages)].copy()
-        plot_df["stage_order"] = plot_df["stage"].map(stage_order)
-        plot_df = plot_df.sort_values("stage_order")
-    else:
-        plot_df = cells_df.copy()
-
-    # 1. CytoTRACE by stage (boxplot)
-    ax = axes[0, 0]
-    if "cytotrace" in plot_df.columns and "stage" in plot_df.columns:
-        stage_data = [plot_df[plot_df["stage"] == s]["cytotrace"].values for s in stages if s in plot_df["stage"].values]
-        stage_labels = [s for s in stages if s in plot_df["stage"].values]
-        ax.boxplot(stage_data, labels=stage_labels)
-        ax.set_ylabel("CytoTRACE Score")
-        ax.set_title("CytoTRACE by Stage")
-        ax.tick_params(axis='x', rotation=45)
-    else:
-        ax.text(0.5, 0.5, "No CytoTRACE data", ha='center', va='center')
-        ax.set_title("CytoTRACE by Stage")
-
-    # 2. Pseudotime by stage (boxplot)
-    ax = axes[0, 1]
-    if "pseudotime" in plot_df.columns and "stage" in plot_df.columns:
-        stage_data = [plot_df[plot_df["stage"] == s]["pseudotime"].dropna().values for s in stages if s in plot_df["stage"].values]
-        stage_labels = [s for s in stages if s in plot_df["stage"].values]
-        ax.boxplot(stage_data, labels=stage_labels)
-        ax.set_ylabel("Pseudotime")
-        ax.set_title("Pseudotime by Stage")
-        ax.tick_params(axis='x', rotation=45)
-    else:
-        ax.text(0.5, 0.5, "No pseudotime data", ha='center', va='center')
-        ax.set_title("Pseudotime by Stage")
-
-    # 3. CytoTRACE vs Pseudotime scatter
-    ax = axes[0, 2]
-    if "cytotrace" in plot_df.columns and "pseudotime" in plot_df.columns:
-        valid = plot_df["pseudotime"].notna()
-        sample = plot_df[valid].sample(min(10000, valid.sum()), random_state=42)
-        ax.scatter(sample["pseudotime"], sample["cytotrace"], alpha=0.3, s=1)
-        ax.set_xlabel("Pseudotime")
-        ax.set_ylabel("CytoTRACE")
-        ax.set_title("CytoTRACE vs Pseudotime")
-        # Add correlation
-        corr = sample[["pseudotime", "cytotrace"]].corr().iloc[0, 1]
-        ax.text(0.05, 0.95, f"r = {corr:.3f}", transform=ax.transAxes, va='top')
-    else:
-        ax.text(0.5, 0.5, "Missing data", ha='center', va='center')
-        ax.set_title("CytoTRACE vs Pseudotime")
-
-    # 4. CytoTRACE distribution
-    ax = axes[1, 0]
-    if "cytotrace" in plot_df.columns:
-        ax.hist(plot_df["cytotrace"], bins=50, edgecolor='black', alpha=0.7)
-        ax.set_xlabel("CytoTRACE Score")
-        ax.set_ylabel("Count")
-        ax.set_title("CytoTRACE Distribution")
-        ax.axvline(plot_df["cytotrace"].median(), color='red', linestyle='--', label=f'Median: {plot_df["cytotrace"].median():.3f}')
-        ax.legend()
-    else:
-        ax.text(0.5, 0.5, "No CytoTRACE data", ha='center', va='center')
-        ax.set_title("CytoTRACE Distribution")
-
-    # 5. Pseudotime distribution
-    ax = axes[1, 1]
-    if "pseudotime" in plot_df.columns:
-        valid_pt = plot_df["pseudotime"].dropna()
-        ax.hist(valid_pt, bins=50, edgecolor='black', alpha=0.7)
-        ax.set_xlabel("Pseudotime")
-        ax.set_ylabel("Count")
-        ax.set_title("Pseudotime Distribution")
-        ax.axvline(valid_pt.median(), color='red', linestyle='--', label=f'Median: {valid_pt.median():.3f}')
-        ax.legend()
-    else:
-        ax.text(0.5, 0.5, "No pseudotime data", ha='center', va='center')
-        ax.set_title("Pseudotime Distribution")
-
-    # 6. Stage progression summary
-    ax = axes[1, 2]
-    if "stage" in plot_df.columns:
-        summary = []
+    if stage_plot is not None:
+        # CytoTRACE by stage boxplot
+        ax = axes[0]
+        stage_data = []
+        stage_labels = []
         for s in stages:
-            if s in plot_df["stage"].values:
-                stage_df = plot_df[plot_df["stage"] == s]
-                row = {"stage": s, "n_cells": len(stage_df)}
-                if "cytotrace" in stage_df.columns:
-                    row["cytotrace_mean"] = stage_df["cytotrace"].mean()
-                if "pseudotime" in stage_df.columns:
-                    row["pseudotime_mean"] = stage_df["pseudotime"].mean()
-                summary.append(row)
+            if s in stage_plot:
+                stage_data.append(cytotrace_plot[stage_plot == s])
+                stage_labels.append(s)
+        bp = ax.boxplot(stage_data, labels=stage_labels, patch_artist=True)
+        for patch, label in zip(bp['boxes'], stage_labels):
+            patch.set_facecolor(STAGE_COLORS.get(label, '#cccccc'))
+            patch.set_alpha(0.7)
+        ax.set_ylabel("CytoTRACE Score", fontsize=12)
+        ax.set_title("CytoTRACE by Stage", fontsize=14, fontweight='bold')
+        ax.tick_params(axis='x', rotation=45)
 
-        summary_df = pd.DataFrame(summary)
+        # Pseudotime by stage boxplot
+        ax = axes[1]
+        stage_data = []
+        stage_labels = []
+        for s in stages:
+            if s in stage_plot:
+                pt_vals = pseudotime_plot[stage_plot == s]
+                pt_vals = pt_vals[~np.isnan(pt_vals)]
+                if len(pt_vals) > 0:
+                    stage_data.append(pt_vals)
+                    stage_labels.append(s)
+        bp = ax.boxplot(stage_data, labels=stage_labels, patch_artist=True)
+        for patch, label in zip(bp['boxes'], stage_labels):
+            patch.set_facecolor(STAGE_COLORS.get(label, '#cccccc'))
+            patch.set_alpha(0.7)
+        ax.set_ylabel("Pseudotime", fontsize=12)
+        ax.set_title("Pseudotime by Stage", fontsize=14, fontweight='bold')
+        ax.tick_params(axis='x', rotation=45)
 
-        if "cytotrace_mean" in summary_df.columns and "pseudotime_mean" in summary_df.columns:
-            x = range(len(summary_df))
-            width = 0.35
-            ax.bar([i - width/2 for i in x], summary_df["cytotrace_mean"], width, label="CytoTRACE", alpha=0.8)
-            ax.bar([i + width/2 for i in x], summary_df["pseudotime_mean"], width, label="Pseudotime", alpha=0.8)
-            ax.set_xticks(x)
-            ax.set_xticklabels(summary_df["stage"])
-            ax.set_ylabel("Mean Score")
-            ax.set_title("Mean Scores by Stage")
-            ax.legend()
-            ax.tick_params(axis='x', rotation=45)
-        else:
-            ax.text(0.5, 0.5, "Insufficient data", ha='center', va='center')
-            ax.set_title("Mean Scores by Stage")
-    else:
-        ax.text(0.5, 0.5, "No stage data", ha='center', va='center')
-        ax.set_title("Mean Scores by Stage")
+        # Mean scores by stage
+        ax = axes[2]
+        means_ct = [cytotrace_plot[stage_plot == s].mean() for s in stages if s in stage_plot]
+        means_pt = [np.nanmean(pseudotime_plot[stage_plot == s]) for s in stages if s in stage_plot]
+        labels = [s for s in stages if s in stage_plot]
+        x = np.arange(len(labels))
+        width = 0.35
+        ax.bar(x - width/2, means_ct, width, label='CytoTRACE',
+               color=[STAGE_COLORS.get(s, '#cccccc') for s in labels], alpha=0.7, edgecolor='black')
+        ax.bar(x + width/2, means_pt, width, label='Pseudotime',
+               color=[STAGE_COLORS.get(s, '#cccccc') for s in labels], alpha=0.4, edgecolor='black', hatch='//')
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=45)
+        ax.set_ylabel("Mean Score", fontsize=12)
+        ax.set_title("Mean Progression Scores", fontsize=14, fontweight='bold')
+        ax.legend()
 
     plt.tight_layout()
-    plt.savefig(output_dir / "progression_scores.png", dpi=150, bbox_inches='tight')
-    plt.savefig(output_dir / "progression_scores.pdf", bbox_inches='tight')
-    print(f"  Saved: {output_dir / 'progression_scores.png'}")
+    plt.savefig(output_dir / "progression_summary.png", dpi=150, bbox_inches='tight')
+    plt.savefig(output_dir / "progression_summary.pdf", bbox_inches='tight')
+    print(f"  Saved: {output_dir / 'progression_summary.png'}")
     plt.close()
 
 
@@ -259,7 +381,7 @@ def main():
     cells_df = pd.read_parquet(args.cells)
     print(f"  {len(cells_df)} cells")
 
-    # Filter to snRNA only (pseudotime needs expression data)
+    # Filter to snRNA only
     if "data_type" in cells_df.columns:
         snrna_mask = cells_df["data_type"] == "snRNA"
         snrna_cell_ids = set(cells_df.loc[snrna_mask, "cell_id"])
@@ -277,9 +399,15 @@ def main():
     print(f"  {len(common_cells)} cells in common with canonical parquet")
     adata = adata[common_cells].copy()
 
-    # Add stage info from cells_df
-    cell_to_stage = dict(zip(cells_df["cell_id"], cells_df.get("stage", ["Unknown"] * len(cells_df))))
-    adata.obs["stage"] = [cell_to_stage.get(c, "Unknown") for c in adata.obs_names]
+    # Add metadata from cells_df
+    cell_meta = cells_df.set_index("cell_id")
+    for col in ["stage", "donor_id", "celltype", "hlca_celltype", "luca_celltype"]:
+        if col in cell_meta.columns:
+            adata.obs[col] = cell_meta.loc[adata.obs_names, col].values
+
+    # Use HLCA celltype if celltype not available
+    if "celltype" not in adata.obs.columns and "hlca_celltype" in adata.obs.columns:
+        adata.obs["celltype"] = adata.obs["hlca_celltype"]
 
     # Compute CytoTRACE
     cytotrace_scores = compute_cytotrace(adata)
@@ -306,11 +434,8 @@ def main():
     results_df.to_parquet(output_dir / "progression_scores.parquet", index=False)
     print(f"Saved: {output_dir / 'progression_scores.parquet'}")
 
-    # Merge with cells_df for visualization
-    vis_df = cells_df.merge(results_df, on="cell_id", how="left")
-
-    # Create visualizations
-    create_visualizations(vis_df, output_dir)
+    # Create LungPCA-style visualizations
+    create_lungpca_style_figures(adata, cytotrace_scores, pseudotime_scores, output_dir)
 
     # Print summary
     print("\n" + "=" * 60)
@@ -321,23 +446,22 @@ def main():
     if len(valid_pt) > 0:
         print(f"Pseudotime: min={valid_pt.min():.3f}, max={valid_pt.max():.3f}, median={np.median(valid_pt):.3f}")
 
-    if "stage" in cells_df.columns:
+    if "stage" in adata.obs.columns:
         print("\nBy Stage:")
         for stage in ["Normal", "AAH", "AIS", "MIA", "LUAD"]:
-            mask = vis_df["stage"] == stage
+            mask = adata.obs["stage"] == stage
             if mask.any():
-                ct = vis_df.loc[mask, "cytotrace"].mean()
-                pt = vis_df.loc[mask, "pseudotime"].mean()
+                ct = cytotrace_scores[mask].mean()
+                pt = np.nanmean(pseudotime_scores[mask])
                 print(f"  {stage}: CytoTRACE={ct:.3f}, Pseudotime={pt:.3f}")
 
-    print("\nTo join with cells.parquet:")
-    print(f"  python -c \"")
-    print(f"  import pandas as pd")
-    print(f"  cells = pd.read_parquet('{args.cells}')")
-    print(f"  scores = pd.read_parquet('{output_dir}/progression_scores.parquet')")
-    print(f"  merged = cells.merge(scores, on='cell_id', how='left')")
-    print(f"  merged.to_parquet('{args.cells}', index=False)")
-    print(f"  \"")
+    print(f"\nOutput files in: {output_dir}")
+    print("  - progression_scores.parquet")
+    print("  - umap_progression_3panel.png/pdf (LungPCA Figure 3B-D style)")
+    print("  - umap_stage.png/pdf")
+    print("  - umap_cytotrace.png/pdf")
+    print("  - umap_pseudotime.png/pdf")
+    print("  - progression_summary.png/pdf")
 
 
 if __name__ == "__main__":
