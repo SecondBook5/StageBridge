@@ -187,7 +187,7 @@ class CanonicalContractValidator:
                     {"invalid_stages": list(invalid_stages)}
                 )
 
-        # Data type must be present and valid
+        # Data type - can be explicit column or inferred from cell_id prefix
         if "data_type" in cells.columns:
             unique_types = set(cells["data_type"].unique())
             invalid_types = unique_types - set(DATA_TYPES)
@@ -198,10 +198,20 @@ class CanonicalContractValidator:
                     f"Must be one of {DATA_TYPES}",
                 )
         else:
-            self._add_error(
-                "cells",
-                "Missing 'data_type' column. Cannot distinguish snRNA from spatial cells."
-            )
+            # Can infer from cell_id: spatial cells have "spatial_" prefix
+            if "cell_id" in cells.columns:
+                n_spatial = cells["cell_id"].str.startswith("spatial_").sum()
+                n_snrna = len(cells) - n_spatial
+                self._add_warning(
+                    "cells",
+                    f"No 'data_type' column - inferring from cell_id prefix: "
+                    f"{n_snrna} snRNA, {n_spatial} spatial"
+                )
+            else:
+                self._add_error(
+                    "cells",
+                    "Missing 'data_type' column and cannot infer from cell_id."
+                )
 
         # Fused embedding columns
         fused_cols = [f"z_fused_{i}" for i in range(CANONICAL_LATENT_DIM)]
@@ -249,10 +259,11 @@ class CanonicalContractValidator:
             for idx in sample_indices:
                 tokens = neighborhoods.iloc[idx]["tokens"]
 
-                if not isinstance(tokens, list):
+                # Accept both list and numpy array (parquet serialization may convert)
+                if not isinstance(tokens, (list, np.ndarray)):
                     self._add_error(
                         "neighborhoods",
-                        f"Row {idx}: 'tokens' must be a list, got {type(tokens)}"
+                        f"Row {idx}: 'tokens' must be a list or array, got {type(tokens)}"
                     )
                     continue
 
@@ -345,31 +356,31 @@ class CanonicalContractValidator:
             n_missing = len(cells_without_neighborhoods)
             pct = 100 * n_missing / len(cell_ids)
 
-            # If spatial cells don't have neighborhoods, that's an error
+            # Determine spatial vs snRNA cells (from column or cell_id prefix)
             if "data_type" in cells.columns:
                 spatial_cells = set(cells[cells["data_type"] == "spatial"]["cell_id"])
-                spatial_without_niche = spatial_cells & cells_without_neighborhoods
-                if spatial_without_niche:
-                    self._add_error(
-                        "alignment",
-                        f"{len(spatial_without_niche)} spatial cells have no neighborhoods. "
-                        f"Spatial cells MUST have neighborhoods."
-                    )
-
-                # snRNA cells without neighborhoods is a warning
                 snrna_cells = set(cells[cells["data_type"] == "snrna"]["cell_id"])
-                snrna_without_niche = snrna_cells & cells_without_neighborhoods
-                if snrna_without_niche:
-                    self._add_warning(
-                        "alignment",
-                        f"{len(snrna_without_niche)} snRNA cells have no neighborhoods. "
-                        f"These will use degenerate (receiver-copy) niches."
-                    )
             else:
+                # Infer from cell_id prefix
+                spatial_cells = set(cells[cells["cell_id"].str.startswith("spatial_")]["cell_id"])
+                snrna_cells = cell_ids - spatial_cells
+
+            # If spatial cells don't have neighborhoods, that's an error
+            spatial_without_niche = spatial_cells & cells_without_neighborhoods
+            if spatial_without_niche:
                 self._add_error(
                     "alignment",
-                    f"{n_missing} cells ({pct:.1f}%) have no neighborhoods. "
-                    f"Cannot determine if this is acceptable without 'data_type' column."
+                    f"{len(spatial_without_niche)} spatial cells have no neighborhoods. "
+                    f"Spatial cells MUST have neighborhoods."
+                )
+
+            # snRNA cells without neighborhoods is a warning (expected)
+            snrna_without_niche = snrna_cells & cells_without_neighborhoods
+            if snrna_without_niche:
+                self._add_warning(
+                    "alignment",
+                    f"{len(snrna_without_niche)} snRNA cells have no neighborhoods. "
+                    f"These will use degenerate (receiver-copy) niches."
                 )
 
         # Check for orphan neighborhoods
