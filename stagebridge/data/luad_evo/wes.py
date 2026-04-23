@@ -47,23 +47,34 @@ _TMB_MIN_AF: float = 0.05
 # ---------------------------------------------------------------------------
 # Gene coding-region intervals (GRCh38 / hg38) used for binary mutation flags.
 # Tuple: (chrom, start, end)  — half-open, 0-based
+# Coordinates verified from UCSC Genome Browser / Ensembl GRCh38
 _GENE_REGIONS: dict[str, tuple[str, int, int]] = {
-    "tp53": ("chr17", 7_661_779, 7_687_550),
-    "stk11": ("chr19", 1_205_866, 1_228_675),
-    "keap1": ("chr19", 10_486_024, 10_589_437),
-    "smad4": ("chr18", 51_028_399, 51_085_062),
+    "tp53": ("chr17", 7_668_421, 7_687_490),      # GRCh38: TP53 coding region
+    "stk11": ("chr19", 1_205_798, 1_228_434),     # GRCh38: STK11/LKB1
+    "keap1": ("chr19", 10_596_796, 10_614_367),   # GRCh38: KEAP1
+    "smad4": ("chr18", 51_030_213, 51_085_042),   # GRCh38: SMAD4
 }
 
-# KRAS codon 12/13 hotspot positions (chr12, hg38)
+# KRAS codon 12/13 hotspot positions (chr12, GRCh38)
+# G12: chr12:25,245,350 (G12C/D/V/A/S/R)
+# G13: chr12:25,245,347 (G13D/C)
 _KRAS_HOTSPOT_CHROM = "chr12"
-_KRAS_HOTSPOT_POSITIONS: frozenset[int] = frozenset({25_398_284, 25_398_285, 25_380_275})
+_KRAS_HOTSPOT_POSITIONS: frozenset[int] = frozenset({
+    25_245_347,  # G13 codon position 1
+    25_245_348,  # G13 codon position 2
+    25_245_349,  # G13 codon position 3
+    25_245_350,  # G12 codon position 1
+    25_245_351,  # G12 codon position 2
+    25_245_352,  # G12 codon position 3
+})
 
-# EGFR L858R (chr7:55,191,822 T>G) and exon-19 del region
-_EGFR_L858R = ("chr7", 55_191_822)
-_EGFR_EXON19_REGION = ("chr7", 55_174_700, 55_174_900)  # (chrom, start, end)
+# EGFR L858R (chr7:55,191,822 T>G in hg19, chr7:55,259,515 in GRCh38)
+# Exon-19 deletions: chr7:55,242,415-55,242,513 in GRCh38
+_EGFR_L858R = ("chr7", 55_259_515)
+_EGFR_EXON19_REGION = ("chr7", 55_242_415, 55_242_513)
 
-# BRAF V600E: chr7:140,453,136 A>T
-_BRAF_V600E = ("chr7", 140_453_136)
+# BRAF V600E: chr7:140,753,336 in GRCh38 (A>T, minus strand = T>A on plus)
+_BRAF_V600E = ("chr7", 140_753_336)
 
 # ---------------------------------------------------------------------------
 
