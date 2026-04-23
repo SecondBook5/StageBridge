@@ -54,7 +54,7 @@ CELLTYPE_COLORS = {
 }
 
 
-def compute_cytotrace(adata: sc.AnnData) -> np.ndarray:
+def compute_cytotrace(adata: scp.AnnData) -> np.ndarray:
     """
     Compute CytoTRACE-like score based on gene count correlation.
 
@@ -80,7 +80,7 @@ def compute_cytotrace(adata: sc.AnnData) -> np.ndarray:
 
 
 def compute_diffusion_pseudotime(
-    adata: sc.AnnData,
+    adata: scp.AnnData,
     root_stage: str = "Normal",
     n_neighbors: int = 30,
     n_pcs: int = 50,
@@ -130,7 +130,7 @@ def compute_diffusion_pseudotime(
 
 
 def create_lungpca_style_figures(
-    adata: sc.AnnData,
+    adata: scp.AnnData,
     cytotrace: np.ndarray,
     pseudotime: np.ndarray,
     output_dir: Path,
