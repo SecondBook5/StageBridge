@@ -68,10 +68,10 @@ _KRAS_HOTSPOT_POSITIONS: frozenset[int] = frozenset({
     25_245_352,  # G12 codon position 3
 })
 
-# EGFR L858R (chr7:55,191,822 T>G in hg19, chr7:55,259,515 in GRCh38)
-# Exon-19 deletions: chr7:55,242,415-55,242,513 in GRCh38
-_EGFR_L858R = ("chr7", 55_259_515)
-_EGFR_EXON19_REGION = ("chr7", 55_242_415, 55_242_513)
+# EGFR L858R (rs121434568): GRCh38 = chr7:55,191,822 (T>G)
+# EGFR exon-19 deletions: GRCh38 = chr7:55,174,721-55,174,820 (ELREA deletion region)
+_EGFR_L858R = ("chr7", 55_191_822)
+_EGFR_EXON19_REGION = ("chr7", 55_174_721, 55_174_820)
 
 # BRAF V600E: chr7:140,753,336 in GRCh38 (A>T, minus strand = T>A on plus)
 _BRAF_V600E = ("chr7", 140_753_336)
