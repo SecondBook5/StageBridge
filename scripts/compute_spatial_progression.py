@@ -123,11 +123,23 @@ def compute_spatial_progression_scores(
     # Extract cell type names from gamma columns
     gamma_celltypes = [c.replace("gamma_", "") for c in gamma_cols]
 
+    # Get gamma matrix and normalize to proportions (sum to 1 per spot)
+    gamma_matrix = spatial_df[gamma_cols].values.copy()
+
+    # Clip negative values (shouldn't exist but just in case)
+    gamma_matrix = np.clip(gamma_matrix, 0, None)
+
+    # Normalize each row to sum to 1
+    gamma_sum = gamma_matrix.sum(axis=1, keepdims=True)
+    gamma_sum[gamma_sum == 0] = 1  # Avoid division by zero
+    gamma_matrix = gamma_matrix / gamma_sum
+
+    print(f"  Gamma proportions: min={gamma_matrix.min():.3f}, max={gamma_matrix.max():.3f}")
+
     # Compute weighted scores
     spatial_cytotrace = np.zeros(len(spatial_df))
     spatial_pseudotime = np.zeros(len(spatial_df))
-
-    gamma_matrix = spatial_df[gamma_cols].values
+    matched_celltypes = []
 
     for i, celltype in enumerate(gamma_celltypes):
         # Match cell type name (case insensitive, handle variations)
@@ -138,6 +150,7 @@ def compute_spatial_progression_scores(
             if key.lower() == celltype.lower() or celltype.lower() in key.lower():
                 ct_cytotrace = cytotrace_means[key]
                 ct_pseudotime = pseudotime_means.get(key, np.nan)
+                matched_celltypes.append((celltype, key))
                 break
 
         if ct_cytotrace is not None:
@@ -145,11 +158,7 @@ def compute_spatial_progression_scores(
             if not np.isnan(ct_pseudotime):
                 spatial_pseudotime += gamma_matrix[:, i] * ct_pseudotime
 
-    # Normalize by total gamma (should sum to ~1, but just in case)
-    gamma_sum = gamma_matrix.sum(axis=1)
-    gamma_sum[gamma_sum == 0] = 1  # Avoid division by zero
-    spatial_cytotrace /= gamma_sum
-    spatial_pseudotime /= gamma_sum
+    print(f"  Matched {len(matched_celltypes)}/{len(gamma_celltypes)} cell types")
 
     # Build results
     results = pd.DataFrame({
@@ -209,11 +218,19 @@ def create_spatial_progression_figures(
         print(f"  Found {len(samples)} samples")
 
     # Select diverse samples (by stage if available)
-    if "stage" in spatial_scores.columns and len(samples) > n_samples:
+    # Use same column name that was found in adata
+    score_sample_col = sample_col if sample_col in spatial_scores.columns else None
+    if score_sample_col is None:
+        for col in ["sample_id", "sample", "batch"]:
+            if col in spatial_scores.columns:
+                score_sample_col = col
+                break
+
+    if "stage" in spatial_scores.columns and score_sample_col and len(samples) > n_samples:
         # Pick samples from each stage
         selected = []
         for stage in ["Normal", "AAH", "AIS", "MIA", "LUAD"]:
-            stage_samples = spatial_scores[spatial_scores["stage"] == stage]["sample_id"].unique()
+            stage_samples = spatial_scores[spatial_scores["stage"] == stage][score_sample_col].unique()
             if len(stage_samples) > 0:
                 selected.append(stage_samples[0])
                 if len(selected) >= n_samples:
