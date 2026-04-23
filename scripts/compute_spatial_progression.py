@@ -205,7 +205,7 @@ def compute_spatial_progression_scores(
 
 def create_spatial_progression_figures(
     spatial_scores: pd.DataFrame,
-    spatial_adata: sc.AnnData,
+    spatial_adata: scp.AnnData,
     output_dir: Path,
     n_samples: int = 6,
 ):
