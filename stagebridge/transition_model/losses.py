@@ -77,10 +77,27 @@ def sample_coupling_pairs(
     """Sample source/target indices from a coupling matrix."""
     n, m = coupling.shape
     probs = coupling.reshape(-1)
-    probs = probs / probs.sum().clamp_min(1e-12)
+
+    # Handle edge cases: NaN, all zeros, negative values
+    probs = torch.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+    probs = probs.clamp_min(0.0)
+
+    prob_sum = probs.sum()
+    if prob_sum < 1e-12:
+        # Coupling is degenerate - fall back to uniform sampling
+        src_idx = torch.randint(0, n, (num_pairs,), device=coupling.device)
+        tgt_idx = torch.randint(0, m, (num_pairs,), device=coupling.device)
+        return src_idx, tgt_idx
+
+    probs = probs / prob_sum
     sampled = torch.multinomial(probs, num_samples=num_pairs, replacement=True)
     src_idx = sampled // m
     tgt_idx = sampled % m
+
+    # Defensive clamp (should never trigger, but guarantees valid indices)
+    src_idx = src_idx.clamp(0, n - 1)
+    tgt_idx = tgt_idx.clamp(0, m - 1)
+
     return src_idx, tgt_idx
 
 
