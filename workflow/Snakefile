@@ -1621,17 +1621,17 @@ rule ablation_fold:
         canonical = f"{CANONICAL}/data_manifest.json",
         full_model = f"{TRAINING}/fold0_seed42/checkpoints/final_checkpoint.pt"
     output:
-        checkpoint = f"{ABLATIONS}/{{ablation}}/fold{{fold}}/checkpoints/final_checkpoint.pt",
-        results = f"{ABLATIONS}/{{ablation}}/fold{{fold}}/results.json"
+        checkpoint = f"{ABLATIONS}/{{ablation}}/{{ablation}}/fold_{{fold}}/checkpoints/final_checkpoint.pt",
+        results = f"{ABLATIONS}/{{ablation}}/{{ablation}}/fold_{{fold}}/results.json"
     wildcard_constraints:
         ablation = "|".join(ABLATIONS_LIST),
         fold = "[0-4]"
     params:
         canonical_dir = CANONICAL
-    threads: 8
+    threads: 16
     resources:
         mem_mb = 128000,
-        runtime = 180,  # 3 hours per fold (was 12h for all 5 folds)
+        runtime = 840,  # 14 hours per fold (140 epochs took 12h)
         slurm_partition = "gpu",
         gpu = 1
     log:
@@ -1640,7 +1640,7 @@ rule ablation_fold:
         """
         python -m stagebridge.pipelines.run_v1_ablations \
             --data_dir {params.canonical_dir} \
-            --output_dir {ABLATIONS}/{wildcards.ablation}/fold{wildcards.fold} \
+            --output_dir {ABLATIONS}/{wildcards.ablation}/{wildcards.ablation}/fold_{wildcards.fold} \
             --validation_fold {wildcards.fold} \
             --ssl_epochs 50 \
             --transition_epochs 100 \
@@ -1663,7 +1663,7 @@ rule ablation:
     """Aggregate all folds of an ablation into summary files."""
     input:
         folds = expand(
-            f"{ABLATIONS}/{{{{ablation}}}}/fold{{fold}}/results.json",
+            f"{ABLATIONS}/{{{{ablation}}}}/{{{{ablation}}}}/fold_{{fold}}/results.json",
             fold=FOLDS
         )
     output:
@@ -1686,7 +1686,7 @@ rule ablation:
         for fold_file in input.folds:
             with open(fold_file) as f:
                 fold_data = json.load(f)
-                fold_data["fold"] = int(Path(fold_file).parent.name.replace("fold", ""))
+                fold_data["fold"] = int(Path(fold_file).parent.name.replace("fold_", ""))
                 all_results.append(fold_data)
 
         # Aggregate metrics
