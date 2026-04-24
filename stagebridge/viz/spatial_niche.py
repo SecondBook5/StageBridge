@@ -138,7 +138,7 @@ def get_spatial_coords(
         df["plot_x"] = df[x_col]
         df["plot_y"] = df[y_col]
     else:
-        for candidate_x, candidate_y in [("x", "y"), ("X", "Y"), ("spatial_x", "spatial_y"), ("coord_x", "coord_y")]:
+        for candidate_x, candidate_y in [("x", "y"), ("X", "Y"), ("x_spatial", "y_spatial"), ("spatial_x", "spatial_y"), ("coord_x", "coord_y")]:
             if candidate_x in df.columns and candidate_y in df.columns:
                 df["plot_x"] = df[candidate_x]
                 df["plot_y"] = df[candidate_y]
