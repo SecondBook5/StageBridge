@@ -1856,12 +1856,38 @@ rule sankey_flow_figure:
         """
 
 
+rule model_inference:
+    """Run model inference to generate transition_prob and niche_influence."""
+    input:
+        checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/best_checkpoint.pt",
+        cells = f"{CANONICAL}/cells.parquet",
+        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
+    output:
+        inference = f"{TRAINING}/fold0_seed42/evaluation/model_inference.parquet"
+    threads: 4
+    resources:
+        mem_mb = 128000,
+        runtime = 120,
+        gpu = 1
+    log:
+        f"{RUNS}/logs/model_inference.log"
+    shell:
+        """
+        python workflow/scripts/run_model_inference.py \
+            --checkpoint {input.checkpoint} \
+            --cells {input.cells} \
+            --neighborhoods {input.neighborhoods} \
+            --output_dir {TRAINING}/fold0_seed42/evaluation \
+            2>&1 | tee {log}
+        """
+
+
 rule spatial_niche_figure:
     """Generate spatial niche visualization with risk maps."""
     input:
         cells = f"{CANONICAL}/cells.parquet",
         neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        training_done = f"{TRAINING}/aggregated/cv_results.json"
+        inference = f"{TRAINING}/fold0_seed42/evaluation/model_inference.parquet"
     output:
         risk = f"{FIGURES}/spatial/fig_spatial_risk.png",
         composition = f"{FIGURES}/spatial/fig_spatial_niche_composition.png",
