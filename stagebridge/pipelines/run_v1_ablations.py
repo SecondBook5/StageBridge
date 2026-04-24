@@ -98,6 +98,10 @@ class TrainingConfig:
     hpo_params: str = ""
     use_best_hparams: bool = False
 
+    # Early stopping
+    early_stopping_patience: int = 15
+    early_stopping_enabled: bool = True
+
     # Other
     seed: int = 42
     num_workers: int = 4
@@ -2119,6 +2123,7 @@ def train(config: TrainingConfig):
 
     best_transition_loss = float("inf")
     history["transition_loss"] = []
+    epochs_without_improvement = 0
 
     for epoch in range(config.transition_epochs):
         global_epoch = config.ssl_epochs + epoch
@@ -2182,6 +2187,9 @@ def train(config: TrainingConfig):
         is_best = val_metrics["val_loss"] < best_transition_loss
         if is_best:
             best_transition_loss = val_metrics["val_loss"]
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
 
         # Save checkpoint
         if (epoch + 1) % config.checkpoint_every == 0 or is_best:
@@ -2192,6 +2200,11 @@ def train(config: TrainingConfig):
         # Sync processes
         if distributed:
             dist.barrier()
+
+        # Early stopping check
+        if config.early_stopping_enabled and epochs_without_improvement >= config.early_stopping_patience:
+            log(f"Early stopping triggered: no improvement for {config.early_stopping_patience} epochs")
+            break
 
     # Track transition phase GPU memory
     transition_peak_memory_gb = 0.0
@@ -2295,6 +2308,16 @@ def main():
     )
     parser.add_argument("--use_best_hparams", action="store_true")
 
+    # Early stopping
+    parser.add_argument(
+        "--early_stopping_patience", type=int, default=15,
+        help="Stop if val_loss doesn't improve for N epochs"
+    )
+    parser.add_argument(
+        "--no_early_stopping", action="store_true",
+        help="Disable early stopping"
+    )
+
     # Other
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num_workers", type=int, default=4)
@@ -2382,6 +2405,8 @@ def main():
         hpo_trials=args.hpo_trials,
         hpo_params=args.hpo_params or "",
         use_best_hparams=args.use_best_hparams,
+        early_stopping_patience=args.early_stopping_patience,
+        early_stopping_enabled=not args.no_early_stopping,
         seed=args.seed,
         num_workers=args.num_workers,
         mixed_precision=not args.no_mixed_precision,
