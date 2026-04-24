@@ -855,7 +855,8 @@ class StageBridgeV1Complete(nn.Module):
                 n_src = src_mask.sum().item()
                 n_tgt = tgt_mask.sum().item()
 
-                if n_src >= 2 and n_tgt >= 2:
+                # Require minimum cells for stable OT coupling (small matrices are numerically unstable)
+                if n_src >= 8 and n_tgt >= 8:
                     # Get indices within the batch
                     src_batch_idx = torch.where(src_mask)[0]
                     tgt_batch_idx = torch.where(tgt_mask)[0]
