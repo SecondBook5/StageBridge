@@ -910,6 +910,10 @@ class StageBridgeV1Complete(nn.Module):
             num_pairs = min(self.num_ot_pairs, batch_size * batch_size)
             src_idx, tgt_idx = sample_coupling_pairs(coupling, num_pairs)
 
+            # Clamp to valid range (defensive)
+            src_idx = src_idx.clamp(0, batch_size - 1)
+            tgt_idx = tgt_idx.clamp(0, batch_size - 1)
+
             # Compute OT cost for diagnostics
             cost_matrix = torch.cdist(z_source, z_target, p=2).pow(2)
             ot_cost = (coupling * cost_matrix).sum().item()
@@ -919,6 +923,10 @@ class StageBridgeV1Complete(nn.Module):
             src_idx = torch.randint(0, batch_size, (num_pairs,), device=device)
             tgt_idx = torch.randint(0, batch_size, (num_pairs,), device=device)
             ot_cost = float("nan")
+
+        # Final defensive clamp before indexing (catch any edge case)
+        src_idx = src_idx.clamp(0, batch_size - 1)
+        tgt_idx = tgt_idx.clamp(0, batch_size - 1)
 
         # Get OT-paired samples
         z_src_paired = z_source[src_idx]
