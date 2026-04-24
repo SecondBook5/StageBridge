@@ -126,14 +126,20 @@ def compute_transition_metrics(
     """
     # Build tensors directly from DataFrames (canonical format)
     latent_dim = config.get("latent_dim", 40)
-    fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
-    if not fused_cols:
-        fused_cols = sorted([c for c in test_cells.columns if c.startswith("fused_latent_")])
 
-    if not fused_cols:
-        return {"error": "No fused embedding columns found"}
-
-    embeddings = torch.tensor(test_cells[fused_cols].values, dtype=torch.float32)
+    # Handle array column (z_fused) or separate columns (z_fused_0, z_fused_1, ...)
+    if "z_fused" in test_cells.columns:
+        # Array column - stack into 2D tensor
+        embeddings = torch.tensor(
+            np.stack(test_cells["z_fused"].values), dtype=torch.float32
+        )
+    else:
+        fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
+        if not fused_cols:
+            fused_cols = sorted([c for c in test_cells.columns if c.startswith("fused_latent_")])
+        if not fused_cols:
+            return {"error": "No fused embedding columns found (tried z_fused, z_fused_*, fused_latent_*)"}
+        embeddings = torch.tensor(test_cells[fused_cols].values, dtype=torch.float32)
     n_cells = len(embeddings)
 
     # Build niche tokens from neighborhoods
@@ -263,16 +269,24 @@ def compute_context_sensitivity(
         Dictionary with context sensitivity metrics
     """
     latent_dim = config.get("latent_dim", 40)
-    fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
-    if not fused_cols:
-        fused_cols = sorted([c for c in test_cells.columns if c.startswith("fused_latent_")])
 
-    if not fused_cols:
-        return {}
+    # Handle array column (z_fused) or separate columns (z_fused_0, z_fused_1, ...)
+    use_array_col = "z_fused" in test_cells.columns
+    if not use_array_col:
+        fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
+        if not fused_cols:
+            fused_cols = sorted([c for c in test_cells.columns if c.startswith("fused_latent_")])
+        if not fused_cols:
+            return {}
 
     # Sample cells
     sample_cells = test_cells.head(n_samples)
-    embeddings = torch.tensor(sample_cells[fused_cols].values, dtype=torch.float32)
+    if use_array_col:
+        embeddings = torch.tensor(
+            np.stack(sample_cells["z_fused"].values), dtype=torch.float32
+        )
+    else:
+        embeddings = torch.tensor(sample_cells[fused_cols].values, dtype=torch.float32)
     n_cells = len(embeddings)
 
     # Build niche tokens
