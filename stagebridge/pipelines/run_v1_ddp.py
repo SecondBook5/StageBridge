@@ -1646,17 +1646,21 @@ def train_epoch(
                 # Only compute for cells that are transitioning and have drift predictions
                 if outputs is not None and 'drift_pred' in outputs and 'src_idx' in outputs:
                     drift_pred = outputs['drift_pred']  # [N_pairs, D] from transition_forward
-                    src_idx = outputs['src_idx']  # [N_pairs] indices into transition-eligible cells
-                    # CRITICAL: Index WES by OT source indices to align with drift pairs
-                    # trans_wes is [N_transition, wes_dim], src_idx maps pairs to transition cells
-                    if trans_wes is not None:
-                        paired_wes = trans_wes[src_idx]  # [N_pairs, wes_dim]
-                    elif can_transition is not None:
-                        # Fallback: index from full wes_features
-                        trans_wes_full = wes_features[can_transition]
-                        paired_wes = trans_wes_full[src_idx]
-                    else:
-                        paired_wes = None
+                    src_idx = outputs['src_idx']  # [N_pairs] indices into z_source passed to transition_forward
+                    # CRITICAL: src_idx indexes into the z_source that was passed to transition_forward
+                    # When cross-stage OT is used, that's trans_z_source (filtered), so trans_wes aligns
+                    # When fallback is used, z_source is full batch, so use full wes_features
+                    paired_wes = None
+                    if trans_wes is not None and can_transition is not None and can_transition.sum() >= 4:
+                        # Cross-stage OT path: src_idx indexes into trans_* tensors
+                        # Clamp to valid range (defensive)
+                        src_idx_clamped = src_idx.clamp(0, trans_wes.shape[0] - 1)
+                        paired_wes = trans_wes[src_idx_clamped]  # [N_pairs, wes_dim]
+                    elif can_transition is None or can_transition.sum() < 4:
+                        # Fallback path: src_idx indexes into full z_source batch
+                        # Clamp to valid range (defensive)
+                        src_idx_clamped = src_idx.clamp(0, wes_features.shape[0] - 1)
+                        paired_wes = wes_features[src_idx_clamped]
 
                     if paired_wes is not None and drift_pred.shape[0] > 1:
                         wes_loss = wes_drift_consistency_loss(
