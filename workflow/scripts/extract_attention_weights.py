@@ -105,7 +105,7 @@ def extract_attention_from_dataset(
                 cell_id = batch.cell_ids[i]
                 stage = batch.source_stages[i]
 
-                cell_neighbors = neighborhoods_df[neighborhoods_df["receiver_id"] == cell_id]
+                cell_neighbors = neighborhoods_df[neighborhoods_df["cell_id"] == cell_id]
 
                 attn_i = attn[i] if i < len(attn) else np.array([])
 
@@ -165,7 +165,7 @@ def extract_attention_simple(
             cell_id = cell["cell_id"]
             stage = cell.get("stage", "unknown")
 
-            neighbors = neighborhoods_df[neighborhoods_df["receiver_id"] == cell_id]
+            neighbors = neighborhoods_df[neighborhoods_df["cell_id"] == cell_id]
 
             if len(neighbors) == 0:
                 continue
