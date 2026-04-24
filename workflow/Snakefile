@@ -1093,7 +1093,7 @@ rule heldout_evaluation:
         canonical_dir = CANONICAL
     threads: 4
     resources:
-        mem_mb = 128000,
+        mem_mb = 256000,
         runtime = 60,
         slurm_partition = "gpu",
         gpu = 1
