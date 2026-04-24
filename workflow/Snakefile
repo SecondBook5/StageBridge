@@ -1093,10 +1093,11 @@ rule heldout_evaluation:
         canonical_dir = CANONICAL
     threads: 4
     resources:
-        mem_mb = 256000,
-        runtime = 60,
+        mem_mb = 384000,
+        runtime = 120,
         slurm_partition = "gpu",
-        gpu = 1
+        gpu = 1,
+        constraint = "h100"
     log:
         f"{RUNS}/logs/evaluation/heldout_fold{{fold}}_seed{{seed}}.log"
     shell:
