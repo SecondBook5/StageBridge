@@ -1612,38 +1612,95 @@ rule aggregate_baselines:
 
 
 # =============================================================================
-# Stage 6: Ablation Studies
+# Stage 6: Ablation Studies (Parallelized by fold)
 # =============================================================================
 
-rule ablation:
+rule ablation_fold:
+    """Run single fold of an ablation - allows parallel execution across folds."""
     input:
         canonical = f"{CANONICAL}/data_manifest.json",
-        # Use fold 0, seed 42 as representative for ablations (consistent baseline)
         full_model = f"{TRAINING}/fold0_seed42/checkpoints/final_checkpoint.pt"
+    output:
+        checkpoint = f"{ABLATIONS}/{{ablation}}/fold{{fold}}/checkpoints/final_checkpoint.pt",
+        results = f"{ABLATIONS}/{{ablation}}/fold{{fold}}/results.json"
+    wildcard_constraints:
+        ablation = "|".join(ABLATIONS_LIST),
+        fold = "[0-4]"
+    params:
+        canonical_dir = CANONICAL
+    threads: 8
+    resources:
+        mem_mb = 128000,
+        runtime = 180,  # 3 hours per fold (was 12h for all 5 folds)
+        slurm_partition = "gpu",
+        gpu = 1
+    log:
+        f"{RUNS}/logs/ablations/{{ablation}}_fold{{fold}}.log"
+    shell:
+        """
+        python -m stagebridge.pipelines.run_v1_ablations \
+            --data_dir {params.canonical_dir} \
+            --output_dir {ABLATIONS}/{wildcards.ablation}/fold{wildcards.fold} \
+            --validation_fold {wildcards.fold} \
+            --ssl_epochs 50 \
+            --transition_epochs 100 \
+            --batch_size 32 \
+            --lr 0.001 \
+            --latent_dim 40 \
+            $( [ "{wildcards.ablation}" = "no_niche" ] && echo "--no_niche" || true ) \
+            $( [ "{wildcards.ablation}" = "no_wes" ] && echo "--no_wes" || true ) \
+            $( [ "{wildcards.ablation}" = "pooled_niche" ] && echo "--pooled_niche" || true ) \
+            $( [ "{wildcards.ablation}" = "flat_hierarchy" ] && echo "--no_hierarchical" || true ) \
+            $( [ "{wildcards.ablation}" = "hlca_only" ] && echo "--hlca_only" || true ) \
+            $( [ "{wildcards.ablation}" = "luca_only" ] && echo "--luca_only" || true ) \
+            $( [ "{wildcards.ablation}" = "deterministic" ] && echo "--deterministic" || true ) \
+            $( [ "{wildcards.ablation}" = "with_prototypes" ] && echo "--use_prototypes" || true ) \
+            2>&1 | tee {log}
+        """
+
+
+rule ablation:
+    """Aggregate all folds of an ablation into summary files."""
+    input:
+        folds = expand(
+            f"{ABLATIONS}/{{{{ablation}}}}/fold{{fold}}/results.json",
+            fold=FOLDS
+        )
     output:
         results = f"{ABLATIONS}/{{ablation}}/results.json",
         metrics = f"{ABLATIONS}/{{ablation}}/metrics.csv"
     wildcard_constraints:
         ablation = "|".join(ABLATIONS_LIST)
-    params:
-        canonical_dir = CANONICAL,
-        ablations_dir = ABLATIONS
-    threads: 8
+    threads: 2
     resources:
-        mem_mb = 128000,
-        runtime = 720,  # 12 hours per ablation (150 epochs on 800k+ cells)
-        slurm_partition = "gpu",
-        gpu = 1
+        mem_mb = 8000,
+        runtime = 15
     log:
-        f"{RUNS}/logs/ablations/{{ablation}}.log"
-    shell:
-        """
-        python -m stagebridge.pipelines.orchestrate_ablations \
-            --data_dir {params.canonical_dir} \
-            --output_dir {params.ablations_dir}/{wildcards.ablation} \
-            --ablations {wildcards.ablation} \
-            2>&1 | tee {log}
-        """
+        f"{RUNS}/logs/ablations/{{ablation}}_aggregate.log"
+    run:
+        import json
+        import pandas as pd
+        from pathlib import Path
+
+        all_results = []
+        for fold_file in input.folds:
+            with open(fold_file) as f:
+                fold_data = json.load(f)
+                fold_data["fold"] = int(Path(fold_file).parent.name.replace("fold", ""))
+                all_results.append(fold_data)
+
+        # Aggregate metrics
+        metrics_df = pd.DataFrame(all_results)
+        metrics_df.to_csv(output.metrics, index=False)
+
+        # Summary with mean/std across folds
+        summary = {
+            "ablation": wildcards.ablation,
+            "n_folds": len(all_results),
+            "folds": all_results,
+        }
+        with open(output.results, "w") as f:
+            json.dump(summary, f, indent=2)
 
 
 rule ablation_summary:
