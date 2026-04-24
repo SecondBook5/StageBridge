@@ -209,30 +209,8 @@ def compute_transition_metrics(
             "mae": transition_metrics["mae"],
         })
 
-    if all_stages:
-        stages = np.concatenate(all_stages, axis=0)
-        unique_stages = np.unique(stages)
-
-        if len(unique_stages) > 1 and all_probs:
-            probs = np.concatenate(all_probs, axis=0)
-            if probs.ndim == 1:
-                probs = probs.reshape(-1, 1)
-
-            if probs.shape[1] >= len(unique_stages):
-                stage_preds = np.argmax(probs[:, :len(unique_stages)], axis=1)
-                metrics["stage_accuracy"] = float(accuracy_score(stages, stage_preds))
-                metrics["stage_f1_macro"] = float(f1_score(stages, stage_preds, average="macro"))
-
-                if len(unique_stages) == 2:
-                    metrics["auroc"] = float(roc_auc_score(stages, probs[:, 1]))
-                else:
-                    try:
-                        metrics["auroc"] = float(roc_auc_score(
-                            stages, probs[:, :len(unique_stages)],
-                            multi_class="ovr", average="macro"
-                        ))
-                    except ValueError:
-                        pass
+    # Note: Stage classification metrics removed - model doesn't output class probs
+    # The key metrics are transition quality (wasserstein, mmd) and context sensitivity
 
     return metrics
 
