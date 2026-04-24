@@ -71,15 +71,26 @@ def load_model_and_test_data(
 
     test_donors = splits["folds"][fold]["test_donors"]
 
-    cells_df = pd.read_parquet(data_dir / "cells.parquet")
-    neighborhoods_df = pd.read_parquet(data_dir / "neighborhoods.parquet")
+    # Filter at read time using pyarrow for memory efficiency
+    import pyarrow.parquet as pq
 
-    test_mask = cells_df["donor_id"].isin(test_donors)
-    test_cells = cells_df[test_mask].copy()
+    # Read cells with filter
+    cells_table = pq.read_table(
+        data_dir / "cells.parquet",
+        filters=[("donor_id", "in", test_donors)]
+    )
+    test_cells = cells_table.to_pandas()
+    del cells_table
+
     test_cell_ids = set(test_cells["cell_id"])
+
+    # Read neighborhoods - filter after since cell_id filter is complex
+    # But only read needed columns to save memory
+    neighborhoods_df = pd.read_parquet(data_dir / "neighborhoods.parquet")
     test_neighborhoods = neighborhoods_df[
         neighborhoods_df["cell_id"].isin(test_cell_ids)
     ].copy()
+    del neighborhoods_df  # Free memory immediately
 
     return model, test_cells, test_neighborhoods, config
 
@@ -125,20 +136,25 @@ def compute_transition_metrics(
     token_mask = torch.zeros(n_cells, 8, dtype=torch.bool)
 
     if "tokens" in test_neighborhoods.columns:
-        for _, row in test_neighborhoods.iterrows():
-            cell_id = row["cell_id"]
-            if cell_id not in cell_id_to_idx:
+        # Vectorized: map cell_ids to indices first
+        valid_mask = test_neighborhoods["cell_id"].isin(cell_id_to_idx)
+        valid_neighborhoods = test_neighborhoods[valid_mask]
+        cell_indices = valid_neighborhoods["cell_id"].map(cell_id_to_idx).values
+
+        # Process tokens in batches to avoid memory explosion
+        for i, (cell_idx, tokens) in enumerate(zip(cell_indices, valid_neighborhoods["tokens"].values)):
+            if tokens is None:
                 continue
-            idx = cell_id_to_idx[cell_id]
-            for token_dict in row["tokens"]:
+            for token_dict in tokens:
                 token_idx = token_dict.get("token_idx", -1)
                 if 1 <= token_idx <= 4:
                     z_pooled = token_dict.get("z_pooled")
                     if z_pooled is not None and len(z_pooled) > 0:
-                        z_t = torch.tensor(z_pooled[:latent_dim], dtype=torch.float32)
-                        niche_tokens[idx, token_idx, :len(z_t)] = z_t
-                        token_distances[idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
-                        token_mask[idx, token_idx - 1] = True
+                        niche_tokens[cell_idx, token_idx, :min(len(z_pooled), latent_dim)] = torch.tensor(
+                            z_pooled[:latent_dim], dtype=torch.float32
+                        )
+                        token_distances[cell_idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
+                        token_mask[cell_idx, token_idx - 1] = True
 
     # Get stage indices and filter to transition-eligible (stages 0-3)
     stage_col = "stage" if "stage" in test_cells.columns else "stage_label"

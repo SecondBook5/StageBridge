@@ -205,14 +205,21 @@ def run_all_ablations(
             )
 
             if result["success"]:
-                test_metrics = result["results"]["test_metrics"]
+                # Handle both old format (test_metrics) and new format (final_metrics)
+                results_data = result["results"]
+                if "test_metrics" in results_data:
+                    metrics = results_data["test_metrics"]
+                elif "final_metrics" in results_data:
+                    metrics = results_data["final_metrics"]
+                else:
+                    metrics = results_data.get("metrics", {})
 
                 all_results.append(
                     {
                         "ablation": ablation_name,
                         "fold": fold,
                         "success": True,
-                        **test_metrics,
+                        **metrics,
                     }
                 )
             else:
