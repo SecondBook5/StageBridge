@@ -84,13 +84,21 @@ def load_model_and_test_data(
 
     test_cell_ids = set(test_cells["cell_id"])
 
-    # Read neighborhoods - filter after since cell_id filter is complex
-    # But only read needed columns to save memory
-    neighborhoods_df = pd.read_parquet(data_dir / "neighborhoods.parquet")
-    test_neighborhoods = neighborhoods_df[
-        neighborhoods_df["cell_id"].isin(test_cell_ids)
-    ].copy()
-    del neighborhoods_df  # Free memory immediately
+    # Read neighborhoods in chunks to avoid OOM
+    # neighborhoods.parquet can be 50GB+ and doesn't have donor_id for filtering
+    neighborhoods_path = data_dir / "neighborhoods.parquet"
+    parquet_file = pq.ParquetFile(neighborhoods_path)
+
+    filtered_chunks = []
+    for batch in parquet_file.iter_batches(batch_size=100_000):
+        chunk_df = batch.to_pandas()
+        filtered = chunk_df[chunk_df["cell_id"].isin(test_cell_ids)]
+        if len(filtered) > 0:
+            filtered_chunks.append(filtered)
+        del chunk_df
+
+    test_neighborhoods = pd.concat(filtered_chunks, ignore_index=True) if filtered_chunks else pd.DataFrame()
+    del filtered_chunks
 
     return model, test_cells, test_neighborhoods, config
 
