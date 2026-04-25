@@ -170,13 +170,20 @@ def compute_transition_metrics(
                         token_distances[cell_idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
                         token_mask[cell_idx, token_idx - 1] = True
 
-    # Get stage indices and filter to transition-eligible (stages 0-3)
+    # Get stage indices and filter to transition-eligible (all but last stage)
     stage_col = "stage" if "stage" in test_cells.columns else "stage_label"
     if stage_col in test_cells.columns:
-        from stagebridge.canonical_contract import STAGE_TO_INDEX
-        stages = test_cells[stage_col].map(STAGE_TO_INDEX).fillna(4).astype(int)
+        from stagebridge.canonical_contract import CANONICAL_STAGES_3, CANONICAL_STAGES_5, STAGE_TO_INDEX_3, STAGE_TO_INDEX_5
+        unique_stages = set(test_cells[stage_col].dropna().unique())
+        if unique_stages <= set(CANONICAL_STAGES_3):
+            stage_map = STAGE_TO_INDEX_3
+            n_stages = 3
+        else:
+            stage_map = STAGE_TO_INDEX_5
+            n_stages = 5
+        stages = test_cells[stage_col].map(stage_map).fillna(n_stages).astype(int)
         stage_indices = torch.tensor(stages.values, dtype=torch.long)
-        can_transition = stage_indices < 4
+        can_transition = stage_indices < (n_stages - 1)  # All but last stage can transition
     else:
         stage_indices = None
         can_transition = torch.ones(n_cells, dtype=torch.bool)
