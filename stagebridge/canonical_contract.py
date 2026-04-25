@@ -26,10 +26,18 @@ import pandas as pd
 # CANONICAL CONSTANTS - THE SINGLE SOURCE OF TRUTH
 # =============================================================================
 
-# Stage names - EXACTLY these, in this order
-CANONICAL_STAGES = ("Normal", "AAH", "AIS", "MIA", "LUAD")
+# Stage names - support both 5-stage and 3-stage
+CANONICAL_STAGES_5 = ("Normal", "AAH", "AIS", "MIA", "LUAD")
+CANONICAL_STAGES_3 = ("Normal", "Preinvasive", "Invasive")
+
+# Default to 3-stage (better donor coverage for cross-stage learning)
+CANONICAL_STAGES = CANONICAL_STAGES_3
 STAGE_TO_INDEX = {s: i for i, s in enumerate(CANONICAL_STAGES)}
 INDEX_TO_STAGE = {i: s for i, s in enumerate(CANONICAL_STAGES)}
+
+# Also provide mappings for both
+STAGE_TO_INDEX_5 = {s: i for i, s in enumerate(CANONICAL_STAGES_5)}
+STAGE_TO_INDEX_3 = {s: i for i, s in enumerate(CANONICAL_STAGES_3)}
 
 # Latent dimensions
 CANONICAL_LATENT_DIM = 40  # Fused = HLCA + LuCA
@@ -175,15 +183,16 @@ class CanonicalContractValidator:
             if col not in cells.columns:
                 self._add_error("cells", f"Missing required column: {col}")
 
-        # Stage values must be canonical
+        # Stage values must be canonical (accept both 3-stage and 5-stage)
         if "stage" in cells.columns:
             unique_stages = set(cells["stage"].unique())
-            invalid_stages = unique_stages - set(CANONICAL_STAGES)
+            valid_stages = set(CANONICAL_STAGES_3) | set(CANONICAL_STAGES_5)
+            invalid_stages = unique_stages - valid_stages
             if invalid_stages:
                 self._add_error(
                     "cells",
                     f"Non-canonical stages found: {invalid_stages}. "
-                    f"Must be one of {CANONICAL_STAGES}",
+                    f"Must be one of {CANONICAL_STAGES_3} (3-stage) or {CANONICAL_STAGES_5} (5-stage)",
                     {"invalid_stages": list(invalid_stages)}
                 )
 

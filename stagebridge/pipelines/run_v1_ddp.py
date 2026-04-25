@@ -49,6 +49,11 @@ from stagebridge.config import (
 )
 from stagebridge.canonical_contract import CANONICAL_STAGES
 
+# Module-level stage tracking (set by load_data based on actual data)
+_ACTIVE_STAGES = CANONICAL_STAGES
+_ACTIVE_N_STAGES = len(CANONICAL_STAGES)
+_ACTIVE_STAGE_MAP = {s: i for i, s in enumerate(CANONICAL_STAGES)}
+
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -878,17 +883,27 @@ def create_dataloaders(
 
     # z_source and z_target for transition learning
     # Create REAL cross-stage transition pairs using stage information
-    # Use canonical stages from contract - DO NOT silently coerce
+    # Support both 3-stage and 5-stage data
+    from stagebridge.canonical_contract import CANONICAL_STAGES_3, CANONICAL_STAGES_5, STAGE_TO_INDEX_3, STAGE_TO_INDEX_5
+
     if "stage" not in cells_df.columns:
         raise ValueError("cells.parquet missing 'stage' column")
 
-    # Check for non-canonical stages - FAIL, don't coerce
+    # Detect which stage scheme is in use
     unique_stages = set(cells_df["stage"].dropna().unique())
-    invalid_stages = unique_stages - set(CANONICAL_STAGES)
-    if invalid_stages:
+    if unique_stages <= set(CANONICAL_STAGES_3):
+        STAGES = CANONICAL_STAGES_3
+        STAGE_MAP = STAGE_TO_INDEX_3
+        log(f"  Detected 3-stage data: {STAGES}")
+    elif unique_stages <= set(CANONICAL_STAGES_5):
+        STAGES = CANONICAL_STAGES_5
+        STAGE_MAP = STAGE_TO_INDEX_5
+        log(f"  Detected 5-stage data: {STAGES}")
+    else:
+        invalid_stages = unique_stages - set(CANONICAL_STAGES_3) - set(CANONICAL_STAGES_5)
         raise ValueError(
             f"Non-canonical stages found: {invalid_stages}. "
-            f"Valid stages are: {CANONICAL_STAGES}. "
+            f"Valid stages are: {CANONICAL_STAGES_3} (3-stage) or {CANONICAL_STAGES_5} (5-stage). "
             f"Fix the data prep - DO NOT silently coerce."
         )
 
@@ -901,10 +916,17 @@ def create_dataloaders(
         )
 
     stage_indices = torch.tensor(
-        cells_df["stage"].map(STAGE_TO_INDEX).values,
+        cells_df["stage"].map(STAGE_MAP).values,
         dtype=torch.long
     )
-    log(f"  Stage distribution: {dict(zip(CANONICAL_STAGES, [(stage_indices == i).sum().item() for i in range(5)]))}")
+    n_stages = len(STAGES)
+    log(f"  Stage distribution: {dict(zip(STAGES, [(stage_indices == i).sum().item() for i in range(n_stages)]))}")
+
+    # Store for use by training loop (module-level access)
+    global _ACTIVE_STAGES, _ACTIVE_N_STAGES, _ACTIVE_STAGE_MAP
+    _ACTIVE_STAGES = STAGES
+    _ACTIVE_N_STAGES = n_stages
+    _ACTIVE_STAGE_MAP = STAGE_MAP
 
     # Create cross-stage transition pairs:
     # For each cell in stage N, find target cells in stage N+1
@@ -914,7 +936,7 @@ def create_dataloaders(
     z_target = torch.zeros_like(embeddings)
     has_valid_target = torch.zeros(n_cells, dtype=torch.bool)
 
-    for stage_idx in range(4):  # 0-3 (Normal through MIA)
+    for stage_idx in range(n_stages - 1):  # All stages except last can transition
         source_mask = (stage_indices == stage_idx)
         target_mask = (stage_indices == stage_idx + 1)
 
@@ -1479,7 +1501,7 @@ def train_epoch(
                     # Compute loss separately per stage, not just copy batch loss
                     if stage_indices is not None:
                         with torch.no_grad():
-                            for s in range(5):
+                            for s in range(_ACTIVE_N_STAGES):
                                 s_mask = (stage_indices == s)
                                 if s_mask.sum() >= 2:  # Need at least 2 cells for meaningful loss
                                     stage_loss = torch.mean((outputs["receiver_pred"][s_mask] - receiver[s_mask]) ** 2)
@@ -1734,7 +1756,7 @@ def train_epoch(
         metrics["train_wes_loss"] = total_wes_loss / n_aux_batches  # Evolutionary regularization
 
     # Add stage-stratified metrics (Task #5)
-    stage_names = CANONICAL_STAGES
+    stage_names = _ACTIVE_STAGES
     for s, name in enumerate(stage_names):
         if stage_losses[s]:
             metrics[f"train_loss_{name}"] = sum(stage_losses[s]) / len(stage_losses[s])
@@ -1770,7 +1792,7 @@ def validate(
     n_aux_batches = 0
 
     # Stage-stratified and donor-level metrics (Tasks #5, #6)
-    stage_losses = {i: [] for i in range(5)}
+    stage_losses = {i: [] for i in range(_ACTIVE_N_STAGES)}
     donor_losses = {}  # donor_idx -> list of losses
 
     # Collect predictions for biological correlation metrics
@@ -1833,7 +1855,7 @@ def validate(
 
                     # Stage-stratified validation loss
                     if stage_indices is not None:
-                        for s in range(5):
+                        for s in range(_ACTIVE_N_STAGES):
                             mask = (stage_indices == s)
                             if mask.any():
                                 stage_loss = torch.mean((outputs["receiver_pred"][mask] - receiver[mask]) ** 2)
@@ -2032,7 +2054,7 @@ def validate(
         metrics["val_kac_loss"] = total_kac_loss / n_aux_batches  # Nature 2024 intermediate
 
     # Add stage-stratified validation metrics (Task #5)
-    stage_names = CANONICAL_STAGES
+    stage_names = _ACTIVE_STAGES
     for s, name in enumerate(stage_names):
         if stage_losses[s]:
             metrics[f"val_loss_{name}"] = sum(stage_losses[s]) / len(stage_losses[s])
@@ -2088,7 +2110,7 @@ def validate(
         kac_preds_all = torch.cat(all_kac_preds, dim=0).squeeze()
         stages_all = torch.cat(all_stages, dim=0)
         stage_kac_means = {}
-        for s in range(5):
+        for s in range(_ACTIVE_N_STAGES):
             mask = (stages_all == s)
             if mask.sum() > 10:
                 stage_kac_means[s] = kac_preds_all[mask].mean().item()
@@ -2126,11 +2148,11 @@ def validate(
         # Per-stage drift analysis
         if all_transition_stages:
             stages_all = torch.cat(all_transition_stages, dim=0)
-            for s in range(4):  # Stages 0-3 can transition
+            for s in range(_ACTIVE_N_STAGES - 1):  # All stages except last can transition
                 mask = (stages_all == s)
                 if mask.sum() > 10:
                     stage_cosine = cosine_sim[mask].mean().item()
-                    metrics[f"val_drift_align_{CANONICAL_STAGES[s]}"] = stage_cosine
+                    metrics[f"val_drift_align_{_ACTIVE_STAGES[s]}"] = stage_cosine
 
     return metrics
 

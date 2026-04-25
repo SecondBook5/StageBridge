@@ -848,7 +848,8 @@ class StageBridgeV1Complete(nn.Module):
             all_tgt_idx = []
             total_ot_cost = 0.0
 
-            for s in range(4):  # Stages 0-3 can transition to s+1
+            max_stage = stage_indices.max().item()
+            for s in range(max_stage):  # All stages except last can transition to s+1
                 src_mask = (stage_indices == s)
                 tgt_mask = (stage_indices == s + 1)
 
@@ -977,7 +978,8 @@ class StageBridgeV1Complete(nn.Module):
             # src_idx maps pairs back to original batch indices
             # Get stage for each pair's source cell
             pair_stages = stage_indices[src_idx]  # [num_pairs]
-            for s in range(4):  # Stages 0-3 can transition
+            max_stage = stage_indices.max().item()
+            for s in range(max_stage):  # All stages except last can transition
                 stage_mask = (pair_stages == s)
                 if stage_mask.any():
                     per_stage_loss[s] = per_pair_loss[stage_mask].mean().item()
