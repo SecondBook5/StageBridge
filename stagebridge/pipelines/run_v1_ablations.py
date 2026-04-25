@@ -887,15 +887,23 @@ def create_dataloaders(
 
                 # z_source and z_target for transition learning
                 # Create REAL cross-stage transition pairs using stage information
-                stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
-                stage_to_idx = {s: i for i, s in enumerate(stage_order)}
+                # Support both 3-stage and 5-stage data
+                from stagebridge.canonical_contract import CANONICAL_STAGES_3, CANONICAL_STAGES_5, STAGE_TO_INDEX_3, STAGE_TO_INDEX_5
+                unique_stages = set(cells_df["stage"].dropna().unique()) if "stage" in cells_df.columns else set()
+                if unique_stages <= set(CANONICAL_STAGES_3):
+                    stage_order = CANONICAL_STAGES_3
+                    stage_to_idx = STAGE_TO_INDEX_3
+                else:
+                    stage_order = CANONICAL_STAGES_5
+                    stage_to_idx = STAGE_TO_INDEX_5
+                n_stages = len(stage_order)
 
                 if "stage" in cells_df.columns:
                     stage_indices = torch.tensor(
                         cells_df["stage"].map(stage_to_idx).fillna(0).astype(int).values,
                         dtype=torch.long
                     )
-                    log(f"  Stage distribution: {dict(zip(stage_order, [(stage_indices == i).sum().item() for i in range(5)]))}")
+                    log(f"  Stage distribution: {dict(zip(stage_order, [(stage_indices == i).sum().item() for i in range(n_stages)]))}")
 
                     # Create cross-stage transition pairs:
                     # For each cell in stage N, find target cells in stage N+1
@@ -903,7 +911,7 @@ def create_dataloaders(
                     z_source = embeddings
                     z_target = torch.zeros_like(embeddings)
 
-                    for stage_idx in range(4):  # 0-3 (Normal through MIA)
+                    for stage_idx in range(n_stages - 1):  # All but last stage can transition
                         source_mask = (stage_indices == stage_idx)
                         target_mask = (stage_indices == stage_idx + 1)
 
@@ -915,9 +923,9 @@ def create_dataloaders(
                             # No next stage available, use self (will be filtered in training)
                             z_target[source_mask] = embeddings[source_mask]
 
-                    # For LUAD (stage 4), no progression target - use self
-                    luad_mask = (stage_indices == 4)
-                    z_target[luad_mask] = embeddings[luad_mask]
+                    # For last stage, no progression target - use self
+                    last_stage_mask = (stage_indices == n_stages - 1)
+                    z_target[last_stage_mask] = embeddings[last_stage_mask]
 
                     log("  Cross-stage transition pairs created (OT refinement in training)")
                 else:
@@ -1335,8 +1343,9 @@ def train_epoch(
     total_wes_loss = 0.0  # WES evolutionary regularization
     n_aux_batches = 0
 
-    # Stage-stratified metrics tracking
-    stage_losses = {i: [] for i in range(5)}  # Normal=0, AAH=1, AIS=2, MIA=3, LUAD=4
+    # Stage-stratified metrics tracking (dynamic based on data)
+    # Will be populated during training
+    stage_losses = {}
 
     for batch_idx, batch in enumerate(progress):
         # Initialize batch-local variables to None to prevent stale value reuse
@@ -1383,10 +1392,13 @@ def train_epoch(
                     # Track stage-stratified SSL loss
                     if stage_indices is not None:
                         with torch.no_grad():
-                            for s in range(5):
+                            max_stage = stage_indices.max().item() + 1
+                            for s in range(max_stage):
                                 mask = (stage_indices == s)
                                 if mask.any():
                                     stage_loss = torch.mean((outputs["receiver_pred"][mask] - receiver[mask]) ** 2)
+                                    if s not in stage_losses:
+                                        stage_losses[s] = []
                                     stage_losses[s].append(stage_loss.item())
                 else:
                     # Fallback: predict receiver from neighbors
@@ -1430,9 +1442,12 @@ def train_epoch(
 
                             # Track stage-stratified transition loss
                             with torch.no_grad():
-                                for s in range(4):  # Only 0-3 can transition
+                                max_trans_stage = trans_stages.max().item()
+                                for s in range(max_trans_stage):  # All but last can transition
                                     mask = (trans_stages == s)
                                     if mask.any():
+                                        if s not in stage_losses:
+                                            stage_losses[s] = []
                                         stage_losses[s].append(loss.item())  # Approximate
                         else:
                             # Fallback: use all cells
@@ -1632,7 +1647,7 @@ def validate(
     n_aux_batches = 0
 
     # Stage-stratified and donor-level metrics (Tasks #5, #6)
-    stage_losses = {i: [] for i in range(5)}
+    stage_losses = {}  # Dynamic based on data
     donor_losses = {}  # donor_idx -> list of losses
 
     for batch in val_loader:
@@ -1671,10 +1686,13 @@ def validate(
 
                     # Stage-stratified validation loss
                     if stage_indices is not None:
-                        for s in range(5):
+                        max_stage = stage_indices.max().item() + 1
+                        for s in range(max_stage):
                             mask = (stage_indices == s)
                             if mask.any():
                                 stage_loss = torch.mean((outputs["receiver_pred"][mask] - receiver[mask]) ** 2)
+                                if s not in stage_losses:
+                                    stage_losses[s] = []
                                 stage_losses[s].append(stage_loss.item())
 
                     # Donor-level validation loss (Task #6)
