@@ -38,14 +38,14 @@ PROCESSED = f"{DATA}/processed/luad_evo"
 REFERENCES = f"{DATA}/references"
 RUNS = f"{DATA}/runs"
 
-# Output directories
-REF_GEOM = f"{PROCESSED}/reference_geometry"
-SPATIAL = f"{RUNS}/spatial_benchmark"
-CANONICAL = f"{PROCESSED}/canonical"
-CLONAL = f"{RUNS}/clonal"
-TRAINING = f"{RUNS}/v1_complete"
-ABLATIONS = f"{RUNS}/ablations"
-FIGURES = f"{RUNS}/publication_figures"
+# Output directories (can be overridden via --config for parallel experiments)
+REF_GEOM = config.get("REF_GEOM", f"{PROCESSED}/reference_geometry")
+SPATIAL = config.get("SPATIAL", f"{RUNS}/spatial_benchmark")
+CANONICAL = config.get("CANONICAL", f"{PROCESSED}/canonical")
+CLONAL = config.get("CLONAL", f"{RUNS}/clonal")
+TRAINING = config.get("TRAINING", f"{RUNS}/v1_complete")
+ABLATIONS = config.get("ABLATIONS", f"{RUNS}/ablations")
+FIGURES = config.get("FIGURES", f"{RUNS}/publication_figures")
 
 # Spatial backends to run
 # Python backends: tangram, destvi, tacco, cell2location, marker_scoring
