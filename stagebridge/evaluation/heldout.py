@@ -89,16 +89,36 @@ def load_model_and_test_data(
     neighborhoods_path = data_dir / "neighborhoods.parquet"
     parquet_file = pq.ParquetFile(neighborhoods_path)
 
-    filtered_chunks = []
-    for batch in parquet_file.iter_batches(batch_size=100_000):
+    # Write filtered chunks to temp file to avoid memory accumulation
+    import tempfile
+    import gc
+    temp_path = Path(tempfile.mkdtemp()) / "filtered_neighborhoods.parquet"
+    writer = None
+    n_written = 0
+
+    for batch in parquet_file.iter_batches(batch_size=50_000):
         chunk_df = batch.to_pandas()
         filtered = chunk_df[chunk_df["cell_id"].isin(test_cell_ids)]
         if len(filtered) > 0:
-            filtered_chunks.append(filtered)
-        del chunk_df
+            if writer is None:
+                import pyarrow as pa
+                table = pa.Table.from_pandas(filtered)
+                writer = pq.ParquetWriter(temp_path, table.schema)
+                writer.write_table(table)
+            else:
+                writer.write_table(pa.Table.from_pandas(filtered))
+            n_written += len(filtered)
+        del chunk_df, filtered
+        gc.collect()
 
-    test_neighborhoods = pd.concat(filtered_chunks, ignore_index=True) if filtered_chunks else pd.DataFrame()
-    del filtered_chunks
+    if writer is not None:
+        writer.close()
+        test_neighborhoods = pd.read_parquet(temp_path)
+        temp_path.unlink()
+    else:
+        test_neighborhoods = pd.DataFrame()
+
+    print(f"Loaded {n_written} test neighborhoods for {len(test_cell_ids)} test cells")
 
     return model, test_cells, test_neighborhoods, config
 
