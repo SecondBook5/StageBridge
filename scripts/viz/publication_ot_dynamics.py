@@ -58,19 +58,33 @@ plt.rcParams.update({
     'figure.facecolor': 'white',
 })
 
-STAGE_ORDER = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+STAGE_ORDER_5 = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+STAGE_ORDER_3 = ['Normal', 'Preinvasive', 'Invasive']
+STAGE_ORDER = STAGE_ORDER_3  # Default, will be set by load_data
+
 STAGE_COLORS = {
     'Normal': '#1B4F72',
     'AAH': '#2E86AB',
     'AIS': '#1D6F42',
     'MIA': '#D4A03C',
     'LUAD': '#922B21',
+    'Preinvasive': '#2E86AB',
+    'Invasive': '#922B21',
 }
 
 
 def load_data(data_dir: Path):
-    """Load cells data."""
+    """Load cells data and detect stage vocabulary."""
+    global STAGE_ORDER
     cells = pd.read_parquet(data_dir / "cells.parquet")
+    unique_stages = set(cells["stage"].dropna().unique())
+    if unique_stages <= set(STAGE_ORDER_3):
+        STAGE_ORDER = STAGE_ORDER_3
+    elif unique_stages <= set(STAGE_ORDER_5):
+        STAGE_ORDER = STAGE_ORDER_5
+    else:
+        STAGE_ORDER = sorted(unique_stages)
+    print(f"Detected {len(STAGE_ORDER)} stages: {STAGE_ORDER}")
     return cells
 
 
@@ -440,7 +454,7 @@ def figure_ot_dynamics(cells, output_dir):
         flux_by_stage.append(np.array(stage_flux))
 
     # Violin plot
-    parts = ax.violinplot(flux_by_stage, positions=range(5), showmeans=False,
+    parts = ax.violinplot(flux_by_stage, positions=range(len(STAGE_ORDER)), showmeans=False,
                           showmedians=True, widths=0.7)
     for i, pc in enumerate(parts['bodies']):
         pc.set_facecolor(STAGE_COLORS[STAGE_ORDER[i]])
@@ -448,7 +462,7 @@ def figure_ot_dynamics(cells, output_dir):
     parts['cmedians'].set_color('black')
 
     ax.axhline(0.5, color='red', linestyle='--', linewidth=1, alpha=0.7)
-    ax.set_xticks(range(5))
+    ax.set_xticks(range(len(STAGE_ORDER)))
     ax.set_xticklabels(STAGE_ORDER, fontsize=8)
     ax.set_ylabel('Flux Ratio')
     ax.set_ylim(0, 1)
@@ -497,7 +511,7 @@ def figure_ot_dynamics(cells, output_dir):
 
     # Compute transition matrix from OT
     T_matrix = np.zeros((5, 5))
-    for i in range(4):
+    for i in range(len(STAGE_ORDER) - 1):
         s1, s2 = STAGE_ORDER[i], STAGE_ORDER[i+1]
         key = f'{s1}->{s2}'
         if key in flow['stage_results']:
@@ -510,20 +524,20 @@ def figure_ot_dynamics(cells, output_dir):
     T_matrix = T_matrix / row_sums
 
     # Add self-loops for visualization
-    for i in range(5):
+    for i in range(len(STAGE_ORDER)):
         T_matrix[i, i] = 1 - T_matrix[i].sum()
 
     im = ax.imshow(T_matrix, cmap='Blues', vmin=0, vmax=1)
-    ax.set_xticks(range(5))
+    ax.set_xticks(range(len(STAGE_ORDER)))
     ax.set_xticklabels(STAGE_ORDER, fontsize=8, rotation=45, ha='right')
-    ax.set_yticks(range(5))
+    ax.set_yticks(range(len(STAGE_ORDER)))
     ax.set_yticklabels(STAGE_ORDER, fontsize=8)
     ax.set_xlabel('To')
     ax.set_ylabel('From')
     ax.set_title('J. Transition Propensity')
 
-    for i in range(5):
-        for j in range(5):
+    for i in range(len(STAGE_ORDER)):
+        for j in range(len(STAGE_ORDER)):
             if T_matrix[i, j] > 0.01:
                 color = 'white' if T_matrix[i, j] > 0.5 else 'black'
                 ax.text(j, i, f'{T_matrix[i,j]:.2f}', ha='center', va='center',
