@@ -115,20 +115,20 @@ def load_model_and_test_data(
 
     if writer is not None:
         writer.close()
-        test_neighborhoods = pd.read_parquet(temp_path)
-        temp_path.unlink()
+        # Return path instead of loading into memory - let caller stream if needed
+        test_neighborhoods_path = temp_path
     else:
-        test_neighborhoods = pd.DataFrame()
+        test_neighborhoods_path = None
 
-    print(f"Loaded {n_written} test neighborhoods for {len(test_cell_ids)} test cells")
+    print(f"Wrote {n_written} test neighborhoods for {len(test_cell_ids)} test cells")
 
-    return model, test_cells, test_neighborhoods, config
+    return model, test_cells, test_neighborhoods_path, config
 
 
 def compute_transition_metrics(
     model: Any,
     test_cells: pd.DataFrame,
-    test_neighborhoods: pd.DataFrame,
+    test_neighborhoods_path: Path | None,
     config: dict,
     device: str = "cuda",
     batch_size: int = 256,
@@ -138,7 +138,7 @@ def compute_transition_metrics(
     Args:
         model: Trained StageBridge model
         test_cells: Test cell DataFrame
-        test_neighborhoods: Test neighborhood DataFrame
+        test_neighborhoods_path: Path to filtered neighborhoods parquet (or None)
         config: Model config dict
         device: Device for inference
         batch_size: Batch size
@@ -146,51 +146,65 @@ def compute_transition_metrics(
     Returns:
         Dictionary of metric name -> value
     """
-    # Build tensors directly from DataFrames (canonical format)
+    import gc
     latent_dim = config.get("latent_dim", 40)
+
+    # Only load minimal columns from cells
+    cell_cols = ["cell_id", "stage"]
+    fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
+    if "z_fused" in test_cells.columns:
+        cell_cols.append("z_fused")
+    elif fused_cols:
+        cell_cols.extend(fused_cols)
+    else:
+        return {"error": "No fused embedding columns found"}
+
+    n_cells = len(test_cells)
+    cell_id_to_idx = {cid: i for i, cid in enumerate(test_cells["cell_id"].values)}
 
     # Handle array column (z_fused) or separate columns (z_fused_0, z_fused_1, ...)
     if "z_fused" in test_cells.columns:
-        # Array column - stack into 2D tensor
         embeddings = torch.tensor(
             np.stack(test_cells["z_fused"].values), dtype=torch.float32
         )
     else:
-        fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
-        if not fused_cols:
-            fused_cols = sorted([c for c in test_cells.columns if c.startswith("fused_latent_")])
-        if not fused_cols:
-            return {"error": "No fused embedding columns found (tried z_fused, z_fused_*, fused_latent_*)"}
         embeddings = torch.tensor(test_cells[fused_cols].values, dtype=torch.float32)
-    n_cells = len(embeddings)
 
-    # Build niche tokens from neighborhoods
-    cell_id_to_idx = {cid: i for i, cid in enumerate(test_cells["cell_id"].values)}
+    # Build niche tokens from neighborhoods - stream from parquet
     niche_tokens = torch.zeros(n_cells, 9, latent_dim)
     niche_tokens[:, 0, :] = embeddings  # Receiver
     token_distances = torch.zeros(n_cells, 8)
     token_mask = torch.zeros(n_cells, 8, dtype=torch.bool)
 
-    if "tokens" in test_neighborhoods.columns:
-        # Vectorized: map cell_ids to indices first
-        valid_mask = test_neighborhoods["cell_id"].isin(cell_id_to_idx)
-        valid_neighborhoods = test_neighborhoods[valid_mask]
-        cell_indices = valid_neighborhoods["cell_id"].map(cell_id_to_idx).values
-
-        # Process tokens in batches to avoid memory explosion
-        for i, (cell_idx, tokens) in enumerate(zip(cell_indices, valid_neighborhoods["tokens"].values)):
-            if tokens is None:
+    if test_neighborhoods_path is not None and test_neighborhoods_path.exists():
+        # Stream neighborhoods in chunks
+        parquet_file = pq.ParquetFile(test_neighborhoods_path)
+        for batch in parquet_file.iter_batches(batch_size=10_000):
+            chunk_df = batch.to_pandas()
+            if "tokens" not in chunk_df.columns:
                 continue
-            for token_dict in tokens:
-                token_idx = token_dict.get("token_idx", -1)
-                if 1 <= token_idx <= 4:
-                    z_pooled = token_dict.get("z_pooled")
-                    if z_pooled is not None and len(z_pooled) > 0:
-                        niche_tokens[cell_idx, token_idx, :min(len(z_pooled), latent_dim)] = torch.tensor(
-                            z_pooled[:latent_dim], dtype=torch.float32
-                        )
-                        token_distances[cell_idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
-                        token_mask[cell_idx, token_idx - 1] = True
+            valid_mask = chunk_df["cell_id"].isin(cell_id_to_idx)
+            valid_chunk = chunk_df[valid_mask]
+
+            for _, row in valid_chunk.iterrows():
+                cell_idx = cell_id_to_idx.get(row["cell_id"])
+                if cell_idx is None:
+                    continue
+                tokens = row.get("tokens")
+                if tokens is None:
+                    continue
+                for token_dict in tokens:
+                    token_idx = token_dict.get("token_idx", -1)
+                    if 1 <= token_idx <= 4:
+                        z_pooled = token_dict.get("z_pooled")
+                        if z_pooled is not None and len(z_pooled) > 0:
+                            niche_tokens[cell_idx, token_idx, :min(len(z_pooled), latent_dim)] = torch.tensor(
+                                z_pooled[:latent_dim], dtype=torch.float32
+                            )
+                            token_distances[cell_idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
+                            token_mask[cell_idx, token_idx - 1] = True
+            del chunk_df, valid_chunk
+            gc.collect()
 
     # Get stage indices and filter to transition-eligible (all but last stage)
     stage_col = "stage" if "stage" in test_cells.columns else "stage_label"
@@ -277,7 +291,7 @@ def compute_transition_metrics(
 def compute_context_sensitivity(
     model: Any,
     test_cells: pd.DataFrame,
-    test_neighborhoods: pd.DataFrame,
+    test_neighborhoods_path: Path | None,
     config: dict,
     device: str = "cuda",
     n_samples: int = 1000,
@@ -289,7 +303,7 @@ def compute_context_sensitivity(
     Args:
         model: Trained StageBridge model
         test_cells: Test cell DataFrame
-        test_neighborhoods: Test neighborhood DataFrame
+        test_neighborhoods_path: Path to filtered neighborhoods parquet (or None)
         config: Model config dict
         device: Device for inference
         n_samples: Number of cells to sample
@@ -326,23 +340,30 @@ def compute_context_sensitivity(
     token_mask = torch.zeros(n_cells, 8, dtype=torch.bool)
 
     sample_cell_ids = set(sample_cells["cell_id"])
-    sample_neighborhoods = test_neighborhoods[test_neighborhoods["cell_id"].isin(sample_cell_ids)]
 
-    if "tokens" in sample_neighborhoods.columns:
-        for _, row in sample_neighborhoods.iterrows():
-            cell_id = row["cell_id"]
-            if cell_id not in cell_id_to_idx:
+    # Stream neighborhoods from path
+    if test_neighborhoods_path is not None and test_neighborhoods_path.exists():
+        parquet_file = pq.ParquetFile(test_neighborhoods_path)
+        for batch in parquet_file.iter_batches(batch_size=10_000):
+            chunk_df = batch.to_pandas()
+            if "tokens" not in chunk_df.columns:
                 continue
-            idx = cell_id_to_idx[cell_id]
-            for token_dict in row["tokens"]:
-                token_idx = token_dict.get("token_idx", -1)
-                if 1 <= token_idx <= 4:
-                    z_pooled = token_dict.get("z_pooled")
-                    if z_pooled is not None and len(z_pooled) > 0:
-                        z_t = torch.tensor(z_pooled[:latent_dim], dtype=torch.float32)
-                        niche_tokens[idx, token_idx, :len(z_t)] = z_t
-                        token_distances[idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
-                        token_mask[idx, token_idx - 1] = True
+            sample_chunk = chunk_df[chunk_df["cell_id"].isin(sample_cell_ids)]
+
+            for _, row in sample_chunk.iterrows():
+                cell_id = row["cell_id"]
+                if cell_id not in cell_id_to_idx:
+                    continue
+                idx = cell_id_to_idx[cell_id]
+                for token_dict in row["tokens"]:
+                    token_idx = token_dict.get("token_idx", -1)
+                    if 1 <= token_idx <= 4:
+                        z_pooled = token_dict.get("z_pooled")
+                        if z_pooled is not None and len(z_pooled) > 0:
+                            z_t = torch.tensor(z_pooled[:latent_dim], dtype=torch.float32)
+                            niche_tokens[idx, token_idx, :len(z_t)] = z_t
+                            token_distances[idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
+                            token_mask[idx, token_idx - 1] = True
 
     real_contexts = []
     shuffled_contexts = []
@@ -405,23 +426,30 @@ def run_heldout_evaluation(
     Returns:
         Complete evaluation results dictionary
     """
-    model, test_cells, test_neighborhoods, config = load_model_and_test_data(
+    model, test_cells, test_neighborhoods_path, config = load_model_and_test_data(
         checkpoint_path, data_dir, fold, device
     )
 
     transition_metrics = compute_transition_metrics(
-        model, test_cells, test_neighborhoods, config, device, batch_size
+        model, test_cells, test_neighborhoods_path, config, device, batch_size
     )
 
     context_metrics = compute_context_sensitivity(
-        model, test_cells, test_neighborhoods, config, device
+        model, test_cells, test_neighborhoods_path, config, device
     )
+
+    # Count neighborhoods from path
+    n_neighborhoods = 0
+    if test_neighborhoods_path is not None and test_neighborhoods_path.exists():
+        n_neighborhoods = pq.read_metadata(test_neighborhoods_path).num_rows
+        # Clean up temp file
+        test_neighborhoods_path.unlink()
 
     return {
         "checkpoint": str(checkpoint_path),
         "fold": fold,
         "n_test_cells": len(test_cells),
-        "n_test_neighborhoods": len(test_neighborhoods),
+        "n_test_neighborhoods": n_neighborhoods,
         "config": config,
         "transition_metrics": transition_metrics,
         "context_sensitivity": context_metrics,
