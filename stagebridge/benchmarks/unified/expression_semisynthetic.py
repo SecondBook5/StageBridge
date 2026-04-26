@@ -287,14 +287,16 @@ class ExpressionSemisyntheticGenerator:
             log.info("Loading expression from %s", self.config.expression_source)
             self.adata = anndata.read_h5ad(self.config.expression_source)
 
-            # Clip inf/nan values before HVG computation (overflow from expm1)
+            # Clip extreme values before HVG computation
+            # scanpy HVG uses expm1 which overflows for values > ~700
             import scipy.sparse as sp
+            max_val = 500.0  # Safe for expm1
             if sp.issparse(self.adata.X):
-                self.adata.X.data = np.clip(self.adata.X.data, -1e10, 1e10)
-                self.adata.X.data = np.nan_to_num(self.adata.X.data, nan=0.0, posinf=1e10, neginf=-1e10)
+                self.adata.X.data = np.nan_to_num(self.adata.X.data, nan=0.0, posinf=max_val, neginf=-max_val)
+                self.adata.X.data = np.clip(self.adata.X.data, -max_val, max_val)
             else:
-                self.adata.X = np.clip(self.adata.X, -1e10, 1e10)
-                self.adata.X = np.nan_to_num(self.adata.X, nan=0.0, posinf=1e10, neginf=-1e10)
+                self.adata.X = np.nan_to_num(self.adata.X, nan=0.0, posinf=max_val, neginf=-max_val)
+                self.adata.X = np.clip(self.adata.X, -max_val, max_val)
 
             # Select HVGs
             if self.adata.n_vars > self.config.n_hvg:
