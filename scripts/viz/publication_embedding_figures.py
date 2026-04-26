@@ -70,6 +70,8 @@ STAGE_COLORS = {
     'AIS': '#1D6F42',
     'MIA': '#D4A03C',
     'LUAD': '#922B21',
+    'Preinvasive': '#2E86AB',
+    'Invasive': '#922B21',
 }
 STAGE_ORDER_5 = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
 STAGE_ORDER_3 = ['Normal', 'Preinvasive', 'Invasive']
@@ -118,9 +120,17 @@ def format_pvalue(p):
 # =============================================================================
 
 def load_data(data_dir: Path):
-    """Load cells and neighborhoods."""
+    """Load cells and detect stage vocabulary."""
+    global STAGE_ORDER
     cells = pd.read_parquet(data_dir / "cells.parquet")
-    print(f"Loaded {len(cells):,} cells")
+    unique_stages = set(cells["stage"].dropna().unique())
+    if unique_stages <= set(STAGE_ORDER_3):
+        STAGE_ORDER = STAGE_ORDER_3
+    elif unique_stages <= set(STAGE_ORDER_5):
+        STAGE_ORDER = STAGE_ORDER_5
+    else:
+        STAGE_ORDER = sorted(unique_stages)
+    print(f"Loaded {len(cells):,} cells, {len(STAGE_ORDER)} stages: {STAGE_ORDER}")
     return cells
 
 
@@ -735,7 +745,7 @@ def figure3_stage_transitions(cells, output_dir):
                                c=stage_numeric, s=8, alpha=0.6,
                                cmap='coolwarm', rasterized=True)
     cbar = plt.colorbar(scatter, ax=ax_pseudo, shrink=0.7)
-    cbar.set_ticks(range(5))
+    cbar.set_ticks(range(len(STAGE_ORDER)))
     cbar.set_ticklabels(STAGE_ORDER)
     ax_pseudo.set_xlabel('UMAP 1')
     ax_pseudo.set_ylabel('UMAP 2')
@@ -786,12 +796,12 @@ def figure3_stage_transitions(cells, output_dir):
             dist_matrix[i, j] = np.linalg.norm(mean1 - mean2)
 
     im = ax_dist.imshow(dist_matrix, cmap='Blues')
-    ax_dist.set_xticks(range(5))
+    ax_dist.set_xticks(range(len(STAGE_ORDER)))
     ax_dist.set_xticklabels(STAGE_ORDER, rotation=45, ha='right', fontsize=9)
-    ax_dist.set_yticks(range(5))
+    ax_dist.set_yticks(range(len(STAGE_ORDER)))
     ax_dist.set_yticklabels(STAGE_ORDER, fontsize=9)
-    for i in range(5):
-        for j in range(5):
+    for i in range(len(STAGE_ORDER)):
+        for j in range(len(STAGE_ORDER)):
             ax_dist.text(j, i, f'{dist_matrix[i,j]:.2f}', ha='center', va='center',
                         fontsize=8, color='white' if dist_matrix[i,j] > dist_matrix.max()/2 else 'black')
     plt.colorbar(im, ax=ax_dist, shrink=0.7, label='Euclidean Distance')
@@ -813,7 +823,7 @@ def figure3_stage_transitions(cells, output_dir):
         parts['cmedians'].set_color('black')
         parts['cmedians'].set_linewidth(2)
 
-    ax_pc.set_xticks(range(5))
+    ax_pc.set_xticks(range(len(STAGE_ORDER)))
     ax_pc.set_xticklabels(STAGE_ORDER, fontsize=9)
     ax_pc.set_ylabel('PC1 Score')
     ax_pc.set_title(f'D. PC1 by Stage ({pca.explained_variance_ratio_[0]*100:.1f}% var)', fontsize=11)
@@ -952,7 +962,7 @@ def figure4_reference_comparison(cells, output_dir):
     hlca_all = get_embeddings(cells, "z_hlca_")
     hlca_means = np.array([hlca_all[cells['stage'] == s].mean(axis=0) for s in STAGE_ORDER])
     im = ax_hlca_mean.imshow(hlca_means, aspect='auto', cmap='RdBu_r', vmin=-0.3, vmax=0.3)
-    ax_hlca_mean.set_yticks(range(5))
+    ax_hlca_mean.set_yticks(range(len(STAGE_ORDER)))
     ax_hlca_mean.set_yticklabels(STAGE_ORDER, fontsize=9)
     for i, label in enumerate(ax_hlca_mean.get_yticklabels()):
         label.set_color(STAGE_COLORS[STAGE_ORDER[i]])
@@ -966,7 +976,7 @@ def figure4_reference_comparison(cells, output_dir):
     luca_all = get_embeddings(cells, "z_luca_")
     luca_means = np.array([luca_all[cells['stage'] == s].mean(axis=0) for s in STAGE_ORDER])
     im2 = ax_luca_mean.imshow(luca_means, aspect='auto', cmap='RdBu_r', vmin=-0.3, vmax=0.3)
-    ax_luca_mean.set_yticks(range(5))
+    ax_luca_mean.set_yticks(range(len(STAGE_ORDER)))
     ax_luca_mean.set_yticklabels(STAGE_ORDER, fontsize=9)
     for i, label in enumerate(ax_luca_mean.get_yticklabels()):
         label.set_color(STAGE_COLORS[STAGE_ORDER[i]])

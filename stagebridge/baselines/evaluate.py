@@ -336,9 +336,17 @@ def main():
         log.warning("WARNING: z_fused embeddings appear to be missing or all zeros!")
         log.warning("You may need to regenerate neighborhoods.parquet with the fixed pipeline.")
 
-    # Create stage mapping
-    stages = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    # Create stage mapping - detect from data
+    from stagebridge.canonical_contract import CANONICAL_STAGES_3, CANONICAL_STAGES_5
+    unique_stages = set(neighborhoods["stage"].dropna().unique())
+    if unique_stages <= set(CANONICAL_STAGES_3):
+        stages = list(CANONICAL_STAGES_3)
+    elif unique_stages <= set(CANONICAL_STAGES_5):
+        stages = list(CANONICAL_STAGES_5)
+    else:
+        stages = sorted(unique_stages)
     stage_to_idx = {s: i for i, s in enumerate(stages)}
+    log.info(f"  Detected {len(stages)} stages: {stages}")
 
     # Filter to known stages
     neighborhoods = neighborhoods[neighborhoods["stage"].isin(stages)].reset_index(drop=True)
