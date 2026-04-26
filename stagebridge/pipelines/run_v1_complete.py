@@ -1900,11 +1900,13 @@ def generate_all_figures(
     traj_pca = pca.fit_transform(traj_flat).reshape(100, 51, 2)
 
     stages = batch["stage"].cpu().numpy()
-    stage_names = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    from stagebridge.canonical_contract import CANONICAL_STAGES
+    stage_names = list(CANONICAL_STAGES)
+    n_stages = len(stage_names)
 
     ax = axes[0]
     for i in range(20):
-        color = colors["stage_colors"][stage_names[stages[i] % 5]]
+        color = colors["stage_colors"].get(stage_names[stages[i] % n_stages], "#888888")
         ax.plot(traj_pca[i, :, 0], traj_pca[i, :, 1], "-", color=color, alpha=0.5)
         ax.scatter(
             traj_pca[i, 0, 0], traj_pca[i, 0, 1], c=color, s=30, marker="o", edgecolors="black"

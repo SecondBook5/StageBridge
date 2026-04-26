@@ -72,6 +72,8 @@ STAGE_COLORS = {
     'AIS': '#1D6F42',
     'MIA': '#D4A03C',
     'LUAD': '#922B21',
+    'Preinvasive': '#2E86AB',
+    'Invasive': '#922B21',
 }
 STAGE_ORDER_5 = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
 STAGE_ORDER_3 = ['Normal', 'Preinvasive', 'Invasive']
@@ -86,8 +88,16 @@ CELLTYPE_COLORS = {
 
 
 def load_data(data_dir: Path):
+    global STAGE_ORDER
     cells = pd.read_parquet(data_dir / "cells.parquet")
-    print(f"Loaded {len(cells):,} cells")
+    unique_stages = set(cells["stage"].dropna().unique())
+    if unique_stages <= set(STAGE_ORDER_3):
+        STAGE_ORDER = STAGE_ORDER_3
+    elif unique_stages <= set(STAGE_ORDER_5):
+        STAGE_ORDER = STAGE_ORDER_5
+    else:
+        STAGE_ORDER = sorted(unique_stages)
+    print(f"Loaded {len(cells):,} cells, {len(STAGE_ORDER)} stages: {STAGE_ORDER}")
     return cells
 
 
@@ -294,7 +304,7 @@ def figure5_trajectory_analysis(cells, output_dir):
         ax_ridge.fill_between(x, i, i + density, color=STAGE_COLORS[stage], alpha=0.7)
         ax_ridge.plot(x, i + density, color=STAGE_COLORS[stage], linewidth=1.5)
 
-    ax_ridge.set_yticks(np.arange(5) + 0.4)
+    ax_ridge.set_yticks(np.arange(len(STAGE_ORDER)) + 0.4)
     ax_ridge.set_yticklabels(STAGE_ORDER)
     for i, label in enumerate(ax_ridge.get_yticklabels()):
         label.set_color(STAGE_COLORS[STAGE_ORDER[i]])
@@ -307,7 +317,7 @@ def figure5_trajectory_analysis(cells, output_dir):
     ax_trans = fig.add_subplot(gs[1, 1])
     # Compute density at stage boundaries
     stage_boundaries = []
-    for i in range(4):
+    for i in range(len(STAGE_ORDER) - 1):
         boundary_pt = (i + 0.5) / 4  # Normalized position between stages
         stage_boundaries.append(boundary_pt)
 
@@ -533,17 +543,17 @@ def figure7_statistical_analysis(cells, output_dir):
     ax_pair = fig.add_subplot(gs[0, 2])
     stage_means = np.array([fused[cells['stage'] == s].mean(axis=0) for s in STAGE_ORDER])
     dist_matrix = np.zeros((5, 5))
-    for i in range(5):
-        for j in range(5):
+    for i in range(len(STAGE_ORDER)):
+        for j in range(len(STAGE_ORDER)):
             dist_matrix[i, j] = np.linalg.norm(stage_means[i] - stage_means[j])
 
     im = ax_pair.imshow(dist_matrix, cmap='Blues')
-    ax_pair.set_xticks(range(5))
+    ax_pair.set_xticks(range(len(STAGE_ORDER)))
     ax_pair.set_xticklabels(STAGE_ORDER, rotation=45, ha='right', fontsize=9)
-    ax_pair.set_yticks(range(5))
+    ax_pair.set_yticks(range(len(STAGE_ORDER)))
     ax_pair.set_yticklabels(STAGE_ORDER, fontsize=9)
-    for i in range(5):
-        for j in range(5):
+    for i in range(len(STAGE_ORDER)):
+        for j in range(len(STAGE_ORDER)):
             ax_pair.text(j, i, f'{dist_matrix[i,j]:.2f}', ha='center', va='center',
                         fontsize=8, color='white' if dist_matrix[i,j] > dist_matrix.max()/2 else 'black')
     plt.colorbar(im, ax=ax_pair, shrink=0.7, label='Euclidean Distance')
@@ -560,7 +570,7 @@ def figure7_statistical_analysis(cells, output_dir):
         d = (cells2.mean(axis=0) - cells1.mean(axis=0)).mean()
         consecutive_effects.append(d)
 
-    transitions = [f'{STAGE_ORDER[i]}\n->\n{STAGE_ORDER[i+1]}' for i in range(4)]
+    transitions = [f'{STAGE_ORDER[i]}\n->\n{STAGE_ORDER[i+1]}' for i in range(len(STAGE_ORDER) - 1)]
     bars = ax_eff.bar(transitions, consecutive_effects,
                      color=['#1B4F72', '#2E86AB', '#1D6F42', '#D4A03C'],
                      edgecolor='white', linewidth=1.5)

@@ -188,9 +188,9 @@ def plot_confusion_matrices(cms: dict, out: Path) -> None:
                 pct = cm_norm[i, j]
                 color = "white" if pct > 0.5 else "black"
                 ax.text(j, i, f"{count}\n{pct:.0%}", ha="center", va="center", fontsize=7, color=color, fontweight="bold")
-        ax.set_xticks(range(5))
+        ax.set_xticks(range(len(STAGE_ORDER)))
         ax.set_xticklabels(STAGE_ORDER, rotation=45, ha="right", fontsize=8)
-        ax.set_yticks(range(5))
+        ax.set_yticks(range(len(STAGE_ORDER)))
         ax.set_yticklabels(STAGE_ORDER, fontsize=8)
         ax.set_title(MODEL_LABELS[model], fontsize=11, fontweight="bold")
         ax.set_xlabel("Predicted")
