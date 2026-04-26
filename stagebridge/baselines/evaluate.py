@@ -83,17 +83,22 @@ class NeighborhoodDataset(Dataset):
         tokens_list = row["tokens"]
 
         # Extract embeddings from tokens
+        # Token 0 (receiver) uses z_fused, tokens 1-4 (rings) use z_pooled
         embeddings = []
         mask = []
         for tok in tokens_list:
             z = tok.get("z_fused")
-            if z is not None and np.array(z).sum() != 0:
-                embeddings.append(np.array(z, dtype=np.float32))
-                mask.append(True)
-            else:
-                # Placeholder for missing embedding
-                embeddings.append(np.zeros(40, dtype=np.float32))
-                mask.append(False)
+            if z is None:
+                z = tok.get("z_pooled")
+            if z is not None:
+                z_arr = np.array(z, dtype=np.float32)
+                if z_arr.sum() != 0:
+                    embeddings.append(z_arr)
+                    mask.append(True)
+                    continue
+            # Placeholder for missing embedding
+            embeddings.append(np.zeros(40, dtype=np.float32))
+            mask.append(False)
 
         tokens = torch.tensor(np.stack(embeddings), dtype=torch.float32)
         mask = torch.tensor(mask, dtype=torch.bool)
