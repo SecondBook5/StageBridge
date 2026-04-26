@@ -2392,8 +2392,17 @@ def main():
         action="store_true",
         help="Ablation: disable hierarchical aggregation (flat_hierarchy)",
     )
+    parser.add_argument(
+        "--pooled_niche",
+        action="store_true",
+        help="Ablation: use mean-pooled niche instead of attention (sets niche_encoder_type=self_attention)",
+    )
 
     args = parser.parse_args()
+
+    # Handle pooled_niche convenience flag
+    if args.pooled_niche:
+        args.niche_encoder_type = "self_attention"
 
     config = TrainingConfig(
         data_dir=args.data_dir,
