@@ -44,7 +44,9 @@ from sklearn.decomposition import PCA
 # STYLE - Nature Methods aesthetic
 # =============================================================================
 
-STAGE_ORDER = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+STAGE_ORDER_5 = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+STAGE_ORDER_3 = ['Normal', 'Preinvasive', 'Invasive']
+STAGE_ORDER = STAGE_ORDER_3  # Default, will be set by load_data
 
 # Carefully chosen palette - distinct but harmonious
 STAGE_COLORS = {
@@ -53,6 +55,8 @@ STAGE_COLORS = {
     'AIS': '#10B981',      # Emerald
     'MIA': '#F59E0B',      # Amber
     'LUAD': '#EF4444',     # Red
+    'Preinvasive': '#22D3EE',  # Cyan (like AAH)
+    'Invasive': '#EF4444',     # Red (like LUAD)
 }
 
 # For trajectories - a fire gradient
@@ -66,7 +70,18 @@ GRID_COLOR = '#1a1a2e'
 
 
 def load_data(data_dir: Path):
-    """Load cells data."""
+    """Load cells data and detect stage vocabulary."""
+    global STAGE_ORDER
+    cells = pd.read_parquet(data_dir / "cells.parquet")
+    unique_stages = set(cells["stage"].dropna().unique())
+    if unique_stages <= set(STAGE_ORDER_3):
+        STAGE_ORDER = STAGE_ORDER_3
+    elif unique_stages <= set(STAGE_ORDER_5):
+        STAGE_ORDER = STAGE_ORDER_5
+    else:
+        STAGE_ORDER = sorted(unique_stages)
+    print(f"Detected {len(STAGE_ORDER)} stages: {STAGE_ORDER}")
+    return cells
     cells = pd.read_parquet(data_dir / "cells.parquet")
     return cells
 
