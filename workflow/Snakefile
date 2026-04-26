@@ -1652,8 +1652,8 @@ rule ablation_fold:
             $( [ "{wildcards.ablation}" = "no_wes" ] && echo "--no_wes" || true ) \
             $( [ "{wildcards.ablation}" = "pooled_niche" ] && echo "--pooled_niche" || true ) \
             $( [ "{wildcards.ablation}" = "flat_hierarchy" ] && echo "--no_hierarchical" || true ) \
-            $( [ "{wildcards.ablation}" = "hlca_only" ] && echo "--hlca_only" || true ) \
-            $( [ "{wildcards.ablation}" = "luca_only" ] && echo "--luca_only" || true ) \
+            $( [ "{wildcards.ablation}" = "hlca_only" ] && echo "--fusion_mode hlca_only" || true ) \
+            $( [ "{wildcards.ablation}" = "luca_only" ] && echo "--fusion_mode luca_only" || true ) \
             $( [ "{wildcards.ablation}" = "deterministic" ] && echo "--deterministic" || true ) \
             $( [ "{wildcards.ablation}" = "with_prototypes" ] && echo "--use_prototypes" || true ) \
             2>&1 | tee {log}
