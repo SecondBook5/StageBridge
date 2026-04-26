@@ -147,9 +147,26 @@ def extract_attention_simple(
     if len(cells_df) > max_cells:
         cells_df = cells_df.sample(max_cells, random_state=42)
 
-    latent_cols = [c for c in cells_df.columns if c.startswith("z_") or c.startswith("latent_")]
-    if not latent_cols:
-        latent_cols = [c for c in cells_df.columns if cells_df[c].dtype in [np.float32, np.float64]][:128]
+    # Handle array column (z_fused) or separate columns (z_fused_0, z_fused_1, ...)
+    use_array_col = "z_fused" in cells_df.columns and isinstance(cells_df["z_fused"].iloc[0], (list, np.ndarray))
+    if use_array_col:
+        latent_cols = None
+        latent_dim = len(cells_df["z_fused"].iloc[0])
+    else:
+        latent_cols = [c for c in cells_df.columns if c.startswith("z_fused_")]
+        if not latent_cols:
+            latent_cols = [c for c in cells_df.columns if c.startswith("z_") or c.startswith("latent_")]
+        if not latent_cols:
+            latent_cols = [c for c in cells_df.columns if cells_df[c].dtype in [np.float32, np.float64]][:128]
+        latent_dim = len(latent_cols) if latent_cols else 64
+
+    def get_embedding(cell_row):
+        if use_array_col:
+            return np.array(cell_row["z_fused"], dtype=np.float32)
+        elif latent_cols:
+            return cell_row[latent_cols].values.astype(np.float32)
+        else:
+            return np.zeros(64, dtype=np.float32)
 
     rows = []
     cell_ids = cells_df["cell_id"].tolist()
@@ -170,7 +187,7 @@ def extract_attention_simple(
             if len(neighbors) == 0:
                 continue
 
-            receiver_embedding = cell[latent_cols].values.astype(np.float32) if latent_cols else np.zeros(64)
+            receiver_embedding = get_embedding(cell)
 
             neighbor_embeddings = []
             neighbor_info = []
@@ -178,9 +195,9 @@ def extract_attention_simple(
                 sender_id = neighbor.get("sender_id", "")
                 sender_cell = cells_df[cells_df["cell_id"] == sender_id]
                 if len(sender_cell) > 0:
-                    emb = sender_cell.iloc[0][latent_cols].values.astype(np.float32) if latent_cols else np.zeros(64)
+                    emb = get_embedding(sender_cell.iloc[0])
                 else:
-                    emb = np.zeros(len(receiver_embedding))
+                    emb = np.zeros(len(receiver_embedding), dtype=np.float32)
                 neighbor_embeddings.append(emb)
                 neighbor_info.append({
                     "sender_id": sender_id,

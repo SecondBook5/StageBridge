@@ -528,8 +528,9 @@ def plot_stage_colored(
 
     coords_2d = _compute_2d_embedding(embeddings, method=method)
 
-    # Define stage order for consistent coloring
-    stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD", "Unknown"]
+    # Define stage order for consistent coloring (supports both 3-stage and 5-stage)
+    from stagebridge.canonical_contract import CANONICAL_STAGES_3, CANONICAL_STAGES_5
+    stage_order = list(CANONICAL_STAGES_5) + list(CANONICAL_STAGES_3) + ["Unknown"]
     unique_stages = sorted(
         np.unique(stage_ids),
         key=lambda x: stage_order.index(x) if x in stage_order else len(stage_order),
@@ -620,8 +621,9 @@ def plot_fused_overview(
     axes[0].set_xlabel(f"{method.upper()} 1")
     axes[0].set_ylabel(f"{method.upper()} 2")
 
-    # Panel 2: Stage
-    stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    # Panel 2: Stage (supports both 3-stage and 5-stage)
+    from stagebridge.canonical_contract import CANONICAL_STAGES_3, CANONICAL_STAGES_5
+    stage_order = list(CANONICAL_STAGES_5) + list(CANONICAL_STAGES_3)
     unique_stages = sorted(
         np.unique(fused_result.stage_ids),
         key=lambda x: stage_order.index(x) if x in stage_order else len(stage_order),

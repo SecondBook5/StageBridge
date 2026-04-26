@@ -346,14 +346,16 @@ def run_inference(
                     stage_logits = head_out['stage_logits'].cpu().numpy()
                 else:
                     # Simple linear probe: project context to stage logits
-                    # Context is 256-dim, stages are 5
+                    # Context is 256-dim, stages determined from data
+                    from stagebridge.canonical_contract import CANONICAL_STAGES
+                    n_stages = len(CANONICAL_STAGES)
                     context_np = context.cpu().numpy()
-                    # Spread across 5 stages based on context features
-                    stage_logits = np.zeros((batch_size, 5), dtype=np.float32)
-                    for i in range(5):
+                    # Spread across n_stages based on context features
+                    stage_logits = np.zeros((batch_size, n_stages), dtype=np.float32)
+                    for i in range(n_stages):
                         # Use different context dimensions for each stage
-                        dim_start = i * (context_np.shape[1] // 5)
-                        dim_end = (i + 1) * (context_np.shape[1] // 5)
+                        dim_start = i * (context_np.shape[1] // n_stages)
+                        dim_end = (i + 1) * (context_np.shape[1] // n_stages)
                         stage_logits[:, i] = context_np[:, dim_start:dim_end].mean(axis=-1)
 
             else:
@@ -485,11 +487,13 @@ def run_inference_with_uncertainty(
                 attention = np.ones((batch_size, n_tokens - 1), dtype=np.float32) / (n_tokens - 1)
 
             # Stage logits from context
+            from stagebridge.canonical_contract import CANONICAL_STAGES
+            n_stages = len(CANONICAL_STAGES)
             context_np = context.cpu().numpy()
-            stage_logits = np.zeros((batch_size, 5), dtype=np.float32)
-            for i in range(5):
-                dim_start = i * (context_np.shape[1] // 5)
-                dim_end = (i + 1) * (context_np.shape[1] // 5)
+            stage_logits = np.zeros((batch_size, n_stages), dtype=np.float32)
+            for i in range(n_stages):
+                dim_start = i * (context_np.shape[1] // n_stages)
+                dim_end = (i + 1) * (context_np.shape[1] // n_stages)
                 stage_logits[:, i] = context_np[:, dim_start:dim_end].mean(axis=-1)
 
             stage_logits_list.append(stage_logits)

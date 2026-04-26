@@ -161,8 +161,9 @@ def load_real_data(data_dir: Path, fold: int = 0) -> tuple[TensorDataset, Tensor
     # z_target = mean embedding of cells in the next stage (within the split)
     def compute_z_target(z_fused_subset: torch.Tensor, stages_subset: torch.Tensor) -> torch.Tensor:
         """Compute z_target as mean of next-stage cells, within this split only."""
+        max_stage = int(stages_subset.max().item())
         z_target = torch.zeros_like(z_fused_subset)
-        for stage in range(4):  # 0-3 can transition to next stage
+        for stage in range(max_stage):  # All but last stage can transition
             current_mask = (stages_subset == stage)
             next_mask = (stages_subset == stage + 1)
             if current_mask.sum() > 0 and next_mask.sum() > 0:
@@ -171,10 +172,10 @@ def load_real_data(data_dir: Path, fold: int = 0) -> tuple[TensorDataset, Tensor
             elif current_mask.sum() > 0:
                 # No next-stage cells in this split - use current mean as fallback
                 z_target[current_mask] = z_fused_subset[current_mask].mean(dim=0)
-        # Stage 4 (LUAD) has no next stage - use self
-        luad_mask = (stages_subset == 4)
-        if luad_mask.sum() > 0:
-            z_target[luad_mask] = z_fused_subset[luad_mask]
+        # Last stage has no next stage - use self
+        last_stage_mask = (stages_subset == max_stage)
+        if last_stage_mask.sum() > 0:
+            z_target[last_stage_mask] = z_fused_subset[last_stage_mask]
         return z_target
 
     train_z_target = compute_z_target(z_fused[train_idx], stage_indices[train_idx])
