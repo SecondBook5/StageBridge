@@ -1611,10 +1611,9 @@ def train_epoch(
         metrics["train_kac_loss"] = total_kac_loss / n_aux_batches  # Nature 2024 intermediate
 
     # Add stage-stratified metrics (Task #5)
-    stage_names = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
-    for s, name in enumerate(stage_names):
-        if stage_losses[s]:
-            metrics[f"train_loss_{name}"] = sum(stage_losses[s]) / len(stage_losses[s])
+    for s, losses in stage_losses.items():
+        if losses:
+            metrics[f"train_loss_stage{s}"] = sum(losses) / len(losses)
 
     return metrics
 
@@ -1830,10 +1829,9 @@ def validate(
         metrics["val_kac_loss"] = total_kac_loss / n_aux_batches  # Nature 2024 intermediate
 
     # Add stage-stratified validation metrics (Task #5)
-    stage_names = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
-    for s, name in enumerate(stage_names):
-        if stage_losses[s]:
-            metrics[f"val_loss_{name}"] = sum(stage_losses[s]) / len(stage_losses[s])
+    for s, losses in stage_losses.items():
+        if losses:
+            metrics[f"val_loss_stage{s}"] = sum(losses) / len(losses)
 
     # Add donor consistency metrics (Task #6)
     if donor_losses:

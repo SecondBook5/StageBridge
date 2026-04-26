@@ -192,9 +192,13 @@ class StageBridgeDataset(Dataset):
         else:
             target_cell = target_candidates.sample(n=1, random_state=idx).iloc[0]
 
-        # Get latent embeddings
-        z_source = np.array([source_cell[f"z_fused_{i}"] for i in range(self.latent_dim)])
-        z_target = np.array([target_cell[f"z_fused_{i}"] for i in range(self.latent_dim)])
+        # Get latent embeddings - handle array column or separate columns
+        if "z_fused" in source_cell.index and isinstance(source_cell["z_fused"], (list, np.ndarray)):
+            z_source = np.array(source_cell["z_fused"], dtype=np.float32)[:self.latent_dim]
+            z_target = np.array(target_cell["z_fused"], dtype=np.float32)[:self.latent_dim]
+        else:
+            z_source = np.array([source_cell[f"z_fused_{i}"] for i in range(self.latent_dim)], dtype=np.float32)
+            z_target = np.array([target_cell[f"z_fused_{i}"] for i in range(self.latent_dim)], dtype=np.float32)
 
         # Get niche context (9 tokens)
         niche_matches = self.neighborhoods[self.neighborhoods["cell_id"] == source_cell["cell_id"]]
