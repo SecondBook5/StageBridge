@@ -100,13 +100,15 @@ def load_model_and_test_data(
         chunk_df = batch.to_pandas()
         filtered = chunk_df[chunk_df["cell_id"].isin(test_cell_ids)]
         if len(filtered) > 0:
+            # Reset index to avoid schema mismatch between batches
+            filtered = filtered.reset_index(drop=True)
             if writer is None:
                 import pyarrow as pa
-                table = pa.Table.from_pandas(filtered)
+                table = pa.Table.from_pandas(filtered, preserve_index=False)
                 writer = pq.ParquetWriter(temp_path, table.schema)
                 writer.write_table(table)
             else:
-                writer.write_table(pa.Table.from_pandas(filtered))
+                writer.write_table(pa.Table.from_pandas(filtered, preserve_index=False))
             n_written += len(filtered)
         del chunk_df, filtered
         gc.collect()
