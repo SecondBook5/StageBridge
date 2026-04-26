@@ -298,9 +298,26 @@ class ExpressionSemisyntheticGenerator:
                 self.adata.X = np.nan_to_num(self.adata.X, nan=0.0, posinf=max_val, neginf=-max_val)
                 self.adata.X = np.clip(self.adata.X, -max_val, max_val)
 
-            # Select HVGs
+            # Select HVGs using seurat_v3 flavor (doesn't use expm1, avoids overflow)
             if self.adata.n_vars > self.config.n_hvg:
-                sc.pp.highly_variable_genes(self.adata, n_top_genes=self.config.n_hvg)
+                try:
+                    sc.pp.highly_variable_genes(
+                        self.adata,
+                        n_top_genes=self.config.n_hvg,
+                        flavor='seurat_v3'
+                    )
+                except Exception as e:
+                    log.warning(f"seurat_v3 HVG failed: {e}, using variance-based selection")
+                    # Fallback: select by variance
+                    import scipy.sparse as sp
+                    if sp.issparse(self.adata.X):
+                        variances = np.array(self.adata.X.power(2).mean(axis=0) -
+                                           np.power(self.adata.X.mean(axis=0), 2)).flatten()
+                    else:
+                        variances = np.var(self.adata.X, axis=0)
+                    top_idx = np.argsort(variances)[-self.config.n_hvg:]
+                    self.adata.var['highly_variable'] = False
+                    self.adata.var.iloc[top_idx, self.adata.var.columns.get_loc('highly_variable')] = True
                 self.adata = self.adata[:, self.adata.var.highly_variable].copy()
 
             self.gene_names = np.array(self.adata.var_names)
