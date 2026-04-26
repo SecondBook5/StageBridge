@@ -38,8 +38,11 @@ PRETRAIN_ROOT = Path("outputs/scratch/eamist_v1_20260309/eamist_pretrain")
 BAG_PATH = Path("/mnt/e/StageBridge_data/processed/features/eamist_bags.parquet")
 OUT_DIR = Path("reports/figures/eamist_advanced")
 
-STAGE_ORDER = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
-STAGE_COLORS = {"Normal": "#2ecc71", "AAH": "#f39c12", "AIS": "#e74c3c", "MIA": "#9b59b6", "LUAD": "#2c3e50"}
+STAGE_ORDER_5 = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+STAGE_ORDER_3 = ["Normal", "Preinvasive", "Invasive"]
+STAGE_ORDER = STAGE_ORDER_3  # Default, set dynamically
+STAGE_COLORS = {"Normal": "#2ecc71", "AAH": "#f39c12", "AIS": "#e74c3c", "MIA": "#9b59b6", "LUAD": "#2c3e50",
+                "Preinvasive": "#f39c12", "Invasive": "#2c3e50"}
 MODEL_ORDER = ["pooled", "deep_sets", "lesion_set_transformer", "eamist_no_prototypes", "eamist"]
 MODEL_LABELS = {"pooled": "Pooled MLP", "deep_sets": "Deep Sets", "lesion_set_transformer": "Set Transformer",
                 "eamist_no_prototypes": "EA-MIST (no proto)", "eamist": "EA-MIST"}

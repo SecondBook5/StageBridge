@@ -45,7 +45,9 @@ except ImportError:
 # STYLE
 # =============================================================================
 
-STAGE_ORDER = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+STAGE_ORDER_5 = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+STAGE_ORDER_3 = ['Normal', 'Preinvasive', 'Invasive']
+STAGE_ORDER = STAGE_ORDER_3  # Default, set by load_data
 
 STAGE_COLORS = {
     'Normal': '#3B82F6',   # Blue

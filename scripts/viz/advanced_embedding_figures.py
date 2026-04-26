@@ -73,7 +73,9 @@ STAGE_COLORS = {
     'MIA': '#D4A03C',
     'LUAD': '#922B21',
 }
-STAGE_ORDER = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+STAGE_ORDER_5 = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+STAGE_ORDER_3 = ['Normal', 'Preinvasive', 'Invasive']
+STAGE_ORDER = STAGE_ORDER_3  # Default, set by load_data
 
 CELLTYPE_COLORS = {
     'AT2': '#E64B35', 'Basal': '#00A087', 'Ciliated': '#3C5488',
