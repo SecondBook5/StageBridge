@@ -284,45 +284,42 @@ class ExpressionSemisyntheticGenerator:
             return self._create_fallback_data()
 
         if self.config.expression_source and self.config.expression_source.exists():
-            log.info("Loading expression from %s", self.config.expression_source)
-            self.adata = anndata.read_h5ad(self.config.expression_source)
+            try:
+                log.info("Loading expression from %s", self.config.expression_source)
+                self.adata = anndata.read_h5ad(self.config.expression_source)
 
-            # Clip extreme values before HVG computation
-            # scanpy HVG uses expm1 which overflows for values > ~700
-            import scipy.sparse as sp
-            max_val = 500.0  # Safe for expm1
-            if sp.issparse(self.adata.X):
-                self.adata.X.data = np.nan_to_num(self.adata.X.data, nan=0.0, posinf=max_val, neginf=-max_val)
-                self.adata.X.data = np.clip(self.adata.X.data, -max_val, max_val)
-            else:
-                self.adata.X = np.nan_to_num(self.adata.X, nan=0.0, posinf=max_val, neginf=-max_val)
-                self.adata.X = np.clip(self.adata.X, -max_val, max_val)
+                # Clip extreme values before HVG computation
+                # scanpy HVG uses expm1 which overflows for values > ~700
+                import scipy.sparse as sp
+                max_val = 500.0  # Safe for expm1
+                if sp.issparse(self.adata.X):
+                    self.adata.X.data = np.nan_to_num(self.adata.X.data, nan=0.0, posinf=max_val, neginf=-max_val)
+                    self.adata.X.data = np.clip(self.adata.X.data, -max_val, max_val)
+                else:
+                    self.adata.X = np.nan_to_num(self.adata.X, nan=0.0, posinf=max_val, neginf=-max_val)
+                    self.adata.X = np.clip(self.adata.X, -max_val, max_val)
 
-            # Select HVGs using seurat_v3 flavor (doesn't use expm1, avoids overflow)
-            if self.adata.n_vars > self.config.n_hvg:
-                try:
-                    sc.pp.highly_variable_genes(
-                        self.adata,
-                        n_top_genes=self.config.n_hvg,
-                        flavor='seurat_v3'
-                    )
-                except Exception as e:
-                    log.warning(f"seurat_v3 HVG failed: {e}, using variance-based selection")
-                    # Fallback: select by variance
-                    import scipy.sparse as sp
+                # Select HVGs - use variance-based selection to avoid scanpy overflow issues
+                if self.adata.n_vars > self.config.n_hvg:
+                    log.info("Selecting top %d genes by variance", self.config.n_hvg)
                     if sp.issparse(self.adata.X):
-                        variances = np.array(self.adata.X.power(2).mean(axis=0) -
-                                           np.power(self.adata.X.mean(axis=0), 2)).flatten()
+                        means = np.array(self.adata.X.mean(axis=0)).flatten()
+                        sq_means = np.array(self.adata.X.power(2).mean(axis=0)).flatten()
+                        variances = sq_means - np.power(means, 2)
                     else:
                         variances = np.var(self.adata.X, axis=0)
                     top_idx = np.argsort(variances)[-self.config.n_hvg:]
-                    self.adata.var['highly_variable'] = False
-                    self.adata.var.iloc[top_idx, self.adata.var.columns.get_loc('highly_variable')] = True
-                self.adata = self.adata[:, self.adata.var.highly_variable].copy()
+                    self.adata = self.adata[:, top_idx].copy()
 
-            self.gene_names = np.array(self.adata.var_names)
-            log.info("Loaded %d cells x %d genes", self.adata.n_obs, self.adata.n_vars)
-            return True
+                self.gene_names = np.array(self.adata.var_names)
+                log.info("Loaded %d cells x %d genes", self.adata.n_obs, self.adata.n_vars)
+                return True
+            except Exception as e:
+                log.warning(f"Failed to load expression data: {e}")
+                if use_fallback:
+                    log.info("Using fallback synthetic data")
+                    return self._create_fallback_data()
+                return False
         elif use_fallback:
             return self._create_fallback_data()
         else:

@@ -62,7 +62,7 @@ config = ExpressionSemisyntheticConfig(
     # Gene selection
     n_hvg=2000,
 
-    # Biologically relevant interactions (lung cancer focused)
+    # Biologically relevant interactions (lung cancer focused, 3-stage system)
     # Key biological hypothesis: IL1B-IL1R1 signaling is stronger in early stages
     interactions=[
         InteractionSpec(
@@ -70,10 +70,10 @@ config = ExpressionSemisyntheticConfig(
             receiver_celltype="AT2",
             interaction_radius=50.0,
             interaction_name="IL1B_IL1R1",
-            # Interaction probability by stage
-            stage_weights={"Normal": 0.3, "AAH": 1.2, "AIS": 1.0, "MIA": 0.8, "LUAD": 0.6},
-            # DE effect size by stage (stronger in early progression)
-            stage_effect_sizes={"Normal": 0.5, "AAH": 1.5, "AIS": 1.3, "MIA": 1.0, "LUAD": 0.7},
+            # Interaction probability by stage (3-stage: Normal, Preinvasive, Invasive)
+            stage_weights={"Normal": 0.3, "Preinvasive": 1.1, "Invasive": 0.6},
+            # DE effect size by stage (stronger in preinvasive)
+            stage_effect_sizes={"Normal": 0.5, "Preinvasive": 1.3, "Invasive": 0.7},
             # Associated pathways that should be activated
             associated_pathways=["NFkB", "TNFa", "JAK-STAT"],
         ),
@@ -83,8 +83,8 @@ config = ExpressionSemisyntheticConfig(
             interaction_radius=30.0,
             interaction_name="CAF_EMT",
             # CAF effect increases with progression
-            stage_weights={"Normal": 0.2, "AAH": 0.6, "AIS": 0.8, "MIA": 1.0, "LUAD": 1.2},
-            stage_effect_sizes={"Normal": 0.3, "AAH": 0.7, "AIS": 1.0, "MIA": 1.3, "LUAD": 1.5},
+            stage_weights={"Normal": 0.2, "Preinvasive": 0.8, "Invasive": 1.2},
+            stage_effect_sizes={"Normal": 0.3, "Preinvasive": 1.0, "Invasive": 1.5},
             associated_pathways=["TGFb", "WNT", "Hypoxia"],
         ),
         InteractionSpec(
@@ -93,8 +93,8 @@ config = ExpressionSemisyntheticConfig(
             interaction_radius=40.0,
             interaction_name="Immune_surveillance",
             # Immune surveillance decreases with progression
-            stage_weights={"Normal": 1.0, "AAH": 0.9, "AIS": 0.7, "MIA": 0.5, "LUAD": 0.3},
-            stage_effect_sizes={"Normal": 1.2, "AAH": 1.0, "AIS": 0.8, "MIA": 0.6, "LUAD": 0.4},
+            stage_weights={"Normal": 1.0, "Preinvasive": 0.7, "Invasive": 0.3},
+            stage_effect_sizes={"Normal": 1.2, "Preinvasive": 0.8, "Invasive": 0.4},
             associated_pathways=["JAK-STAT", "NFkB"],
         ),
     ],
@@ -102,8 +102,8 @@ config = ExpressionSemisyntheticConfig(
     # Include pathway scoring
     include_pathways=True,
 
-    # Progression stages
-    stages=["Normal", "AAH", "AIS", "MIA", "LUAD"],
+    # Progression stages (3-stage system for valid donor-held-out evaluation)
+    stages=["Normal", "Preinvasive", "Invasive"],
 
     # Output
     output_dir=output_dir.parent,
