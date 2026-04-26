@@ -35,6 +35,17 @@ from stagebridge.biology.pathway_targets import (
 )
 from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS
 
+# 3-STAGE MAPPING (due to zero donor overlap for AIS→MIA transitions)
+# This consolidation is REQUIRED for valid donor-held-out evaluation
+STAGE_MAP_3 = {
+    "Normal": "Normal",
+    "AAH": "Preinvasive",
+    "AIS": "Preinvasive",
+    "MIA": "Preinvasive",
+    "LUAD": "Invasive",
+}
+CANONICAL_STAGES_3 = ["Normal", "Preinvasive", "Invasive"]
+
 # Clonal pattern encoding for model input
 CLONAL_PATTERN_ENCODING = {
     "1a": 0,      # Direct lineage (precursor -> LUAD)
@@ -261,17 +272,22 @@ def generate_cells_table(
     records = []
     cache = get_data_cache()
 
-    # Stage order for indexing
-    stage_order = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    # Stage order for indexing (3-stage consolidation)
+    # Raw 5-stage names used for extraction, then mapped to 3-stage
+    stage_order_raw = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    stage_order = CANONICAL_STAGES_3  # ["Normal", "Preinvasive", "Invasive"]
     stage_to_idx = {s: i for i, s in enumerate(stage_order)}
 
     # Map donors to stages (fallback, prefer cell_id extraction)
+    # Apply 3-stage mapping to stage_definitions too
     donor_to_stage = {}
     for stage, donors in stage_definitions.items():
+        # Map the stage definition key to 3-stage
+        stage_3 = STAGE_MAP_3.get(stage, stage)
         for donor in donors:
-            donor_to_stage[donor] = stage
+            donor_to_stage[donor] = stage_3
 
-    stages = list(stage_definitions.keys())
+    stages = CANONICAL_STAGES_3  # Always use 3-stage list
 
     # ==========================================================================
     # Load REAL embeddings from reference geometry (CRITICAL!)
@@ -431,19 +447,25 @@ def generate_cells_table(
         print(f"    Loaded LuCA deconvolution for {len(spatial_deconv_luca):,} spots")
 
     def extract_stage_from_cell_id(cell_id: str) -> str:
-        """Extract stage from cell_id like GSM9237901_P3_Normal:AAACAAGCACCAGCTCACTTTAGG.1"""
+        """Extract stage from cell_id and map to 3-stage system.
+
+        Cell IDs look like: GSM9237901_P3_Normal:AAACAAGCACCAGCTCACTTTAGG.1
+        Extracts raw stage (Normal/AAH/AIS/MIA/LUAD), then maps to 3-stage.
+        """
         import re
         match = re.search(r'_P\d+_([^:]+):', cell_id)
         if match:
             stage_raw = match.group(1)
             # Normalize stage names (handle variants like AIS1, AIS-1, etc.)
             stage_clean = stage_raw.replace('1', '').replace('-', '').strip()
-            if stage_clean in stage_order:
-                return stage_clean
-            # Fuzzy match
-            for s in stage_order:
+            # Check if it matches any 5-stage name
+            if stage_clean in stage_order_raw:
+                # Map to 3-stage
+                return STAGE_MAP_3.get(stage_clean, "unknown")
+            # Fuzzy match against raw 5-stage names
+            for s in stage_order_raw:
                 if s.lower() in stage_clean.lower():
-                    return s
+                    return STAGE_MAP_3.get(s, "unknown")
         return "unknown"
 
     def get_embeddings(cell_id: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -966,9 +988,10 @@ def generate_stage_edges_table(stage_definitions: dict[str, list[str]]) -> pd.Da
     """
     Generate stage_edges.parquet with valid transitions.
 
-    For LUAD: Normal → Preneoplastic → Invasive → Advanced
+    For LUAD with 3-stage: Normal → Preinvasive → Invasive
     """
-    stages = list(stage_definitions.keys())
+    # Always use 3-stage system regardless of stage_definitions
+    stages = CANONICAL_STAGES_3
     edges = []
 
     for i in range(len(stages) - 1):
