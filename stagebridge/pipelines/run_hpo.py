@@ -211,6 +211,8 @@ def run_hpo(
     latent_dim: int = 40,
     seed: int = 42,
     device: torch.device = None,
+    drift_head: str = "mlp",
+    context_refiner: str = "none",
 ) -> tuple:
     """Run HPO on real data.
 
@@ -223,6 +225,8 @@ def run_hpo(
         latent_dim: Latent dimension
         seed: Random seed
         device: Torch device
+        drift_head: Drift head type ("mlp" or "cross_attention")
+        context_refiner: Context refiner ("none" or "set_transformer")
 
     Returns:
         (study, best_params)
@@ -262,6 +266,8 @@ def run_hpo(
             niche_hidden_dim=hidden_dim,
             context_dim=context_dim,
             dropout=dropout,
+            drift_head=drift_head,
+            context_refiner=context_refiner,
         ).to(device)
 
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
@@ -279,14 +285,28 @@ def run_hpo(
 
                 # SSL: receiver reconstruction via model's ssl_decoder
                 receiver = niche_tokens[:, 0, :]  # [B, latent_dim]
-                context = model.encode_niche(niche_tokens)  # [B, context_dim]
+
+                # Get context (and context_tokens for cross-attention drift)
+                if drift_head == "cross_attention":
+                    context, context_tokens, _ = model.encode_niche_with_tokens(niche_tokens)
+                else:
+                    context = model.encode_niche(niche_tokens)
+                    context_tokens = None
 
                 # Use model's ssl_decoder (takes context_dim, outputs latent_dim)
                 recon = model.ssl_decoder(context)
                 ssl_loss = nn.functional.mse_loss(recon, receiver)
 
-                # Transition loss placeholder (context similarity)
-                transition_loss = nn.functional.mse_loss(context[:, :latent_dim], z_source)
+                # Transition loss: actual OT-CFM flow matching
+                transition_result = model.transition_forward(
+                    z_source=z_source,
+                    z_target=z_target,
+                    context=context,
+                    context_tokens=context_tokens,
+                    stage_indices=stages,
+                    use_ot=True,
+                )
+                transition_loss = transition_result["loss_transition"]
 
                 loss = ssl_weight * ssl_loss + (1 - ssl_weight) * transition_loss
 
@@ -310,13 +330,29 @@ def run_hpo(
             for batch in val_loader:
                 niche_tokens, z_source, z_target, stages = [b.to(device) for b in batch]
                 receiver = niche_tokens[:, 0, :]
-                context = model.encode_niche(niche_tokens)
 
-                # Use model's ssl_decoder (takes context_dim, outputs latent_dim)
+                # Get context (and context_tokens for cross-attention drift)
+                if drift_head == "cross_attention":
+                    context, context_tokens, _ = model.encode_niche_with_tokens(niche_tokens)
+                else:
+                    context = model.encode_niche(niche_tokens)
+                    context_tokens = None
+
+                # SSL loss
                 recon = model.ssl_decoder(context)
                 ssl_loss = nn.functional.mse_loss(recon, receiver)
 
-                transition_loss = nn.functional.mse_loss(context[:, :latent_dim], z_source)
+                # Transition loss: actual OT-CFM flow matching
+                transition_result = model.transition_forward(
+                    z_source=z_source,
+                    z_target=z_target,
+                    context=context,
+                    context_tokens=context_tokens,
+                    stage_indices=stages,
+                    use_ot=True,
+                )
+                transition_loss = transition_result["loss_transition"]
+
                 loss = ssl_weight * ssl_loss + (1 - ssl_weight) * transition_loss
 
                 val_loss += loss.item()
@@ -345,6 +381,10 @@ def main():
     parser.add_argument("--latent_dim", type=int, default=40, help="Latent dimension")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="auto", help="Device (auto/cuda/cpu)")
+    parser.add_argument("--drift_head", type=str, default="mlp", choices=["mlp", "cross_attention"],
+                        help="Drift head type (mlp or cross_attention)")
+    parser.add_argument("--context_refiner", type=str, default="none", choices=["none", "set_transformer"],
+                        help="Context refiner (none or set_transformer)")
 
     args = parser.parse_args()
 
@@ -365,6 +405,8 @@ def main():
     log.info(f"  Device: {device}")
     log.info(f"  Trials: {args.n_trials}")
     log.info(f"  Epochs per trial: {args.n_epochs}")
+    log.info(f"  Drift head: {args.drift_head}")
+    log.info(f"  Context refiner: {args.context_refiner}")
     log.info("=" * 60)
 
     study, best_params = run_hpo(
@@ -376,6 +418,8 @@ def main():
         latent_dim=args.latent_dim,
         seed=args.seed,
         device=device,
+        drift_head=args.drift_head,
+        context_refiner=args.context_refiner,
     )
 
     # Save best_params.json
