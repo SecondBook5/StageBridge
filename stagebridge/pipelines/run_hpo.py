@@ -133,6 +133,35 @@ def load_real_data(data_dir: Path, fold: int = 0) -> tuple[TensorDataset, Tensor
     else:
         stage_indices = torch.zeros(n_cells, dtype=torch.long)
 
+    # Extract pathway targets (PROGENy scores)
+    pathway_raw_cols = [c for c in cells_df.columns if c.startswith("pathway_raw_")]
+    if pathway_raw_cols:
+        pathway_targets = torch.tensor(
+            cells_df[sorted(pathway_raw_cols)].values, dtype=torch.float32
+        )
+        log.info(f"  Pathway targets: {pathway_targets.shape}")
+    else:
+        # Fallback to old-style columns
+        pathway_cols = [c for c in cells_df.columns if c.startswith("pathway_") and not c.startswith("pathway_raw_")]
+        if pathway_cols:
+            pathway_targets = torch.tensor(
+                cells_df[sorted(pathway_cols)].values, dtype=torch.float32
+            )
+            log.info(f"  Pathway targets (legacy): {pathway_targets.shape}")
+        else:
+            pathway_targets = None
+            log.warning("  No pathway data found")
+
+    # Extract proliferation label (binary)
+    if "proliferation_label" in cells_df.columns:
+        prolif_targets = torch.tensor(
+            cells_df["proliferation_label"].values, dtype=torch.float32
+        ).unsqueeze(1)
+        log.info(f"  Proliferation targets: {prolif_targets.shape}")
+    else:
+        prolif_targets = None
+        log.warning("  No proliferation data found")
+
     # Donor-held-out split
     if splits_path.exists():
         with open(splits_path) as f:
@@ -185,18 +214,42 @@ def load_real_data(data_dir: Path, fold: int = 0) -> tuple[TensorDataset, Tensor
     val_z_target = compute_z_target(z_fused[val_idx], stage_indices[val_idx])
     log.info(f"  Computed z_target for val split (within-split, no leakage)")
 
-    # Create datasets
+    # Z-score pathway targets using train-only statistics (prevent leakage)
+    if pathway_targets is not None:
+        train_pathway_raw = pathway_targets[train_idx]
+        train_mean = train_pathway_raw.mean(dim=0, keepdim=True)
+        train_std = train_pathway_raw.std(dim=0, keepdim=True).clamp(min=1e-6)
+        train_pathway = (train_pathway_raw - train_mean) / train_std
+        val_pathway = (pathway_targets[val_idx] - train_mean) / train_std
+        log.info(f"  Pathway z-scored using train-only stats")
+    else:
+        train_pathway = torch.zeros(len(train_idx), 14)
+        val_pathway = torch.zeros(len(val_idx), 14)
+
+    # Proliferation is binary - no z-scoring needed
+    if prolif_targets is not None:
+        train_prolif = prolif_targets[train_idx]
+        val_prolif = prolif_targets[val_idx]
+    else:
+        train_prolif = torch.zeros(len(train_idx), 1)
+        val_prolif = torch.zeros(len(val_idx), 1)
+
+    # Create datasets (6 tensors: niche, z_src, z_tgt, stages, pathway, prolif)
     train_dataset = TensorDataset(
         niche_tokens[train_idx],
         z_fused[train_idx],  # source
         train_z_target,  # target (computed within train split)
         stage_indices[train_idx],
+        train_pathway,
+        train_prolif,
     )
     val_dataset = TensorDataset(
         niche_tokens[val_idx],
         z_fused[val_idx],
         val_z_target,  # target (computed within val split)
         stage_indices[val_idx],
+        val_pathway,
+        val_prolif,
     )
 
     return train_dataset, val_dataset
@@ -257,6 +310,7 @@ def run_hpo(
 
     def objective(trial: Trial) -> float:
         from stagebridge.pipelines.run_v1_complete import StageBridgeV1Complete
+        from stagebridge.pipelines.run_v1_ddp import PathwayHead, ProliferationHead
 
         # Hyperparameters to optimize
         lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
@@ -274,16 +328,24 @@ def run_hpo(
             context_refiner=context_refiner,
         ).to(device)
 
-        optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+        # Auxiliary heads (pathway + proliferation)
+        pathway_head = PathwayHead(input_dim=context_dim, n_pathways=14).to(device)
+        prolif_head = ProliferationHead(input_dim=context_dim).to(device)
+
+        # Optimizer includes all parameters
+        all_params = list(model.parameters()) + list(pathway_head.parameters()) + list(prolif_head.parameters())
+        optimizer = optim.AdamW(all_params, lr=lr, weight_decay=1e-4)
 
         # Training loop
         model.train()
+        pathway_head.train()
+        prolif_head.train()
         for epoch in range(n_epochs_per_trial):
             epoch_loss = 0.0
             n_batches = 0
 
             for batch in train_loader:
-                niche_tokens, z_source, z_target, stages = [b.to(device) for b in batch]
+                niche_tokens, z_source, z_target, stages, pathway_targets, prolif_targets = [b.to(device) for b in batch]
 
                 optimizer.zero_grad()
 
@@ -312,10 +374,16 @@ def run_hpo(
                 )
                 transition_loss = transition_result["loss_transition"]
 
-                loss = ssl_weight * ssl_loss + (1 - ssl_weight) * transition_loss
+                # Auxiliary losses (0.05 each, same as full training)
+                pathway_loss = nn.functional.mse_loss(pathway_head(context), pathway_targets)
+                prolif_loss = nn.functional.binary_cross_entropy_with_logits(
+                    prolif_head(context), prolif_targets
+                )
+
+                loss = ssl_weight * ssl_loss + (1 - ssl_weight) * transition_loss + 0.05 * pathway_loss + 0.05 * prolif_loss
 
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(all_params, 1.0)
                 optimizer.step()
 
                 epoch_loss += loss.item()
@@ -328,11 +396,13 @@ def run_hpo(
 
         # Validation
         model.eval()
+        pathway_head.eval()
+        prolif_head.eval()
         val_loss = 0.0
         n_val = 0
         with torch.no_grad():
             for batch in val_loader:
-                niche_tokens, z_source, z_target, stages = [b.to(device) for b in batch]
+                niche_tokens, z_source, z_target, stages, pathway_targets, prolif_targets = [b.to(device) for b in batch]
                 receiver = niche_tokens[:, 0, :]
 
                 # Get context (and context_tokens for cross-attention drift)
@@ -357,7 +427,13 @@ def run_hpo(
                 )
                 transition_loss = transition_result["loss_transition"]
 
-                loss = ssl_weight * ssl_loss + (1 - ssl_weight) * transition_loss
+                # Auxiliary losses
+                pathway_loss = nn.functional.mse_loss(pathway_head(context), pathway_targets)
+                prolif_loss = nn.functional.binary_cross_entropy_with_logits(
+                    prolif_head(context), prolif_targets
+                )
+
+                loss = ssl_weight * ssl_loss + (1 - ssl_weight) * transition_loss + 0.05 * pathway_loss + 0.05 * prolif_loss
 
                 val_loss += loss.item()
                 n_val += 1
