@@ -157,3 +157,75 @@ traj = model.sample_trajectory(
 ## Decision Point
 
 Re-run HPO with `drift_head="cross_attention"` and `context_refiner="set_transformer"` to see if upgrades improve performance. If not, can always fall back to MLP drift.
+
+---
+
+## Future: Adversarial Cell Cycle Regularization
+
+**Status:** DEFERRED to v2/revision
+
+**Motivation:**
+Cell cycle (S_score, G2M_score) is a major confounder in progression modeling. If the model learns "high proliferation → invasive-like transition", the transition field may be biologically shallow - learning "cycling cells look aggressive" rather than true niche-conditioned progression.
+
+**Proposed approach:**
+Adversarial training to discourage cell-cycle predictability from context representation:
+
+```python
+class GradientReversalLayer(nn.Module):
+    """Reverses gradients during backward pass."""
+    def __init__(self, lambda_: float = 1.0):
+        super().__init__()
+        self.lambda_ = lambda_
+    
+    def forward(self, x):
+        return GradientReversalFunction.apply(x, self.lambda_)
+
+class CellCycleDiscriminator(nn.Module):
+    """Try to predict S_score/G2M_score from context."""
+    def __init__(self, input_dim: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Linear(input_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, 2),  # S_score, G2M_score
+        )
+    
+    def forward(self, x):
+        return self.head(x)
+```
+
+**Loss formulation:**
+```
+L_total = L_transition + λ_ssl * L_ssl + λ_cc * L_cell_cycle_adv
+
+where L_cell_cycle_adv = MSE(discriminator(GRL(context)), [S_score, G2M_score])
+```
+
+The discriminator minimizes prediction error, but encoder receives reversed gradients - learning to make cell cycle harder to predict.
+
+**Scientific claim this enables:**
+> "Transition fields remain predictive of progression even when forced to be uninformative about cell cycle state"
+
+This proves niche-conditioned progression signal is orthogonal to proliferation.
+
+**Config flags (when implemented):**
+```yaml
+use_adversarial_cell_cycle: false  # Default off
+adversarial_cell_cycle_weight: 0.01
+gradient_reversal_lambda: 0.1
+cell_cycle_target_keys: ["S_score", "G2M_score"]
+```
+
+**Where to apply:**
+Apply gradient reversal to `pooled_context`, NOT raw latent z. Cell cycle can be real part of cell state - we want to test whether the niche context representation overly encodes it.
+
+**Implementation plan:**
+1. `stagebridge/training/gradient_reversal.py` - GRL layer
+2. `stagebridge/training/adversarial.py` - CellCycleDiscriminator  
+3. Config flags in TrainingConfig
+4. Diagnostic: plot cell-cycle predictability vs transition accuracy
+
+**When to use:**
+- Post-hoc analysis shows transition signal correlates with S/G2M scores
+- Reviewers ask "did you control for cell cycle?"
+- Want stronger biological claim about progression-specific signal
