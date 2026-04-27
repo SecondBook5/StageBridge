@@ -359,6 +359,44 @@ class SampleLevelHeads(nn.Module):
 # =============================================================================
 
 
+class SetTransformerRefiner(nn.Module):
+    """Refine context tokens via Set Transformer before drift head.
+
+    Models token-token interactions among receiver-centered niche features.
+    Progression-permissive niches are combinatorial - this captures that.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        num_layers: int = 2,
+        num_heads: int = 4,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        from stagebridge.context_model.set_encoder import SAB
+
+        self.layers = nn.ModuleList([
+            SAB(dim=dim, num_heads=num_heads, dropout=dropout)
+            for _ in range(num_layers)
+        ])
+
+    def forward(self, tokens: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        """Refine context tokens.
+
+        Args:
+            tokens: [B, K, D] context tokens from niche encoder
+            mask: [B, K] boolean mask, True = valid
+
+        Returns:
+            [B, K, D] refined tokens
+        """
+        h = tokens
+        for layer in self.layers:
+            h = layer(h, mask=mask)
+        return h
+
+
 class StageBridgeV1Complete(nn.Module):
     """
     Full StageBridge V1 with SSL pretraining + transition modeling.
@@ -413,8 +451,37 @@ class StageBridgeV1Complete(nn.Module):
         # How to combine HLCA and LuCA embeddings
         # =====================================================================
         fusion_mode: str = "concat",  # "concat", "attention", "gate", or "transport"
+        # =====================================================================
+        # DRIFT HEAD CONFIGURATION (V2 upgrade)
+        # Controls how transition velocity is predicted from niche context
+        # =====================================================================
+        drift_head: str = "mlp",  # "mlp" or "cross_attention"
+        # =====================================================================
+        # CONTEXT REFINER (V2 upgrade)
+        # Optional Set Transformer to model token-token interactions
+        # =====================================================================
+        context_refiner: str = "none",  # "none" or "set_transformer"
+        context_refiner_layers: int = 2,
     ):
         super().__init__()
+
+        # Validate drift_head and context_refiner config
+        valid_drift_heads = ("mlp", "cross_attention")
+        valid_context_refiners = ("none", "set_transformer")
+        if drift_head not in valid_drift_heads:
+            raise ValueError(
+                f"Invalid drift_head='{drift_head}'. Must be one of {valid_drift_heads}"
+            )
+        if context_refiner not in valid_context_refiners:
+            raise ValueError(
+                f"Invalid context_refiner='{context_refiner}'. Must be one of {valid_context_refiners}"
+            )
+        if context_refiner == "set_transformer" and drift_head != "cross_attention":
+            raise ValueError(
+                "context_refiner='set_transformer' requires drift_head='cross_attention'. "
+                "The SetTransformerRefiner operates on context tokens which are only used "
+                "by the cross-attention drift head."
+            )
 
         self.latent_dim = latent_dim
         self.context_dim = context_dim
@@ -426,6 +493,8 @@ class StageBridgeV1Complete(nn.Module):
         self.use_hierarchical = use_hierarchical and HIERARCHICAL_AVAILABLE
         self.use_evolution_branch = use_evolution_branch and HIERARCHICAL_AVAILABLE
         self.fusion_mode = fusion_mode
+        self.drift_head_type = drift_head  # "mlp" or "cross_attention"
+        self.context_refiner_type = context_refiner  # "none" or "set_transformer"
 
         # Dual-reference fusion layer (applies to first 40d = 30 HLCA + 10 LuCA)
         if fusion_mode == "attention":
@@ -556,6 +625,45 @@ class StageBridgeV1Complete(nn.Module):
             nn.LayerNorm(256),
             nn.Linear(256, latent_dim),
         )
+
+        # =====================================================================
+        # CROSS-ATTENTION DRIFT HEAD (V2 Upgrade)
+        # x_t queries niche tokens via cross-attention to determine velocity
+        # Learns which niche factors matter for each transition
+        # =====================================================================
+        from stagebridge.transition_model.drift_network import CrossAttentionDrift
+
+        # Stage embedding for transition model (used by CrossAttentionDrift)
+        self.num_stages = num_stage_classes
+        self.stage_embedding = nn.Embedding(num_stage_classes, 32)
+        self.stage_dim = 32
+
+        if self.drift_head_type == "cross_attention":
+            self.cross_attention_drift = CrossAttentionDrift(
+                input_dim=latent_dim,
+                context_dim=context_dim,
+                time_dim=64,  # matches time_embedding output
+                stage_dim=self.stage_dim,
+                num_heads=4,
+                dropout=dropout,
+            )
+        else:
+            self.cross_attention_drift = None
+
+        # =====================================================================
+        # SET TRANSFORMER CONTEXT REFINER (V2 Upgrade)
+        # Models token-token interactions before drift head
+        # Progression-permissive niches are combinatorial, not independent
+        # =====================================================================
+        if self.context_refiner_type == "set_transformer":
+            self.context_refiner = SetTransformerRefiner(
+                dim=context_dim,
+                num_layers=context_refiner_layers,
+                num_heads=4,
+                dropout=dropout,
+            )
+        else:
+            self.context_refiner = None
 
         # =====================================================================
         # COUNTERFACTUAL PREDICTION HEAD (Novel methodological contribution)
@@ -775,6 +883,62 @@ class StageBridgeV1Complete(nn.Module):
 
         return context, attention_weights
 
+    def encode_niche_with_tokens(
+        self,
+        niche_tokens: torch.Tensor,
+        distances: torch.Tensor = None,
+        neighbor_mask: torch.Tensor = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
+        """Encode niche and return context, context_tokens, and attention weights.
+
+        Used for CrossAttentionDrift which needs individual token representations.
+
+        Args:
+            niche_tokens: [B, K, D] niche token embeddings
+            distances: [B, K-1] distances for neighbor tokens
+            neighbor_mask: [B, K-1] boolean, True = valid token, False = masked
+
+        Returns:
+            context: [B, context_dim] pooled context vector
+            context_tokens: [B, K-1, context_dim] individual token representations (or None)
+            attention_weights: [B, K-1] attention to neighbors
+        """
+        batch_size = niche_tokens.shape[0]
+
+        # Apply dual-reference fusion if not using simple concat
+        if self.fusion_mode != "concat":
+            niche_tokens = self._apply_fusion(niche_tokens)
+
+        if self.use_doctrine_encoder:
+            receiver = niche_tokens[:, 0, :]
+            neighbors = niche_tokens[:, 1:, :]
+
+            K = neighbors.shape[1]
+            if distances is None:
+                distances = torch.ones(batch_size, K, device=niche_tokens.device)
+
+            output: ReceiverNicheOutput = self.niche_encoder(
+                receiver=receiver,
+                neighbors=neighbors,
+                distances=distances,
+                neighbor_mask=neighbor_mask,
+            )
+            context = self.context_projection(output.context)
+            attention_weights = output.attention_weights
+
+            # Project context_tokens if available
+            if output.context_tokens is not None:
+                context_tokens = self.context_projection(output.context_tokens)
+            else:
+                context_tokens = None
+        else:
+            context = self.encode_niche(niche_tokens, distances, neighbor_mask)
+            K = niche_tokens.shape[1] - 1
+            attention_weights = torch.ones(batch_size, K, device=niche_tokens.device) / K
+            context_tokens = None
+
+        return context, context_tokens, attention_weights
+
     def ssl_forward(
         self,
         niche_tokens: torch.Tensor,
@@ -814,6 +978,7 @@ class StageBridgeV1Complete(nn.Module):
         use_ot: bool = True,
         stage_indices: torch.Tensor | None = None,
         sample_weights: torch.Tensor | None = None,
+        context_tokens: torch.Tensor | None = None,
     ) -> dict:
         """Transition model forward pass with OT-CFM (Optimal Transport Flow Matching).
 
@@ -835,6 +1000,8 @@ class StageBridgeV1Complete(nn.Module):
             use_ot: If True, use Sinkhorn OT coupling; if False, random pairs
             stage_indices: [B] stage labels (0-4). If provided, uses cross-stage OT.
             sample_weights: [B] donor-balanced weights for fair optimization
+            context_tokens: [B, K, context_dim] individual token representations for
+                           CrossAttentionDrift (required when drift_head="cross_attention")
 
         Returns:
             dict with loss_transition, drift_pred, drift_true, z_t, ot_cost
@@ -955,8 +1122,50 @@ class StageBridgeV1Complete(nn.Module):
         # Flow matching: interpolate and predict velocity
         z_t = (1.0 - t) * z_src_paired + t * z_tgt_paired
         t_embed = self.time_embedding(t)
-        drift_input = torch.cat([z_t, context_paired, t_embed, wes_h], dim=-1)
-        drift_pred = self.drift_network(drift_input)
+
+        # Use CrossAttentionDrift if enabled, otherwise use MLP
+        context_gate_mean = None
+        context_attention_entropy = None
+
+        if self.drift_head_type == "cross_attention" and self.cross_attention_drift is not None:
+            # Cross-attention drift: x_t queries niche tokens
+            if context_tokens is None:
+                raise ValueError(
+                    "context_tokens required when drift_head='cross_attention'. "
+                    "Use encode_niche_with_tokens() to get context_tokens."
+                )
+
+            # Index context_tokens by OT pairs
+            tokens_paired = context_tokens[src_idx]  # [num_pairs, K, D]
+
+            # Apply SetTransformerRefiner if enabled
+            if self.context_refiner is not None:
+                tokens_paired = self.context_refiner(tokens_paired)
+
+            # Get stage embedding for source cells
+            if stage_indices is not None:
+                stage_emb = self.stage_embedding(stage_indices[src_idx])  # [num_pairs, stage_dim]
+            else:
+                # Default to stage 0 if not provided
+                stage_emb = self.stage_embedding(
+                    torch.zeros(num_pairs, dtype=torch.long, device=device)
+                )
+
+            # CrossAttentionDrift: x_t queries tokens to predict velocity
+            drift_pred = self.cross_attention_drift(
+                x_t=z_t,
+                time_emb=t_embed.squeeze(-1) if t_embed.dim() == 3 else t_embed,
+                context_tokens=tokens_paired,
+                stage_emb=stage_emb,
+            )
+
+            # Capture interpretability outputs
+            context_gate_mean = self.cross_attention_drift.last_context_gate_mean
+            context_attention_entropy = self.cross_attention_drift.last_context_attention_entropy
+        else:
+            # MLP drift: concatenate everything
+            drift_input = torch.cat([z_t, context_paired, t_embed, wes_h], dim=-1)
+            drift_pred = self.drift_network(drift_input)
 
         # Target velocity: direction from source to target
         drift_true = z_tgt_paired - z_src_paired
@@ -994,6 +1203,8 @@ class StageBridgeV1Complete(nn.Module):
             "per_pair_loss": per_pair_loss,  # For detailed analysis
             "per_stage_loss": per_stage_loss,  # Real per-stage metrics
             "src_idx": src_idx,  # For tracing pairs back to cells
+            "context_gate_mean": context_gate_mean,  # Interpretability: how much context matters
+            "context_attention_entropy": context_attention_entropy,  # Interpretability: attention spread
         }
 
     def sample_trajectory(
@@ -1002,14 +1213,18 @@ class StageBridgeV1Complete(nn.Module):
         context: torch.Tensor,
         n_steps: int = 100,
         wes_features: torch.Tensor | None = None,
+        context_tokens: torch.Tensor | None = None,
+        stage_indices: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Sample trajectory via ODE integration.
 
         Args:
             z_source: [B, D] starting latent
-            context: [B, context_dim] niche context
+            context: [B, context_dim] niche context (used by MLP drift)
             n_steps: number of integration steps
             wes_features: [B, wes_dim] evolutionary constraints (optional)
+            context_tokens: [B, K, context_dim] individual tokens (for CrossAttentionDrift)
+            stage_indices: [B] stage labels (for CrossAttentionDrift stage embedding)
         """
         batch_size = z_source.shape[0]
         device = z_source.device
@@ -1021,6 +1236,26 @@ class StageBridgeV1Complete(nn.Module):
         else:
             wes_h = torch.zeros(batch_size, self.wes_hidden_dim, device=device)
 
+        # Prepare for CrossAttentionDrift if enabled
+        use_cross_attention = (
+            self.drift_head_type == "cross_attention"
+            and self.cross_attention_drift is not None
+            and context_tokens is not None
+        )
+
+        if use_cross_attention:
+            # Apply SetTransformerRefiner once (context is constant during trajectory)
+            if self.context_refiner is not None:
+                context_tokens = self.context_refiner(context_tokens)
+
+            # Get stage embedding
+            if stage_indices is not None:
+                stage_emb = self.stage_embedding(stage_indices)
+            else:
+                stage_emb = self.stage_embedding(
+                    torch.zeros(batch_size, dtype=torch.long, device=device)
+                )
+
         trajectory = [z_source]
         z_t = z_source
         dt = 1.0 / n_steps
@@ -1028,8 +1263,18 @@ class StageBridgeV1Complete(nn.Module):
         for step in range(n_steps):
             t = torch.full((batch_size, 1), step * dt, device=device)
             t_embed = self.time_embedding(t)
-            drift_input = torch.cat([z_t, context, t_embed, wes_h], dim=-1)
-            drift = self.drift_network(drift_input)
+
+            if use_cross_attention:
+                drift = self.cross_attention_drift(
+                    x_t=z_t,
+                    time_emb=t_embed.squeeze(-1) if t_embed.dim() == 3 else t_embed,
+                    context_tokens=context_tokens,
+                    stage_emb=stage_emb,
+                )
+            else:
+                drift_input = torch.cat([z_t, context, t_embed, wes_h], dim=-1)
+                drift = self.drift_network(drift_input)
+
             z_t = z_t + drift * dt
             trajectory.append(z_t)
 
