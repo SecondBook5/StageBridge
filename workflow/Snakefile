@@ -784,7 +784,7 @@ rule hpo:
     threads: 8
     resources:
         mem_mb = 128000,
-        runtime = 480,  # 8 hours for 30 trials
+        runtime = 480,  # 8 hours
         slurm_partition = "gpu",
         gpu = 1
     log:
@@ -797,6 +797,8 @@ rule hpo:
             --n_trials {params.n_trials} \
             --drift_head {params.drift_head} \
             --context_refiner {params.context_refiner} \
+            --device cuda \
+            --storage sqlite:///{params.hpo_dir}/optuna.db \
             2>&1 | tee {log}
         """
 

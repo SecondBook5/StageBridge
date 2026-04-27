@@ -213,6 +213,8 @@ def run_hpo(
     device: torch.device = None,
     drift_head: str = "mlp",
     context_refiner: str = "none",
+    n_jobs: int = 1,
+    storage: str = None,
 ) -> tuple:
     """Run HPO on real data.
 
@@ -227,6 +229,8 @@ def run_hpo(
         device: Torch device
         drift_head: Drift head type ("mlp" or "cross_attention")
         context_refiner: Context refiner ("none" or "set_transformer")
+        n_jobs: Number of parallel trials (1 = sequential, -1 = all CPUs)
+        storage: Optuna storage URL for distributed HPO (e.g. "sqlite:///hpo.db")
 
     Returns:
         (study, best_params)
@@ -360,9 +364,24 @@ def run_hpo(
 
         return val_loss / n_val
 
-    # Run optimization
-    study = optuna.create_study(direction="minimize", pruner=optuna.pruners.MedianPruner())
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+    # Run optimization with parallel trials
+    study_name = f"stagebridge_hpo_{drift_head}_{context_refiner}"
+    if storage:
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=storage,
+            load_if_exists=True,
+            direction="minimize",
+            pruner=optuna.pruners.MedianPruner(),
+        )
+    else:
+        study = optuna.create_study(
+            direction="minimize",
+            pruner=optuna.pruners.MedianPruner(),
+        )
+
+    # n_jobs controls parallelism: 1=sequential, -1=all CPUs, N=N parallel
+    study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=True)
 
     best_params = study.best_params
     log.info(f"Best params: {best_params}")
@@ -385,6 +404,8 @@ def main():
                         help="Drift head type (mlp or cross_attention)")
     parser.add_argument("--context_refiner", type=str, default="none", choices=["none", "set_transformer"],
                         help="Context refiner (none or set_transformer)")
+    parser.add_argument("--n_jobs", type=int, default=1, help="Number of parallel trials (use -1 for all CPUs)")
+    parser.add_argument("--storage", type=str, default=None, help="Optuna storage URL for distributed HPO")
 
     args = parser.parse_args()
 
@@ -407,6 +428,8 @@ def main():
     log.info(f"  Epochs per trial: {args.n_epochs}")
     log.info(f"  Drift head: {args.drift_head}")
     log.info(f"  Context refiner: {args.context_refiner}")
+    log.info(f"  Parallel jobs: {args.n_jobs}")
+    log.info(f"  Storage: {args.storage or 'in-memory'}")
     log.info("=" * 60)
 
     study, best_params = run_hpo(
@@ -420,6 +443,8 @@ def main():
         device=device,
         drift_head=args.drift_head,
         context_refiner=args.context_refiner,
+        n_jobs=args.n_jobs,
+        storage=args.storage,
     )
 
     # Save best_params.json
