@@ -2291,7 +2291,7 @@ def train(config: TrainingConfig):
     # Resume from checkpoint if specified
     start_epoch = 0
     best_val_loss = float("inf")
-    history = {"ssl_loss": [], "val_loss": []}
+    history = {"ssl_loss": [], "ssl_val_loss": [], "transition_loss": [], "transition_val_loss": [], "learning_rate": []}
 
     if config.resume_checkpoint:
         log(f"Resuming from checkpoint: {config.resume_checkpoint}")
@@ -2343,9 +2343,9 @@ def train(config: TrainingConfig):
         # Combine metrics
         metrics = {**train_metrics, **val_metrics, "phase": "ssl"}
 
-        # Track history
+        # Track history (separate SSL and transition metrics)
         history["ssl_loss"].append(train_metrics["train_loss"])
-        history["val_loss"].append(val_metrics["val_loss"])
+        history["ssl_val_loss"].append(val_metrics["val_loss"])
 
         # Step learning rate scheduler
         ssl_scheduler.step()
@@ -2360,8 +2360,6 @@ def train(config: TrainingConfig):
         )
 
         # Track LR in history
-        if "learning_rate" not in history:
-            history["learning_rate"] = []
         history["learning_rate"].append(current_lr)
 
         # Log to CSV
@@ -2437,10 +2435,10 @@ def train(config: TrainingConfig):
 
     # Reset optimizer for transition phase
     # Only include trainable parameters
-    # Use LR close to where SSL ended (min_lr=1e-6) to avoid destroying representations
-    # Frozen: slightly higher since only drift head trains
-    # Unfrozen: very conservative to protect SSL embeddings
-    transition_lr = 1e-5 if config.freeze_encoder else 1e-6
+    # Transition LR: fraction of base LR
+    # Frozen encoder: higher LR ok since only drift head trains on stable features
+    # Unfrozen encoder: lower LR to protect SSL embeddings while fine-tuning
+    transition_lr = config.learning_rate * 0.1 if config.freeze_encoder else config.learning_rate * 0.01
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     all_params = (
         trainable_params
@@ -2492,9 +2490,9 @@ def train(config: TrainingConfig):
         # Combine metrics
         metrics = {**train_metrics, **val_metrics, "phase": "transition"}
 
-        # Track history
+        # Track history (separate SSL and transition metrics)
         history["transition_loss"].append(train_metrics["train_loss"])
-        history["val_loss"].append(val_metrics["val_loss"])
+        history["transition_val_loss"].append(val_metrics["val_loss"])
 
         # Step learning rate scheduler
         transition_scheduler.step()
@@ -2558,9 +2556,12 @@ def train(config: TrainingConfig):
 
     # Save final checkpoint with auxiliary heads
     final_metrics = {
-        "train_loss": history["ssl_loss"][-1] if history["ssl_loss"] else 0,
-        "val_loss": history["val_loss"][-1] if history["val_loss"] else 0,
-        "best_val_loss": best_val_loss,
+        "ssl_train_loss": history["ssl_loss"][-1] if history["ssl_loss"] else 0,
+        "ssl_val_loss": history["ssl_val_loss"][-1] if history["ssl_val_loss"] else 0,
+        "transition_train_loss": history["transition_loss"][-1] if history["transition_loss"] else 0,
+        "transition_val_loss": history["transition_val_loss"][-1] if history["transition_val_loss"] else 0,
+        "best_ssl_val_loss": best_val_loss,
+        "best_transition_val_loss": best_transition_loss,
     }
     aux_heads = {
         "pathway_head": pathway_head,
