@@ -2437,7 +2437,10 @@ def train(config: TrainingConfig):
 
     # Reset optimizer for transition phase
     # Only include trainable parameters
-    transition_lr = config.learning_rate * 0.1 if not config.freeze_encoder else config.learning_rate
+    # Use LR close to where SSL ended (min_lr=1e-6) to avoid destroying representations
+    # Frozen: slightly higher since only drift head trains
+    # Unfrozen: very conservative to protect SSL embeddings
+    transition_lr = 1e-5 if config.freeze_encoder else 1e-6
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     all_params = (
         trainable_params
