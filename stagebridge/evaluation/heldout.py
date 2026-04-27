@@ -60,6 +60,8 @@ def load_model_and_test_data(
         fusion_mode=config.get("fusion_mode", "concat"),
         niche_encoder_type=config.get("niche_encoder_type", "cross_attention"),
         use_hierarchical=config.get("use_hierarchical", True),
+        drift_head=config.get("drift_head", "cross_attention"),
+        context_refiner=config.get("context_refiner", "set_transformer"),
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
