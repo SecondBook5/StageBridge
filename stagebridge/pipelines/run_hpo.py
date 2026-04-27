@@ -79,8 +79,8 @@ def load_real_data(data_dir: Path, fold: int = 0) -> tuple[TensorDataset, Tensor
     n_cells = len(cells_df)
     n_tokens = 9
 
-    if neighborhoods_df is not None and "receiver_id" in neighborhoods_df.columns:
-        # Build lookup
+    if neighborhoods_df is not None and "tokens" in neighborhoods_df.columns:
+        # Build lookup from cell_id to index in cells_df
         cell_id_col = "cell_id" if "cell_id" in cells_df.columns else cells_df.index.name
         if cell_id_col and cell_id_col in cells_df.columns:
             cell_ids = cells_df[cell_id_col].values
@@ -89,42 +89,44 @@ def load_real_data(data_dir: Path, fold: int = 0) -> tuple[TensorDataset, Tensor
 
         cell_to_idx = {cid: i for i, cid in enumerate(cell_ids)}
 
-        # Get ring columns
-        ring_cols = [c for c in neighborhoods_df.columns if c.startswith("ring") and c.endswith("_mean")]
-
         niche_tokens = torch.zeros(n_cells, n_tokens, latent_dim, dtype=torch.float32)
-        niche_tokens[:, 0, :] = z_fused  # Token 0 = receiver
+        niche_tokens[:, 0, :] = z_fused  # Token 0 = receiver (fallback)
 
-        if ring_cols:
-            # Use ring compositions
-            for idx, row in neighborhoods_df.iterrows():
-                receiver_id = row["receiver_id"]
-                if receiver_id in cell_to_idx:
-                    cell_idx = cell_to_idx[receiver_id]
-                    for ring_i, col in enumerate(ring_cols[:4]):  # 4 rings
-                        if col in row and row[col] is not None:
-                            ring_data = row[col]
-                            if isinstance(ring_data, (list, np.ndarray)) and len(ring_data) == latent_dim:
-                                niche_tokens[cell_idx, ring_i + 1, :] = torch.tensor(ring_data, dtype=torch.float32)
-                            else:
-                                niche_tokens[cell_idx, ring_i + 1, :] = z_fused[cell_idx]
-                        else:
-                            niche_tokens[cell_idx, ring_i + 1, :] = z_fused[cell_idx]
-        else:
-            # Fallback: broadcast receiver to all tokens
-            niche_tokens = z_fused.unsqueeze(1).expand(-1, n_tokens, -1).clone()
+        # Extract tokens from neighborhoods (same format as baselines/evaluate.py)
+        n_matched = 0
+        for _, row in neighborhoods_df.iterrows():
+            receiver_id = row["cell_id"]
+            if receiver_id not in cell_to_idx:
+                continue
+            cell_idx = cell_to_idx[receiver_id]
+            tokens_list = row["tokens"]
 
-        log.info(f"  Built niche tokens: {niche_tokens.shape}")
+            for tok_i, tok in enumerate(tokens_list[:n_tokens]):
+                z = tok.get("z_fused")
+                if z is None:
+                    z = tok.get("z_pooled")
+                if z is not None:
+                    z_arr = np.array(z, dtype=np.float32)
+                    if z_arr.sum() != 0 and len(z_arr) == latent_dim:
+                        niche_tokens[cell_idx, tok_i, :] = torch.tensor(z_arr)
+            n_matched += 1
+
+        log.info(f"  Built niche tokens: {niche_tokens.shape} ({n_matched:,} neighborhoods matched)")
     else:
         # No neighborhoods - broadcast receiver
         niche_tokens = z_fused.unsqueeze(1).expand(-1, n_tokens, -1).clone()
         log.warning("  No neighborhood data - using receiver for all tokens")
 
-    # Stage indices
+    # Stage indices (3-stage system)
     if "stage_idx" in cells_df.columns:
         stage_indices = torch.tensor(cells_df["stage_idx"].values, dtype=torch.long)
     elif "stage" in cells_df.columns:
-        stage_map = {"Normal": 0, "AAH": 1, "AIS": 2, "MIA": 3, "LUAD": 4}
+        # Detect 3-stage vs 5-stage from data
+        unique_stages = cells_df["stage"].unique()
+        if "Preinvasive" in unique_stages:
+            stage_map = {"Normal": 0, "Preinvasive": 1, "Invasive": 2}
+        else:
+            stage_map = {"Normal": 0, "AAH": 1, "AIS": 2, "MIA": 3, "LUAD": 4}
         stage_indices = torch.tensor(
             cells_df["stage"].map(stage_map).fillna(0).values, dtype=torch.long
         )
