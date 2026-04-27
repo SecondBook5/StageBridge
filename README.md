@@ -20,8 +20,17 @@ StageBridge is a **method for learning cell-state transitions under spatial and 
 The primary application is lung adenocarcinoma (LUAD) progression:
 
 ```
-Normal  ──>  AAH  ──>  AIS  ──>  MIA  ──>  LUAD
+Normal  ──>  Preinvasive  ──>  Invasive
 ```
+
+**Stage definitions (3-stage system):**
+| Stage | Histological Types | Description |
+|-------|-------------------|-------------|
+| **Normal** | Normal alveolar | Healthy tissue, reference baseline |
+| **Preinvasive** | AAH, AIS, MIA | Pre-malignant lesions (Atypical Adenomatous Hyperplasia, Adenocarcinoma in Situ, Minimally Invasive Adenocarcinoma) |
+| **Invasive** | LUAD | Fully invasive lung adenocarcinoma |
+
+This 3-stage grouping reflects the clinically actionable distinction: normal vs. interception-eligible preinvasive vs. established cancer. The model learns transition fields across these boundaries.
 
 The framework integrates three data modalities—10x Visium spatial transcriptomics, snRNA-seq, and whole-exome sequencing—to learn how cells transition between states, conditioned on their local microenvironment (niche) and constrained by evolutionary compatibility.
 
@@ -86,46 +95,51 @@ V1 uses **Flow Matching** (OT-CFM) with Sinkhorn coupling:
 - Niche context conditions the flow field
 - **DestVI gamma integration**: Functional state from spatial deconvolution enriches pathway token
 
-### Self-supervised objectives
+### Training objectives
 
-The SSL pretraining uses weighted multi-task learning:
+The model uses a multi-objective training approach:
 
 | Loss | Weight | Description | Inspiration |
 |------|--------|-------------|-------------|
-| Reconstruction | 70% | Masked receiver prediction from niche context | Core novelty |
-| Ranking | 10% | Positive/negative niche discrimination | Contrastive |
-| Consistency | 10% | Cross-view provider consistency | SimCLR |
-| Coordinate | 5% | Spatial coordinate corruption detection | Spatial awareness |
-| **Pathway** | 5% | PROGENy pathway activity prediction | SpatialFusion |
-| **Proliferation** | 5% | Ki67 proliferation classification | OSDR |
-| **IL1B** | 5% | IL1B pathway prediction (niche inflammation) | Peng et al. 2020 |
-| **KAC** | 5% | KRT8+ intermediate state supervision | Han et al. 2024 Nature |
+| **OT-CFM Transition** | Primary | Flow matching with Sinkhorn OT pairing | Lipman et al. 2023 |
+| **SSL Reconstruction** | ~0.7 | Masked receiver prediction from niche context | Core novelty |
+| **Pathway** | 0.05 | PROGENy pathway activity prediction | SpatialFusion |
+| **Proliferation** | 0.05 | Ki67 proliferation classification | OSDR |
 
-The auxiliary heads are informed by LUAD progression biology:
-- **IL1B**: Tests the Peng/Kadara hypothesis that IL1B+ macrophage niches drive AT2-to-LUAD progression
-- **KAC**: Supervises learning of KRT8+ Alveolar Intermediate Cells, the key precursor state identified in Han et al. 2024 Nature
+**Auxiliary heads** (PathwayHead, ProlifHead) are generic biological regularizers with literature precedent:
+- **Pathway**: Encourages pathway-aware latent structure (14 PROGENy pathways)
+- **Proliferation**: Anchors model to broad tissue-dynamics signal
+
+**Post-hoc biological validation** (NOT used in training loss):
+- **IL1B/IL1R1**: Tests alignment with Peng/Kadara hypothesis about IL1B+ macrophage niches
+- **KAC/RPII**: Tests alignment with KRT8+ intermediate states from Han et al. 2024 Nature
+
+> IL1B and KAC scores travel with each cell as metadata for post-hoc interpretation, but are deliberately excluded from training objectives to avoid circular validation of biological claims.
 
 ---
 
 ## Project scope
 
-### V1-Minimal (Current)
+### V1 (Current)
 
-The first publication scope:
+The publication model:
 
 | Component | Status | Description |
 |-----------|--------|-------------|
 | Raw Data Pipeline | Complete | `stagebridge data-prep` orchestration |
-| Spatial Backend Benchmark | Complete | Tangram/DestVI/TACCO/Cell2location/MarkerScoring comparison |
+| Spatial Backend Benchmark | Complete | Tangram/DestVI/TACCO/Cell2location comparison |
 | Dual-Reference Latent | Complete | HLCA + LuCA alignment via scArches surgery |
-| Local Niche Encoder | Complete | Receiver-centered niche transformer |
-| Set Transformer | Complete | ISAB/SAB/PMA hierarchy |
+| Local Niche Encoder | Complete | Receiver-centered 9-token niche transformer |
+| CrossAttentionDrift | Complete | x_t queries niche tokens to predict velocity |
+| SetTransformerRefiner | Complete | SAB blocks refine token-token interactions |
 | Flow Matching | Complete | OT-CFM with Sinkhorn coupling |
 | Evolutionary Compatibility | Complete | WES-derived constraints |
-| Donor-Held-Out Evaluation | Complete | With uncertainty quantification |
+| Donor-Held-Out Evaluation | Complete | 5-fold CV with uncertainty quantification |
+| Auxiliary Heads | Complete | PathwayHead + ProlifHead (generic regularizers) |
 
-### V2/V3 Roadmap (Deferred)
+### V2 Roadmap (Deferred)
 
+- Adversarial cell cycle regularization (confounder control)
 - Non-Euclidean geometry (hyperbolic/spherical latents)
 - Neural SDE backend
 - Phase portrait / attractor decoder
