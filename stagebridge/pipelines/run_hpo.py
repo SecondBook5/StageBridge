@@ -264,8 +264,8 @@ def run_hpo(
     latent_dim: int = 40,
     seed: int = 42,
     device: torch.device = None,
-    drift_head: str = "mlp",
-    context_refiner: str = "none",
+    drift_head: str = "cross_attention",
+    context_refiner: str = "set_transformer",
     n_jobs: int = 1,
     storage: str = None,
 ) -> tuple:
@@ -476,9 +476,9 @@ def main():
     parser.add_argument("--latent_dim", type=int, default=40, help="Latent dimension")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="auto", help="Device (auto/cuda/cpu)")
-    parser.add_argument("--drift_head", type=str, default="mlp", choices=["mlp", "cross_attention"],
+    parser.add_argument("--drift_head", type=str, default="cross_attention", choices=["mlp", "cross_attention"],
                         help="Drift head type (mlp or cross_attention)")
-    parser.add_argument("--context_refiner", type=str, default="none", choices=["none", "set_transformer"],
+    parser.add_argument("--context_refiner", type=str, default="set_transformer", choices=["none", "set_transformer"],
                         help="Context refiner (none or set_transformer)")
     parser.add_argument("--n_jobs", type=int, default=1, help="Number of parallel trials (use -1 for all CPUs)")
     parser.add_argument("--storage", type=str, default=None, help="Optuna storage URL for distributed HPO")
