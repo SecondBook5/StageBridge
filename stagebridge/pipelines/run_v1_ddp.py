@@ -111,6 +111,10 @@ class TrainingConfig:
     # Dual-reference fusion
     fusion_mode: str = "concat"  # "concat", "attention", or "gate"
 
+    # Drift head architecture (V2 upgrade)
+    drift_head: str = "cross_attention"  # "mlp" or "cross_attention"
+    context_refiner: str = "set_transformer"  # "none" or "set_transformer"
+
     # Other
     seed: int = 42
     num_workers: int = 4
@@ -544,8 +548,10 @@ def create_model(
         hlca_dim=hlca_dim,  # Dual-reference geometry
         luca_dim=luca_dim,  # Dual-reference geometry
         fusion_mode=config.fusion_mode,  # concat, attention, or gate
+        drift_head=config.drift_head,  # mlp or cross_attention
+        context_refiner=config.context_refiner,  # none or set_transformer
     )
-    log(f"Created StageBridgeV1Complete with dual-reference encoder (HLCA={hlca_dim}d, LuCA={luca_dim}d, fusion={config.fusion_mode})")
+    log(f"Created StageBridgeV1Complete (HLCA={hlca_dim}d, LuCA={luca_dim}d, fusion={config.fusion_mode}, drift={config.drift_head}, refiner={config.context_refiner})")
 
     return model.to(device)
 
@@ -1521,11 +1527,21 @@ def train_epoch(
                 # STAGE 2: Transition - Learn flow with CROSS-STAGE OT pairing
                 if hasattr(actual_model, "transition_forward"):
                     # Encode niche context with REAL distances and mask
-                    context = actual_model.encode_niche(
-                        niche_tokens,
-                        distances=token_distances,
-                        neighbor_mask=token_mask,
-                    )
+                    # Use encode_niche_with_tokens for cross_attention drift
+                    use_cross_attn = getattr(actual_model, 'drift_head_type', 'mlp') == 'cross_attention'
+                    if use_cross_attn and hasattr(actual_model, 'encode_niche_with_tokens'):
+                        context, context_tokens, _ = actual_model.encode_niche_with_tokens(
+                            niche_tokens,
+                            distances=token_distances,
+                            neighbor_mask=token_mask,
+                        )
+                    else:
+                        context = actual_model.encode_niche(
+                            niche_tokens,
+                            distances=token_distances,
+                            neighbor_mask=token_mask,
+                        )
+                        context_tokens = None
 
                     # Use cross-stage OT: pair cells from stage s with cells from stage s+1
                     # Pass stage_indices so transition_forward can do principled pairing
@@ -1535,6 +1551,7 @@ def train_epoch(
                             trans_z_source = z_source[can_transition]
                             trans_z_target = z_target[can_transition]
                             trans_context = context[can_transition]
+                            trans_tokens = context_tokens[can_transition] if context_tokens is not None else None
                             trans_stages = stage_indices[can_transition]
 
                             trans_wes = wes_features[can_transition] if wes_features is not None else None
@@ -1547,6 +1564,7 @@ def train_epoch(
                                 use_ot=True, wes_features=trans_wes,
                                 stage_indices=trans_stages,
                                 sample_weights=trans_weights,
+                                context_tokens=trans_tokens,
                             )
                             loss = outputs["loss_transition"]
 
@@ -1558,13 +1576,15 @@ def train_epoch(
                             # Fallback: use all cells with standard OT
                             outputs = actual_model.transition_forward(
                                 z_source, z_target, context, use_ot=True,
-                                wes_features=wes_features, sample_weights=sample_weights
+                                wes_features=wes_features, sample_weights=sample_weights,
+                                context_tokens=context_tokens,
                             )
                             loss = outputs["loss_transition"]
                     else:
                         outputs = actual_model.transition_forward(
                             z_source, z_target, context, use_ot=True,
-                            wes_features=wes_features, sample_weights=sample_weights
+                            wes_features=wes_features, sample_weights=sample_weights,
+                            context_tokens=context_tokens,
                         )
                         loss = outputs["loss_transition"]
                 else:
@@ -1887,11 +1907,21 @@ def validate(
                 # MUST mirror training: only include cells that can transition (stages 0-3)
                 if hasattr(actual_model, "transition_forward"):
                     # Encode niche context with distances and mask (mirror training)
-                    context = actual_model.encode_niche(
-                        niche_tokens,
-                        distances=token_distances,
-                        neighbor_mask=token_mask,
-                    )
+                    # Use encode_niche_with_tokens for cross_attention drift
+                    use_cross_attn = getattr(actual_model, 'drift_head_type', 'mlp') == 'cross_attention'
+                    if use_cross_attn and hasattr(actual_model, 'encode_niche_with_tokens'):
+                        context, context_tokens, _ = actual_model.encode_niche_with_tokens(
+                            niche_tokens,
+                            distances=token_distances,
+                            neighbor_mask=token_mask,
+                        )
+                    else:
+                        context = actual_model.encode_niche(
+                            niche_tokens,
+                            distances=token_distances,
+                            neighbor_mask=token_mask,
+                        )
+                        context_tokens = None
 
                     # Filter to cells that can transition (stages 0-3), matching training
                     if stage_indices is not None:
@@ -1900,6 +1930,7 @@ def validate(
                             trans_z_source = z_source[can_transition]
                             trans_z_target = z_target[can_transition]
                             trans_context = context[can_transition]
+                            trans_tokens = context_tokens[can_transition] if context_tokens is not None else None
                             trans_stages = stage_indices[can_transition]  # Stages for filtered cells
                             trans_wes = wes_features[can_transition] if wes_features is not None else None
                             # Filter ALL auxiliary targets for transition-eligible cells
@@ -1912,6 +1943,7 @@ def validate(
                                 trans_z_source, trans_z_target, trans_context,
                                 use_ot=True, wes_features=trans_wes,
                                 stage_indices=trans_stages,
+                                context_tokens=trans_tokens,
                             )
                             loss = outputs["loss_transition"]
                             # Collect drift for trajectory validation
@@ -1931,7 +1963,10 @@ def validate(
                             continue
                     else:
                         # No stage info - use standard OT (not cross-stage)
-                        outputs = actual_model.transition_forward(z_source, z_target, context, use_ot=True, wes_features=wes_features)
+                        outputs = actual_model.transition_forward(
+                            z_source, z_target, context, use_ot=True,
+                            wes_features=wes_features, context_tokens=context_tokens
+                        )
                         loss = outputs["loss_transition"]
                         # Collect drift for trajectory validation (non-filtered case)
                         if "drift_pred" in outputs and "drift_true" in outputs:
