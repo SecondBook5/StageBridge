@@ -777,7 +777,10 @@ rule hpo:
     params:
         n_trials = 30,
         canonical_dir = CANONICAL,
-        hpo_dir = f"{TRAINING}/hpo"
+        hpo_dir = f"{TRAINING}/hpo",
+        # V2 architecture: cross-attention drift with set transformer refiner
+        drift_head = config.get("drift_head", "cross_attention"),
+        context_refiner = config.get("context_refiner", "set_transformer")
     threads: 8
     resources:
         mem_mb = 128000,
@@ -792,6 +795,8 @@ rule hpo:
             --data_dir {params.canonical_dir} \
             --output_dir {params.hpo_dir} \
             --n_trials {params.n_trials} \
+            --drift_head {params.drift_head} \
+            --context_refiner {params.context_refiner} \
             2>&1 | tee {log}
         """
 
