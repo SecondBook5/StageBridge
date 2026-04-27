@@ -841,7 +841,10 @@ rule training:
         ssl_epochs = 100,
         transition_epochs = 50,
         canonical_dir = CANONICAL,
-        training_dir = TRAINING
+        training_dir = TRAINING,
+        # V1 architecture: cross-attention drift with set transformer refiner
+        drift_head = config.get("drift_head", "cross_attention"),
+        context_refiner = config.get("context_refiner", "set_transformer")
     threads: 8
     resources:
         mem_mb = 256000,  # 256GB for 1.4M cells + neighborhoods + ring compositions
@@ -859,6 +862,7 @@ rule training:
         echo "  Seed: {wildcards.seed}"
         echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
         echo "  Stage 2: Transition Model ({params.transition_epochs} epochs)"
+        echo "  Architecture: drift={params.drift_head}, refiner={params.context_refiner}"
         echo "  GPU: 1x H100 (single-process, no DDP overhead)"
         echo "  HPO params: {input.hpo_params}"
         echo "=============================================="
@@ -878,6 +882,8 @@ rule training:
             --checkpoint_every 10 \
             --hpo_params {input.hpo_params} \
             --use_best_hparams \
+            --drift_head {params.drift_head} \
+            --context_refiner {params.context_refiner} \
             2>&1 | tee {log}
         """
 

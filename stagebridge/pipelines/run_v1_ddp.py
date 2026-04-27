@@ -2665,6 +2665,20 @@ def main():
         choices=["concat", "attention", "gate", "transport"],
         help="Dual-reference fusion: concat (default), attention, gate, or transport",
     )
+    parser.add_argument(
+        "--drift_head",
+        type=str,
+        default="cross_attention",
+        choices=["mlp", "cross_attention"],
+        help="Drift head type: mlp or cross_attention (default)",
+    )
+    parser.add_argument(
+        "--context_refiner",
+        type=str,
+        default="set_transformer",
+        choices=["none", "set_transformer"],
+        help="Context refiner: none or set_transformer (default)",
+    )
 
     # Ablation flags
     parser.add_argument(
@@ -2774,6 +2788,8 @@ def main():
         mixed_precision=not args.no_mixed_precision,
         freeze_encoder=args.freeze_encoder,
         fusion_mode=args.fusion_mode,
+        drift_head=args.drift_head,
+        context_refiner=args.context_refiner,
         early_stopping_patience=args.early_stopping_patience,
         early_stopping_enabled=not args.no_early_stopping,
         input_noise_std=args.input_noise_std,
