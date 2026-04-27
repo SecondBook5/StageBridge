@@ -775,6 +775,14 @@ class StageBridgeV1Complete(nn.Module):
             transported = weight * h_proj + (1 - weight) * l_proj
             return self.fusion_output(torch.cat([transported, h_proj - l_proj], dim=-1))
 
+        elif self.fusion_mode == "hlca_only":
+            # Use only HLCA embedding, zero-pad to match latent_dim
+            return torch.nn.functional.pad(z_hlca, (0, self.latent_dim - self.hlca_dim))
+
+        elif self.fusion_mode == "luca_only":
+            # Use only LuCA embedding, zero-pad to match latent_dim
+            return torch.nn.functional.pad(z_luca, (0, self.latent_dim - self.luca_dim))
+
         return x  # Fallback
 
     def encode_niche(

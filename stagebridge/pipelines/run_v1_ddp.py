@@ -2662,8 +2662,8 @@ def main():
         "--fusion_mode",
         type=str,
         default="concat",
-        choices=["concat", "attention", "gate", "transport"],
-        help="Dual-reference fusion: concat (default), attention, gate, or transport",
+        choices=["concat", "attention", "gate", "transport", "hlca_only", "luca_only"],
+        help="Dual-reference fusion: concat (default), attention, gate, transport, hlca_only, or luca_only",
     )
     parser.add_argument(
         "--drift_head",
