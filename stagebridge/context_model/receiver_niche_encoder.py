@@ -45,14 +45,16 @@ class ReceiverNicheOutput:
     """Output from the receiver-centered niche encoder.
 
     Attributes:
-        context: [B, D] - What the receiver gets from its neighborhood
+        context: [B, D] - What the receiver gets from its neighborhood (pooled)
+        context_tokens: [B, K, D] - Individual token representations for cross-attention
         attention_weights: [B, K] - Interpretable neighbor importance scores
         entropy_loss: Scalar - Attention entropy for regularization (if computed)
         receiver_reconstruction: [B, D] - Reconstructed receiver (if decoder present)
     """
 
     context: Tensor
-    attention_weights: Tensor
+    context_tokens: Tensor | None = None  # NEW: for CrossAttentionDrift
+    attention_weights: Tensor = None
     entropy_loss: Tensor | None = None
     receiver_reconstruction: Tensor | None = None
 
@@ -526,6 +528,11 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         # Final output projection
         context = self.output_proj(h_receiver)
 
+        # Project neighbor tokens for CrossAttentionDrift (V2 upgrade)
+        # In cross-attention, h_neighbors are the keys/values that the receiver attended to
+        # These provide the token-level context for the drift head
+        context_tokens = self.output_proj(h_neighbors)  # [B, K, D]
+
         # Average attention weights across layers for interpretability
         final_attention = torch.stack(all_attention_weights, dim=0).mean(dim=0)
 
@@ -541,6 +548,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
 
         return ReceiverNicheOutput(
             context=context,
+            context_tokens=context_tokens,  # NEW: for CrossAttentionDrift
             attention_weights=final_attention,
             entropy_loss=entropy_loss,
             receiver_reconstruction=reconstruction,
@@ -892,8 +900,12 @@ class SelfAttentionNicheEncoder(nn.Module):
         # Extract receiver's representation (first token)
         h_receiver_out = h[:, 0, :]  # [B, H]
 
+        # Extract neighbor token representations for cross-attention drift
+        h_neighbors_out = h[:, 1:, :]  # [B, K, H]
+
         # Output projection
         context = self.output_proj(h_receiver_out)
+        context_tokens = self.output_proj(h_neighbors_out)  # [B, K, D] - project each token
 
         # Compute attention weights from final transformer layer
         # Extract actual attention pattern for interpretability
@@ -906,6 +918,7 @@ class SelfAttentionNicheEncoder(nn.Module):
 
         return ReceiverNicheOutput(
             context=context,
+            context_tokens=context_tokens,  # NEW: for CrossAttentionDrift
             attention_weights=attention_weights,
             entropy_loss=None,
             receiver_reconstruction=reconstruction,
