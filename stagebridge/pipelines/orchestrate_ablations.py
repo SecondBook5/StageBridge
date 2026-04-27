@@ -31,12 +31,11 @@ from stagebridge.config import FUSED_LATENT_DIM
 
 
 ABLATION_CONFIGS = {
-    # These args map to run_v1_ablations.py flags:
+    # These args map to run_v1_ddp.py ablation flags:
     # --no_niche, --no_wes, --deterministic, --use_prototypes, --num_prototypes,
     # --fusion_mode, --niche_encoder_type, --no_hierarchical
     #
-    # Uses StageBridgeV1Complete (same as production run_v1_ddp.py)
-    # NOT run_v1_full.py which uses a different model
+    # Uses StageBridgeV1Complete via run_v1_ddp.py (unified training script)
     "full_model": {
         # Full model - no ablation flags, baseline performance
         "note": "Full model baseline with all components enabled",
@@ -90,12 +89,11 @@ def run_single_ablation(
     print(f"Running: {ablation_name} (fold {fold})")
     print(f"{'=' * 80}")
 
-    # Build command - use run_v1_ablations.py (same model as production run_v1_ddp.py)
-    # NOT run_v1_full.py which uses a different model (StageBridgeV1Full)
+    # Build command - use run_v1_ddp.py (unified training script with ablation flags)
     cmd = [
         "python",
         "-m",
-        "stagebridge.pipelines.run_v1_ablations",
+        "stagebridge.pipelines.run_v1_ddp",
         "--data_dir",
         str(data_dir),
         "--validation_fold",

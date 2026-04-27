@@ -122,6 +122,13 @@ class TrainingConfig:
 
     # Ablation flags
     freeze_encoder: bool = False  # Freeze encoder during transition phase (for ablation)
+    no_niche: bool = False        # Use receiver only, no neighborhood context
+    no_wes: bool = False          # Disable WES/genomic features
+    deterministic: bool = False   # Use deterministic endpoint prediction (no flow matching)
+    use_prototypes: bool = False  # Enable prototype bottleneck
+    num_prototypes: int = 0       # Number of prototypes (0 = disabled)
+    niche_encoder_type: str = "cross_attention"  # "cross_attention" or "self_attention"
+    use_hierarchical: bool = True  # False = flat hierarchy ablation
 
     # Regularization
     input_noise_std: float = 0.01  # Gaussian noise added to inputs during training (0 to disable)
@@ -556,6 +563,36 @@ def create_model(
     return model.to(device)
 
 
+def apply_ablations_to_niche_tokens(
+    niche_tokens: torch.Tensor,
+    config: TrainingConfig,
+) -> torch.Tensor:
+    """Apply ablation modifications to niche tokens.
+
+    Ablations:
+    1. no_niche: Zero out ring tokens (1-4), keeping only receiver token.
+       Tests the core hypothesis: does neighborhood context matter?
+
+    Args:
+        niche_tokens: [N, K, D] niche token tensor (K=9 tokens)
+        config: Training config with ablation flags
+
+    Returns:
+        Modified niche_tokens with ablations applied
+    """
+    if not config.no_niche:
+        return niche_tokens
+
+    # ABLATION: no_niche - Use receiver only, zero out neighborhood context
+    # Token 0 = receiver, Tokens 1-4 = spatial rings, Tokens 5-8 = HLCA/LuCA/pathway/stats
+    # Zero tokens 1-4 (spatial rings) to test if local spatial context matters
+    niche_tokens = niche_tokens.clone()
+    niche_tokens[:, 1:5, :] = 0.0
+    log("  ABLATION [no_niche]: Zeroed ring tokens 1-4")
+
+    return niche_tokens
+
+
 def create_dataloaders(
     config: TrainingConfig,
     distributed: bool = False,
@@ -886,6 +923,26 @@ def create_dataloaders(
     for i, name in enumerate(["ring1", "ring2", "ring3", "ring4", "hlca", "luca", "pathway", "stats"]):
         pct_valid = token_mask[:, i].float().mean().item() * 100
         log(f"    {name}: {pct_valid:.1f}% valid")
+
+    # Apply ablations to niche tokens
+    niche_tokens = apply_ablations_to_niche_tokens(niche_tokens, config)
+
+    # Log ablation status
+    ablation_flags = []
+    if config.no_niche:
+        ablation_flags.append("no_niche")
+    if config.no_wes:
+        ablation_flags.append("no_wes")
+    if config.deterministic:
+        ablation_flags.append("deterministic")
+    if config.use_prototypes:
+        ablation_flags.append(f"prototypes={config.num_prototypes}")
+    if config.niche_encoder_type != "cross_attention":
+        ablation_flags.append(f"niche_encoder={config.niche_encoder_type}")
+    if not config.use_hierarchical:
+        ablation_flags.append("flat_hierarchy")
+    if ablation_flags:
+        log(f"  ABLATIONS ACTIVE: {', '.join(ablation_flags)}")
 
     # z_source and z_target for transition learning
     # Create REAL cross-stage transition pairs using stage information
@@ -1471,6 +1528,10 @@ def train_epoch(
         if token_mask is not None:
             token_mask = token_mask.bool()
 
+        # ABLATION: no_wes - Zero out genomic/WES features
+        if config.no_wes and wes_features is not None:
+            wes_features = torch.zeros_like(wes_features)
+
         optimizer.zero_grad()
 
         # Input noise injection for regularization (training only)
@@ -1824,6 +1885,10 @@ def validate(
         kac_targets = batch[12].to(device, non_blocking=True) if len(batch) > 12 else None
         if token_mask is not None:
             token_mask = token_mask.bool()
+
+        # ABLATION: no_wes - Zero out genomic/WES features (must match training)
+        if config.no_wes and wes_features is not None:
+            wes_features = torch.zeros_like(wes_features)
 
         with torch.cuda.amp.autocast(enabled=config.mixed_precision):
             if hasattr(model, "module"):
@@ -2607,6 +2672,49 @@ def main():
         action="store_true",
         help="Freeze encoder during transition phase (tests SSL representation transfer)",
     )
+    parser.add_argument(
+        "--no_niche",
+        action="store_true",
+        help="Ablation: use receiver only, zero out neighborhood context (ring tokens 1-4)",
+    )
+    parser.add_argument(
+        "--no_wes",
+        action="store_true",
+        help="Ablation: disable WES/genomic features",
+    )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Ablation: use deterministic endpoint prediction (no flow matching)",
+    )
+    parser.add_argument(
+        "--use_prototypes",
+        action="store_true",
+        help="Enable prototype bottleneck for interpretable niche clusters",
+    )
+    parser.add_argument(
+        "--num_prototypes",
+        type=int,
+        default=0,
+        help="Number of prototypes (0 = disabled)",
+    )
+    parser.add_argument(
+        "--niche_encoder_type",
+        type=str,
+        default="cross_attention",
+        choices=["cross_attention", "self_attention"],
+        help="Ablation: niche encoder type (self_attention for pooled-niche-like behavior)",
+    )
+    parser.add_argument(
+        "--no_hierarchical",
+        action="store_true",
+        help="Ablation: disable hierarchical Set Transformer aggregation",
+    )
+    parser.add_argument(
+        "--pooled_niche",
+        action="store_true",
+        help="Ablation: use mean-pooled niche instead of attention (sets niche_encoder_type=self_attention)",
+    )
 
     # Early stopping
     parser.add_argument(
@@ -2630,6 +2738,10 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Handle pooled_niche convenience flag
+    if args.pooled_niche:
+        args.niche_encoder_type = "self_attention"
 
     config = TrainingConfig(
         data_dir=args.data_dir,
@@ -2665,6 +2777,14 @@ def main():
         early_stopping_patience=args.early_stopping_patience,
         early_stopping_enabled=not args.no_early_stopping,
         input_noise_std=args.input_noise_std,
+        # Ablation flags
+        no_niche=args.no_niche,
+        no_wes=args.no_wes,
+        deterministic=args.deterministic,
+        use_prototypes=args.use_prototypes,
+        num_prototypes=args.num_prototypes,
+        niche_encoder_type=args.niche_encoder_type,
+        use_hierarchical=not args.no_hierarchical,
     )
 
     train(config)

@@ -4,12 +4,9 @@ This document describes the ablation experiments for the StageBridge paper.
 
 ## Implementation
 
-All ablations use `run_v1_ablations.py`, which is a copy of `run_v1_ddp.py`
-(production training) with ablation flags added. This ensures ablations use
-the **same model** (StageBridgeV1Complete) as the full model results.
-
-**IMPORTANT**: Do NOT use `run_v1_full.py` - it uses a different model class
-(StageBridgeV1Full) and has been archived to `_archived/`.
+All ablations use `run_v1_ddp.py` with ablation flags. This is the unified
+training script for both full model and ablation experiments, ensuring
+ablations use the **same model** (StageBridgeV1Complete) as the full model.
 
 ## Ablation Table
 
@@ -62,7 +59,7 @@ snakemake --profile workflow/slurm ablation_summary
 
 ### Manual single ablation
 ```bash
-python -m stagebridge.pipelines.run_v1_ablations \
+python -m stagebridge.pipelines.run_v1_ddp \
     --data_dir /path/to/canonical \
     --output_dir /path/to/output \
     --no_niche  # or other ablation flag

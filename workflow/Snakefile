@@ -1646,7 +1646,7 @@ rule ablation_fold:
         f"{RUNS}/logs/ablations/{{ablation}}_fold{{fold}}.log"
     shell:
         """
-        python -m stagebridge.pipelines.run_v1_ablations \
+        python -m stagebridge.pipelines.run_v1_ddp \
             --data_dir {params.canonical_dir} \
             --output_dir {ABLATIONS}/{wildcards.ablation}/{wildcards.ablation}/fold_{wildcards.fold} \
             --validation_fold {wildcards.fold} \
