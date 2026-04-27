@@ -249,11 +249,20 @@ def compute_transition_metrics(
             batch_mask = trans_mask[i:i+batch_size].to(device)
 
             # Encode niche with distances and mask (mirror training)
-            context = model.encode_niche(
-                batch_niche,
-                distances=batch_distances,
-                neighbor_mask=batch_mask,
-            )
+            # Use encode_niche_with_tokens to get context_tokens for cross_attention drift
+            if hasattr(model, "encode_niche_with_tokens"):
+                context, context_tokens, _ = model.encode_niche_with_tokens(
+                    batch_niche,
+                    distances=batch_distances,
+                    neighbor_mask=batch_mask,
+                )
+            else:
+                context = model.encode_niche(
+                    batch_niche,
+                    distances=batch_distances,
+                    neighbor_mask=batch_mask,
+                )
+                context_tokens = None
 
             # Get source/target embeddings
             z_source = batch_niche[:, 0, :]  # Receiver = source
@@ -261,7 +270,8 @@ def compute_transition_metrics(
             if hasattr(model, "transition_forward"):
                 # Use same cell as target for self-consistency check
                 outputs = model.transition_forward(
-                    z_source, z_source, context, use_ot=False
+                    z_source, z_source, context, use_ot=False,
+                    context_tokens=context_tokens,
                 )
                 if "drift_pred" in outputs:
                     pred_target = z_source + outputs["drift_pred"]
