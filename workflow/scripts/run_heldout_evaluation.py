@@ -9,6 +9,8 @@ import argparse
 import json
 from pathlib import Path
 
+import torch
+
 from stagebridge.evaluation.heldout import run_heldout_evaluation
 
 
@@ -18,9 +20,14 @@ def main():
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--fold", type=int, default=0)
-    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--batch_size", type=int, default=256)
     args = parser.parse_args()
+
+    # Auto-detect device
+    if args.device == "auto":
+        args.device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {args.device}")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
