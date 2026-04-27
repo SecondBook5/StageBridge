@@ -1032,6 +1032,12 @@ def create_dataloaders(
             )
             log(f"  [WARN] Using pre-computed pathway z-scores (legacy format, has leakage)")
 
+    # =================================================================
+    # IL1B/KAC: loaded for POST-HOC biological validation ONLY
+    # NOT used in training loss - validated after training via
+    # biological_validation agent to avoid circular reasoning
+    # =================================================================
+
     # Extract RAW IL1B mean (will be z-scored post-split)
     il1b_raw = None
     if "il1b_raw" in cells_df.columns:
