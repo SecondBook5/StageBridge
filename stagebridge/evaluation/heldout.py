@@ -77,9 +77,21 @@ def load_model_and_test_data(
     # Filter at read time using pyarrow for memory efficiency
     import pyarrow.parquet as pq
 
-    # Read cells with filter
+    # Only load columns we need to save memory
+    needed_cols = ["cell_id", "donor_id", "stage"]
+    # Add z_fused columns
+    cells_schema = pq.read_schema(data_dir / "cells.parquet")
+    all_cols = [f.name for f in cells_schema]
+    fused_cols = sorted([c for c in all_cols if c.startswith("z_fused_")])
+    if "z_fused" in all_cols:
+        needed_cols.append("z_fused")
+    elif fused_cols:
+        needed_cols.extend(fused_cols)
+
+    # Read cells with filter and column selection
     cells_table = pq.read_table(
         data_dir / "cells.parquet",
+        columns=needed_cols,
         filters=[("donor_id", "in", test_donors)]
     )
     test_cells = cells_table.to_pandas()
@@ -153,13 +165,8 @@ def compute_transition_metrics(
     latent_dim = config.get("latent_dim", 40)
 
     # Only load minimal columns from cells
-    cell_cols = ["cell_id", "stage"]
     fused_cols = sorted([c for c in test_cells.columns if c.startswith("z_fused_")])
-    if "z_fused" in test_cells.columns:
-        cell_cols.append("z_fused")
-    elif fused_cols:
-        cell_cols.extend(fused_cols)
-    else:
+    if "z_fused" not in test_cells.columns and not fused_cols:
         return {"error": "No fused embedding columns found"}
 
     n_cells = len(test_cells)
@@ -173,41 +180,59 @@ def compute_transition_metrics(
     else:
         embeddings = torch.tensor(test_cells[fused_cols].values, dtype=torch.float32)
 
-    # Build niche tokens from neighborhoods - stream from parquet
-    niche_tokens = torch.zeros(n_cells, 9, latent_dim)
-    niche_tokens[:, 0, :] = embeddings  # Receiver
-    token_distances = torch.zeros(n_cells, 8)
-    token_mask = torch.zeros(n_cells, 8, dtype=torch.bool)
+    # Process in batches to avoid OOM - don't preallocate full arrays
+    # Instead, process neighborhoods and cells together in streaming fashion
 
     if test_neighborhoods_path is not None and test_neighborhoods_path.exists():
-        # Stream neighborhoods in chunks
+        # Build cell_id -> neighborhood data mapping in chunks
+        # Use dict instead of preallocated tensors to save memory
+        cell_niche_data = {}
+
         parquet_file = pq.ParquetFile(test_neighborhoods_path)
-        for batch in parquet_file.iter_batches(batch_size=10_000):
+        for batch in parquet_file.iter_batches(batch_size=5_000):
             chunk_df = batch.to_pandas()
             if "tokens" not in chunk_df.columns:
+                del chunk_df
                 continue
-            valid_mask = chunk_df["cell_id"].isin(cell_id_to_idx)
-            valid_chunk = chunk_df[valid_mask]
 
-            for _, row in valid_chunk.iterrows():
-                cell_idx = cell_id_to_idx.get(row["cell_id"])
-                if cell_idx is None:
-                    continue
-                tokens = row.get("tokens")
+            # Vectorized filtering
+            valid_mask = chunk_df["cell_id"].isin(cell_id_to_idx)
+            if not valid_mask.any():
+                del chunk_df
+                continue
+
+            valid_chunk = chunk_df.loc[valid_mask, ["cell_id", "tokens"]]
+            del chunk_df
+
+            # Process each row but store minimal data
+            for cell_id, tokens in zip(valid_chunk["cell_id"].values, valid_chunk["tokens"].values):
                 if tokens is None:
                     continue
+                cell_idx = cell_id_to_idx.get(cell_id)
+                if cell_idx is None:
+                    continue
+
+                # Extract only ring tokens (1-4) with z_pooled
+                ring_data = []
                 for token_dict in tokens:
                     token_idx = token_dict.get("token_idx", -1)
                     if 1 <= token_idx <= 4:
                         z_pooled = token_dict.get("z_pooled")
                         if z_pooled is not None and len(z_pooled) > 0:
-                            niche_tokens[cell_idx, token_idx, :min(len(z_pooled), latent_dim)] = torch.tensor(
-                                z_pooled[:latent_dim], dtype=torch.float32
-                            )
-                            token_distances[cell_idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
-                            token_mask[cell_idx, token_idx - 1] = True
-            del chunk_df, valid_chunk
+                            ring_data.append((
+                                token_idx,
+                                np.array(z_pooled[:latent_dim], dtype=np.float32),
+                                float(token_dict.get("normalized_distance", 0.0))
+                            ))
+                if ring_data:
+                    cell_niche_data[cell_idx] = ring_data
+
+            del valid_chunk
             gc.collect()
+
+        print(f"Loaded niche data for {len(cell_niche_data)} cells")
+    else:
+        cell_niche_data = {}
 
     # Get stage indices and filter to transition-eligible (all but last stage)
     stage_col = "stage" if "stage" in test_cells.columns else "stage_label"
@@ -228,28 +253,41 @@ def compute_transition_metrics(
         can_transition = torch.ones(n_cells, dtype=torch.bool)
 
     # Filter to transition-eligible cells
-    trans_indices = torch.where(can_transition)[0]
+    trans_indices = torch.where(can_transition)[0].numpy()
     if len(trans_indices) < 2:
         return {"error": "Not enough transition-eligible cells"}
-
-    trans_niche = niche_tokens[trans_indices]
-    trans_distances = token_distances[trans_indices]
-    trans_mask = token_mask[trans_indices]
-    trans_stages = stage_indices[trans_indices] if stage_indices is not None else None
 
     all_preds = []
     all_targets = []
     all_stages = []
 
+    # Process in batches - build niche tensors on-the-fly per batch
     with torch.no_grad():
         for i in range(0, len(trans_indices), batch_size):
-            batch_idx = trans_indices[i:i+batch_size]
-            batch_niche = trans_niche[i:i+batch_size].to(device)
-            batch_distances = trans_distances[i:i+batch_size].to(device)
-            batch_mask = trans_mask[i:i+batch_size].to(device)
+            batch_cell_indices = trans_indices[i:i+batch_size]
+            batch_size_actual = len(batch_cell_indices)
+
+            # Build batch tensors
+            batch_niche = torch.zeros(batch_size_actual, 9, latent_dim)
+            batch_distances = torch.zeros(batch_size_actual, 8)
+            batch_mask = torch.zeros(batch_size_actual, 8, dtype=torch.bool)
+
+            for j, cell_idx in enumerate(batch_cell_indices):
+                # Receiver embedding
+                batch_niche[j, 0, :] = embeddings[cell_idx]
+
+                # Ring tokens from preloaded data
+                if cell_idx in cell_niche_data:
+                    for token_idx, z_pooled, dist in cell_niche_data[cell_idx]:
+                        batch_niche[j, token_idx, :len(z_pooled)] = torch.from_numpy(z_pooled)
+                        batch_distances[j, token_idx - 1] = dist
+                        batch_mask[j, token_idx - 1] = True
+
+            batch_niche = batch_niche.to(device)
+            batch_distances = batch_distances.to(device)
+            batch_mask = batch_mask.to(device)
 
             # Encode niche with distances and mask (mirror training)
-            # Use encode_niche_with_tokens to get context_tokens for cross_attention drift
             if hasattr(model, "encode_niche_with_tokens"):
                 context, context_tokens, _ = model.encode_niche_with_tokens(
                     batch_niche,
@@ -268,7 +306,6 @@ def compute_transition_metrics(
             z_source = batch_niche[:, 0, :]  # Receiver = source
             # For held-out eval, use model's transition prediction
             if hasattr(model, "transition_forward"):
-                # Use same cell as target for self-consistency check
                 outputs = model.transition_forward(
                     z_source, z_source, context, use_ot=False,
                     context_tokens=context_tokens,
@@ -278,8 +315,14 @@ def compute_transition_metrics(
                     all_preds.append(pred_target.cpu().numpy())
                     all_targets.append(z_source.cpu().numpy())
 
-            if trans_stages is not None:
-                all_stages.append(trans_stages[i:i+batch_size].cpu().numpy())
+            if stage_indices is not None:
+                all_stages.append(stage_indices[batch_cell_indices].cpu().numpy())
+
+            # Free GPU memory
+            del batch_niche, batch_distances, batch_mask, context
+            if context_tokens is not None:
+                del context_tokens
+            torch.cuda.empty_cache()
 
     metrics = {}
 
@@ -324,6 +367,7 @@ def compute_context_sensitivity(
     Returns:
         Dictionary with context sensitivity metrics
     """
+    import gc
     latent_dim = config.get("latent_dim", 40)
 
     # Handle array column (z_fused) or separate columns (z_fused_0, z_fused_1, ...)
@@ -345,38 +389,51 @@ def compute_context_sensitivity(
         embeddings = torch.tensor(sample_cells[fused_cols].values, dtype=torch.float32)
     n_cells = len(embeddings)
 
-    # Build niche tokens
+    # Build niche data dict (memory efficient)
     cell_id_to_idx = {cid: i for i, cid in enumerate(sample_cells["cell_id"].values)}
-    niche_tokens = torch.zeros(n_cells, 9, latent_dim)
-    niche_tokens[:, 0, :] = embeddings
-    token_distances = torch.zeros(n_cells, 8)
-    token_mask = torch.zeros(n_cells, 8, dtype=torch.bool)
-
     sample_cell_ids = set(sample_cells["cell_id"])
+    cell_niche_data = {}
 
     # Stream neighborhoods from path
     if test_neighborhoods_path is not None and test_neighborhoods_path.exists():
         parquet_file = pq.ParquetFile(test_neighborhoods_path)
-        for batch in parquet_file.iter_batches(batch_size=10_000):
+        for batch in parquet_file.iter_batches(batch_size=5_000):
             chunk_df = batch.to_pandas()
             if "tokens" not in chunk_df.columns:
+                del chunk_df
                 continue
-            sample_chunk = chunk_df[chunk_df["cell_id"].isin(sample_cell_ids)]
 
-            for _, row in sample_chunk.iterrows():
-                cell_id = row["cell_id"]
-                if cell_id not in cell_id_to_idx:
+            valid_mask = chunk_df["cell_id"].isin(sample_cell_ids)
+            if not valid_mask.any():
+                del chunk_df
+                continue
+
+            valid_chunk = chunk_df.loc[valid_mask, ["cell_id", "tokens"]]
+            del chunk_df
+
+            for cell_id, tokens in zip(valid_chunk["cell_id"].values, valid_chunk["tokens"].values):
+                if tokens is None:
                     continue
-                idx = cell_id_to_idx[cell_id]
-                for token_dict in row["tokens"]:
+                idx = cell_id_to_idx.get(cell_id)
+                if idx is None:
+                    continue
+
+                ring_data = []
+                for token_dict in tokens:
                     token_idx = token_dict.get("token_idx", -1)
                     if 1 <= token_idx <= 4:
                         z_pooled = token_dict.get("z_pooled")
                         if z_pooled is not None and len(z_pooled) > 0:
-                            z_t = torch.tensor(z_pooled[:latent_dim], dtype=torch.float32)
-                            niche_tokens[idx, token_idx, :len(z_t)] = z_t
-                            token_distances[idx, token_idx - 1] = token_dict.get("normalized_distance", 0.0)
-                            token_mask[idx, token_idx - 1] = True
+                            ring_data.append((
+                                token_idx,
+                                np.array(z_pooled[:latent_dim], dtype=np.float32),
+                                float(token_dict.get("normalized_distance", 0.0))
+                            ))
+                if ring_data:
+                    cell_niche_data[idx] = ring_data
+
+            del valid_chunk
+            gc.collect()
 
     real_contexts = []
     shuffled_contexts = []
@@ -384,9 +441,25 @@ def compute_context_sensitivity(
     batch_size = 256
     with torch.no_grad():
         for i in range(0, n_cells, batch_size):
-            batch_niche = niche_tokens[i:i+batch_size].to(device)
-            batch_distances = token_distances[i:i+batch_size].to(device)
-            batch_mask = token_mask[i:i+batch_size].to(device)
+            batch_indices = list(range(i, min(i + batch_size, n_cells)))
+            batch_size_actual = len(batch_indices)
+
+            # Build batch tensors on-the-fly
+            batch_niche = torch.zeros(batch_size_actual, 9, latent_dim)
+            batch_distances = torch.zeros(batch_size_actual, 8)
+            batch_mask = torch.zeros(batch_size_actual, 8, dtype=torch.bool)
+
+            for j, idx in enumerate(batch_indices):
+                batch_niche[j, 0, :] = embeddings[idx]
+                if idx in cell_niche_data:
+                    for token_idx, z_pooled, dist in cell_niche_data[idx]:
+                        batch_niche[j, token_idx, :len(z_pooled)] = torch.from_numpy(z_pooled)
+                        batch_distances[j, token_idx - 1] = dist
+                        batch_mask[j, token_idx - 1] = True
+
+            batch_niche = batch_niche.to(device)
+            batch_distances = batch_distances.to(device)
+            batch_mask = batch_mask.to(device)
 
             # Real context
             context_real = model.encode_niche(
@@ -403,6 +476,9 @@ def compute_context_sensitivity(
                 shuffled_niche, distances=batch_distances, neighbor_mask=batch_mask
             )
             shuffled_contexts.append(context_shuffled.cpu().numpy())
+
+            del batch_niche, batch_distances, batch_mask, shuffled_niche
+            torch.cuda.empty_cache()
 
     if real_contexts and shuffled_contexts:
         real = np.concatenate(real_contexts, axis=0)
