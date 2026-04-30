@@ -1051,21 +1051,39 @@ if __name__ == "__main__":
     parser.add_argument("--gw-output-dim", type=int, default=64)
     parser.add_argument("--gw-mode", choices=["barycentric", "project_to_hlca", "project_to_luca"],
                         default="barycentric")
+    # HPO params (overrides defaults with optimized values)
+    parser.add_argument("--hpo-params", type=Path, default=None,
+                        help="Path to best_params.json from HPO (overrides CLI args)")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Load HPO params if provided (overrides CLI defaults)
+    hpo = {}
+    if args.hpo_params and args.hpo_params.exists():
+        with open(args.hpo_params) as f:
+            hpo = json.load(f)
+        print(f"Loaded HPO params: {hpo}")
+
+    # Model config from HPO or CLI
     model_config = StageBridgeConfig(
-        use_gw_fusion=args.use_gw_fusion,
-        gw_output_dim=args.gw_output_dim,
+        hidden_dim=hpo.get("hidden_dim", 128),
+        num_heads=hpo.get("num_heads", 4),
+        dropout=hpo.get("dropout", 0.1),
+        use_gw_fusion=hpo.get("use_gw_fusion", args.use_gw_fusion),
+        gw_output_dim=hpo.get("gw_output_dim", args.gw_output_dim),
+        gw_sinkhorn_reg=hpo.get("gw_sinkhorn_reg", 0.1),
         gw_mode=args.gw_mode,
+        use_learned_ring_pooling=True,
+        use_context_refiner=True,
+        use_cross_attn_drift=True,
     )
 
     trainer_config = TrainerConfig(
         ssl_epochs=args.ssl_epochs,
         transition_epochs=args.transition_epochs,
-        learning_rate=args.learning_rate,
+        learning_rate=hpo.get("lr", args.learning_rate),
         output_dir=str(args.output_dir),
         checkpoint_dir=str(args.output_dir / "checkpoints"),
     )

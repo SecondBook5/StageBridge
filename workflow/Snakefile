@@ -97,6 +97,8 @@ def get_checkpoint_path(model_type, fold, ablation=None, baseline=None):
 
 rule all:
     input:
+        # HPO (run first to get best hyperparameters)
+        f"{OUTPUT_DIR}/hpo/best_params.json",
         # Full model trained on all folds
         expand(f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json", fold=FOLDS),
         # All baselines on all folds
@@ -265,6 +267,44 @@ print('Data contract validated successfully')
 
 
 # =============================================================================
+# HYPERPARAMETER OPTIMIZATION
+# =============================================================================
+
+rule hpo:
+    """Hyperparameter optimization using Optuna.
+
+    Searches over model architecture and training hyperparameters.
+    Outputs best_params.json which can be used by subsequent training runs.
+    """
+    input:
+        validated=f"{OUTPUT_DIR}/.data_validated",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        best_params=f"{OUTPUT_DIR}/hpo/best_params.json",
+        history=f"{OUTPUT_DIR}/hpo/optimization_history.json",
+    params:
+        hpo_dir=f"{OUTPUT_DIR}/hpo",
+        n_trials=config.get("hpo", {}).get("n_trials", 30),
+        n_epochs=config.get("hpo", {}).get("n_epochs_per_trial", 10),
+        batch_size=config["trainer"]["batch_size"],
+    resources:
+        gpu=1,
+        runtime=480,  # 8 hours
+        mem_mb=128000,
+    shell:
+        """
+        python -m stagebridge.pipelines.run_hpo \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.hpo_dir} \
+            --n-trials {params.n_trials} \
+            --n-epochs {params.n_epochs} \
+            --batch-size {params.batch_size} \
+            --seed {SEED} \
+            --storage sqlite:///{params.hpo_dir}/optuna.db
+        """
+
+
+# =============================================================================
 # TRAINING: FULL MODEL
 # =============================================================================
 
@@ -275,10 +315,12 @@ rule train_full:
     STAGE 2 (Transition): OT-CFM flow matching
 
     GW fusion is enabled by default for the full model.
+    Uses best hyperparameters from HPO.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        hpo_params=f"{OUTPUT_DIR}/hpo/best_params.json",
     output:
         summary=f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json",
         checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/checkpoints/best_checkpoint.pt",
@@ -287,10 +329,7 @@ rule train_full:
         run_dir=lambda w: f"{OUTPUT_DIR}/full/fold_{w.fold}",
         ssl_epochs=config["trainer"]["ssl_epochs"],
         transition_epochs=config["trainer"]["transition_epochs"],
-        lr=config["trainer"]["learning_rate"],
         batch_size=config["trainer"]["batch_size"],
-        gw_output_dim=config["model"].get("gw_output_dim", 64),
-        gw_mode=config["model"].get("gw_mode", "barycentric"),
     resources:
         gpu=1,
         runtime=2880,  # 48 hours
@@ -304,11 +343,8 @@ rule train_full:
             --seed {SEED} \
             --ssl-epochs {params.ssl_epochs} \
             --transition-epochs {params.transition_epochs} \
-            --learning-rate {params.lr} \
             --batch-size {params.batch_size} \
-            --use-gw-fusion \
-            --gw-output-dim {params.gw_output_dim} \
-            --gw-mode {params.gw_mode}
+            --hpo-params {input.hpo_params}
         """
 
 
