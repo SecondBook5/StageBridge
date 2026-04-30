@@ -102,7 +102,7 @@ trainer:
 # =============================================================================
 
 baselines:
-  - pooling_mlp
+  - pooling
   - deepsets
   - set_transformer
   - graphsage
