@@ -506,7 +506,7 @@ class StageBridge(nn.Module):
 
         # Evolution branch: WES/genomic feature conditioning
         if self.evolution_branch is not None and evolution_features is not None:
-            context = self.evolution_branch(context, evolution_features)
+            context, _ = self.evolution_branch(context, evolution_features)
 
         return ReceiverNicheOutput(
             context=context,
