@@ -52,11 +52,16 @@ def create_demo_data(
         donor_id = donors[i % n_donors]
         stage = stages[i % len(stages)]
 
+        # Receiver: 40d (HLCA 30d + LuCA 10d concatenated)
         receiver_z = np.random.randn(LATENT_DIM).astype(np.float32).tolist()
-        hlca_z = np.random.randn(LATENT_DIM).astype(np.float32).tolist()
-        luca_z = np.random.randn(LATENT_DIM).astype(np.float32).tolist()
+        # HLCA reference: 30d (fixed by pretrained HLCA scANVI model)
+        hlca_z = np.random.randn(30).astype(np.float32).tolist()
+        # LuCA reference: 10d (fixed by pretrained LuCA scVI model)
+        luca_z = np.random.randn(10).astype(np.float32).tolist()
+        # Pathway: 40d (same as receiver, PROGENy pathway activities)
         pathway_z = np.random.randn(LATENT_DIM).astype(np.float32).tolist()
-        stats_z = np.random.randn(LATENT_DIM).astype(np.float32).tolist()
+        # Stats token: 7d (CAF frac, immune frac, diversity, cell cycle phases, etc.)
+        stats_z = np.random.randn(7).astype(np.float32).tolist()
 
         row = {
             "cell_id": cell_id,

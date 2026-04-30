@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 import torch
 
-from stagebridge.contracts import LATENT_DIM, STAGE_TO_IDX
+from stagebridge.contracts import LATENT_DIM, HLCA_DIM, LUCA_DIM, STATS_TOKEN_DIM, STAGE_TO_IDX
 from stagebridge.loaders import create_dataloaders
 from stagebridge.loaders.dataset import NicheBatch
 
@@ -30,10 +30,10 @@ class TestNicheBatch:
             receiver=torch.randn(batch_size, LATENT_DIM),
             ring_cells=[torch.randn(batch_size, max_cells, LATENT_DIM) for _ in range(4)],
             ring_masks=[torch.ones(batch_size, max_cells, dtype=torch.bool) for _ in range(4)],
-            hlca=torch.randn(batch_size, LATENT_DIM),
-            luca=torch.randn(batch_size, LATENT_DIM),
+            hlca=torch.randn(batch_size, HLCA_DIM),
+            luca=torch.randn(batch_size, LUCA_DIM),
             pathway=torch.randn(batch_size, LATENT_DIM),
-            stats=torch.randn(batch_size, LATENT_DIM),
+            stats=torch.randn(batch_size, STATS_TOKEN_DIM),
             stage_idx=torch.zeros(batch_size, dtype=torch.long),
             cell_ids=["cell_0", "cell_1", "cell_2", "cell_3"],
             donor_ids=["donor_0", "donor_0", "donor_1", "donor_1"],
@@ -78,10 +78,10 @@ class TestCreateDataloaders:
                     "donor_id": f"donor_{i % 4}",
                     "stage": list(STAGE_TO_IDX.keys())[i % 3],
                     "receiver_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                    "hlca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                    "luca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                    "hlca_z": np.random.randn(HLCA_DIM).astype(np.float32).tolist(),
+                    "luca_z": np.random.randn(LUCA_DIM).astype(np.float32).tolist(),
                     "pathway_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                    "stats_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                    "stats_z": np.random.randn(STATS_TOKEN_DIM).astype(np.float32).tolist(),
                 }
                 for ring in range(1, 5):
                     n_ring_cells = np.random.randint(3, 15)
@@ -174,10 +174,10 @@ class TestDataIntegrity:
                 "donor_id": "donor_0",
                 "stage": "Normal",
                 "receiver_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "hlca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "luca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                "hlca_z": np.random.randn(HLCA_DIM).astype(np.float32).tolist(),
+                "luca_z": np.random.randn(LUCA_DIM).astype(np.float32).tolist(),
                 "pathway_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "stats_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                "stats_z": np.random.randn(STATS_TOKEN_DIM).astype(np.float32).tolist(),
                 "ring_1_cells": [np.random.randn(LATENT_DIM).astype(np.float32).tolist() for _ in range(5)],
                 "ring_2_cells": [np.random.randn(LATENT_DIM).astype(np.float32).tolist() for _ in range(8)],
                 "ring_3_cells": [np.random.randn(LATENT_DIM).astype(np.float32).tolist() for _ in range(3)],
@@ -190,10 +190,10 @@ class TestDataIntegrity:
                 "donor_id": "donor_0",
                 "stage": "Preinvasive",
                 "receiver_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "hlca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "luca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                "hlca_z": np.random.randn(HLCA_DIM).astype(np.float32).tolist(),
+                "luca_z": np.random.randn(LUCA_DIM).astype(np.float32).tolist(),
                 "pathway_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "stats_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                "stats_z": np.random.randn(STATS_TOKEN_DIM).astype(np.float32).tolist(),
                 "ring_1_cells": [np.random.randn(LATENT_DIM).astype(np.float32).tolist()],
                 "ring_2_cells": [np.random.randn(LATENT_DIM).astype(np.float32).tolist()],
                 "ring_3_cells": [np.random.randn(LATENT_DIM).astype(np.float32).tolist()],

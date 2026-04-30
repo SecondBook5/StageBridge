@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 import torch
 
-from stagebridge.contracts import LATENT_DIM, STAGE_TO_IDX
+from stagebridge.contracts import LATENT_DIM, HLCA_DIM, LUCA_DIM, STATS_TOKEN_DIM, STAGE_TO_IDX
 from stagebridge.loaders import create_dataloaders
 from stagebridge.models import StageBridge, StageBridgeConfig
 from stagebridge.training import StageBridgeTrainer, TrainerConfig
@@ -38,10 +38,10 @@ def synthetic_data_dir() -> Path:
                 "donor_id": f"donor_{i % 4}",
                 "stage": stages[i % len(stages)],
                 "receiver_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "hlca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "luca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                "hlca_z": np.random.randn(HLCA_DIM).astype(np.float32).tolist(),
+                "luca_z": np.random.randn(LUCA_DIM).astype(np.float32).tolist(),
                 "pathway_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "stats_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                "stats_z": np.random.randn(STATS_TOKEN_DIM).astype(np.float32).tolist(),
             }
             for ring in range(1, 5):
                 n_ring_cells = np.random.randint(5, 12)
