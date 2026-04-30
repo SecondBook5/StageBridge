@@ -507,6 +507,7 @@ class StageBridgeTrainer:
                 luca=batch.luca,
                 pathway=batch.pathway,
                 stats=batch.stats,
+                evolution_features=batch.evolution_features,
                 return_reconstruction=True,
             )
 
@@ -561,6 +562,7 @@ class StageBridgeTrainer:
                 luca=batch.luca,
                 pathway=batch.pathway,
                 stats=batch.stats,
+                evolution_features=batch.evolution_features,
                 return_reconstruction=True,
             )
 
@@ -664,6 +666,7 @@ class StageBridgeTrainer:
                 luca=batch.luca,
                 pathway=batch.pathway,
                 stats=batch.stats,
+                evolution_features=batch.evolution_features,
             )
 
             context = niche_output.context
@@ -700,10 +703,10 @@ class StageBridgeTrainer:
 
             if self.model.proliferation_head is not None and self.config.proliferation_weight > 0:
                 proliferation_logit = self.model.proliferation_head(context)
-                if hasattr(batch, "proliferation_targets") and batch.proliferation_targets is not None:
+                if hasattr(batch, "proliferation_targets") and batch.proliferation_target is not None:
                     loss_proliferation = F.binary_cross_entropy_with_logits(
                         proliferation_logit.squeeze(-1),
-                        batch.proliferation_targets.float(),
+                        batch.proliferation_target.float(),
                     )
                     loss = loss + self.config.proliferation_weight * loss_proliferation
 
@@ -738,6 +741,7 @@ class StageBridgeTrainer:
                 luca=batch.luca,
                 pathway=batch.pathway,
                 stats=batch.stats,
+                evolution_features=batch.evolution_features,
             )
 
             x0 = batch.receiver
@@ -758,153 +762,6 @@ class StageBridgeTrainer:
             self.metrics_logger.log("val_loss", loss_fm.item())
 
         return {"val_loss": total_loss / max(n_batches, 1)}
-
-    def _train_epoch(
-        self,
-        train_loader: DataLoader,
-        epoch: int,
-    ) -> dict[str, float]:
-        """Train for one epoch."""
-        self.model.train()
-
-        epoch_loss = 0.0
-        epoch_fm_loss = 0.0
-        epoch_entropy_loss = 0.0
-        n_batches = 0
-
-        pbar = tqdm(
-            train_loader,
-            desc=f"Epoch {epoch}",
-            disable=not is_main_process(),
-        )
-
-        self.optimizer.zero_grad()
-
-        for batch_idx, batch in enumerate(pbar):
-            batch = batch.to(self.device)
-
-            loss, metrics = self._train_step(batch)
-
-            if self.config.accumulation_steps > 1:
-                loss = loss / self.config.accumulation_steps
-
-            if self.scaler is not None:
-                self.scaler.scale(loss).backward()
-            else:
-                loss.backward()
-
-            # CONTRACT: Verify gradient flow on first backward pass
-            if not self._gradient_flow_verified:
-                if self.config.strict_gradient_check:
-                    self._verify_gradient_flow()
-                self._gradient_flow_verified = True
-
-            if (batch_idx + 1) % self.config.accumulation_steps == 0:
-                if self.scaler is not None:
-                    self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(),
-                        self.config.gradient_clip,
-                    )
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                else:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(),
-                        self.config.gradient_clip,
-                    )
-                    self.optimizer.step()
-
-                self.optimizer.zero_grad()
-                self.global_step += 1
-
-            epoch_loss += metrics["loss"]
-            epoch_fm_loss += metrics["loss_fm"]
-            epoch_entropy_loss += metrics.get("loss_entropy", 0.0)
-            n_batches += 1
-
-            pbar.set_postfix({
-                "loss": f"{metrics['loss']:.4f}",
-                "lr": f"{self.optimizer.param_groups[0]['lr']:.2e}",
-            })
-
-            self.metrics_logger.log("train_loss", metrics["loss"])
-            self.metrics_logger.log("train_loss_fm", metrics["loss_fm"])
-
-        return {
-            "train_loss": epoch_loss / max(n_batches, 1),
-            "train_loss_fm": epoch_fm_loss / max(n_batches, 1),
-            "train_loss_entropy": epoch_entropy_loss / max(n_batches, 1),
-        }
-
-    def _train_step(self, batch: NicheBatch) -> tuple[Tensor, dict[str, float]]:
-        """Single training step on a batch.
-
-        Uses OT-CFM: samples pairs from Sinkhorn coupling, interpolates,
-        and trains the velocity field.
-        """
-        amp_context = torch.amp.autocast("cuda") if self.config.mixed_precision and self.device.type == "cuda" else nullcontext()
-        with amp_context:
-            stage_src, stage_tgt = self._sample_stage_pair(batch)
-
-            niche_output = self.model.encode_niche(
-                receiver=batch.receiver,
-                neighbors=batch.neighbors,
-                distances=batch.distances,
-                neighbor_mask=batch.neighbor_mask,
-                token_type_ids=batch.token_type_ids,
-            )
-
-            context = niche_output.context
-            context_tokens = niche_output.context_tokens
-
-            x0 = batch.receiver
-            x1 = self._sample_targets(batch, stage_tgt)
-
-            loss_fm, coupling = self._flow_matching_loss(
-                x0=x0,
-                x1=x1,
-                context=context,
-                context_tokens=context_tokens,
-                stage_src=stage_src,
-                stage_tgt=stage_tgt,
-            )
-
-            loss = self.config.flow_matching_weight * loss_fm
-
-            loss_entropy = torch.tensor(0.0, device=self.device)
-            if niche_output.entropy_loss is not None and self.config.entropy_weight > 0:
-                loss_entropy = niche_output.entropy_loss
-                loss = loss + self.config.entropy_weight * loss_entropy
-
-            # Auxiliary biological losses (if targets available)
-            loss_pathway = torch.tensor(0.0, device=self.device)
-            loss_proliferation = torch.tensor(0.0, device=self.device)
-
-            if self.model.pathway_head is not None and self.config.pathway_weight > 0:
-                pathway_logits = self.model.pathway_head(context)
-                if hasattr(batch, "pathway_targets") and batch.pathway_targets is not None:
-                    loss_pathway = F.mse_loss(pathway_logits, batch.pathway_targets)
-                    loss = loss + self.config.pathway_weight * loss_pathway
-
-            if self.model.proliferation_head is not None and self.config.proliferation_weight > 0:
-                proliferation_logit = self.model.proliferation_head(context)
-                if hasattr(batch, "proliferation_targets") and batch.proliferation_targets is not None:
-                    loss_proliferation = F.binary_cross_entropy_with_logits(
-                        proliferation_logit.squeeze(-1),
-                        batch.proliferation_targets.float(),
-                    )
-                    loss = loss + self.config.proliferation_weight * loss_proliferation
-
-        metrics = {
-            "loss": loss.item(),
-            "loss_fm": loss_fm.item(),
-            "loss_entropy": loss_entropy.item() if torch.is_tensor(loss_entropy) else loss_entropy,
-            "loss_pathway": loss_pathway.item() if torch.is_tensor(loss_pathway) else loss_pathway,
-            "loss_proliferation": loss_proliferation.item() if torch.is_tensor(loss_proliferation) else loss_proliferation,
-        }
-
-        return loss, metrics
 
     def _flow_matching_loss(
         self,
@@ -1035,46 +892,6 @@ class StageBridgeTrainer:
         In full training, would sample from target stage population.
         """
         return batch.receiver + 0.1 * torch.randn_like(batch.receiver)
-
-    @torch.no_grad()
-    def _validate(self, val_loader: DataLoader) -> dict[str, float]:
-        """Run validation loop."""
-        self.model.eval()
-
-        total_loss = 0.0
-        n_batches = 0
-
-        for batch in val_loader:
-            batch = batch.to(self.device)
-
-            stage_src, stage_tgt = self._sample_stage_pair(batch)
-
-            niche_output = self.model.encode_niche(
-                receiver=batch.receiver,
-                neighbors=batch.neighbors,
-                distances=batch.distances,
-                neighbor_mask=batch.neighbor_mask,
-                token_type_ids=batch.token_type_ids,
-            )
-
-            x0 = batch.receiver
-            x1 = self._sample_targets(batch, stage_tgt)
-
-            loss_fm, _ = self._flow_matching_loss(
-                x0=x0,
-                x1=x1,
-                context=niche_output.context,
-                context_tokens=niche_output.context_tokens,
-                stage_src=stage_src,
-                stage_tgt=stage_tgt,
-            )
-
-            total_loss += loss_fm.item()
-            n_batches += 1
-
-            self.metrics_logger.log("val_loss", loss_fm.item())
-
-        return {"val_loss": total_loss / max(n_batches, 1)}
 
     def _load_checkpoint(self, path: Path | str):
         """Load checkpoint and resume training."""
