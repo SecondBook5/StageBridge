@@ -29,59 +29,90 @@ def run_inference(
     save_embeddings: bool = False,
     save_attention: bool = False,
 ) -> None:
-    """Run inference and save predictions."""
+    """Run inference on held-out test set and save predictions.
+
+    For each cell in the test set, encodes the niche context and optionally
+    generates flow predictions via the transition model.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Load model
+    print(f"Loading checkpoint: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    config = checkpoint.get("config", StageBridgeConfig())
+
+    # Handle config - could be dict, nested dict, or StageBridgeConfig
+    config_data = checkpoint.get("config", {})
+    if isinstance(config_data, StageBridgeConfig):
+        config = config_data
+    elif isinstance(config_data, dict):
+        # Handle nested config from trainer (has model_config key)
+        if "model_config" in config_data:
+            config = StageBridgeConfig(**config_data["model_config"])
+        else:
+            config = StageBridgeConfig(**config_data)
+    else:
+        config = StageBridgeConfig()
+
     model = StageBridge(config).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    # Get test data
+    print(f"Loading test data from fold {fold_idx}...")
     _, _, test_loader = create_dataloaders(data_dir, fold_idx=fold_idx, batch_size=64)
+
+    if test_loader is None:
+        raise RuntimeError(f"No test data found for fold {fold_idx}")
+
+    print(f"Running inference on {len(test_loader.dataset)} test samples...")
 
     predictions = []
     embeddings = []
-    attention_weights = []
 
     with torch.no_grad():
         for batch in test_loader:
             batch = batch.to(device)
 
-            # Forward pass
-            out = model(batch, return_attention=save_attention)
+            # Encode niche to get context embeddings
+            niche_output = model.encode_niche(
+                receiver=batch.receiver,
+                ring_cells=batch.ring_cells,
+                ring_masks=batch.ring_masks,
+                hlca=batch.hlca,
+                luca=batch.luca,
+                pathway=batch.pathway,
+                stats=batch.stats,
+                evolution_features=batch.evolution_features,
+                return_reconstruction=True,
+            )
 
             # Collect predictions
             pred_dict = {
-                "cell_id": batch.cell_ids if hasattr(batch, "cell_ids") else list(range(len(batch.receiver))),
-                "stage": batch.stage_idx.cpu().numpy(),
-                "predicted_z": out["context"].cpu().numpy().tolist(),
+                "cell_id": batch.cell_ids,
+                "donor_id": batch.donor_ids,
+                "stage_idx": batch.stage_idx.cpu().numpy(),
+                "context_z": niche_output.context.cpu().numpy().tolist(),
             }
+
+            # Add reconstruction if available (for SSL evaluation)
+            if niche_output.receiver_reconstruction is not None:
+                pred_dict["predicted_z"] = niche_output.receiver_reconstruction.cpu().numpy().tolist()
+            else:
+                pred_dict["predicted_z"] = niche_output.context.cpu().numpy().tolist()
+
             predictions.append(pd.DataFrame(pred_dict))
 
             if save_embeddings:
-                embeddings.append(out["context"].cpu().numpy())
-
-            if save_attention and "attention" in out:
-                attention_weights.append(out["attention"].cpu().numpy())
+                embeddings.append(niche_output.context.cpu().numpy())
 
     # Save predictions
     pred_df = pd.concat(predictions, ignore_index=True)
     pred_df.to_parquet(output_dir / "predictions.parquet")
-    print(f"Saved predictions: {len(pred_df)} cells")
+    print(f"Saved predictions: {len(pred_df)} cells -> {output_dir / 'predictions.parquet'}")
 
     if save_embeddings and embeddings:
         emb_arr = np.concatenate(embeddings, axis=0)
-        emb_df = pd.DataFrame(emb_arr, columns=[f"emb_{i}" for i in range(emb_arr.shape[1])])
-        emb_df.to_parquet(output_dir / "embeddings.parquet")
+        np.save(output_dir / "embeddings.npy", emb_arr)
         print(f"Saved embeddings: {emb_arr.shape}")
-
-    if save_attention and attention_weights:
-        np.savez(output_dir / "attention_weights.npz", attention=np.concatenate(attention_weights))
-        print("Saved attention weights")
 
 
 def main():

@@ -407,7 +407,7 @@ rule infer_full:
 # =============================================================================
 
 rule evaluate_full:
-    """Evaluate full model predictions."""
+    """Evaluate full model predictions on held-out test set."""
     input:
         predictions=f"{OUTPUT_DIR}/inference/full/fold_{{fold}}/predictions.parquet",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
@@ -421,9 +421,9 @@ rule evaluate_full:
         mem_mb=16000,
     shell:
         """
-        python -m stagebridge.evaluation.metrics \
+        python -m stagebridge.evaluation.evaluate \
             --predictions {input.predictions} \
-            --reference {DATA_DIR}/neighborhoods.parquet \
+            --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
             --fold-idx {params.fold}
         """
