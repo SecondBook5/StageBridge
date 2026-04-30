@@ -104,17 +104,22 @@ baselines:
 # =============================================================================
 
 ablations:
-  - full                 # Full model (control)
+  - full                 # Full model (control) - GW fusion enabled
   - no_niche             # Remove niche context entirely
   - no_distance          # Remove distance-based attention
   - no_gate              # Remove biological baseline gate
   - random_niche         # Shuffle niche assignments
-  - hlca_only            # Only HLCA reference (no LuCA)
-  - luca_only            # Only LuCA reference (no HLCA)
+  - hlca_only            # Only HLCA reference (no LuCA, no GW)
+  - luca_only            # Only LuCA reference (no HLCA, no GW)
   - no_token_types       # Remove token type embeddings
   - frozen_encoder       # Freeze encoder during transition training
   - no_ring_pooling      # Mean pooling instead of ISAB+PMA
   - no_context_refiner   # Remove HierarchicalSetTransformer
+  # GW fusion ablations (key for understanding atlas alignment)
+  - no_gw_fusion         # Fall back to naive concat (baseline)
+  - gw_project_hlca      # Project LuCA into HLCA space
+  - gw_project_luca      # Project HLCA into LuCA space
+  - gw_barycentric       # Barycentric interpolation (default)
 
 # =============================================================================
 # SLURM Resources

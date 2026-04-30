@@ -64,6 +64,11 @@ ABLATIONS = config.get("ablations", [
     "luca_only",
     "no_token_types",
     "frozen_encoder",
+    # GW fusion ablations
+    "no_gw_fusion",
+    "gw_project_hlca",
+    "gw_project_luca",
+    "gw_barycentric",
 ])
 
 
