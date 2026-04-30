@@ -1,0 +1,9 @@
+# Ablation: HLCA Only (Single Reference)
+# Tests: Does dual-reference help vs healthy-only?
+
+ablation_type: hlca_only
+
+# Modifications
+model:
+  input_dim: 30  # HLCA_DIM only
+  _ablation_: hlca_only

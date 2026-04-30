@@ -1,0 +1,35 @@
+# StageBridge Master Configuration
+# Usage: python scripts/train.py
+# Override: python scripts/train.py model.hidden_dim=256 trainer.lr=5e-5
+
+defaults:
+  - model: stagebridge
+  - trainer: default
+  - data: default
+  - _self_
+
+# Experiment identification
+experiment:
+  name: ${now:%Y%m%d_%H%M%S}
+  seed: 42
+  fold_idx: 0
+
+# Paths (override via environment or CLI)
+paths:
+  data_dir: ${oc.env:STAGEBRIDGE_DATA_DIR,./data}
+  output_dir: ${oc.env:STAGEBRIDGE_OUTPUT_DIR,./runs}
+  run_dir: ${paths.output_dir}/${experiment.name}
+
+# Hardware
+hardware:
+  device: cuda
+  num_workers: 4
+  mixed_precision: true
+
+# Hydra output management
+hydra:
+  run:
+    dir: ${paths.run_dir}
+  sweep:
+    dir: ${paths.output_dir}/sweeps/${now:%Y%m%d_%H%M%S}
+    subdir: ${hydra.job.num}

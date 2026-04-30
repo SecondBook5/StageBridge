@@ -1,0 +1,95 @@
+# StageBridge Genomic Interpretation Configuration
+#
+# This configuration file controls the translational genomic interpretation
+# pipeline that integrates WES-derived variants with StageBridge transition
+# field analysis.
+#
+# IMPORTANT: This is a POST-HOC interpretation layer. Genomic annotations
+# are NOT used as model supervision unless explicitly configured.
+
+project:
+  name: StageBridge
+  analysis_name: genomic_interpretation_layer
+
+# Input file paths (all optional - provide what's available)
+inputs:
+  # WES variant inputs (at least one required)
+  somatic_vcf: null
+  germline_vcf: null
+  annotated_variant_table: null
+
+  # Annotation databases
+  clinvar_table: null
+  oncokb_table: null
+  civic_table: null
+
+  # Purity and copy number (optional but recommended)
+  purity_table: null
+  cna_table: null
+
+  # Spatial/snRNA data
+  spatial_metadata: null
+  transition_scores: null
+  spatial_variant_counts: null
+  snrna_variant_counts: null
+  adata: null
+
+# Output configuration
+outputs:
+  output_dir: results/genomics
+  overwrite: false
+
+# Clonality estimation settings
+clonality:
+  # Method: 'auto' uses CCF if purity/CNV available, else naive VAF
+  method: auto
+
+  # Naive VAF thresholds when purity/CNV unavailable
+  # These are APPROXIMATE and should be interpreted with caution
+  naive_vaf_thresholds:
+    clonal_like: 0.30      # VAF >= 0.30 -> clonal_like
+    intermediate: 0.10     # 0.10 <= VAF < 0.30 -> intermediate
+    subclonal_like: 0.02   # 0.02 <= VAF < 0.10 -> subclonal_like
+
+  # Minimum read depth for confident calls
+  min_depth: 20
+
+# Transition enrichment analysis settings
+transition_enrichment:
+  # Quantile thresholds for group definition
+  high_transition_quantile: 0.90  # Top 10% = high-transition
+  low_transition_quantile: 0.50   # Below median = low-transition
+
+  # Multiple testing correction
+  fdr_alpha: 0.05
+
+  # Permutation test settings
+  n_permutations: 10000
+
+# Spatial variant evidence settings
+spatial_variant_evidence:
+  # Minimum counts for alt-supported call
+  alt_supported_min_alt_count: 2
+  alt_supported_min_total_count: 5
+
+  # Minimum counts for weak alt evidence
+  weak_alt_min_total_count: 3
+
+# Reporting settings
+reporting:
+  make_figures: true
+  make_markdown_report: true
+
+  # Always include caution language about limitations
+  caution_language: true
+
+  # Maximum rows in report tables
+  max_table_rows: 50
+
+# Column name mappings (adjust if your files use different names)
+column_mapping:
+  transition_score_col: transition_score
+  barcode_col: barcode
+  sample_id_col: sample_id
+  donor_id_col: donor_id
+  stage_col: stage

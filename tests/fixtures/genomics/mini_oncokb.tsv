@@ -1,0 +1,5 @@
+chromosome	position	reference_allele	alternate_allele	gene	oncogenicity	HIGHEST_LEVEL	THERAPEUTIC
+chr7	55249071	C	T	EGFR	Oncogenic	LEVEL_1	Osimertinib
+chr12	25398284	G	A	KRAS	Oncogenic	LEVEL_1	Sotorasib (G12C only)
+chr17	7577121	G	A	TP53	Likely Oncogenic	LEVEL_4	None
+chr7	55259515	T	G	EGFR	Oncogenic	LEVEL_1	Osimertinib

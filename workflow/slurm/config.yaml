@@ -7,26 +7,39 @@ default-resources:
   slurm_account: chaunzt1
   slurm_partition: gpu
   mem_mb: 64000
-  runtime: 360  # 6 hours default (in minutes)
-  nodes: 1  # Always request single node (multi-GPU on same node)
+  runtime: 1440  # 24 hours default (in minutes)
+  nodes: 1
 
-# GPU constraint (comment out for any GPU, uncomment for H100)
-# set-resources:
-#   spatial_backend:
-#     constraint: "h100"
-#   training:
-#     constraint: "h100"
-#   baseline:
-#     constraint: "h100"
-#   ablation:
-#     constraint: "h100"
-#   hpo:
-#     constraint: "h100"
-#   hlca_mapping:
-#     constraint: "h100"
-#   luca_mapping:
-#     constraint: "h100"
+# Override resources per rule type
+set-resources:
+  train_full:
+    runtime: 2880  # 48 hours
+    mem_mb: 64000
+    slurm_extra: "'--gres=gpu:1'"
+  train_baseline:
+    runtime: 720  # 12 hours
+    mem_mb: 32000
+    slurm_extra: "'--gres=gpu:1'"
+  run_ablation:
+    runtime: 1440  # 24 hours
+    mem_mb: 64000
+    slurm_extra: "'--gres=gpu:1'"
+  infer_full:
+    runtime: 240  # 4 hours
+    mem_mb: 32000
+    slurm_extra: "'--gres=gpu:1'"
+  evaluate_full:
+    runtime: 120  # 2 hours
+    mem_mb: 16000
+  comparison_report:
+    runtime: 30
+    mem_mb: 4000
+  run_inference_for_figures:
+    runtime: 240  # 4 hours
+    mem_mb: 32000
+    slurm_extra: "'--gres=gpu:1'"
 
+# Job management
 jobs: 20
 latency-wait: 120
 keep-going: true
@@ -34,5 +47,5 @@ printshellcmds: true
 rerun-incomplete: true
 local-cores: 1
 
-# Note: Job grouping disabled - each spatial job needs 256GB + 2 GPUs
-# which can't be grouped on a single node
+# Log directory
+cluster-generic-submit-cmd: "sbatch --output=logs/slurm/%j.out --error=logs/slurm/%j.err"

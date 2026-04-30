@@ -1,0 +1,12 @@
+# Baseline: GraphSAGE
+# Graph neural network with spatial edges (symmetric aggregation)
+
+baseline_name: graphsage
+
+model:
+  _target_: stagebridge.baselines.GraphSAGE
+  input_dim: 40
+  hidden_dim: 128
+  num_layers: 2
+  aggregator: mean
+  dropout: 0.1

@@ -1,0 +1,8 @@
+# Ablation: Random Niche Assignment
+# Tests: Is spatial locality important? (random neighbors instead of spatial)
+
+ablation_type: random_niche
+
+# Modifications
+data:
+  _ablation_: randomize_neighbors

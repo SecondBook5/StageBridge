@@ -1,2233 +1,702 @@
-# =============================================================================
-# StageBridge V1 Publication Pipeline - Snakemake Workflow
-# =============================================================================
-#
-# A complete, reproducible pipeline for StageBridge V1.
-#
-# Usage:
-#   # Dry run (see what would execute)
-#   snakemake -n --cores 8
-#
-#   # Local execution
-#   snakemake --cores 8
-#
-#   # HPC execution with SLURM
-#   snakemake --profile slurm --jobs 20
-#
-#   # Generate DAG visualization
-#   snakemake --dag | dot -Tpdf > dag.pdf
-#
-# =============================================================================
+"""StageBridge Snakemake Pipeline.
+
+This orchestrates the full StageBridge experiment:
+1. Data validation
+2. Two-stage training: SSL pretraining -> Transition model (per fold x seed)
+3. Frozen encoder ablation (tests SSL representation quality)
+4. Train baselines (per fold, per baseline)
+5. Run ablations (per fold, per ablation)
+6. Inference (held-out test set)
+7. Evaluation
+8. Cross-validation aggregation
+9. Generate comparison reports
+
+TWO-STAGE TRAINING:
+    STAGE 1 (SSL): Masked receiver reconstruction from niche context
+    STAGE 2 (Transition): OT-CFM flow matching for stage transitions
+
+HPC Paths:
+    Data: /data1/chaunzt1/stagebridge/processed/luad_evo
+    Output: /data1/chaunzt1/stagebridge/outputs/v1
+    HLCA: /data1/chaunzt1/stagebridge/processed/HLCA
+    LuCA: /data1/chaunzt1/stagebridge/processed/LuCA
+
+Usage:
+    snakemake --profile workflow/slurm --jobs 20
+    snakemake -n  # Dry run
+    snakemake --dag | dot -Tpng > dag.png  # Visualize DAG
+"""
 
 import os
 from pathlib import Path
 
-# Activate conda environment for all shell commands
-# MKL_INTERFACE_LAYER=ILP64 needed for TACCO with large matrices (>2B elements)
-shell.prefix("module load miniforge3 && eval \"$(conda shell.bash hook)\" && conda activate /scratch/chaunzt1/stagebridge_env && export MKL_INTERFACE_LAYER=ILP64 && ")
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
+# Load config
 configfile: "workflow/config.yaml"
 
-# Data paths
-DATA = config.get("data_root", os.environ.get("DATA", "/data1/chaunzt1/stagebridge"))
-PROCESSED = f"{DATA}/processed/luad_evo"
-REFERENCES = f"{DATA}/references"
-RUNS = f"{DATA}/runs"
+# =============================================================================
+# PATH CONFIGURATION
+# =============================================================================
 
-# Output directories (can be overridden via --config for parallel experiments)
-REF_GEOM = config.get("REF_GEOM", f"{PROCESSED}/reference_geometry")
-SPATIAL = config.get("SPATIAL", f"{RUNS}/spatial_benchmark")
-CANONICAL = config.get("CANONICAL", f"{PROCESSED}/canonical")
-CLONAL = config.get("CLONAL", f"{RUNS}/clonal")
-TRAINING = config.get("TRAINING", f"{RUNS}/v1_complete")
-ABLATIONS = config.get("ABLATIONS", f"{RUNS}/ablations")
-FIGURES = config.get("FIGURES", f"{RUNS}/publication_figures")
+# HPC paths (from config, can be overridden via --config)
+DATA_ROOT = config["paths"]["data_root"]
+DATA_DIR = config["paths"]["data_dir"]
+OUTPUT_DIR = config["paths"]["output_dir"]
+RESULTS_DIR = config["paths"]["results_dir"]
+FIGURES_DIR = config["paths"]["figures_dir"]
+HLCA_DIR = config["paths"]["hlca_dir"]
+LUCA_DIR = config["paths"]["luca_dir"]
 
-# Spatial backends to run
-# Python backends: tangram, destvi, tacco, cell2location, marker_scoring
-PYTHON_BACKENDS = ["tangram", "destvi", "tacco", "cell2location", "marker_scoring"]
-# R backends (Paper 3): rctd, card, spotlight (require R packages: spacexr, CARD, SPOTlight)
-R_BACKENDS = ["card", "rctd", "spotlight"]
-SPATIAL_BACKENDS = PYTHON_BACKENDS + R_BACKENDS
+# Experiment settings
+N_FOLDS = config["experiment"]["n_folds"]
+N_SEEDS = config["experiment"].get("n_seeds", 3)
+SEED = config["experiment"]["seed"]
 
-# Label sources for spatial deconvolution ablation (HLCA vs LuCA cell types)
-LABEL_SOURCES = ["hlca", "luca"]
+FOLDS = list(range(N_FOLDS))
+SEEDS = list(range(N_SEEDS))
+BASELINES = config.get("baselines", ["pooling_mlp", "deepsets", "set_transformer", "graphsage"])
+ABLATIONS = config.get("ablations", [
+    "full",
+    "no_niche",
+    "no_distance",
+    "no_gate",
+    "random_niche",
+    "hlca_only",
+    "luca_only",
+    "no_token_types",
+    "frozen_encoder",
+])
 
-# Cross-validation settings
-FOLDS = [0, 1, 2, 3, 4]  # 5-fold CV
-SEEDS = [42, 123, 456]   # 3 seeds per fold for variance estimation
-
-# Ablation configurations (defined here so they're available for all rules)
-ABLATIONS_LIST = [
-    # Core ablations - tests main hypotheses
-    "no_niche",           # KEY: Receiver only, no neighborhood context
-    "no_wes",             # No genomic/WES features (evolutionary regularization)
-    "pooled_niche",       # Self-attention instead of receiver-centered cross-attention
-    "flat_hierarchy",     # Disable hierarchical Set Transformer aggregation
-    # Reference ablations - tests dual-reference contribution
-    "hlca_only",          # Single reference: healthy only (no LuCA)
-    "luca_only",          # Single reference: cancer only (no HLCA)
-    # Methods comparison
-    "deterministic",      # Direct endpoint prediction (no flow matching)
-    # Interpretability
-    "with_prototypes",    # Prototype bottleneck for interpretable niche clusters
-]
-
-# Baseline models for comparison
-BASELINES = ["pooling_mlp", "deep_sets", "set_transformer", "graph_sage", "receiver_centered"]
 
 # =============================================================================
-# Final Targets (what we want to produce)
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_checkpoint_path(model_type, fold, ablation=None, baseline=None):
+    """Get checkpoint path for a model."""
+    if model_type == "full":
+        return f"{OUTPUT_DIR}/full/fold_{fold}/checkpoints/best_checkpoint.pt"
+    elif model_type == "baseline":
+        return f"{OUTPUT_DIR}/baselines/{baseline}/fold_{fold}/checkpoints/{baseline}_final.pt"
+    elif model_type == "ablation":
+        return f"{OUTPUT_DIR}/ablations/{ablation}/fold_{fold}/checkpoints/best_checkpoint.pt"
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+
+
+# =============================================================================
+# DEFAULT TARGET
 # =============================================================================
 
 rule all:
     input:
-        # Reference geometry
-        f"{REF_GEOM}/fused_embedding.parquet",
-        # Spatial benchmark
-        f"{SPATIAL}/backend_comparison.json",
-        # Clonal patterns (for H3 validation)
-        f"{CLONAL}/clonal_patterns.json",
-        # LIANA L-R analysis (H1.2 biological validation)
-        f"{RUNS}/biological_validation/liana/liana_summary.json",
-        # LIANA cell cycling post-hoc
-        f"{RUNS}/biological_validation/liana/cycling_posthoc_summary.json",
-        # Training (5-fold CV × 3 seeds, aggregated)
-        f"{TRAINING}/aggregated/cv_results.json",
-        f"{TRAINING}/aggregated/publication_metrics.json",
-        # Training with frozen encoder (SSL transfer test)
-        f"{TRAINING}/training_all.done",
-        # HELD-OUT TEST EVALUATION (Nature Methods requirement)
-        f"{TRAINING}/evaluation/heldout_summary.json",
-        # Statistical comparison with effect sizes (Nature Methods requirement)
-        f"{TRAINING}/evaluation/statistical_comparison.json",
-        # H3 hypothesis validation (clonal ground truth)
-        f"{TRAINING}/h3_validation/h3_validation.json",
-        # H1.3 plasticity validation
-        f"{RUNS}/biological_validation/plasticity/plasticity_validation.json",
-        # AP-1 stress signature validation
-        f"{RUNS}/biological_validation/ap1/ap1_validation_report.json",
-        # Senescence/SASP validation
-        f"{RUNS}/biological_validation/senescence/senescence_validation_report.json",
-        # Baseline ladder comparison
-        f"{TRAINING}/baselines/baseline_comparison.json",
-        # Ablations
-        f"{ABLATIONS}/ablation_summary.json",
-        # Ablation held-out evaluation
-        f"{ABLATIONS}/evaluation/heldout_summary.json",
+        # Full model trained on all folds
+        expand(f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json", fold=FOLDS),
+        # All baselines on all folds
+        expand(f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/baseline_{{baseline}}.json",
+               baseline=BASELINES, fold=FOLDS),
+        # All ablations on all folds
+        expand(f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/ablation_{{ablation}}.json",
+               ablation=ABLATIONS, fold=FOLDS),
+        # Evaluation on all folds
+        expand(f"{OUTPUT_DIR}/evaluation/full/fold_{{fold}}/evaluation.json", fold=FOLDS),
+        # Final comparison report
+        f"{RESULTS_DIR}/comparison_report.json",
         # Publication figures
-        f"{FIGURES}/manifests/figure_manifest.json",
-        # OT dynamics / flow field visualization
-        f"{FIGURES}/dynamics/fig_flow_hero.png",
-        # Ablation comparison figure (Nature Methods requirement)
-        f"{FIGURES}/ablations/fig_ablation_comparison.png",
-        # Ablation waterfall figures
-        f"{FIGURES}/ablations/fig_waterfall_wasserstein.png",
-        f"{FIGURES}/ablations/fig_component_importance.png",
-        # SHAP-style niche influence figures
-        f"{FIGURES}/niche/fig_niche_influence_combined.png",
-        # Sankey/alluvial flow diagrams
-        f"{FIGURES}/flow/fig_sankey_flow.png",
-        # Spatial niche visualization
-        f"{FIGURES}/spatial/fig_spatial_combined.png",
-        # Dual-reference embedding figures
-        f"{FIGURES}/embedding/fig_embedding_combined.png",
-        # Spatial backend comparison grid figures
-        f"{FIGURES}/spatial_backends/fig_backend_grid_showcase.png",
-        # Showcase figures (poster/publication)
-        f"{FIGURES}/showcase/fig_hero_summary.png",
-        # Reproducibility artifacts (Nature Methods requirement)
-        f"{RUNS}/reproducibility/reproducibility_artifacts.json"
+        f"{FIGURES_DIR}/fig1_architecture.pdf",
+        f"{FIGURES_DIR}/fig2_training_baselines.pdf",
+        f"{FIGURES_DIR}/fig3_ablations.pdf",
+        f"{FIGURES_DIR}/fig4_embedding_flow.pdf",
+        f"{FIGURES_DIR}/fig5_biological_validation.pdf",
+        f"{FIGURES_DIR}/fig6_phase_portrait.pdf",
+        f"{FIGURES_DIR}/fig7_trajectories.pdf",
+        f"{FIGURES_DIR}/fig8_spatial_attention.pdf",
+        f"{FIGURES_DIR}/fig9_novel_biology.pdf",
 
 
 # =============================================================================
-# Stage 1: HLCA Reference Mapping
+# DATA PREPARATION
 # =============================================================================
 
-rule hlca_mapping:
+# Raw cells input (from StageBridge_V1)
+RAW_CELLS = config["paths"].get("raw_cells", "/home/booka/projects/StageBridge_V1/cells.parquet")
+DESTVI_LUCA = config["paths"].get("destvi_luca", "/home/booka/projects/StageBridge_V1/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet")
+DESTVI_HLCA = config["paths"].get("destvi_hlca", "/home/booka/projects/StageBridge_V1/results/spatial_benchmark/hlca/destvi/cell_type_proportions.parquet")
+
+rule prepare_data:
+    """Prepare data: build neighborhoods with raw cells, add cell types from both HLCA and LuCA DestVI."""
     input:
-        query = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
-        ref = f"{REFERENCES}/hlca/hlca_reference.h5ad"
+        cells=RAW_CELLS,
+        destvi_luca=DESTVI_LUCA,
+        destvi_hlca=DESTVI_HLCA,
     output:
-        latent = f"{REF_GEOM}/hlca_mapping/hlca_latent.h5ad",
-        labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet",
-        report = f"{REF_GEOM}/hlca_mapping/mapping_report.json"
+        cells=f"{DATA_DIR}/cells.parquet",  # Symlinked from input
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        manifest=f"{DATA_DIR}/split_manifest.json",
+        summary=f"{DATA_DIR}/prep_summary.json",
     params:
-        model_dir = f"{REFERENCES}/hlca/hub_cache",
-        data_root = DATA,
-        output_dir = REF_GEOM
-    threads: 8
+        output_dir=DATA_DIR,
     resources:
-        mem_mb = 256000,
-        runtime = 360,  # 6 hours (scArches surgery ~2-4h)
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/reference/hlca_mapping.log"
+        runtime=480,  # 8 hours
+        mem_mb=128000,
     shell:
         """
-        python -m stagebridge.pipelines.run_reference \
-            --data-root {params.data_root} \
-            --snrna {input.query} \
-            --hlca {input.ref} \
-            --hlca-model {params.model_dir} \
+        python -m stagebridge.pipelines.prepare_data \
+            --cells {input.cells} \
+            --destvi-luca {input.destvi_luca} \
+            --destvi-hlca {input.destvi_hlca} \
             --output-dir {params.output_dir} \
-            --hlca-only \
-            --hpc \
-            --use-model-based \
-            2>&1 | tee {log}
+            --figures
         """
 
 
 # =============================================================================
-# Stage 2: LuCA Reference Mapping (parallel with HLCA)
+# DATA VALIDATION
 # =============================================================================
 
-rule luca_mapping:
+rule validate_data:
+    """Validate data directory contract."""
     input:
-        query = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
-        ref = f"{REFERENCES}/luca/luca_core_atlas.h5ad"
-    params:
-        model_dir = f"{REFERENCES}/luca/retrained_model/scanvi_model",
-        data_root = DATA,
-        output_dir = REF_GEOM
+        cells=f"{DATA_DIR}/cells.parquet",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        manifest=f"{DATA_DIR}/split_manifest.json",
     output:
-        latent = f"{REF_GEOM}/luca_mapping/luca_latent.h5ad",
-        labels = f"{REF_GEOM}/luca_mapping/luca_labels.parquet",
-        report = f"{REF_GEOM}/luca_mapping/mapping_report.json"
-    threads: 8
-    resources:
-        mem_mb = 256000,
-        runtime = 360,  # 6 hours (scArches surgery ~2-4h)
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/reference/luca_mapping.log"
+        touch(f"{OUTPUT_DIR}/.data_validated")
     shell:
         """
-        python -m stagebridge.pipelines.run_reference \
-            --data-root {params.data_root} \
-            --snrna {input.query} \
-            --luca {input.ref} \
-            --luca-model {params.model_dir} \
-            --output-dir {params.output_dir} \
-            --luca-only \
-            --hpc \
-            --use-model-based \
-            2>&1 | tee {log}
+        python -c "
+from stagebridge.contracts import validate_contract
+validate_contract('{DATA_DIR}')
+print('Data contract validated successfully')
+"
         """
 
 
 # =============================================================================
-# Stage 2b: Fuse Embeddings (after both HLCA and LuCA)
+# TRAINING: FULL MODEL
 # =============================================================================
 
-rule fuse_embeddings:
-    input:
-        hlca = f"{REF_GEOM}/hlca_mapping/hlca_latent.h5ad",
-        luca = f"{REF_GEOM}/luca_mapping/luca_latent.h5ad"
-    output:
-        fused = f"{REF_GEOM}/fused_embedding.parquet",
-        confidence = f"{REF_GEOM}/reference_confidence.parquet"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 30
-    log:
-        f"{RUNS}/logs/reference/fuse_embeddings.log"
-    script:
-        "scripts/fuse_embeddings.py"
+rule train_full:
+    """Train full StageBridge model with two-stage training.
 
-
-# =============================================================================
-# Stage 2c: Merge Cell Types into snRNA (clean Snakemake dependency)
-# =============================================================================
-
-rule add_cell_type_labels:
-    """
-    Add dual-reference cell type labels to snRNA data.
-
-    Reads separate HLCA and LuCA label parquets, adds both to h5ad:
-    - cell_type: HLCA labels (primary, for spatial deconvolution)
-    - luca_cell_type: LuCA labels (for ablation experiments)
-
-    No compound labels - each column has single clean labels.
+    STAGE 1 (SSL): Masked receiver reconstruction
+    STAGE 2 (Transition): OT-CFM flow matching
     """
     input:
-        snrna = f"{PROCESSED}/snrna_qc_normalized_with_ensg.h5ad",
-        hlca_labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet",
-        luca_labels = f"{REF_GEOM}/luca_mapping/luca_labels.parquet"
+        validated=f"{OUTPUT_DIR}/.data_validated",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        snrna_with_celltypes = f"{PROCESSED}/snrna_with_celltypes.h5ad"
-    threads: 4
-    resources:
-        mem_mb = 180000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/reference/add_cell_type_labels.log"
-    shell:
-        """
-        python workflow/scripts/add_cell_type_labels.py \
-            --snrna {input.snrna} \
-            --hlca-labels {input.hlca_labels} \
-            --luca-labels {input.luca_labels} \
-            --output {output.snrna_with_celltypes} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 2d: Validate Cell Type Markers (QC check before spatial deconv)
-# =============================================================================
-
-rule validate_markers:
-    input:
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad"
-    output:
-        report = f"{REF_GEOM}/marker_validation.json",
-        enrichment = f"{REF_GEOM}/marker_validation.enrichment.csv"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 30
-    log:
-        f"{RUNS}/logs/reference/validate_markers.log"
-    shell:
-        """
-        python workflow/scripts/validate_markers.py \
-            --adata {input.snrna} \
-            --cell_type_col cell_type \
-            --output {output.report} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 3: Spatial Backend Benchmark (per-sample, then aggregate)
-# NOTE: Requires snRNA with cell types AND marker validation
-# =============================================================================
-
-# Step 3a: Extract sample IDs from spatial data (checkpoint for dynamic samples)
-checkpoint extract_spatial_samples:
-    input:
-        spatial = f"{PROCESSED}/spatial_merged.h5ad"
-    output:
-        manifest = f"{SPATIAL}/sample_manifest.json"
-    resources:
-        mem_mb = 256000,  # 256GB to load 35GB spatial file safely
-        runtime = 30
-    log:
-        f"{RUNS}/logs/spatial/extract_samples.log"
-    shell:
-        """
-        python workflow/scripts/extract_spatial_samples.py \
-            --spatial {input.spatial} \
-            --output {output.manifest} \
-            --sample-col sample_id \
-            2>&1 | tee {log}
-        """
-
-
-# Step 3b: Run Python backend on single sample with specific label source
-rule spatial_backend_sample:
-    input:
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
-        spatial = f"{PROCESSED}/spatial_merged.h5ad",
-        marker_check = f"{REF_GEOM}/marker_validation.json",
-        manifest = f"{SPATIAL}/sample_manifest.json",
-        labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet"  # For LuCA, uses luca_cell_type col
-    output:
-        metrics = f"{SPATIAL}/{{label_source}}/{{backend}}/samples/{{sample}}/upstream_metrics.json",
-        proportions = f"{SPATIAL}/{{label_source}}/{{backend}}/samples/{{sample}}/cell_type_proportions.parquet"
-    wildcard_constraints:
-        backend = "|".join(PYTHON_BACKENDS),
-        label_source = "|".join(LABEL_SOURCES)
-    threads: 8
-    resources:
-        mem_mb = 256000,  # 256GB for 35GB spatial + 19GB snRNA
-        runtime = lambda wildcards: 720 if wildcards.backend in ["cell2location", "destvi"] else 240,  # 12 hours for slow backends
-        slurm_partition = "gpu",
-        gpu = 1
-        # No H100 constraint - A40/A100/L40S (48GB) sufficient for 10K spot samples
-    log:
-        f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
-    shell:
-        """
-        export TMPDIR="{DATA}/tmp"
-        mkdir -p $TMPDIR
-        python -m stagebridge.pipelines.run_spatial_benchmark \
-            --snrna {input.snrna} \
-            --spatial {input.spatial} \
-            --output_dir {SPATIAL}/{wildcards.label_source}/{wildcards.backend}/samples/{wildcards.sample} \
-            --backends {wildcards.backend} \
-            --sample {wildcards.sample} \
-            --sample-col sample_id \
-            --label-source {wildcards.label_source} \
-            2>&1 | tee {log}
-        """
-
-
-# Step 3b-R: Run R backend on single sample (requires r_deconv conda env)
-rule spatial_r_backend_sample:
-    input:
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
-        spatial = f"{PROCESSED}/spatial_merged.h5ad",
-        marker_check = f"{REF_GEOM}/marker_validation.json",
-        manifest = f"{SPATIAL}/sample_manifest.json",
-        labels = f"{REF_GEOM}/hlca_mapping/hlca_labels.parquet"
-    output:
-        metrics = f"{SPATIAL}/{{label_source}}/{{backend}}/samples/{{sample}}/upstream_metrics.json",
-        proportions = f"{SPATIAL}/{{label_source}}/{{backend}}/samples/{{sample}}/cell_type_proportions.parquet"
-    wildcard_constraints:
-        backend = "|".join(R_BACKENDS),
-        label_source = "|".join(LABEL_SOURCES)
-    threads: 16
-    resources:
-        mem_mb = 256000,
-        runtime = 720,  # 12 hours for R backends (RCTD with 33 cell types is slow)
-        slurm_partition = "cpu",  # R backends don't use GPU (CARD/RCTD/SPOTlight are CPU-based)
-        cpus_per_task = 16  # More cores for R parallelization
-    log:
-        f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}/{{sample}}.log"
-    shell:
-        """
-        export R_EXECUTABLE="/scratch/chaunzt1/envs/r_deconv/lib/R/bin/Rscript"
-        export R_LIBS_USER="/scratch/chaunzt1/envs/r_deconv/lib/R/library"
-        export TMPDIR="{DATA}/tmp"
-        mkdir -p $TMPDIR
-        python -m stagebridge.pipelines.run_spatial_benchmark \
-            --snrna {input.snrna} \
-            --spatial {input.spatial} \
-            --output_dir {SPATIAL}/{wildcards.label_source}/{wildcards.backend}/samples/{wildcards.sample} \
-            --backends {wildcards.backend} \
-            --sample {wildcards.sample} \
-            --sample-col sample_id \
-            --label-source {wildcards.label_source} \
-            2>&1 | tee {log}
-        """
-
-
-def get_all_sample_outputs(wildcards):
-    """Get all per-sample output files for a backend/label_source after checkpoint."""
-    checkpoint_output = checkpoints.extract_spatial_samples.get(**wildcards).output.manifest
-    import json
-    with open(checkpoint_output) as f:
-        manifest = json.load(f)
-    samples = manifest["samples"]
-    return expand(
-        f"{SPATIAL}/{wildcards.label_source}/{wildcards.backend}/samples/{{sample}}/upstream_metrics.json",
-        sample=samples
-    )
-
-
-# Step 3c: Aggregate per-sample results into backend summary (per label source)
-rule spatial_backend_aggregate:
-    input:
-        sample_metrics = get_all_sample_outputs,
-        manifest = f"{SPATIAL}/sample_manifest.json"
-    output:
-        metrics = f"{SPATIAL}/{{label_source}}/{{backend}}/upstream_metrics.json",
-        proportions = f"{SPATIAL}/{{label_source}}/{{backend}}/cell_type_proportions.parquet"
-    wildcard_constraints:
-        backend = "|".join(SPATIAL_BACKENDS),
-        label_source = "|".join(LABEL_SOURCES)
-    threads: 2
-    resources:
-        mem_mb = 32000,
-        runtime = 30
-    log:
-        f"{RUNS}/logs/spatial/{{label_source}}/{{backend}}_aggregate.log"
-    shell:
-        """
-        python workflow/scripts/aggregate_spatial_samples.py \
-            --backend {wildcards.backend} \
-            --sample-dir {SPATIAL}/{wildcards.label_source}/{wildcards.backend}/samples \
-            --output-dir {SPATIAL}/{wildcards.label_source}/{wildcards.backend} \
-            --manifest {input.manifest} \
-            2>&1 | tee {log}
-        """
-
-
-# Step 3d: Generate unified comparison figures per sample (all backends on same plot)
-def get_all_backends_for_sample(wildcards):
-    """Get all backend metrics for a single sample to trigger unified figure generation."""
-    checkpoint_output = checkpoints.extract_spatial_samples.get(**wildcards).output.manifest
-    import json
-    with open(checkpoint_output) as f:
-        manifest = json.load(f)
-    samples = manifest["samples"]
-    # Return all backend metrics for all samples (for this label_source)
-    return expand(
-        f"{SPATIAL}/{wildcards.label_source}/{{backend}}/samples/{{sample}}/upstream_metrics.json",
-        backend=SPATIAL_BACKENDS,
-        sample=samples
-    )
-
-
-rule spatial_unified_figures:
-    input:
-        backend_jsons = get_all_backends_for_sample,
-        manifest = f"{SPATIAL}/sample_manifest.json"
-    output:
-        figures_done = f"{SPATIAL}/{{label_source}}/figures/unified_comparison/.done"
-    wildcard_constraints:
-        label_source = "|".join(LABEL_SOURCES)
-    threads: 2
-    resources:
-        mem_mb = 16000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/spatial/{{label_source}}/unified_figures.log"
-    shell:
-        """
-        # Unified comparison: 2x2 grid (performance, radar, runtime, quality trade-offs)
-        python scripts/create_unified_backend_comparison.py \
-            --results-dir {SPATIAL} \
-            --output-dir {SPATIAL}/{wildcards.label_source}/figures/unified_comparison \
-            --label-source {wildcards.label_source} \
-            2>&1 | tee {log}
-
-        # Spatial comparison grid: cell types x backends spatial maps
-        python scripts/create_backend_comparison_grid.py \
-            --results-dir {SPATIAL} \
-            --output-dir {SPATIAL}/{wildcards.label_source}/figures/backend_comparison \
-            --label-source {wildcards.label_source} \
-            2>&1 | tee -a {log}
-
-        touch {output.figures_done}
-        """
-
-
-# Step 3f: Compare backends across label sources (HLCA vs LuCA ablation)
-# This is a checkpoint because downstream rules need to read its output
-checkpoint spatial_comparison:
-    input:
-        # All backends x all label sources
-        expand(
-            SPATIAL + "/{label_source}/{backend}/upstream_metrics.json",
-            label_source=LABEL_SOURCES, backend=SPATIAL_BACKENDS
-        ),
-        # Unified comparison figures (all backends per sample)
-        expand(
-            SPATIAL + "/{label_source}/figures/unified_comparison/.done",
-            label_source=LABEL_SOURCES
-        )
-    output:
-        comparison = f"{SPATIAL}/backend_comparison.json",
-        canonical = f"{SPATIAL}/canonical_backend.json",
-        figure = f"{SPATIAL}/backend_comparison.png",
-        label_ablation = f"{SPATIAL}/label_source_ablation.json"
+        summary=f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json",
+        checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/checkpoints/best_checkpoint.pt",
     params:
-        spatial_dir = SPATIAL,
-        label_sources = LABEL_SOURCES,
-        backends = SPATIAL_BACKENDS
-    threads: 2
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/full/fold_{w.fold}",
+        ssl_epochs=config["trainer"]["ssl_epochs"],
+        transition_epochs=config["trainer"]["transition_epochs"],
+        lr=config["trainer"]["learning_rate"],
+        batch_size=config["trainer"]["batch_size"],
     resources:
-        mem_mb = 16000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/spatial/comparison.log"
-    script:
-        "scripts/compare_spatial_backends.py"
-
-
-# =============================================================================
-# Stage 3e: Create Canonical Backend Outputs (from existing benchmark results)
-# =============================================================================
-# Since we benchmark ALL samples with ALL backends, no need to rerun the winner.
-# Just copy/symlink the winning backend's results to canonical/ directory.
-
-rule canonical_backend_aggregate:
-    input:
-        # Depend on spatial_comparison which ensures all backends are done
-        comparison = f"{SPATIAL}/backend_comparison.json",
-        canonical_choice = f"{SPATIAL}/canonical_backend.json",
-        manifest = f"{SPATIAL}/sample_manifest.json"
-    output:
-        proportions = f"{SPATIAL}/canonical/cell_type_proportions.parquet",
-        metrics = f"{SPATIAL}/canonical/upstream_metrics.json"
-    threads: 2
-    resources:
-        mem_mb = 32000,
-        runtime = 30
-    log:
-        f"{RUNS}/logs/spatial/canonical_aggregate.log"
+        gpu=1,
+        runtime=2880,  # 48 hours
+        mem_mb=64000,
     shell:
         """
-        # Read winning backend and label source
-        BACKEND=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['backend'])")
-        LABEL_SOURCE=$(python -c "import json; print(json.load(open('{input.canonical_choice}'))['label_source'])")
-
-        echo "Canonical backend: $BACKEND ($LABEL_SOURCE)"
-        echo "Copying results from existing benchmark (no rerun needed)"
-
-        # Create canonical/samples/ by symlinking from winning backend's results
-        mkdir -p {SPATIAL}/canonical/samples
-        for sample_dir in {SPATIAL}/$LABEL_SOURCE/$BACKEND/samples/*/; do
-            sample=$(basename "$sample_dir")
-            ln -sfn "$(realpath $sample_dir)" "{SPATIAL}/canonical/samples/$sample"
-        done
-
-        # Aggregate using existing script
-        python workflow/scripts/aggregate_spatial_samples.py \
-            --backend $BACKEND \
-            --sample-dir {SPATIAL}/canonical/samples \
-            --output-dir {SPATIAL}/canonical \
-            --manifest {input.manifest} \
-            2>&1 | tee {log}
+        python -m stagebridge.training.trainer \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold} \
+            --seed {SEED} \
+            --ssl-epochs {params.ssl_epochs} \
+            --transition-epochs {params.transition_epochs} \
+            --learning-rate {params.lr} \
+            --batch-size {params.batch_size}
         """
 
 
 # =============================================================================
-# Stage 3f: Clonal Pattern Extraction (CNV-based evolution patterns)
+# TRAINING: BASELINES
 # =============================================================================
-# Extracts clonal evolution patterns (1a, 1b, 2) from spatial data using
-# inferCNVpy. Required for H3 hypothesis validation.
-#
-# Patterns:
-#   1a: Direct lineage (shared clones across stages)
-#   1b: Branched evolution (shared ancestor, divergent clones)
-#   2:  Independent origins (no shared clones)
 
-rule clonal_extraction:
+rule train_baseline:
+    """Train a baseline model for comparison."""
     input:
-        # Use snRNA data (single-cell resolution, has cell types from HLCA mapping)
-        # CNV inference needs single-cell resolution for accurate clone identification
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
-        # Ensure cell type labels are validated first
-        marker_check = f"{REF_GEOM}/marker_validation.json"
+        validated=f"{OUTPUT_DIR}/.data_validated",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        patterns = f"{CLONAL}/clonal_patterns.json",
-        details = f"{CLONAL}/clonal_analysis_details.csv",
-        cnv_profiles = f"{CLONAL}/epithelial_cnv.h5ad"
+        result=f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/baseline_{{baseline}}.json",
+        checkpoint=f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/checkpoints/{{baseline}}_final.pt",
     params:
-        clonal_dir = CLONAL
-    threads: 8
+        baseline=lambda w: w.baseline,
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/baselines/{w.baseline}/fold_{w.fold}",
     resources:
-        mem_mb = 256000,  # 256GB for full snRNA data
-        runtime = 360,    # 6 hours (CNV inference is slow)
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/clonal/extraction.log"
+        gpu=1,
+        runtime=720,  # 12 hours
+        mem_mb=32000,
     shell:
         """
-        python -m stagebridge.pipelines.run_clonal_extraction \
-            --spatial-h5ad {input.snrna} \
-            --output-dir {params.clonal_dir} \
-            --patient-key donor_id \
-            --stage-key stage \
-            --cell-type-key cell_type \
-            2>&1 | tee {log}
+        python -m stagebridge.baselines.train \
+            --baseline {params.baseline} \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold} \
+            --seed {SEED}
         """
 
 
 # =============================================================================
-# Stage 3g: LIANA L-R Analysis (Biological Validation for H1.2)
+# ABLATIONS
 # =============================================================================
-# Validates that IL1B-IL1R1 is a top L-R pair in the dataset.
-# Key evidence for H1.2: "IL1B-high proinflammatory niches increase transition
-# probability for alveolar progenitors"
 
-LIANA = f"{RUNS}/biological_validation/liana"
-
-rule liana_analysis:
+rule run_ablation:
+    """Run an ablation experiment."""
     input:
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
-        marker_check = f"{REF_GEOM}/marker_validation.json"  # Ensure cell types validated
+        validated=f"{OUTPUT_DIR}/.data_validated",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        full = f"{LIANA}/lr_interactions_full.parquet",
-        top100 = f"{LIANA}/lr_interactions_top100.parquet",
-        il1b = f"{LIANA}/lr_il1b_il1r1.parquet",
-        summary = f"{LIANA}/liana_summary.json"
+        result=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/ablation_{{ablation}}.json",
+        checkpoint=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/checkpoints/best_checkpoint.pt",
     params:
-        output_dir = LIANA,
-        n_perms = 100,
-        expr_prop = 0.05  # Lower threshold to catch rare cell type interactions
-    threads: 8
+        ablation=lambda w: w.ablation,
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}",
     resources:
-        mem_mb = 256000,  # 256GB for 800K cells
-        runtime = 180,    # 3 hours
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/biological_validation/liana.log"
+        gpu=1,
+        runtime=1440,  # 24 hours
+        mem_mb=64000,
     shell:
         """
-        python scripts/run_liana_analysis.py \
-            --snrna {input.snrna} \
-            --output-dir {params.output_dir} \
-            --n-perms {params.n_perms} \
-            --expr-prop {params.expr_prop} \
-            2>&1 | tee {log}
+        python -m stagebridge.evaluation.ablation \
+            --ablation {params.ablation} \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold} \
+            --seed {SEED}
         """
 
 
 # =============================================================================
-# Stage 4: Complete Data Preparation
+# INFERENCE
 # =============================================================================
 
-rule data_preparation:
+rule infer_full:
+    """Run inference with full model."""
     input:
-        fused = f"{REF_GEOM}/fused_embedding.parquet",
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
-        spatial = f"{PROCESSED}/spatial_merged.h5ad",
-        wes = f"{PROCESSED}/wes_features.parquet",
-        clonal = f"{CLONAL}/clonal_patterns.json",  # From clonal_extraction
-        # Use DestVI directly (best backend, provides gamma values)
-        hlca_deconv = f"{SPATIAL}/hlca/destvi/cell_type_proportions.parquet",
-        luca_deconv = f"{SPATIAL}/luca/destvi/cell_type_proportions.parquet"
+        checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/checkpoints/best_checkpoint.pt",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json",
-        manifest = f"{CANONICAL}/data_manifest.json"
+        predictions=f"{OUTPUT_DIR}/inference/full/fold_{{fold}}/predictions.parquet",
     params:
-        canonical_dir = CANONICAL,
-        hlca_deconv_dir = f"{SPATIAL}/hlca/destvi",
-        luca_deconv_dir = f"{SPATIAL}/luca/destvi"
-    threads: 16
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/inference/full/fold_{w.fold}",
     resources:
-        mem_mb = 256000,
-        runtime = 120,  # 2 hours
-        slurm_partition = "cpu"
-    log:
-        f"{RUNS}/logs/data_preparation.log"
+        gpu=1,
+        runtime=240,  # 4 hours
+        mem_mb=32000,
     shell:
         """
-        python -m stagebridge.pipelines.complete_data_prep \
-            --snrna {input.snrna} \
-            --spatial {input.spatial} \
-            --wes {input.wes} \
-            --spatial_backend_dir {params.hlca_deconv_dir} \
-            --reference_geometry {REF_GEOM} \
-            --output_dir {params.canonical_dir} \
-            --clonal_patterns {input.clonal} \
-            --hlca_deconv_dir {params.hlca_deconv_dir} \
-            --luca_deconv_dir {params.luca_deconv_dir} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 4b: Validate Splits (CRITICAL - prevents donor leakage)
-# =============================================================================
-
-rule validate_splits:
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        splits = f"{CANONICAL}/split_manifest.json"
-    output:
-        report = f"{CANONICAL}/leakage_validation.json"
-    threads: 1
-    resources:
-        mem_mb = 16000,
-        runtime = 10
-    log:
-        f"{RUNS}/logs/validate_splits.log"
-    shell:
-        """
-        python workflow/scripts/validate_splits.py \
-            --cells {input.cells} \
-            --splits {input.splits} \
-            --output {output.report} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5a: Generate Semi-Synthetic Benchmark (with ground truth)
-# =============================================================================
-
-rule semi_synthetic_benchmark:
-    input:
-        manifest = f"{CANONICAL}/data_manifest.json",
-        leakage_check = f"{CANONICAL}/leakage_validation.json"  # Require clean splits
-    output:
-        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
-        ground_truth = f"{CANONICAL}/benchmark/ground_truth.json"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 30
-    log:
-        f"{RUNS}/logs/semi_synthetic_benchmark.log"
-    script:
-        "scripts/generate_semi_synthetic.py"
-
-
-# =============================================================================
-# Stage 5b: Hyperparameter Optimization (Optuna)
-# =============================================================================
-
-rule hpo:
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json",
-        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
-        leakage_check = f"{CANONICAL}/leakage_validation.json"  # Require clean splits
-    output:
-        best_params = f"{TRAINING}/hpo/best_params.json",
-        hpo_history = f"{TRAINING}/hpo/optimization_history.json"
-    params:
-        n_trials = 30,
-        canonical_dir = CANONICAL,
-        hpo_dir = f"{TRAINING}/hpo",
-        # V2 architecture: cross-attention drift with set transformer refiner
-        drift_head = config.get("drift_head", "cross_attention"),
-        context_refiner = config.get("context_refiner", "set_transformer")
-    threads: 8
-    resources:
-        mem_mb = 128000,
-        runtime = 480,  # 8 hours
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/hpo.log"
-    shell:
-        """
-        python -m stagebridge.pipelines.run_hpo \
-            --data_dir {params.canonical_dir} \
-            --output_dir {params.hpo_dir} \
-            --n_trials {params.n_trials} \
-            --drift_head {params.drift_head} \
-            --context_refiner {params.context_refiner} \
-            --device cuda \
-            --storage sqlite:///{params.hpo_dir}/optuna.db \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5c: Full Model Training (Two-Stage: SSL + Transition)
-# =============================================================================
-#
-# 5-fold cross-validation × 3 seeds = 15 training runs
-# Each run: SSL Pretraining + Transition Model
-#
-# Stage 1: SSL Pretraining (~4-6 hours with 4 GPUs)
-#   - Objective: Masked receiver reconstruction from niche context
-#   - Learn niche-aware representations
-#
-# Stage 2: Transition Model (~2-3 hours with 4 GPUs)
-#   - Objective: Predict state transitions (flow field)
-#   - Fine-tune on stage transition dynamics
-#
-
-rule training:
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json",
-        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
-        hpo_params = f"{TRAINING}/hpo/best_params.json",
-        leakage_check = f"{CANONICAL}/leakage_validation.json"  # Require clean splits
-    output:
-        checkpoint = f"{TRAINING}/fold{{fold}}_seed{{seed}}/checkpoints/final_checkpoint.pt",
-        best = f"{TRAINING}/fold{{fold}}_seed{{seed}}/checkpoints/best_checkpoint.pt",
-        ssl_checkpoint = f"{TRAINING}/fold{{fold}}_seed{{seed}}/checkpoints/ssl_pretrained.pt",
-        metrics = f"{TRAINING}/fold{{fold}}_seed{{seed}}/metrics/training_metrics.csv",
-        config = f"{TRAINING}/fold{{fold}}_seed{{seed}}/config.json",
-        results = f"{TRAINING}/fold{{fold}}_seed{{seed}}/results.json"
-    wildcard_constraints:
-        fold = "[0-4]",
-        seed = "[0-9]+"
-    params:
-        ssl_epochs = 100,
-        transition_epochs = 50,
-        canonical_dir = CANONICAL,
-        training_dir = TRAINING,
-        # V1 architecture: cross-attention drift with set transformer refiner
-        drift_head = config.get("drift_head", "cross_attention"),
-        context_refiner = config.get("context_refiner", "set_transformer")
-    threads: 8
-    resources:
-        mem_mb = 256000,  # 256GB for 1.4M cells + neighborhoods + ring compositions
-        runtime = 480,    # 8 hours (single GPU, no DDP overhead)
-        slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
-    log:
-        f"{RUNS}/logs/training/fold{{fold}}_seed{{seed}}.log"
-    shell:
-        """
-        echo "=============================================="
-        echo "StageBridge V1 Training"
-        echo "  Fold: {wildcards.fold}/5"
-        echo "  Seed: {wildcards.seed}"
-        echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
-        echo "  Stage 2: Transition Model ({params.transition_epochs} epochs)"
-        echo "  Architecture: drift={params.drift_head}, refiner={params.context_refiner}"
-        echo "  GPU: 1x H100 (single-process, no DDP overhead)"
-        echo "  HPO params: {input.hpo_params}"
-        echo "=============================================="
-
-        # Single GPU via torchrun with nproc=1 (no DDP overhead, keeps same CLI)
-        torchrun \
-            --nproc_per_node=1 \
-            --master_port=$((29500 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
-            -m stagebridge.pipelines.run_v1_ddp \
-            --data_dir {params.canonical_dir} \
-            --output_dir {params.training_dir}/fold{wildcards.fold}_seed{wildcards.seed} \
-            --validation_fold {wildcards.fold} \
-            --seed {wildcards.seed} \
-            --ssl_epochs {params.ssl_epochs} \
-            --transition_epochs {params.transition_epochs} \
-            --batch_size 256 \
-            --checkpoint_every 10 \
-            --hpo_params {input.hpo_params} \
-            --use_best_hparams \
-            --drift_head {params.drift_head} \
-            --context_refiner {params.context_refiner} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5b-fusion: Training with Fusion Mode Ablations
-# =============================================================================
-# Tests different dual-reference fusion strategies:
-# - concat (default): Simple concatenation [HLCA|LuCA]
-# - attention: Learned attention-weighted combination
-# - gate: FiLM-style gating between references
-
-rule training_fusion:
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json",
-        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
-        hpo_params = f"{TRAINING}/hpo/best_params.json",
-        leakage_check = f"{CANONICAL}/leakage_validation.json"
-    output:
-        checkpoint = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/checkpoints/final_checkpoint.pt",
-        best = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/checkpoints/best_checkpoint.pt",
-        ssl_checkpoint = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/checkpoints/ssl_pretrained.pt",
-        metrics = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/metrics/training_metrics.csv",
-        config = f"{TRAINING}/fusion_{{fusion}}/fold{{fold}}_seed{{seed}}/config.json"
-    wildcard_constraints:
-        fold = "[0-4]",
-        seed = "[0-9]+",
-        fusion = "attention|gate|transport"  # concat is the default (main training rule)
-    params:
-        ssl_epochs = 100,
-        transition_epochs = 50,
-        canonical_dir = CANONICAL,
-        training_dir = TRAINING
-    threads: 8
-    resources:
-        mem_mb = 256000,
-        runtime = 480,
-        slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
-    log:
-        f"{RUNS}/logs/training/fusion_{{fusion}}_fold{{fold}}_seed{{seed}}.log"
-    shell:
-        """
-        echo "=============================================="
-        echo "StageBridge V1 Training - Fusion Ablation"
-        echo "  Fusion mode: {wildcards.fusion}"
-        echo "  Fold: {wildcards.fold}/5"
-        echo "  Seed: {wildcards.seed}"
-        echo "=============================================="
-
-        torchrun \
-            --nproc_per_node=1 \
-            --master_port=$((29600 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
-            -m stagebridge.pipelines.run_v1_ddp \
-            --data_dir {params.canonical_dir} \
-            --output_dir {params.training_dir}/fusion_{wildcards.fusion}/fold{wildcards.fold}_seed{wildcards.seed} \
-            --validation_fold {wildcards.fold} \
-            --seed {wildcards.seed} \
-            --ssl_epochs {params.ssl_epochs} \
-            --transition_epochs {params.transition_epochs} \
-            --batch_size 256 \
-            --checkpoint_every 10 \
-            --hpo_params {input.hpo_params} \
-            --use_best_hparams \
-            --fusion_mode {wildcards.fusion} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5c-ablation: Training with Frozen Encoder (SSL transfer test)
-# =============================================================================
-# Tests whether SSL representations transfer directly to transition task
-# without fine-tuning. Compares to main training to validate SSL quality.
-
-rule training_frozen:
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json",
-        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
-        hpo_params = f"{TRAINING}/hpo/best_params.json",
-        leakage_check = f"{CANONICAL}/leakage_validation.json"
-    output:
-        checkpoint = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/checkpoints/final_checkpoint.pt",
-        best = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/checkpoints/best_checkpoint.pt",
-        ssl_checkpoint = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/checkpoints/ssl_pretrained.pt",
-        metrics = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/metrics/training_metrics.csv",
-        config = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/config.json",
-        results = f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/results.json"
-    wildcard_constraints:
-        fold = "[0-4]",
-        seed = "[0-9]+"
-    params:
-        ssl_epochs = 100,
-        transition_epochs = 50,
-        canonical_dir = CANONICAL,
-        training_dir = TRAINING
-    threads: 8
-    resources:
-        mem_mb = 256000,  # 256GB for 1.4M cells + neighborhoods + ring compositions
-        runtime = 480,
-        slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
-    log:
-        f"{RUNS}/logs/training_frozen/fold{{fold}}_seed{{seed}}.log"
-    shell:
-        """
-        echo "=============================================="
-        echo "StageBridge V1 Training (FROZEN ENCODER ABLATION)"
-        echo "  Fold: {wildcards.fold}/5"
-        echo "  Seed: {wildcards.seed}"
-        echo "  Stage 1: SSL Pretraining ({params.ssl_epochs} epochs)"
-        echo "  Stage 2: Transition Model ({params.transition_epochs} epochs) - FROZEN"
-        echo "  GPU: 1x H100 (single-process, no DDP overhead)"
-        echo "  Purpose: Test SSL representation transfer quality"
-        echo "=============================================="
-
-        # Single GPU via torchrun with nproc=1 (no DDP overhead, keeps same CLI)
-        torchrun \
-            --nproc_per_node=1 \
-            --master_port=$((29600 + {wildcards.fold} * 10 + {wildcards.seed} % 10)) \
-            -m stagebridge.pipelines.run_v1_ddp \
-            --data_dir {params.canonical_dir} \
-            --output_dir {params.training_dir}/frozen/fold{wildcards.fold}_seed{wildcards.seed} \
-            --validation_fold {wildcards.fold} \
-            --seed {wildcards.seed} \
-            --ssl_epochs {params.ssl_epochs} \
-            --transition_epochs {params.transition_epochs} \
-            --batch_size 256 \
-            --checkpoint_every 10 \
-            --hpo_params {input.hpo_params} \
-            --use_best_hparams \
-            --freeze_encoder \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Training: Run both fine-tuned and frozen in parallel
-# =============================================================================
-
-rule training_all:
-    """Run both fine-tuned and frozen encoder training in parallel for efficiency."""
-    input:
-        # Fine-tuned (15 runs: 5 folds × 3 seeds)
-        finetuned = expand(
-            f"{TRAINING}/fold{{fold}}_seed{{seed}}/results.json",
-            fold=FOLDS, seed=SEEDS
-        ),
-        # Frozen encoder ablation (15 runs: 5 folds × 3 seeds)
-        frozen = expand(
-            f"{TRAINING}/frozen/fold{{fold}}_seed{{seed}}/results.json",
-            fold=FOLDS, seed=SEEDS
-        )
-    output:
-        touch(f"{TRAINING}/training_all.done")
-
-
-# =============================================================================
-# Stage 5d: Aggregate CV Results (with Bootstrap CIs)
-# =============================================================================
-
-rule aggregate_cv_results:
-    input:
-        results = expand(
-            f"{TRAINING}/fold{{fold}}_seed{{seed}}/results.json",
-            fold=FOLDS, seed=SEEDS
-        )
-    output:
-        cv_results = f"{TRAINING}/aggregated/cv_results.json",
-        publication_metrics = f"{TRAINING}/aggregated/publication_metrics.json",
-        latex_table = f"{TRAINING}/aggregated/table_main_results.tex"
-    threads: 2
-    resources:
-        mem_mb = 16000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/aggregate_cv_results.log"
-    shell:
-        """
-        python workflow/scripts/aggregate_cv_results.py \
-            --input_dir {TRAINING} \
-            --output_dir {TRAINING}/aggregated \
-            --n_folds 5 \
-            --seeds 42 123 456 \
-            --n_bootstrap 1000 \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5d-alpha: Held-Out Test Evaluation (CRITICAL for Nature Methods)
-# =============================================================================
-# Computes REAL evaluation metrics on held-out test data:
-# - Wasserstein distance (transition quality)
-# - MMD (distribution matching)
-# - Stage classification accuracy/F1
-# - Context sensitivity (niche contribution)
-#
-# This is separate from validation loss tracked during training!
-
-rule heldout_evaluation:
-    """Run held-out test evaluation on a single trained model."""
-    input:
-        checkpoint = f"{TRAINING}/fold{{fold}}_seed{{seed}}/checkpoints/best_checkpoint.pt",
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json"
-    output:
-        results = f"{TRAINING}/fold{{fold}}_seed{{seed}}/evaluation/heldout_evaluation.json"
-    wildcard_constraints:
-        fold = "[0-4]",
-        seed = "[0-9]+"
-    params:
-        canonical_dir = CANONICAL
-    threads: 4
-    resources:
-        mem_mb = 384000,
-        runtime = 120,
-        slurm_partition = "gpu",
-        gpu = 1,
-        constraint = "h100"
-    log:
-        f"{RUNS}/logs/evaluation/heldout_fold{{fold}}_seed{{seed}}.log"
-    shell:
-        """
-        python workflow/scripts/run_heldout_evaluation.py \
+        python -m stagebridge.pipelines.infer \
             --checkpoint {input.checkpoint} \
-            --data_dir {params.canonical_dir} \
-            --output_dir {TRAINING}/fold{wildcards.fold}_seed{wildcards.seed}/evaluation \
-            --fold {wildcards.fold} \
-            2>&1 | tee {log}
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold}
         """
 
 
-rule aggregate_heldout_evaluation:
-    """Aggregate held-out evaluation across all folds and seeds."""
+# =============================================================================
+# EVALUATION
+# =============================================================================
+
+rule evaluate_full:
+    """Evaluate full model predictions."""
     input:
-        evaluations = expand(
-            f"{TRAINING}/fold{{fold}}_seed{{seed}}/evaluation/heldout_evaluation.json",
-            fold=FOLDS, seed=SEEDS
-        )
+        predictions=f"{OUTPUT_DIR}/inference/full/fold_{{fold}}/predictions.parquet",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        summary = f"{TRAINING}/evaluation/heldout_summary.json"
-    threads: 2
+        evaluation=f"{OUTPUT_DIR}/evaluation/full/fold_{{fold}}/evaluation.json",
+    params:
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/evaluation/full/fold_{w.fold}",
     resources:
-        mem_mb = 8000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/evaluation/aggregate_heldout.log"
+        runtime=120,  # 2 hours
+        mem_mb=16000,
+    shell:
+        """
+        python -m stagebridge.evaluation.metrics \
+            --predictions {input.predictions} \
+            --reference {DATA_DIR}/neighborhoods.parquet \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold}
+        """
+
+
+# =============================================================================
+# COMPARISON REPORT
+# =============================================================================
+
+rule comparison_report:
+    """Generate final comparison report aggregating all results."""
+    input:
+        full_evals=expand(f"{OUTPUT_DIR}/evaluation/full/fold_{{fold}}/evaluation.json", fold=FOLDS),
+        baseline_results=expand(f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/baseline_{{baseline}}.json",
+                                baseline=BASELINES, fold=FOLDS),
+        ablation_results=expand(f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/ablation_{{ablation}}.json",
+                                ablation=ABLATIONS, fold=FOLDS),
+    output:
+        report=f"{RESULTS_DIR}/comparison_report.json",
+    params:
+        output_dir=OUTPUT_DIR,
+        results_dir=RESULTS_DIR,
+    resources:
+        runtime=30,
+        mem_mb=4000,
     run:
         import json
         from pathlib import Path
-        import numpy as np
+        from datetime import datetime
 
-        results = []
-        for f in input.evaluations:
-            with open(f) as fp:
-                results.append(json.load(fp))
+        Path(params.results_dir).mkdir(parents=True, exist_ok=True)
 
-        metrics = {}
-        for key in ['wasserstein', 'mmd', 'mse', 'stage_accuracy', 'auroc']:
-            vals = [r['transition_metrics'].get(key) for r in results if r.get('transition_metrics', {}).get(key) is not None]
-            if vals:
-                metrics[key] = {'mean': float(np.mean(vals)), 'std': float(np.std(vals)), 'n': len(vals)}
-
-        context_deltas = [r.get('context_sensitivity', {}).get('mean_context_delta') for r in results if r.get('context_sensitivity')]
-        if context_deltas:
-            metrics['context_sensitivity'] = {'mean': float(np.mean(context_deltas)), 'std': float(np.std(context_deltas))}
-
-        summary = {'n_runs': len(results), 'metrics': metrics}
-        Path(output.summary).parent.mkdir(parents=True, exist_ok=True)
-        with open(output.summary, 'w') as f:
-            json.dump(summary, f, indent=2)
-
-
-# =============================================================================
-# Stage 5d-beta: Statistical Comparison (Nature Methods requirement)
-# =============================================================================
-# Effect sizes, p-values, confidence intervals for model comparisons
-
-rule statistical_comparison:
-    """Generate statistical comparison between StageBridge and baselines."""
-    input:
-        model_eval = f"{TRAINING}/evaluation/heldout_summary.json",
-        baseline_results = expand(
-            f"{TRAINING}/baselines/{{baseline}}_fold{{fold}}_seed{{seed}}/results.json",
-            baseline=BASELINES, fold=FOLDS, seed=SEEDS
-        ),
-        main_results = f"{TRAINING}/aggregated/cv_results.json"
-    output:
-        comparison = f"{TRAINING}/evaluation/statistical_comparison.json",
-        latex = f"{TRAINING}/evaluation/table_statistical_comparison.tex"
-    threads: 2
-    resources:
-        mem_mb = 8000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/evaluation/statistical_comparison.log"
-    shell:
-        """
-        python workflow/scripts/statistical_comparison.py \
-            --baseline_dir {TRAINING}/baselines \
-            --model_dir {TRAINING} \
-            --output_dir {TRAINING}/evaluation \
-            --metrics wasserstein mmd stage_accuracy auroc \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5d-gamma: Ablation Held-Out Evaluation
-# =============================================================================
-# Run held-out evaluation on ablation models too
-
-rule ablation_heldout_evaluation:
-    """Run held-out test evaluation on ablation model."""
-    input:
-        results = f"{ABLATIONS}/{{ablation}}/results.json",
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json"
-    output:
-        evaluation = f"{ABLATIONS}/{{ablation}}/evaluation/heldout_evaluation.json"
-    wildcard_constraints:
-        ablation = "|".join(ABLATIONS_LIST)
-    params:
-        canonical_dir = CANONICAL
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 60,
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/ablations/eval_{{ablation}}.log"
-    shell:
-        """
-        # Find the checkpoint (could be final or best)
-        CKPT=""
-        for f in {ABLATIONS}/{wildcards.ablation}/checkpoints/best_checkpoint.pt \
-                 {ABLATIONS}/{wildcards.ablation}/checkpoints/final_checkpoint.pt \
-                 {ABLATIONS}/{wildcards.ablation}/best_model.pt; do
-            if [ -f "$f" ]; then
-                CKPT="$f"
-                break
-            fi
-        done
-
-        if [ -z "$CKPT" ]; then
-            echo "ERROR: No checkpoint found for {wildcards.ablation}"
-            exit 1
-        fi
-
-        python workflow/scripts/run_heldout_evaluation.py \
-            --checkpoint $CKPT \
-            --data_dir {params.canonical_dir} \
-            --output_dir {ABLATIONS}/{wildcards.ablation}/evaluation \
-            --fold 0 \
-            2>&1 | tee {log}
-        """
-
-
-rule aggregate_ablation_evaluation:
-    """Aggregate held-out evaluation across all ablations."""
-    input:
-        evaluations = expand(
-            f"{ABLATIONS}/{{ablation}}/evaluation/heldout_evaluation.json",
-            ablation=ABLATIONS_LIST
-        ),
-        full_model = f"{TRAINING}/evaluation/heldout_summary.json"
-    output:
-        summary = f"{ABLATIONS}/evaluation/heldout_summary.json"
-    threads: 2
-    resources:
-        mem_mb = 8000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/ablations/aggregate_eval.log"
-    run:
-        import json
-        from pathlib import Path
-        import numpy as np
-
-        # Load full model baseline
-        with open(input.full_model) as f:
-            full_model = json.load(f)
-
-        ablation_results = {}
-        for eval_path in input.evaluations:
-            ablation = Path(eval_path).parent.parent.name
-            with open(eval_path) as f:
-                data = json.load(f)
-                ablation_results[ablation] = data.get('transition_metrics', {})
-
-        # Compute degradation vs full model
-        full_metrics = full_model.get('metrics', {})
-        degradations = {}
-        for ablation, metrics in ablation_results.items():
-            degradations[ablation] = {}
-            for key in ['wasserstein', 'mmd', 'stage_accuracy', 'auroc']:
-                if key in metrics and key in full_metrics:
-                    full_val = full_metrics[key].get('mean', 0)
-                    abl_val = metrics.get(key, 0)
-                    if key in ['wasserstein', 'mmd']:
-                        degradations[ablation][key] = {'ablation': abl_val, 'full': full_val, 'degradation_pct': (abl_val - full_val) / (abs(full_val) + 1e-10) * 100}
-                    else:
-                        degradations[ablation][key] = {'ablation': abl_val, 'full': full_val, 'degradation_pct': (full_val - abl_val) / (abs(full_val) + 1e-10) * 100}
-
-        summary = {'ablation_results': ablation_results, 'degradations': degradations}
-        Path(output.summary).parent.mkdir(parents=True, exist_ok=True)
-        with open(output.summary, 'w') as f:
-            json.dump(summary, f, indent=2)
-
-
-# =============================================================================
-# Stage 8: Reproducibility Artifacts (Nature Methods requirement)
-# =============================================================================
-# Generates environment snapshots, checksums, git info for reproducibility
-
-rule reproducibility_artifacts:
-    """Generate all reproducibility artifacts for Nature Methods submission."""
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        cv_results = f"{TRAINING}/aggregated/cv_results.json",
-        ablation_summary = f"{ABLATIONS}/ablation_summary.json"
-    output:
-        artifacts = f"{RUNS}/reproducibility/reproducibility_artifacts.json",
-        requirements = f"{RUNS}/reproducibility/requirements_frozen.txt",
-        summary = f"{RUNS}/reproducibility/reproducibility_summary.md"
-    params:
-        canonical_dir = CANONICAL,
-        training_dir = TRAINING,
-        runs_dir = RUNS
-    threads: 1
-    resources:
-        mem_mb = 4000,
-        runtime = 10
-    log:
-        f"{RUNS}/logs/reproducibility.log"
-    shell:
-        """
-        python workflow/scripts/generate_reproducibility_artifacts.py \
-            --data_dir {params.canonical_dir} \
-            --results_dir {params.training_dir} \
-            --output_dir {params.runs_dir}/reproducibility \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5d-bis: H3 Hypothesis Validation (clonal evolution patterns)
-# =============================================================================
-# Validates H3 hypothesis using trained model:
-#   H3.1: Transition probability correlates with shared clones across stages
-#   H3.2: Niche influence differs by clonal pattern (1a > 1b > 2)
-#
-# Requires clonal patterns in cells.parquet (from clonal_extraction rule).
-
-rule h3_validation:
-    input:
-        checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/best_checkpoint.pt",
-        cells = f"{CANONICAL}/cells.parquet",
-        cv_results = f"{TRAINING}/aggregated/cv_results.json"  # Ensure training complete
-    output:
-        results = f"{TRAINING}/h3_validation/h3_validation.json"
-    params:
-        canonical_dir = CANONICAL,
-        h3_dir = f"{TRAINING}/h3_validation"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 60,  # 1 hour
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/h3_validation.log"
-    shell:
-        """
-        python -m stagebridge.pipelines.run_h3_validation \
-            --checkpoint {input.checkpoint} \
-            --data_dir {params.canonical_dir} \
-            --output_dir {params.h3_dir} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5d-ter: H1.3 Plasticity Validation
-# =============================================================================
-# Validates H1.3 hypothesis using trained model:
-#   H1.3.0: Niche conditioning reduces fate uncertainty (entropy reduction)
-#   H1.3.1: KACs/RPII have highest plasticity among epithelial cells
-#   H1.3.2: IL1B-high niches commit plastic cells toward tumor
-
-PLASTICITY = f"{RUNS}/biological_validation/plasticity"
-
-rule plasticity_validation:
-    input:
-        checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/best_checkpoint.pt",
-        cells = f"{CANONICAL}/cells.parquet",
-        cv_results = f"{TRAINING}/aggregated/cv_results.json",
-        # no_niche ablation is optional - checked at runtime
-        ablation_summary = f"{ABLATIONS}/ablation_summary.json"  # Ensures ablations complete first
-    output:
-        results = f"{PLASTICITY}/plasticity_validation.json",
-        inference = f"{PLASTICITY}/full_model_inference.parquet"
-    params:
-        canonical_dir = CANONICAL,
-        plasticity_dir = PLASTICITY,
-        no_niche_ckpt = f"{ABLATIONS}/no_niche/checkpoints/final_checkpoint.pt"
-    threads: 4
-    resources:
-        mem_mb = 128000,
-        runtime = 120,
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/biological_validation/plasticity.log"
-    shell:
-        """
-        # Check if no_niche checkpoint exists (optional for niche resolution analysis)
-        NO_NICHE_ARG=""
-        if [ -f "{params.no_niche_ckpt}" ]; then
-            NO_NICHE_ARG="--checkpoint_no_niche {params.no_niche_ckpt}"
-        fi
-
-        python -m stagebridge.pipelines.run_plasticity_validation \
-            --checkpoint {input.checkpoint} \
-            $NO_NICHE_ARG \
-            --data_dir {params.canonical_dir} \
-            --output_dir {params.plasticity_dir} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5d-quater: LIANA Cell Cycling Post-Hoc Analysis
-# =============================================================================
-# After LIANA runs, stratify results by cell cycle phase to test whether
-# cycling cells have different IL1B-IL1R1 interaction profiles.
-
-rule liana_cycling_posthoc:
-    input:
-        liana_results = f"{RUNS}/biological_validation/liana/lr_interactions_full.parquet",
-        cells = f"{CANONICAL}/cells.parquet"
-    output:
-        summary = f"{RUNS}/biological_validation/liana/cycling_posthoc_summary.json",
-        il1b_cycling = f"{RUNS}/biological_validation/liana/il1b_with_cycling.parquet"
-    threads: 2
-    resources:
-        mem_mb = 32000,
-        runtime = 30
-    log:
-        f"{RUNS}/logs/biological_validation/liana_cycling.log"
-    shell:
-        """
-        python scripts/run_liana_cycling_posthoc.py \
-            --liana-results {input.liana_results} \
-            --cells {input.cells} \
-            --output-dir $(dirname {output.summary}) \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5d-quinquies: AP-1 Stress Signature Validation
-# =============================================================================
-# Validates that AP-1/stress response activation marks progression-prone cells
-# and niches. Key biological insight from Marjanovic et al.:
-#   - AP-1 (JUN/FOS) marks plastic, high-plasticity state
-#   - Associated with fetal progenitor-like intermediate
-#   - JNK/ERK/p38 stress pathways converge on AP-1
-#   - Links to IL1B signaling (H1.2 connection)
-#
-# Analyzes both single-cell and spatial transcriptomics:
-#   - Single-cell: AP-1 score correlates with progression
-#   - Spatial: AP-1 hotspots enriched in early stages
-
-AP1_RESULTS = f"{RUNS}/biological_validation/ap1"
-
-rule ap1_validation:
-    input:
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        inference = f"{PLASTICITY}/full_model_inference.parquet"  # Model outputs from plasticity validation
-    output:
-        report = f"{AP1_RESULTS}/ap1_validation_report.json",
-        cell_scores = f"{AP1_RESULTS}/ap1_cell_scores.parquet"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/biological_validation/ap1.log"
-    shell:
-        """
-        python -m stagebridge.pipelines.run_ap1_validation \
-            --snrna {input.snrna} \
-            --cells {input.cells} \
-            --neighborhoods {input.neighborhoods} \
-            --inference-outputs {input.inference} \
-            --output-dir {AP1_RESULTS} \
-            --use-extended \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5d-sexies: Senescence/SASP Signature Validation
-# =============================================================================
-# Validates dual role of cellular senescence in precancer progression:
-#   - Early/transient senescence = tumor-suppressive barrier
-#   - Chronic senescence with SASP = tumor-promoting microenvironment
-#
-# Key insight (Hoi et al. Cancer Cell 2026):
-#   - SASP creates feedforward loops via IL6, GDF15, matrix remodeling
-#   - cGAS-STING pathway drives chronic inflammatory cytokine production
-#   - Connects to H1.2 (IL1B in SASP) and AP-1 (p38 convergence)
-#
-# Analyzes both single-cell and spatial data
-
-SENESCENCE_RESULTS = f"{RUNS}/biological_validation/senescence"
-
-rule senescence_validation:
-    input:
-        snrna = f"{PROCESSED}/snrna_with_celltypes.h5ad",
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        inference = f"{PLASTICITY}/full_model_inference.parquet",  # Model outputs
-        ap1_scores = f"{AP1_RESULTS}/ap1_cell_scores.parquet"
-    output:
-        report = f"{SENESCENCE_RESULTS}/senescence_validation_report.json",
-        cell_scores = f"{SENESCENCE_RESULTS}/senescence_cell_scores.parquet"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/biological_validation/senescence.log"
-    shell:
-        """
-        python -m stagebridge.pipelines.run_senescence_validation \
-            --snrna {input.snrna} \
-            --cells {input.cells} \
-            --neighborhoods {input.neighborhoods} \
-            --inference-outputs {input.inference} \
-            --ap1-scores {input.ap1_scores} \
-            --output-dir {SENESCENCE_RESULTS} \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 5e: Baseline Ladder (fair comparison with same splits/seeds)
-# =============================================================================
-#
-# Tests core novelty: "Cross-sectional progression becomes more identifiable
-# when conditioned on receiver-centered local niche context"
-#
-# Baselines (increasing complexity):
-# 1. pooling_mlp - No structure (bag-of-cells)
-# 2. deep_sets - Permutation invariance only
-# 3. set_transformer - Flat attention (no spatial structure)
-# 4. graph_sage - Spatial graph structure
-# 5. stagebridge - Full model (receiver-centered niche + dual references)
-#
-
-rule baseline:
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        splits = f"{CANONICAL}/split_manifest.json",
-        benchmark = f"{CANONICAL}/benchmark/semi_synthetic.pt",
-        leakage_check = f"{CANONICAL}/leakage_validation.json"
-    output:
-        results = f"{TRAINING}/baselines/{{baseline}}_fold{{fold}}_seed{{seed}}/results.json",
-        metrics = f"{TRAINING}/baselines/{{baseline}}_fold{{fold}}_seed{{seed}}/metrics.csv"
-    wildcard_constraints:
-        baseline = "|".join(BASELINES),
-        fold = "[0-4]",
-        seed = "[0-9]+"
-    params:
-        canonical_dir = CANONICAL
-    threads: 8
-    resources:
-        mem_mb = 128000,
-        runtime = 180,  # 3 hours (baselines train faster)
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/baselines/{{baseline}}/fold{{fold}}_seed{{seed}}.log"
-    shell:
-        """
-        python -m stagebridge.baselines.evaluate \
-            --data_dir {params.canonical_dir} \
-            --output_dir {TRAINING}/baselines \
-            --baseline {wildcards.baseline} \
-            --fold {wildcards.fold} \
-            --seed {wildcards.seed} \
-            2>&1 | tee {log}
-        """
-
-
-rule aggregate_baselines:
-    input:
-        # All baseline results (4 baselines × 5 folds × 3 seeds = 60 runs)
-        baseline_results = expand(
-            f"{TRAINING}/baselines/{{baseline}}_fold{{fold}}_seed{{seed}}/results.json",
-            baseline=BASELINES, fold=FOLDS, seed=SEEDS
-        ),
-        # Main model results for comparison
-        main_results = f"{TRAINING}/aggregated/cv_results.json"
-    output:
-        comparison = f"{TRAINING}/baselines/baseline_comparison.json",
-        latex_table = f"{TRAINING}/baselines/table_baseline_ladder.tex"
-    threads: 2
-    resources:
-        mem_mb = 16000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/aggregate_baselines.log"
-    shell:
-        """
-        python workflow/scripts/aggregate_baselines.py \
-            --baseline_dir {TRAINING}/baselines \
-            --main_results {input.main_results} \
-            --output_dir {TRAINING}/baselines \
-            --baselines pooling_mlp deep_sets set_transformer graph_sage \
-            --n_folds 5 \
-            --seeds 42 123 456 \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Stage 6: Ablation Studies (Parallelized by fold)
-# =============================================================================
-
-rule ablation_fold:
-    """Run single fold of an ablation - allows parallel execution across folds."""
-    input:
-        canonical = f"{CANONICAL}/data_manifest.json",
-        full_model = f"{TRAINING}/fold0_seed42/checkpoints/final_checkpoint.pt"
-    output:
-        checkpoint = f"{ABLATIONS}/{{ablation}}/{{ablation}}/fold_{{fold}}/checkpoints/final_checkpoint.pt",
-        results = f"{ABLATIONS}/{{ablation}}/{{ablation}}/fold_{{fold}}/results.json"
-    wildcard_constraints:
-        ablation = "|".join(ABLATIONS_LIST),
-        fold = "[0-4]"
-    params:
-        canonical_dir = CANONICAL
-    threads: 16
-    resources:
-        mem_mb = 128000,
-        runtime = 840,  # 14 hours per fold (140 epochs took 12h)
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/ablations/{{ablation}}_fold{{fold}}.log"
-    shell:
-        """
-        python -m stagebridge.pipelines.run_v1_ddp \
-            --data_dir {params.canonical_dir} \
-            --output_dir {ABLATIONS}/{wildcards.ablation}/{wildcards.ablation}/fold_{wildcards.fold} \
-            --validation_fold {wildcards.fold} \
-            --ssl_epochs 50 \
-            --transition_epochs 100 \
-            --batch_size 32 \
-            --lr 0.001 \
-            --latent_dim 40 \
-            $( [ "{wildcards.ablation}" = "no_niche" ] && echo "--no_niche" || true ) \
-            $( [ "{wildcards.ablation}" = "no_wes" ] && echo "--no_wes" || true ) \
-            $( [ "{wildcards.ablation}" = "pooled_niche" ] && echo "--pooled_niche" || true ) \
-            $( [ "{wildcards.ablation}" = "flat_hierarchy" ] && echo "--no_hierarchical" || true ) \
-            $( [ "{wildcards.ablation}" = "hlca_only" ] && echo "--fusion_mode hlca_only" || true ) \
-            $( [ "{wildcards.ablation}" = "luca_only" ] && echo "--fusion_mode luca_only" || true ) \
-            $( [ "{wildcards.ablation}" = "deterministic" ] && echo "--deterministic" || true ) \
-            $( [ "{wildcards.ablation}" = "with_prototypes" ] && echo "--use_prototypes" || true ) \
-            2>&1 | tee {log}
-        """
-
-
-rule ablation:
-    """Aggregate all folds of an ablation into summary files."""
-    input:
-        folds = expand(
-            f"{ABLATIONS}/{{{{ablation}}}}/{{{{ablation}}}}/fold_{{fold}}/results.json",
-            fold=FOLDS
-        )
-    output:
-        results = f"{ABLATIONS}/{{ablation}}/results.json",
-        metrics = f"{ABLATIONS}/{{ablation}}/metrics.csv"
-    wildcard_constraints:
-        ablation = "|".join(ABLATIONS_LIST)
-    threads: 2
-    resources:
-        mem_mb = 8000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/ablations/{{ablation}}_aggregate.log"
-    run:
-        import json
-        import pandas as pd
-        from pathlib import Path
-
-        all_results = []
-        for fold_file in input.folds:
-            with open(fold_file) as f:
-                fold_data = json.load(f)
-                fold_data["fold"] = int(Path(fold_file).parent.name.replace("fold_", ""))
-                all_results.append(fold_data)
-
-        # Aggregate metrics
-        metrics_df = pd.DataFrame(all_results)
-        metrics_df.to_csv(output.metrics, index=False)
-
-        # Summary with mean/std across folds
-        summary = {
-            "ablation": wildcards.ablation,
-            "n_folds": len(all_results),
-            "folds": all_results,
+        report = {
+            "created_at": datetime.now().isoformat(),
+            "n_folds": N_FOLDS,
+            "seed": SEED,
+            "paths": {
+                "data_dir": DATA_DIR,
+                "output_dir": OUTPUT_DIR,
+                "hlca_dir": HLCA_DIR,
+                "luca_dir": LUCA_DIR,
+            },
+            "full_model": {},
+            "baselines": {},
+            "ablations": {},
         }
-        with open(output.results, "w") as f:
-            json.dump(summary, f, indent=2)
+
+        # Aggregate full model results
+        full_metrics = []
+        for f in input.full_evals:
+            try:
+                with open(f) as fp:
+                    full_metrics.append(json.load(fp))
+            except Exception as e:
+                print(f"Warning: Could not load {f}: {e}")
+
+        if full_metrics:
+            report["full_model"] = {
+                "mean_w2": sum(m.get("wasserstein_distance", 0) for m in full_metrics) / len(full_metrics),
+                "mean_mmd": sum(m.get("mmd", 0) for m in full_metrics) / len(full_metrics),
+                "mean_displacement": sum(m.get("mean_displacement", 0) for m in full_metrics) / len(full_metrics),
+                "n_folds": len(full_metrics),
+            }
+
+        # Aggregate baseline results
+        for baseline in BASELINES:
+            baseline_files = [f for f in input.baseline_results if baseline in f]
+            metrics = []
+            for f in baseline_files:
+                try:
+                    with open(f) as fp:
+                        metrics.append(json.load(fp))
+                except Exception as e:
+                    print(f"Warning: Could not load {f}: {e}")
+            if metrics:
+                report["baselines"][baseline] = {
+                    "mean_val_loss": sum(m.get("metrics", {}).get("val_loss", 0) for m in metrics) / len(metrics),
+                    "n_parameters": metrics[0].get("n_parameters", "unknown"),
+                    "n_folds": len(metrics),
+                }
+
+        # Aggregate ablation results
+        for ablation in ABLATIONS:
+            ablation_files = [f for f in input.ablation_results if f"ablation_{ablation}" in f]
+            metrics = []
+            for f in ablation_files:
+                try:
+                    with open(f) as fp:
+                        metrics.append(json.load(fp))
+                except Exception as e:
+                    print(f"Warning: Could not load {f}: {e}")
+            if metrics:
+                report["ablations"][ablation] = {
+                    "mean_val_loss": sum(m.get("metrics", {}).get("val_loss", 0) for m in metrics) / len(metrics),
+                    "n_folds": len(metrics),
+                }
+
+        # Compute deltas vs full
+        full_loss = report["full_model"].get("mean_w2", 0) if report["full_model"] else 0
+        for baseline, data in report["baselines"].items():
+            data["delta_vs_full"] = data["mean_val_loss"] - full_loss
+        for ablation, data in report["ablations"].items():
+            data["delta_vs_full"] = data["mean_val_loss"] - full_loss
+
+        with open(output.report, "w") as f:
+            json.dump(report, f, indent=2)
+
+        print(f"Comparison report saved to {output.report}")
 
 
-rule ablation_summary:
+# =============================================================================
+# FIGURE GENERATION
+# =============================================================================
+
+rule run_inference_for_figures:
+    """Run inference to get embeddings, predictions, attention for figures."""
     input:
-        expand(ABLATIONS + "/{ablation}/results.json", ablation=ABLATIONS_LIST)
+        checkpoint=f"{OUTPUT_DIR}/full/fold_0/checkpoints/best_checkpoint.pt",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        summary = f"{ABLATIONS}/ablation_summary.json",
-        table = f"{ABLATIONS}/table3_main_results.csv",
-        latex = f"{ABLATIONS}/table3_main_results.tex"
-    threads: 2
+        embeddings=f"{OUTPUT_DIR}/inference/figure_data/embeddings.parquet",
+        predictions=f"{OUTPUT_DIR}/inference/figure_data/predictions.parquet",
+        attention=f"{OUTPUT_DIR}/inference/figure_data/attention_weights.npz",
+    params:
+        run_dir=f"{OUTPUT_DIR}/inference/figure_data",
     resources:
-        mem_mb = 8000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/ablation_summary.log"
-    script:
-        "scripts/summarize_ablations.py"
-
-
-rule ablation_comparison_figure:
-    """Generate publication-quality ablation comparison figure."""
-    input:
-        ablation_eval = f"{ABLATIONS}/evaluation/heldout_summary.json",
-        full_model_eval = f"{TRAINING}/evaluation/heldout_summary.json"
-    output:
-        figure = f"{FIGURES}/ablations/fig_ablation_comparison.png",
-        figure_pdf = f"{FIGURES}/ablations/fig_ablation_comparison.pdf"
-    threads: 2
-    resources:
-        mem_mb = 8000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/ablation_comparison_figure.log"
+        gpu=1,
+        runtime=240,  # 4 hours
+        mem_mb=32000,
     shell:
         """
-        python workflow/scripts/generate_ablation_comparison_figure.py \
-            --ablation_dir {ABLATIONS} \
-            --training_dir {TRAINING} \
-            --output_dir {FIGURES}/ablations \
-            --metrics wasserstein stage_accuracy auroc \
-            2>&1 | tee {log}
-        """
-
-
-rule ablation_waterfall_figure:
-    """Generate ablation waterfall figures showing component importance."""
-    input:
-        ablation_eval = f"{ABLATIONS}/evaluation/heldout_summary.json",
-        full_model_eval = f"{TRAINING}/evaluation/heldout_summary.json"
-    output:
-        waterfall = f"{FIGURES}/ablations/fig_waterfall_wasserstein.png",
-        multi = f"{FIGURES}/ablations/fig_waterfall_multi_metric.png",
-        importance = f"{FIGURES}/ablations/fig_component_importance.png"
-    threads: 2
-    resources:
-        mem_mb = 8000,
-        runtime = 15
-    log:
-        f"{RUNS}/logs/ablation_waterfall.log"
-    shell:
-        """
-        python workflow/scripts/generate_ablation_waterfall_figure.py \
-            --ablation_dir {ABLATIONS} \
-            --training_dir {TRAINING} \
-            --output_dir {FIGURES}/ablations \
-            --metrics wasserstein stage_accuracy auroc \
-            2>&1 | tee {log}
-        """
-
-
-rule extract_attention_weights:
-    """Extract attention weights from trained model for interpretability."""
-    input:
-        checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/final_checkpoint.pt",
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
-    output:
-        attention = f"{TRAINING}/fold0_seed42/evaluation/attention_weights.parquet",
-        summary = f"{TRAINING}/fold0_seed42/evaluation/attention_summary.json"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 120,
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/extract_attention_weights.log"
-    shell:
-        """
-        python workflow/scripts/extract_attention_weights.py \
+        python -m stagebridge.pipelines.infer \
             --checkpoint {input.checkpoint} \
-            --cells {input.cells} \
-            --neighborhoods {input.neighborhoods} \
-            --output_dir {TRAINING}/fold0_seed42/evaluation \
-            --max_cells 50000 \
-            2>&1 | tee {log}
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx 0 \
+            --save-embeddings \
+            --save-attention
         """
 
 
-rule niche_influence_figure:
-    """Generate SHAP-style niche influence visualization."""
+rule figures:
+    """Generate all publication figures."""
     input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        attention = f"{TRAINING}/fold0_seed42/evaluation/attention_weights.parquet"
+        f"{FIGURES_DIR}/fig1_architecture.pdf",
+        f"{FIGURES_DIR}/fig2_training_baselines.pdf",
+        f"{FIGURES_DIR}/fig3_ablations.pdf",
+        f"{FIGURES_DIR}/fig4_embedding_flow.pdf",
+        f"{FIGURES_DIR}/fig5_biological_validation.pdf",
+        f"{FIGURES_DIR}/fig6_phase_portrait.pdf",
+        f"{FIGURES_DIR}/fig7_trajectories.pdf",
+        f"{FIGURES_DIR}/fig8_spatial_attention.pdf",
+        f"{FIGURES_DIR}/fig9_novel_biology.pdf",
+
+
+rule fig1_architecture:
+    """Architecture diagram: 9-token receiver-centered niche model."""
     output:
-        beeswarm = f"{FIGURES}/niche/fig_niche_beeswarm.png",
-        summary = f"{FIGURES}/niche/fig_niche_summary.png",
-        heatmap = f"{FIGURES}/niche/fig_niche_heatmap.png",
-        combined = f"{FIGURES}/niche/fig_niche_influence_combined.png"
+        pdf=f"{FIGURES_DIR}/fig1_architecture.pdf",
+        png=f"{FIGURES_DIR}/fig1_architecture.png",
+    resources:
+        runtime=10,
+        mem_mb=4000,
+    shell:
+        """
+        python -m stagebridge.pipelines.generate_figures architecture \
+            --output {output.pdf}
+        """
+
+
+rule fig2_training_baselines:
+    """Training curves + baseline comparison bar chart."""
+    input:
+        report=f"{RESULTS_DIR}/comparison_report.json",
+        full_summaries=expand(f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json", fold=FOLDS),
+    output:
+        pdf=f"{FIGURES_DIR}/fig2_training_baselines.pdf",
+        png=f"{FIGURES_DIR}/fig2_training_baselines.png",
     params:
-        inference_dir = f"{TRAINING}/fold0_seed42/evaluation"
-    threads: 4
+        results_dir=RESULTS_DIR,
     resources:
-        mem_mb = 64000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/niche_influence_figure.log"
+        runtime=15,
+        mem_mb=8000,
     shell:
         """
-        python workflow/scripts/generate_niche_influence_figure.py \
-            --cells {input.cells} \
-            --neighborhoods {input.neighborhoods} \
-            --output_dir {FIGURES}/niche \
-            --inference_dir {params.inference_dir} \
-            2>&1 | tee {log}
+        python -m stagebridge.pipelines.generate_figures training \
+            --results-dir {params.results_dir} \
+            --output {output.pdf}
         """
 
 
-rule sankey_flow_figure:
-    """Generate Sankey/alluvial flow diagram showing cell transitions."""
+rule fig3_ablations:
+    """Ablation study: contribution of each component."""
     input:
-        cells = f"{CANONICAL}/cells.parquet",
-        training_done = f"{TRAINING}/aggregated/cv_results.json"
+        report=f"{RESULTS_DIR}/comparison_report.json",
     output:
-        sankey = f"{FIGURES}/flow/fig_sankey_flow.png",
-        alluvial = f"{FIGURES}/flow/fig_alluvial_composition.png"
+        pdf=f"{FIGURES_DIR}/fig3_ablations.pdf",
+        png=f"{FIGURES_DIR}/fig3_ablations.png",
     params:
-        inference_dir = f"{TRAINING}/fold0_seed42/evaluation"
-    threads: 4
+        results_dir=RESULTS_DIR,
     resources:
-        mem_mb = 32000,
-        runtime = 30
-    log:
-        f"{RUNS}/logs/sankey_flow_figure.log"
+        runtime=15,
+        mem_mb=8000,
     shell:
         """
-        python workflow/scripts/generate_sankey_flow_figure.py \
-            --cells {input.cells} \
-            --output_dir {FIGURES}/flow \
-            --inference_dir {params.inference_dir} \
-            2>&1 | tee {log}
+        python -m stagebridge.pipelines.generate_figures ablations \
+            --results-dir {params.results_dir} \
+            --output {output.pdf}
         """
 
 
-rule model_inference:
-    """Run model inference to generate transition_prob and niche_influence."""
+rule fig4_embedding_flow:
+    """UMAP/PHATE with velocity field - the money shot.
+
+    Shows temporal dynamics inferred from spatial snapshots:
+    - Panel A: Embedding colored by stage
+    - Panel B: Velocity arrows showing predicted transitions
+    - Panel C: Pseudotime density by stage
+    """
     input:
-        checkpoint = f"{TRAINING}/fold0_seed42/checkpoints/best_checkpoint.pt",
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
+        embeddings=f"{OUTPUT_DIR}/inference/figure_data/embeddings.parquet",
+        predictions=f"{OUTPUT_DIR}/inference/figure_data/predictions.parquet",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        inference = f"{TRAINING}/fold0_seed42/evaluation/model_inference.parquet"
-    threads: 4
+        pdf=f"{FIGURES_DIR}/fig4_embedding_flow.pdf",
+        png=f"{FIGURES_DIR}/fig4_embedding_flow.png",
     resources:
-        mem_mb = 128000,
-        runtime = 120,
-        gpu = 1
-    log:
-        f"{RUNS}/logs/model_inference.log"
+        runtime=30,
+        mem_mb=16000,
     shell:
         """
-        python workflow/scripts/run_model_inference.py \
-            --checkpoint {input.checkpoint} \
-            --cells {input.cells} \
-            --neighborhoods {input.neighborhoods} \
-            --output_dir {TRAINING}/fold0_seed42/evaluation \
-            2>&1 | tee {log}
+        python -m stagebridge.pipelines.generate_figures embedding_flow \
+            --embeddings {input.embeddings} \
+            --predictions {input.predictions} \
+            --cells {input.neighborhoods} \
+            --output {output.pdf}
         """
 
 
-rule spatial_niche_figure:
-    """Generate spatial niche visualization with risk maps."""
+rule fig5_biological_validation:
+    """Biological validation: IL1B axis, cell composition, attention patterns.
+
+    - Panel A: IL1B expression by stage
+    - Panel B: Cell type composition per stage
+    - Panel C: Attention weights highlighting key interactions
+    - Panel D: Transition probabilities
+    """
     input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet",
-        inference = f"{TRAINING}/fold0_seed42/evaluation/model_inference.parquet"
+        embeddings=f"{OUTPUT_DIR}/inference/figure_data/embeddings.parquet",
+        attention=f"{OUTPUT_DIR}/inference/figure_data/attention_weights.npz",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        risk = f"{FIGURES}/spatial/fig_spatial_risk.png",
-        composition = f"{FIGURES}/spatial/fig_spatial_niche_composition.png",
-        combined = f"{FIGURES}/spatial/fig_spatial_combined.png"
-    params:
-        inference_dir = f"{TRAINING}/fold0_seed42/evaluation"
-    threads: 4
+        pdf=f"{FIGURES_DIR}/fig5_biological_validation.pdf",
+        png=f"{FIGURES_DIR}/fig5_biological_validation.png",
     resources:
-        mem_mb = 64000,
-        runtime = 180
-    log:
-        f"{RUNS}/logs/spatial_niche_figure.log"
+        runtime=30,
+        mem_mb=16000,
     shell:
         """
-        python workflow/scripts/generate_spatial_niche_figure.py \
-            --cells {input.cells} \
-            --neighborhoods {input.neighborhoods} \
-            --output_dir {FIGURES}/spatial \
-            --inference_dir {params.inference_dir} \
-            2>&1 | tee {log}
+        python -m stagebridge.pipelines.generate_figures biological \
+            --embeddings {input.embeddings} \
+            --attention {input.attention} \
+            --cells {input.neighborhoods} \
+            --output {output.pdf}
         """
 
 
-rule dual_reference_figure:
-    """Generate dual-reference trajectory visualization."""
+rule fig6_phase_portrait:
+    """OSDR-style phase portrait with velocity field and fixed points."""
     input:
-        cells = f"{CANONICAL}/cells.parquet",
-        fused = f"{REF_GEOM}/fused_embedding.parquet"
+        embeddings=f"{OUTPUT_DIR}/inference/figure_data/embeddings.parquet",
+        predictions=f"{OUTPUT_DIR}/inference/figure_data/predictions.parquet",
     output:
-        trajectory_3d = f"{FIGURES}/embedding/fig_3d_trajectory.png",
-        reference_contrib = f"{FIGURES}/embedding/fig_reference_contribution.png",
-        flow_field = f"{FIGURES}/embedding/fig_flow_field.png",
-        combined = f"{FIGURES}/embedding/fig_embedding_combined.png"
-    threads: 4
+        pdf=f"{FIGURES_DIR}/fig6_phase_portrait.pdf",
+        png=f"{FIGURES_DIR}/fig6_phase_portrait.png",
     resources:
-        mem_mb = 64000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/dual_reference_figure.log"
+        runtime=30,
+        mem_mb=16000,
     shell:
         """
-        python workflow/scripts/generate_dual_reference_figure.py \
-            --cells {input.cells} \
-            --fused_embedding {input.fused} \
-            --output_dir {FIGURES}/embedding \
-            2>&1 | tee {log}
+        python -m stagebridge.pipelines.generate_figures phase_portrait \
+            --embeddings {input.embeddings} \
+            --predictions {input.predictions} \
+            --output {output.pdf}
+        """
+
+
+rule fig7_trajectories:
+    """OSDR-style trajectory simulations and population dynamics."""
+    input:
+        predictions=f"{OUTPUT_DIR}/inference/figure_data/predictions.parquet",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        pdf=f"{FIGURES_DIR}/fig7_trajectories.pdf",
+        png=f"{FIGURES_DIR}/fig7_trajectories.png",
+    resources:
+        runtime=30,
+        mem_mb=16000,
+    shell:
+        """
+        python -m stagebridge.pipelines.generate_figures trajectories \
+            --predictions {input.predictions} \
+            --cells {input.neighborhoods} \
+            --output {output.pdf}
+        """
+
+
+rule fig8_spatial_attention:
+    """AMICI-style spatial attention patterns and niche communication."""
+    input:
+        attention=f"{OUTPUT_DIR}/inference/figure_data/attention_weights.npz",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        pdf=f"{FIGURES_DIR}/fig8_spatial_attention.pdf",
+        png=f"{FIGURES_DIR}/fig8_spatial_attention.png",
+    resources:
+        runtime=30,
+        mem_mb=16000,
+    shell:
+        """
+        python -m stagebridge.pipelines.generate_figures spatial_attention \
+            --attention {input.attention} \
+            --cells {input.neighborhoods} \
+            --output {output.pdf}
+        """
+
+
+rule fig9_novel_biology:
+    """Key figure: Novel biological insights unique to StageBridge.
+
+    Demonstrates what our model reveals that standard methods miss:
+    - Niche-conditioned expression heterogeneity
+    - Attention-based causal direction inference
+    - Progression risk by microenvironment
+    - Continuous dynamics vs discrete annotations
+    """
+    input:
+        embeddings=f"{OUTPUT_DIR}/inference/figure_data/embeddings.parquet",
+        attention=f"{OUTPUT_DIR}/inference/figure_data/attention_weights.npz",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        pdf=f"{FIGURES_DIR}/fig9_novel_biology.pdf",
+        png=f"{FIGURES_DIR}/fig9_novel_biology.png",
+    resources:
+        runtime=30,
+        mem_mb=16000,
+    shell:
+        """
+        python -m stagebridge.pipelines.generate_figures novel_biology \
+            --embeddings {input.embeddings} \
+            --attention {input.attention} \
+            --cells {input.neighborhoods} \
+            --output {output.pdf}
         """
 
 
 # =============================================================================
-# Stage 7: Publication Figures
-# =============================================================================
-
-rule publication_figures:
-    input:
-        fused = f"{REF_GEOM}/fused_embedding.parquet",
-        spatial = f"{SPATIAL}/backend_comparison.json",
-        training = f"{TRAINING}/aggregated/publication_metrics.json",
-        ablations = f"{ABLATIONS}/ablation_summary.json"
-    output:
-        manifest = f"{FIGURES}/manifests/figure_manifest.json",
-        main_figs = directory(f"{FIGURES}/main"),
-        supp_figs = directory(f"{FIGURES}/supplementary")
-    threads: 8
-    resources:
-        mem_mb = 64000,
-        runtime = 120,  # 2 hours
-        slurm_partition = "gpu",
-        gpu = 1
-    log:
-        f"{RUNS}/logs/figures.log"
-    script:
-        "scripts/generate_publication_figures.py"
-
-
-rule embedding_figures:
-    """Generate advanced embedding visualizations from cells.parquet."""
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
-    output:
-        fig1 = f"{FIGURES}/embeddings/fig1_embedding_overview.png",
-        fig5 = f"{FIGURES}/embeddings/fig5_advanced_trajectory.png",
-        manifest = f"{FIGURES}/embeddings/manifest.json"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/embedding_figures.log"
-    shell:
-        """
-        mkdir -p {FIGURES}/embeddings
-
-        # Publication embedding figures (Fig 1-4)
-        python scripts/viz/publication_embedding_figures.py \
-            --data_dir {CANONICAL} \
-            --output_dir {FIGURES}/embeddings \
-            2>&1 | tee {log}
-
-        # Advanced trajectory figures (Fig 5-7)
-        python scripts/viz/advanced_embedding_figures.py \
-            --data_dir {CANONICAL} \
-            --output_dir {FIGURES}/embeddings \
-            2>&1 | tee -a {log}
-
-        # Create manifest
-        echo '{{"generated": "'$(date -Iseconds)'", "figures": 7}}' > {output.manifest}
-        """
-
-
-rule ot_dynamics_figures:
-    """Generate optimal transport flow field and dynamics visualizations.
-
-    Generates two figure sets:
-    1. Hero figure (main paper): Clean 2-panel with trajectories + Wasserstein ladder
-    2. Supplementary: Full 12-panel with Helmholtz decomposition, flux analysis
-    """
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        training_done = f"{TRAINING}/aggregated/cv_results.json"
-    output:
-        main_fig = f"{FIGURES}/dynamics/fig_ot_dynamics.png",
-        hero_fig = f"{FIGURES}/dynamics/fig_flow_hero.png",
-        hero_pdf = f"{FIGURES}/dynamics/fig_flow_hero.pdf",
-        metrics = f"{FIGURES}/dynamics/flow_metrics.json"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/ot_dynamics_figures.log"
-    shell:
-        """
-        mkdir -p {FIGURES}/dynamics
-
-        # Hero figure for main paper (Nature Methods style)
-        python scripts/viz/publication_flow_hero.py \
-            --data_dir {CANONICAL} \
-            --output_dir {FIGURES}/dynamics \
-            2>&1 | tee {log}
-
-        # Supplementary figure with full analysis
-        python scripts/viz/publication_ot_dynamics.py \
-            --data_dir {CANONICAL} \
-            --output_dir {FIGURES}/dynamics \
-            2>&1 | tee -a {log}
-        """
-
-
-rule spatial_backend_figures:
-    """Generate publication-quality spatial backend comparison figures.
-
-    Collects the per-sample backend comparison grids and creates a showcase
-    figure with representative samples from each stage.
-    """
-    input:
-        comparison = f"{SPATIAL}/backend_comparison.json",
-        unified_hlca = f"{SPATIAL}/hlca/figures/unified_comparison/.done",
-    output:
-        showcase = f"{FIGURES}/spatial_backends/fig_backend_grid_showcase.png",
-        showcase_pdf = f"{FIGURES}/spatial_backends/fig_backend_grid_showcase.pdf",
-        manifest = f"{FIGURES}/spatial_backends/manifest.json"
-    threads: 4
-    resources:
-        mem_mb = 32000,
-        runtime = 60
-    log:
-        f"{RUNS}/logs/spatial_backend_figures.log"
-    shell:
-        """
-        mkdir -p {FIGURES}/spatial_backends
-
-        python scripts/viz/publication_spatial_backends.py \
-            --spatial_dir {SPATIAL} \
-            --output_dir {FIGURES}/spatial_backends \
-            2>&1 | tee {log}
-        """
-
-
-rule showcase_figures:
-    """Generate dramatic showcase figures for posters and publications.
-
-    Includes:
-    - 3D progression visualization
-    - Density contours
-    - PAGA-style connectivity graph
-    - Pseudotime ridge plot
-    - Cell type alluvial diagram
-    - Hero summary figure
-    """
-    input:
-        cells = f"{CANONICAL}/cells.parquet",
-        neighborhoods = f"{CANONICAL}/neighborhoods.parquet"
-    output:
-        hero = f"{FIGURES}/showcase/fig_hero_summary.png",
-        hero_pdf = f"{FIGURES}/showcase/fig_hero_summary.pdf",
-        progression_3d = f"{FIGURES}/showcase/fig_3d_progression.png",
-        density = f"{FIGURES}/showcase/fig_density_contours.png",
-        paga = f"{FIGURES}/showcase/fig_paga_style.png",
-        ridge = f"{FIGURES}/showcase/fig_pseudotime_ridge.png",
-        alluvial = f"{FIGURES}/showcase/fig_celltype_alluvial.png",
-        manifest = f"{FIGURES}/showcase/manifest.json"
-    threads: 4
-    resources:
-        mem_mb = 64000,
-        runtime = 90
-    log:
-        f"{RUNS}/logs/showcase_figures.log"
-    shell:
-        """
-        mkdir -p {FIGURES}/showcase
-
-        python scripts/viz/publication_showcase_figures.py \
-            --data_dir {CANONICAL} \
-            --output_dir {FIGURES}/showcase \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# Utility Rules
+# UTILITY TARGETS
 # =============================================================================
 
 rule clean:
-    params:
-        runs_dir = RUNS,
-        ref_geom_dir = REF_GEOM,
-        canonical_dir = CANONICAL
+    """Remove all outputs."""
     shell:
-        """
-        echo "This would remove all outputs. Use with caution!"
-        echo "Run: rm -rf {params.runs_dir}/* {params.ref_geom_dir}/* {params.canonical_dir}/*"
-        """
+        "rm -rf {OUTPUT_DIR}"
 
 
-rule dag:
-    output:
-        "workflow/dag.pdf"
+rule clean_figures:
+    """Remove only figures, keep training artifacts."""
     shell:
-        "snakemake --dag | dot -Tpdf > {output}"
+        "rm -rf {FIGURES_DIR}"
 
 
-# =============================================================================
-# Execution DAG (Snakemake handles this automatically based on input/output)
-# =============================================================================
-#
-# STAGE 1-2: Reference Mapping (parallel)
-#
-#   snrna_qc_normalized_with_ensg.h5ad
-#              │
-#     ┌────────┴────────┐
-#     ▼                 ▼
-#  hlca_mapping    luca_mapping
-#     │                 │
-#     ├────────┬────────┤
-#     │        ▼        │
-#     │  fuse_embeddings│
-#     │        │        │
-#     ▼        │        ▼
-#  add_cell_type_labels ←┘
-#              │
-#              ▼
-#       validate_markers
-#              │
-#     ┌────────┴────────┐
-#     │                 │
-#     ▼                 ▼
-# clonal_extraction  spatial_backend (8 backends × 2 label sources × 56 samples)
-#     │                 │
-#     │        ┌────────┴────────┐
-#     │        ▼                 ▼
-#     │  spatial_aggregate  spatial_unified_figures
-#     │        │                 │
-#     │        └────────┬────────┘
-#     │                 ▼
-#     │        spatial_comparison ──→ backend_comparison.json
-#     │                 │
-#     │                 ▼
-#     │        canonical_backend_aggregate
-#     │                 │
-#     └────────┬────────┘
-#              ▼
-# STAGE 4: Data Preparation
-#
-#       data_preparation (merges: fused embedding + canonical spatial + clonal patterns)
-#              │
-#     ┌────────┴────────┐
-#     ▼                 ▼
-# validate_splits  semi_synthetic_benchmark
-#     │                 │
-#     └────────┬────────┘
-#              ▼
-# STAGE 5: Training & Validation
-#
-#            hpo (30 Optuna trials)
-#              │
-#     ┌────────┴────────┬────────────────┐
-#     ▼                 ▼                ▼
-#  training         training_frozen   baseline
-#  (5×3=15)         (5×3=15)          (4×5×3=60)
-#     │                 │                │
-#     ▼                 │                ▼
-# aggregate_cv_results  │         aggregate_baselines
-#     │                 │                │
-#     ├─────────────────┴────────────────┤
-#     │                                  │
-#     ▼                                  ▼
-# h3_validation                    baseline_comparison.json
-#     │
-#     ▼
-# STAGE 6-7: Ablation & Publication
-#
-#  ablation (14 configurations)
-#     │
-#     ▼
-# ablation_summary
-#     │
-#     ├─────────────────────────────────┐
-#     ▼                                 ▼
-# publication_figures            figure_manifest.json
-#
-# =============================================================================
-# Key Outputs:
-#   - clonal_patterns.json: Donor → pattern (1a/1b/2) mapping for H3 validation
-#   - cells.parquet: All cells with clonal_pattern + clonal_pattern_idx columns
-#   - h3_validation.json: H3.1 (AUC, OR) + H3.2 (p-value, effect size) results
-# =============================================================================
-#
+rule dry_run:
+    """Show what would be executed."""
+    shell:
+        "snakemake -n --quiet"

@@ -1,0 +1,8 @@
+# Ablation: No Context Gate
+# Tests: Is the learnable gate necessary? (fix gate=1, always use context)
+
+ablation_type: no_gate
+
+# Modifications
+model:
+  _ablation_: fix_gate_one

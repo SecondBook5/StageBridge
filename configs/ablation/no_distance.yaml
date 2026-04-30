@@ -1,0 +1,8 @@
+# Ablation: No Distance Encoding
+# Tests: Does spatial distance information help?
+
+ablation_type: no_distance
+
+# Modifications
+model:
+  _ablation_: zero_distance_bias

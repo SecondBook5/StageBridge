@@ -1,0 +1,20 @@
+# Data Configuration
+
+# Stage system (from contracts)
+stage_system: "3"  # "3", "4", or "5"
+
+# Stage pairs to train on
+# Format: [[src, tgt], ...]
+# null = all consecutive pairs
+stage_pairs: null
+
+# Filtering
+min_cells_per_donor: 100
+min_cells_per_stage: 50
+
+# Augmentation
+augment_distances: false
+distance_noise_std: 0.0
+
+# Sampling
+oversample_minority: false

@@ -1,0 +1,29 @@
+# Training Configuration
+
+# Optimization
+num_epochs: 100
+learning_rate: 1e-4
+weight_decay: 1e-5
+warmup_epochs: 5
+min_lr: 1e-6
+gradient_clip: 1.0
+
+# OT-CFM parameters
+ot_epsilon: 0.05
+sinkhorn_iters: 80
+num_ot_pairs: 512
+use_ot: true
+sigma: 0.0  # Brownian bridge noise (0 = deterministic)
+
+# Loss weights
+flow_matching_weight: 1.0
+entropy_weight: 0.01
+
+# Checkpointing
+checkpoint_every: 10
+keep_top_k: 3
+eval_every: 1
+
+# Batch settings
+batch_size: 64
+accumulation_steps: 1

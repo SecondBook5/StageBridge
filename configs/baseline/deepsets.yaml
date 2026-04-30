@@ -1,0 +1,12 @@
+# Baseline: DeepSets
+# Permutation-invariant architecture: rho(sum(phi(x_i)))
+
+baseline_name: deepsets
+
+model:
+  _target_: stagebridge.baselines.DeepSets
+  input_dim: 40
+  hidden_dim: 128
+  phi_layers: 2
+  rho_layers: 2
+  dropout: 0.1

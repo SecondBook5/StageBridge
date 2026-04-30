@@ -1,0 +1,11 @@
+# StageBridge Large Configuration
+# More capacity for larger datasets
+
+defaults:
+  - stagebridge
+
+hidden_dim: 256
+num_heads: 8
+num_encoder_layers: 4
+time_dim: 64
+stage_dim: 64

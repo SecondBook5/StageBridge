@@ -1,0 +1,11 @@
+# Ablation: With WES Features (if not default)
+# Tests: Does adding whole-exome sequencing features improve predictions?
+
+ablation_type: with_wes
+
+# Modifications - enable evolution branch
+model:
+  use_evolution_branch: true
+  evolution_dim: 8  # WES_DIM from contracts
+  evolution_mode: gated
+  _ablation_: enable_wes

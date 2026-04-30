@@ -1,417 +1,314 @@
-"""
-Evaluation metrics for StageBridge V1.
+"""Evaluation metrics for StageBridge predictions.
 
-Implements all metrics from evaluation_protocol.md:
-- Transition quality (Wasserstein, MMD, MSE)
-- Uncertainty quantification (ECE, coverage)
-- Evolutionary compatibility (matched vs mismatched gap)
-- Niche influence (ablation sensitivity)
-- Representation quality (Silhouette, ARI, NMI)
-- Batch integration (kBET, LISI)
+Metrics:
+- Wasserstein distance (W2): Optimal transport distance between predicted and true distributions
+- MMD: Maximum Mean Discrepancy with RBF kernel
+- Mean displacement: Average L2 distance of predictions from ground truth
+- Stage accuracy: Nearest-neighbor stage classification accuracy
 """
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
-from scipy.stats import wasserstein_distance
 from scipy.spatial.distance import cdist
-from sklearn.metrics import (
-    adjusted_rand_score,
-    normalized_mutual_info_score,
-    silhouette_score,
-)
-from sklearn.neighbors import NearestNeighbors
+from scipy.stats import wasserstein_distance
+from sklearn.neighbors import KNeighborsClassifier
+
+from stagebridge.contracts import LATENT_DIM
 
 
-def wasserstein_nd_distance(pred: np.ndarray, target: np.ndarray) -> float:
-    """Compute multivariate Wasserstein distance (sliced approximation)."""
-    if pred.ndim == 1:
-        return wasserstein_distance(pred, target)
-
-    n_projections = 100
-    dim = pred.shape[1]
-    distances = []
-
-    for _ in range(n_projections):
-        theta = np.random.randn(dim)
-        theta /= np.linalg.norm(theta)
-        pred_proj = pred @ theta
-        target_proj = target @ theta
-        distances.append(wasserstein_distance(pred_proj, target_proj))
-
-    return np.mean(distances)
-
-
-def maximum_mean_discrepancy(pred: np.ndarray, target: np.ndarray, sigma: float = 1.0) -> float:
-    """Compute Maximum Mean Discrepancy with RBF kernel."""
-    n_pred = pred.shape[0]
-    n_target = target.shape[0]
-
-    xx = np.exp(-cdist(pred, pred, "sqeuclidean") / (2 * sigma**2))
-    yy = np.exp(-cdist(target, target, "sqeuclidean") / (2 * sigma**2))
-    xy = np.exp(-cdist(pred, target, "sqeuclidean") / (2 * sigma**2))
-
-    mmd_sq = (
-        xx.sum() / (n_pred * (n_pred - 1))
-        - 2 * xy.sum() / (n_pred * n_target)
-        + yy.sum() / (n_target * (n_target - 1))
-    )
-
-    return np.sqrt(max(mmd_sq, 0))
-
-
-def expected_calibration_error(
-    confidences: np.ndarray, accuracies: np.ndarray, n_bins: int = 10
+def compute_wasserstein(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    method: Literal["sliced", "sinkhorn"] = "sliced",
+    n_projections: int = 100,
 ) -> float:
-    """Compute Expected Calibration Error."""
-    bin_edges = np.linspace(0, 1, n_bins + 1)
-    ece = 0.0
+    """Compute Wasserstein distance between predicted and target distributions.
 
-    for i in range(n_bins):
-        mask = (confidences >= bin_edges[i]) & (confidences < bin_edges[i + 1])
-        if mask.sum() == 0:
-            continue
-        bin_confidence = confidences[mask].mean()
-        bin_accuracy = accuracies[mask].mean()
-        bin_weight = mask.sum() / len(confidences)
-        ece += bin_weight * np.abs(bin_confidence - bin_accuracy)
+    Args:
+        predicted: [N, D] predicted embeddings
+        target: [M, D] target embeddings
+        method: "sliced" (fast, approximate) or "sinkhorn" (exact but slower)
+        n_projections: Number of random projections for sliced W2
 
-    return ece
+    Returns:
+        Wasserstein-2 distance
+    """
+    predicted = np.asarray(predicted, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+
+    if predicted.ndim == 1:
+        predicted = predicted.reshape(-1, 1)
+    if target.ndim == 1:
+        target = target.reshape(-1, 1)
+
+    if method == "sliced":
+        return _sliced_wasserstein(predicted, target, n_projections)
+    else:
+        return _sinkhorn_wasserstein(predicted, target)
 
 
-def compute_all_metrics(
-    pred_embeddings: np.ndarray, target_embeddings: np.ndarray
+def _sliced_wasserstein(
+    x: np.ndarray,
+    y: np.ndarray,
+    n_projections: int = 100,
+) -> float:
+    """Sliced Wasserstein distance (fast approximation)."""
+    d = x.shape[1]
+    rng = np.random.default_rng(42)
+
+    distances = []
+    for _ in range(n_projections):
+        theta = rng.standard_normal(d)
+        theta /= np.linalg.norm(theta)
+
+        x_proj = x @ theta
+        y_proj = y @ theta
+
+        x_sorted = np.sort(x_proj)
+        y_sorted = np.sort(y_proj)
+
+        # Interpolate to same size if needed
+        n = min(len(x_sorted), len(y_sorted))
+        x_interp = np.interp(np.linspace(0, 1, n), np.linspace(0, 1, len(x_sorted)), x_sorted)
+        y_interp = np.interp(np.linspace(0, 1, n), np.linspace(0, 1, len(y_sorted)), y_sorted)
+
+        distances.append(np.mean((x_interp - y_interp) ** 2))
+
+    return np.sqrt(np.mean(distances))
+
+
+def _sinkhorn_wasserstein(
+    x: np.ndarray,
+    y: np.ndarray,
+    epsilon: float = 0.1,
+    max_iters: int = 100,
+) -> float:
+    """Sinkhorn Wasserstein distance."""
+    n, m = len(x), len(y)
+    C = cdist(x, y, metric="sqeuclidean")
+
+    K = np.exp(-C / epsilon)
+    u = np.ones(n) / n
+    v = np.ones(m) / m
+
+    a = np.ones(n) / n
+    b = np.ones(m) / m
+
+    for _ in range(max_iters):
+        u = a / (K @ v + 1e-10)
+        v = b / (K.T @ u + 1e-10)
+
+    pi = np.diag(u) @ K @ np.diag(v)
+    return np.sqrt(np.sum(pi * C))
+
+
+def compute_mmd(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    kernel: Literal["rbf", "linear"] = "rbf",
+    bandwidth: float | None = None,
+) -> float:
+    """Compute Maximum Mean Discrepancy.
+
+    Args:
+        predicted: [N, D] predicted embeddings
+        target: [M, D] target embeddings
+        kernel: "rbf" or "linear"
+        bandwidth: RBF bandwidth (None = median heuristic)
+
+    Returns:
+        MMD^2 value
+    """
+    predicted = np.asarray(predicted, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+
+    if kernel == "linear":
+        return _linear_mmd(predicted, target)
+    else:
+        return _rbf_mmd(predicted, target, bandwidth)
+
+
+def _linear_mmd(x: np.ndarray, y: np.ndarray) -> float:
+    """Linear kernel MMD."""
+    xx = np.mean(x @ x.T)
+    yy = np.mean(y @ y.T)
+    xy = np.mean(x @ y.T)
+    return xx + yy - 2 * xy
+
+
+def _rbf_mmd(
+    x: np.ndarray,
+    y: np.ndarray,
+    bandwidth: float | None = None,
+) -> float:
+    """RBF kernel MMD with median heuristic for bandwidth."""
+    if bandwidth is None:
+        combined = np.vstack([x, y])
+        dists = cdist(combined, combined, metric="sqeuclidean")
+        bandwidth = np.median(dists[dists > 0])
+        bandwidth = max(bandwidth, 1e-6)
+
+    def rbf_kernel(a, b):
+        dists = cdist(a, b, metric="sqeuclidean")
+        return np.exp(-dists / (2 * bandwidth))
+
+    kxx = rbf_kernel(x, x)
+    kyy = rbf_kernel(y, y)
+    kxy = rbf_kernel(x, y)
+
+    n, m = len(x), len(y)
+
+    # Unbiased estimator
+    mmd = (np.sum(kxx) - np.trace(kxx)) / (n * (n - 1))
+    mmd += (np.sum(kyy) - np.trace(kyy)) / (m * (m - 1))
+    mmd -= 2 * np.mean(kxy)
+
+    return max(0, mmd)
+
+
+def compute_displacement(
+    predicted: np.ndarray,
+    target: np.ndarray,
 ) -> dict[str, float]:
-    """Compute all standard metrics."""
+    """Compute displacement statistics between paired predictions and targets.
+
+    Args:
+        predicted: [N, D] predicted embeddings
+        target: [N, D] target embeddings (must be same length, paired)
+
+    Returns:
+        Dict with mean, std, median, max displacement
+    """
+    predicted = np.asarray(predicted, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+
+    if len(predicted) != len(target):
+        raise ValueError(f"Length mismatch: {len(predicted)} vs {len(target)}")
+
+    displacements = np.linalg.norm(predicted - target, axis=1)
+
     return {
-        "wasserstein": wasserstein_nd_distance(pred_embeddings, target_embeddings),
-        "mmd": maximum_mean_discrepancy(pred_embeddings, target_embeddings),
-        "mse": float(np.mean((pred_embeddings - target_embeddings) ** 2)),
-        "mae": float(np.mean(np.abs(pred_embeddings - target_embeddings))),
+        "mean_displacement": float(np.mean(displacements)),
+        "std_displacement": float(np.std(displacements)),
+        "median_displacement": float(np.median(displacements)),
+        "max_displacement": float(np.max(displacements)),
     }
 
 
-# ============================================================================
-# Representation Quality Metrics (Silhouette, ARI, NMI)
-# ============================================================================
-
-
-def compute_silhouette(embeddings: np.ndarray, labels: np.ndarray) -> float:
-    """Compute Silhouette score for cluster quality.
-
-    Higher values indicate better-defined clusters.
-    Range: [-1, 1], with 1 being best.
-    """
-    unique_labels = np.unique(labels)
-    if len(unique_labels) < 2:
-        return 0.0  # Need at least 2 clusters
-    return float(silhouette_score(embeddings, labels))
-
-
-def compute_ari(labels_true: np.ndarray, labels_pred: np.ndarray) -> float:
-    """Compute Adjusted Rand Index between two clusterings.
-
-    Measures similarity between clusterings, adjusted for chance.
-    Range: [-1, 1], with 1 being perfect agreement.
-    """
-    return float(adjusted_rand_score(labels_true, labels_pred))
-
-
-def compute_nmi(labels_true: np.ndarray, labels_pred: np.ndarray) -> float:
-    """Compute Normalized Mutual Information between two clusterings.
-
-    Measures mutual information normalized by entropy.
-    Range: [0, 1], with 1 being perfect agreement.
-    """
-    return float(normalized_mutual_info_score(labels_true, labels_pred))
-
-
-# ============================================================================
-# Batch Integration Metrics (kBET, LISI)
-# ============================================================================
-
-
-def compute_kbet(
-    embeddings: np.ndarray,
-    batch_labels: np.ndarray,
-    k: int = 50,
-    n_samples: int = 1000,
-    seed: int = 42,
+def compute_stage_accuracy(
+    predicted: np.ndarray,
+    reference_embeddings: np.ndarray,
+    reference_stages: np.ndarray,
+    k: int = 5,
 ) -> dict[str, float]:
-    """Compute k-nearest neighbor Batch Effect Test (kBET).
-
-    Measures how well batches are mixed in the embedding space.
-    For each cell, tests if the batch distribution in its k-neighborhood
-    matches the global batch distribution (chi-squared test).
+    """Compute stage classification accuracy via k-NN.
 
     Args:
-        embeddings: Cell embeddings (n_cells, n_dims)
-        batch_labels: Batch labels for each cell
-        k: Number of neighbors to consider
-        n_samples: Number of cells to sample for testing
-        seed: Random seed for sampling
+        predicted: [N, D] predicted embeddings
+        reference_embeddings: [M, D] reference set with known stages
+        reference_stages: [M] stage labels for reference
+        k: Number of neighbors for k-NN
 
     Returns:
-        Dictionary with:
-        - acceptance_rate: Fraction of cells that pass the test (higher = better mixing)
-        - mean_rejection_rate: Mean rejection rate (lower = better mixing)
+        Dict with accuracy, per-class accuracy
     """
-    rng = np.random.default_rng(seed)
-    n_cells = embeddings.shape[0]
+    predicted = np.asarray(predicted, dtype=np.float64)
+    reference_embeddings = np.asarray(reference_embeddings, dtype=np.float64)
+    reference_stages = np.asarray(reference_stages)
 
-    # Sample cells if dataset is large
-    if n_cells > n_samples:
-        sample_idx = rng.choice(n_cells, size=n_samples, replace=False)
-    else:
-        sample_idx = np.arange(n_cells)
+    knn = KNeighborsClassifier(n_neighbors=k)
+    knn.fit(reference_embeddings, reference_stages)
 
-    # Compute global batch frequencies
-    unique_batches, batch_counts = np.unique(batch_labels, return_counts=True)
-    global_freq = batch_counts / batch_counts.sum()
+    predicted_stages = knn.predict(predicted)
 
-    # Build k-NN index
-    k_use = min(k, n_cells - 1)
-    nn = NearestNeighbors(n_neighbors=k_use + 1, algorithm="auto")
-    nn.fit(embeddings)
+    # Overall accuracy
+    accuracy = float(np.mean(predicted_stages == reference_stages[:len(predicted)]))
 
-    # Test each sampled cell
-    rejections = []
-    for idx in sample_idx:
-        # Get k-neighborhood (excluding self)
-        _, neighbors = nn.kneighbors(embeddings[idx : idx + 1])
-        neighbor_batches = batch_labels[neighbors[0, 1:]]  # Exclude self
+    # Per-class accuracy
+    unique_stages = np.unique(reference_stages)
+    per_class = {}
+    for stage in unique_stages:
+        mask = reference_stages[:len(predicted)] == stage
+        if mask.sum() > 0:
+            per_class[str(stage)] = float(np.mean(predicted_stages[mask] == stage))
 
-        # Compute local batch frequencies
-        local_counts = np.array(
-            [np.sum(neighbor_batches == b) for b in unique_batches]
+    return {
+        "stage_accuracy": accuracy,
+        "per_class_accuracy": per_class,
+    }
+
+
+def evaluate_predictions(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    reference_embeddings: np.ndarray | None = None,
+    reference_stages: np.ndarray | None = None,
+) -> dict[str, float]:
+    """Compute all evaluation metrics.
+
+    Args:
+        predicted: [N, D] predicted embeddings
+        target: [N, D] target embeddings (paired with predicted)
+        reference_embeddings: Optional [M, D] for stage accuracy
+        reference_stages: Optional [M] stage labels
+
+    Returns:
+        Dict with all metrics
+    """
+    predicted = np.asarray(predicted, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+
+    if predicted.shape[1] != LATENT_DIM:
+        raise ValueError(f"Expected dim {LATENT_DIM}, got {predicted.shape[1]}")
+
+    metrics = {}
+
+    # Distribution metrics
+    metrics["wasserstein_distance"] = compute_wasserstein(predicted, target)
+    metrics["mmd"] = compute_mmd(predicted, target)
+
+    # Displacement metrics
+    disp = compute_displacement(predicted, target)
+    metrics.update(disp)
+
+    # Stage accuracy (if reference provided)
+    if reference_embeddings is not None and reference_stages is not None:
+        stage_metrics = compute_stage_accuracy(
+            predicted, reference_embeddings, reference_stages
         )
-        local_freq = local_counts / local_counts.sum()
+        metrics.update(stage_metrics)
 
-        # Chi-squared test statistic (simplified)
-        expected = global_freq * k_use
-        observed = local_counts
-        # Avoid division by zero
-        mask = expected > 0
-        chi2 = np.sum((observed[mask] - expected[mask]) ** 2 / expected[mask])
-
-        # Degrees of freedom = number of batches - 1
-        df = len(unique_batches) - 1
-        if df <= 0:
-            rejections.append(0)
-            continue
-
-        # Approximate p-value using chi-squared distribution
-        # Rejection at alpha=0.05
-        from scipy.stats import chi2 as chi2_dist
-
-        p_value = 1 - chi2_dist.cdf(chi2, df)
-        rejections.append(1 if p_value < 0.05 else 0)
-
-    rejection_rate = np.mean(rejections)
-    return {
-        "acceptance_rate": float(1 - rejection_rate),
-        "mean_rejection_rate": float(rejection_rate),
-    }
+    return metrics
 
 
-def compute_lisi(
-    embeddings: np.ndarray,
-    labels: np.ndarray,
-    k: int = 30,
-) -> dict[str, float]:
-    """Compute Local Inverse Simpson's Index (LISI).
+if __name__ == "__main__":
+    import argparse
+    import json
+    from pathlib import Path
+    import pandas as pd
 
-    Measures local diversity of labels in the embedding space.
-    For each cell, computes the effective number of labels in its k-neighborhood.
+    parser = argparse.ArgumentParser(description="Evaluate predictions")
+    parser.add_argument("--predictions", required=True, type=Path)
+    parser.add_argument("--reference", required=True, type=Path)
+    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--fold-idx", type=int, default=0)
+    args = parser.parse_args()
 
-    For batch labels (iLISI): Higher = better batch mixing
-    For cell type labels (cLISI): Lower = better cell type separation
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    Args:
-        embeddings: Cell embeddings (n_cells, n_dims)
-        labels: Labels for each cell (batch or cell type)
-        k: Number of neighbors to consider
+    pred_df = pd.read_parquet(args.predictions)
+    ref_df = pd.read_parquet(args.reference)
 
-    Returns:
-        Dictionary with:
-        - mean_lisi: Mean LISI score across all cells
-        - median_lisi: Median LISI score
-        - std_lisi: Standard deviation of LISI scores
-    """
-    n_cells = embeddings.shape[0]
-    k_use = min(k, n_cells - 1)
+    predicted = np.array(pred_df["predicted_z"].tolist())
+    target = ref_df["receiver_z"].values[:len(predicted)]
+    target = np.array([np.array(x) for x in target])
 
-    # Build k-NN index
-    nn = NearestNeighbors(n_neighbors=k_use + 1, algorithm="auto")
-    nn.fit(embeddings)
+    metrics = evaluate_predictions(predicted, target)
 
-    # Get all neighbors at once for efficiency
-    distances, indices = nn.kneighbors(embeddings)
+    with open(args.output_dir / "evaluation.json", "w") as f:
+        json.dump(metrics, f, indent=2)
 
-    # Compute LISI for each cell
-    lisi_scores = []
-    for i in range(n_cells):
-        # Get neighbor labels (excluding self)
-        neighbor_labels = labels[indices[i, 1:]]
-
-        # Compute label frequencies in neighborhood
-        _, counts = np.unique(neighbor_labels, return_counts=True)
-        freqs = counts / counts.sum()
-
-        # Simpson's Index = sum(p^2)
-        # Inverse Simpson's = 1 / sum(p^2)
-        simpson_index = np.sum(freqs**2)
-        lisi = 1.0 / simpson_index if simpson_index > 0 else 1.0
-        lisi_scores.append(lisi)
-
-    lisi_arr = np.array(lisi_scores)
-    return {
-        "mean_lisi": float(np.mean(lisi_arr)),
-        "median_lisi": float(np.median(lisi_arr)),
-        "std_lisi": float(np.std(lisi_arr)),
-    }
-
-
-def compute_batch_integration_metrics(
-    embeddings: np.ndarray,
-    batch_labels: np.ndarray,
-    cell_type_labels: np.ndarray | None = None,
-    k: int = 30,
-) -> dict[str, float]:
-    """Compute all batch integration metrics.
-
-    Args:
-        embeddings: Cell embeddings (n_cells, n_dims)
-        batch_labels: Batch labels for each cell
-        cell_type_labels: Optional cell type labels for cLISI
-        k: Number of neighbors for kBET and LISI
-
-    Returns:
-        Dictionary with kBET acceptance rate, iLISI, and optionally cLISI.
-    """
-    results = {}
-
-    # kBET
-    kbet = compute_kbet(embeddings, batch_labels, k=k)
-    results["kbet_acceptance_rate"] = kbet["acceptance_rate"]
-
-    # iLISI (integration LISI - for batches)
-    ilisi = compute_lisi(embeddings, batch_labels, k=k)
-    results["ilisi_mean"] = ilisi["mean_lisi"]
-
-    # cLISI (cell type LISI) if cell types provided
-    if cell_type_labels is not None:
-        clisi = compute_lisi(embeddings, cell_type_labels, k=k)
-        results["clisi_mean"] = clisi["mean_lisi"]
-
-    return results
-
-
-def compute_representation_metrics(
-    embeddings: np.ndarray,
-    labels: np.ndarray,
-    labels_pred: np.ndarray | None = None,
-) -> dict[str, float]:
-    """Compute all representation quality metrics.
-
-    Args:
-        embeddings: Cell embeddings (n_cells, n_dims)
-        labels: True cluster/cell type labels
-        labels_pred: Optional predicted labels for ARI/NMI
-
-    Returns:
-        Dictionary with Silhouette, and optionally ARI/NMI.
-    """
-    results = {
-        "silhouette": compute_silhouette(embeddings, labels),
-    }
-
-    if labels_pred is not None:
-        results["ari"] = compute_ari(labels, labels_pred)
-        results["nmi"] = compute_nmi(labels, labels_pred)
-
-    return results
-
-
-class MetricsTracker:
-    """Track metrics across folds and ablations."""
-
-    def __init__(self):
-        self.data = []
-
-    def add(self, metrics: dict[str, float], fold: int | None = None, ablation: str | None = None):
-        self.data.append({"metrics": metrics, "fold": fold, "ablation": ablation})
-
-    def summarize(self):
-        """Summarize with mean and std."""
-        if not self.data:
-            return {}
-
-        all_metrics = [e["metrics"] for e in self.data]
-        metric_names = set(all_metrics[0].keys())
-
-        summary = {}
-        for name in metric_names:
-            values = [m[name] for m in all_metrics]
-            summary[name] = {
-                "mean": float(np.mean(values)),
-                "std": float(np.std(values)),
-            }
-
-        return summary
-
-
-# Legacy EA-MIST functions (deprecated - use V1 pipeline)
-def rollout_edge_transition(
-    model, x_src, context=None, context_tokens=None, edge_id=0, num_steps=8, stochastic=False
-):
-    """
-    Legacy function for EA-MIST compatibility.
-
-    This function is deprecated. Use the V1 pipeline in run_v1_full.py instead.
-    For V1, transitions are handled by EdgeWiseStochasticDynamics with flow matching.
-    """
-    import torch
-
-    # Simple stub that returns x_src (identity transition) for compatibility
-    if hasattr(model, "forward"):
-        with torch.no_grad():
-            # Try to call the model if it exists
-            try:
-                return model.forward(x_src)
-            except Exception:
-                pass
-
-    return x_src
-
-
-def heldout_transition_metrics(
-    model,
-    x_src,
-    x_tgt,
-    context=None,
-    context_tokens=None,
-    edge_id=0,
-    num_steps=8,
-    stochastic=False,
-    epsilon=0.05,
-    sinkhorn_iters=80,
-):
-    """
-    Legacy function for EA-MIST compatibility.
-
-    This function is deprecated. Use compute_all_metrics() for V1 evaluation.
-    """
-    # Stub implementation that returns basic metrics
-    if hasattr(x_src, "detach"):
-        x_src_np = x_src.detach().cpu().numpy()
-        x_tgt_np = x_tgt.detach().cpu().numpy()
-    else:
-        x_src_np = np.asarray(x_src)
-        x_tgt_np = np.asarray(x_tgt)
-
-    return {
-        "mse": float(np.mean((x_src_np - x_tgt_np) ** 2)),
-        "mae": float(np.mean(np.abs(x_src_np - x_tgt_np))),
-        "status": "legacy_stub",
-    }
+    print(f"Evaluation saved: {metrics}")

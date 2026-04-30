@@ -1,402 +1,223 @@
-"""Confidence scoring for reference mappings.
+"""Reference mapping confidence scoring.
 
-This module provides confidence metrics for evaluating the quality of
-query-to-reference mappings. Confidence scores enable downstream systems
-to weight or filter cells based on mapping reliability.
-
-All mappings produce explicit uncertainty - never embeddings without quality metrics.
+Computes confidence scores for how well query cells map to each reference.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import numpy as np
-import pandas as pd
-
-from stagebridge.logging_utils import get_logger
-from stagebridge.reference.schema import MappingResult, ReferenceNeighborhood
-
-log = get_logger(__name__)
 
 
-@dataclass
-class ConfidenceScores:
-    """Confidence scores for reference mappings.
+@dataclass(slots=True, frozen=True)
+class ConfidenceResult:
+    """Confidence scores for reference mapping.
 
-    Contains per-cell confidence metrics for HLCA and LuCa mappings,
-    along with aggregate statistics.
+    Attributes:
+        hlca_confidence: [N] HLCA mapping confidence (0-1)
+        luca_confidence: [N] LuCA mapping confidence (0-1)
+        hlca_raw_distance: [N] Raw distance to HLCA neighbors
+        luca_raw_distance: [N] Raw distance to LuCA neighbors
+        combined_confidence: [N] Combined confidence score
     """
 
-    # Per-cell scores (0-1 scale, higher = more confident)
-    hlca_confidence: np.ndarray  # Shape: (n_cells,)
-    luca_confidence: np.ndarray  # Shape: (n_cells,)
-
-    # Cell IDs for alignment
-    cell_ids: np.ndarray
-
-    # Aggregate statistics
-    hlca_stats: dict[str, float] = field(default_factory=dict)
-    luca_stats: dict[str, float] = field(default_factory=dict)
-
-    # Quality flags
-    hlca_low_confidence_count: int = 0
-    luca_low_confidence_count: int = 0
-    nan_count: int = 0
+    hlca_confidence: np.ndarray
+    luca_confidence: np.ndarray
+    hlca_raw_distance: np.ndarray | None = None
+    luca_raw_distance: np.ndarray | None = None
+    combined_confidence: np.ndarray | None = None
 
     @property
     def n_cells(self) -> int:
-        """Number of scored cells."""
-        return len(self.cell_ids)
-
-    def to_dataframe(self) -> pd.DataFrame:
-        """Convert to DataFrame for export."""
-        return pd.DataFrame(
-            {
-                "cell_id": self.cell_ids,
-                "hlca_confidence": self.hlca_confidence,
-                "luca_confidence": self.luca_confidence,
-            }
-        )
-
-    def get_high_confidence_mask(
-        self,
-        hlca_threshold: float = 0.5,
-        luca_threshold: float = 0.5,
-        require_both: bool = False,
-    ) -> np.ndarray:
-        """Get boolean mask for high-confidence cells.
-
-        Parameters
-        ----------
-        hlca_threshold : float
-            Minimum HLCA confidence
-        luca_threshold : float
-            Minimum LuCa confidence
-        require_both : bool
-            If True, require both references above threshold.
-            If False, require at least one.
-
-        Returns
-        -------
-        np.ndarray
-            Boolean mask of shape (n_cells,)
-        """
-        hlca_ok = self.hlca_confidence >= hlca_threshold
-        luca_ok = self.luca_confidence >= luca_threshold
-
-        if require_both:
-            return hlca_ok & luca_ok
-        return hlca_ok | luca_ok
+        return len(self.hlca_confidence)
 
 
-def compute_hlca_confidence(
-    mapping_result: MappingResult,
-    *,
-    neighborhood: ReferenceNeighborhood | None = None,
-    distance_scale: float | None = None,
-) -> np.ndarray:
-    """Compute confidence scores for HLCA mapping.
+def compute_confidence(
+    hlca_latent: np.ndarray,
+    luca_latent: np.ndarray,
+    hlca_reference: np.ndarray | None = None,
+    luca_reference: np.ndarray | None = None,
+    k: int = 30,
+    method: str = "percentile",
+) -> ConfidenceResult:
+    """Compute confidence scores for reference mappings.
 
-    Confidence is based on:
-    1. Distance to nearest reference neighbors (closer = more confident)
-    2. Neighbor label consistency (if available)
-    3. Reconstruction quality (if available)
+    Confidence is based on distance to k nearest neighbors in reference.
+    Lower distance = higher confidence.
 
-    Parameters
-    ----------
-    mapping_result : MappingResult
-        Result from map_to_hlca
-    neighborhood : ReferenceNeighborhood, optional
-        Pre-computed neighborhood for more detailed scoring
-    distance_scale : float, optional
-        Scale parameter for distance-to-confidence transform.
-        If None, automatically determined from data.
+    Args:
+        hlca_latent: [N, 30] Query HLCA embeddings
+        luca_latent: [N, 10] Query LuCA embeddings
+        hlca_reference: [M, 30] Reference HLCA embeddings (for k-NN)
+        luca_reference: [M, 10] Reference LuCA embeddings (for k-NN)
+        k: Number of neighbors for distance computation
+        method: Confidence method ("percentile", "inverse", "softmax")
 
-    Returns
-    -------
-    np.ndarray
-        Confidence scores in [0, 1], shape (n_cells,)
+    Returns:
+        ConfidenceResult with confidence scores
     """
-    n_cells = mapping_result.n_cells
-    confidence = np.ones(n_cells, dtype=np.float32)
+    hlca_latent = np.asarray(hlca_latent, dtype=np.float32)
+    luca_latent = np.asarray(luca_latent, dtype=np.float32)
 
-    # Use neighbor distances if available
-    distances = None
-    if neighborhood is not None:
-        distances = neighborhood.neighbor_distances.mean(axis=1)
-    elif mapping_result.neighbor_distances is not None:
-        distances = mapping_result.neighbor_distances
+    if hlca_reference is not None:
+        hlca_dist = _compute_knn_distance(hlca_latent, hlca_reference, k)
+        hlca_conf = _distance_to_confidence(hlca_dist, method)
+    else:
+        hlca_dist = _self_knn_distance(hlca_latent, k)
+        hlca_conf = _distance_to_confidence(hlca_dist, method)
 
-    if distances is not None:
-        # Transform distance to confidence using exponential decay
-        if distance_scale is None:
-            # Use median distance as scale
-            distance_scale = float(np.median(distances)) + 1e-6
+    if luca_reference is not None:
+        luca_dist = _compute_knn_distance(luca_latent, luca_reference, k)
+        luca_conf = _distance_to_confidence(luca_dist, method)
+    else:
+        luca_dist = _self_knn_distance(luca_latent, k)
+        luca_conf = _distance_to_confidence(luca_dist, method)
 
-        # Confidence = exp(-distance / scale)
-        # Closer cells (small distance) get higher confidence
-        confidence = np.exp(-distances / distance_scale)
-        confidence = np.clip(confidence, 0.0, 1.0)
+    combined = (hlca_conf + luca_conf) / 2
 
-        log.debug(
-            "HLCA confidence from distances: median=%.3f, scale=%.3f",
-            float(np.median(distances)),
-            distance_scale,
-        )
-
-    # Boost confidence for consistent neighbor labels
-    if neighborhood is not None and neighborhood.neighbor_labels is not None:
-        labels = neighborhood.neighbor_labels
-        # Compute mode frequency (what fraction of neighbors have same label)
-        label_consistency = np.zeros(n_cells, dtype=np.float32)
-        for i in range(n_cells):
-            cell_labels = labels[i]
-            unique, counts = np.unique(cell_labels, return_counts=True)
-            label_consistency[i] = counts.max() / len(cell_labels)
-
-        # Combine: average of distance-based and label-based confidence
-        confidence = 0.7 * confidence + 0.3 * label_consistency
-
-    # Handle NaN values
-    nan_mask = np.isnan(confidence)
-    if nan_mask.any():
-        log.warning(
-            "HLCA confidence: %d NaN values replaced with 0.0",
-            int(nan_mask.sum()),
-        )
-        confidence[nan_mask] = 0.0
-
-    return confidence.astype(np.float32)
-
-
-def compute_luca_confidence(
-    mapping_result: MappingResult,
-    *,
-    neighborhood: ReferenceNeighborhood | None = None,
-    distance_scale: float | None = None,
-) -> np.ndarray:
-    """Compute confidence scores for LuCa mapping.
-
-    Same methodology as HLCA confidence, adapted for disease reference.
-
-    Parameters
-    ----------
-    mapping_result : MappingResult
-        Result from map_to_luca
-    neighborhood : ReferenceNeighborhood, optional
-        Pre-computed neighborhood for more detailed scoring
-    distance_scale : float, optional
-        Scale parameter for distance-to-confidence transform
-
-    Returns
-    -------
-    np.ndarray
-        Confidence scores in [0, 1], shape (n_cells,)
-    """
-    # Use same methodology as HLCA
-    return compute_hlca_confidence(
-        mapping_result,
-        neighborhood=neighborhood,
-        distance_scale=distance_scale,
-    )
-
-
-def compute_dual_confidence(
-    hlca_result: MappingResult,
-    luca_result: MappingResult,
-    *,
-    hlca_neighborhood: ReferenceNeighborhood | None = None,
-    luca_neighborhood: ReferenceNeighborhood | None = None,
-    low_confidence_threshold: float = 0.3,
-) -> ConfidenceScores:
-    """Compute confidence scores for both references.
-
-    Parameters
-    ----------
-    hlca_result : MappingResult
-        HLCA mapping result
-    luca_result : MappingResult
-        LuCa mapping result
-    hlca_neighborhood : ReferenceNeighborhood, optional
-        HLCA neighborhood for detailed scoring
-    luca_neighborhood : ReferenceNeighborhood, optional
-        LuCa neighborhood for detailed scoring
-    low_confidence_threshold : float
-        Threshold below which cells are flagged as low confidence
-
-    Returns
-    -------
-    ConfidenceScores
-        Combined confidence scores
-    """
-    hlca_conf = compute_hlca_confidence(hlca_result, neighborhood=hlca_neighborhood)
-    luca_conf = compute_luca_confidence(luca_result, neighborhood=luca_neighborhood)
-
-    # Compute statistics
-    hlca_stats = _compute_confidence_stats(hlca_conf)
-    luca_stats = _compute_confidence_stats(luca_conf)
-
-    # Count low confidence and NaN
-    hlca_low = int((hlca_conf < low_confidence_threshold).sum())
-    luca_low = int((luca_conf < low_confidence_threshold).sum())
-    nan_count = int(np.isnan(hlca_conf).sum() + np.isnan(luca_conf).sum())
-
-    log.info(
-        "Confidence scores: HLCA mean=%.3f (low=%d), LuCa mean=%.3f (low=%d)",
-        hlca_stats["mean"],
-        hlca_low,
-        luca_stats["mean"],
-        luca_low,
-    )
-
-    return ConfidenceScores(
+    return ConfidenceResult(
         hlca_confidence=hlca_conf,
         luca_confidence=luca_conf,
-        cell_ids=hlca_result.cell_ids,
-        hlca_stats=hlca_stats,
-        luca_stats=luca_stats,
-        hlca_low_confidence_count=hlca_low,
-        luca_low_confidence_count=luca_low,
-        nan_count=nan_count,
+        hlca_raw_distance=hlca_dist,
+        luca_raw_distance=luca_dist,
+        combined_confidence=combined,
     )
 
 
-def _compute_confidence_stats(confidence: np.ndarray) -> dict[str, float]:
-    """Compute summary statistics for confidence array."""
-    valid = confidence[~np.isnan(confidence)]
-    if len(valid) == 0:
-        return {
-            "mean": float("nan"),
-            "std": float("nan"),
-            "median": float("nan"),
-            "min": float("nan"),
-            "max": float("nan"),
-            "q25": float("nan"),
-            "q75": float("nan"),
-        }
-    return {
-        "mean": float(np.mean(valid)),
-        "std": float(np.std(valid)),
-        "median": float(np.median(valid)),
-        "min": float(np.min(valid)),
-        "max": float(np.max(valid)),
-        "q25": float(np.percentile(valid, 25)),
-        "q75": float(np.percentile(valid, 75)),
-    }
+def _compute_knn_distance(
+    query: np.ndarray,
+    reference: np.ndarray,
+    k: int,
+) -> np.ndarray:
+    """Compute mean distance to k nearest neighbors in reference.
 
+    Args:
+        query: [N, D] query embeddings
+        reference: [M, D] reference embeddings
+        k: number of neighbors
 
-def detect_mapping_collapse(
-    mapping_result: MappingResult,
-    *,
-    collapse_threshold: float = 0.01,
-) -> dict[str, Any]:
-    """Detect if mapping has collapsed to a small region.
-
-    Mapping collapse occurs when all query cells map to nearly the same
-    point in reference space, indicating a failure in the mapping process.
-
-    Parameters
-    ----------
-    mapping_result : MappingResult
-        Mapping result to check
-    collapse_threshold : float
-        Threshold for collapse detection (fraction of expected variance)
-
-    Returns
-    -------
-    dict
-        Collapse detection report
+    Returns:
+        [N] mean distance to k nearest neighbors
     """
-    embeddings = mapping_result.embeddings
+    try:
+        from sklearn.neighbors import NearestNeighbors
 
-    # Compute variance per dimension
-    var_per_dim = np.var(embeddings, axis=0)
-    mean_var = float(np.mean(var_per_dim))
-    max_var = float(np.max(var_per_dim))
+        k = min(k, len(reference))
+        nn = NearestNeighbors(n_neighbors=k, metric="euclidean", algorithm="auto")
+        nn.fit(reference)
+        distances, _ = nn.kneighbors(query)
+        return distances.mean(axis=1).astype(np.float32)
+    except ImportError:
+        return _naive_knn_distance(query, reference, k)
 
-    # Compute pairwise distances for sample
-    n_sample = min(1000, embeddings.shape[0])
-    if n_sample < embeddings.shape[0]:
-        idx = np.random.choice(embeddings.shape[0], n_sample, replace=False)
-        sample = embeddings[idx]
+
+def _self_knn_distance(
+    embeddings: np.ndarray,
+    k: int,
+) -> np.ndarray:
+    """Compute mean distance to k nearest neighbors within same set.
+
+    Args:
+        embeddings: [N, D] embeddings
+        k: number of neighbors (excluding self)
+
+    Returns:
+        [N] mean distance to k nearest neighbors
+    """
+    try:
+        from sklearn.neighbors import NearestNeighbors
+
+        k = min(k + 1, len(embeddings))
+        nn = NearestNeighbors(n_neighbors=k, metric="euclidean", algorithm="auto")
+        nn.fit(embeddings)
+        distances, _ = nn.kneighbors(embeddings)
+        return distances[:, 1:].mean(axis=1).astype(np.float32)
+    except ImportError:
+        return _naive_knn_distance(embeddings, embeddings, k, exclude_self=True)
+
+
+def _naive_knn_distance(
+    query: np.ndarray,
+    reference: np.ndarray,
+    k: int,
+    exclude_self: bool = False,
+) -> np.ndarray:
+    """Naive k-NN without sklearn (for testing/fallback)."""
+    n_query = len(query)
+    distances = np.zeros(n_query, dtype=np.float32)
+
+    for i in range(n_query):
+        dists = np.linalg.norm(reference - query[i], axis=1)
+        if exclude_self:
+            dists[i] = np.inf
+        topk = np.partition(dists, k)[:k]
+        distances[i] = topk.mean()
+
+    return distances
+
+
+def _distance_to_confidence(
+    distances: np.ndarray,
+    method: str = "percentile",
+) -> np.ndarray:
+    """Convert distances to confidence scores.
+
+    Args:
+        distances: [N] raw distances
+        method: Conversion method
+            - "percentile": Rank-based (0-1 uniform)
+            - "inverse": 1 / (1 + distance)
+            - "softmax": softmax(-distance)
+
+    Returns:
+        [N] confidence scores in [0, 1]
+    """
+    if method == "percentile":
+        ranks = np.argsort(np.argsort(distances))
+        return 1.0 - (ranks / (len(distances) - 1 + 1e-8)).astype(np.float32)
+
+    elif method == "inverse":
+        return (1.0 / (1.0 + distances)).astype(np.float32)
+
+    elif method == "softmax":
+        exp_neg = np.exp(-distances - distances.max())
+        return (exp_neg / exp_neg.sum()).astype(np.float32)
+
     else:
-        sample = embeddings
-
-    # Mean pairwise distance
-    from scipy.spatial.distance import pdist
-
-    pairwise_dists = pdist(sample)
-    mean_pairwise_dist = float(np.mean(pairwise_dists))
-
-    # Check for collapse
-    is_collapsed = mean_var < collapse_threshold or mean_pairwise_dist < 0.1
-
-    report = {
-        "is_collapsed": is_collapsed,
-        "mean_variance": mean_var,
-        "max_variance": max_var,
-        "mean_pairwise_distance": mean_pairwise_dist,
-        "collapse_threshold": collapse_threshold,
-        "n_cells": mapping_result.n_cells,
-        "latent_dim": mapping_result.latent_dim,
-    }
-
-    if is_collapsed:
-        log.error(
-            "MAPPING COLLAPSE DETECTED for %s: mean_var=%.6f, mean_dist=%.6f. "
-            "All cells mapped to nearly same point!",
-            mapping_result.reference_name,
-            mean_var,
-            mean_pairwise_dist,
-        )
-
-    return report
+        raise ValueError(f"Unknown confidence method: {method}")
 
 
-def detect_nan_embeddings(
-    mapping_result: MappingResult,
-) -> dict[str, Any]:
-    """Detect and report NaN values in embeddings.
+def filter_low_confidence(
+    hlca_latent: np.ndarray,
+    luca_latent: np.ndarray,
+    confidence: ConfidenceResult,
+    threshold: float = 0.2,
+    which: str = "combined",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Filter cells with low mapping confidence.
 
-    Parameters
-    ----------
-    mapping_result : MappingResult
-        Mapping result to check
+    Args:
+        hlca_latent: [N, 30] HLCA embeddings
+        luca_latent: [N, 10] LuCA embeddings
+        confidence: Confidence scores
+        threshold: Minimum confidence to keep
+        which: Which confidence to use ("hlca", "luca", "combined")
 
-    Returns
-    -------
-    dict
-        NaN detection report
+    Returns:
+        (filtered_hlca, filtered_luca, keep_mask)
     """
-    embeddings = mapping_result.embeddings
+    if which == "hlca":
+        scores = confidence.hlca_confidence
+    elif which == "luca":
+        scores = confidence.luca_confidence
+    elif which == "combined":
+        scores = confidence.combined_confidence
+        if scores is None:
+            scores = (confidence.hlca_confidence + confidence.luca_confidence) / 2
+    else:
+        raise ValueError(f"Unknown confidence type: {which}")
 
-    nan_mask = np.isnan(embeddings)
-    nan_per_cell = nan_mask.sum(axis=1)
-    nan_per_dim = nan_mask.sum(axis=0)
+    keep_mask = scores >= threshold
 
-    cells_with_nan = int((nan_per_cell > 0).sum())
-    dims_with_nan = int((nan_per_dim > 0).sum())
-    total_nan = int(nan_mask.sum())
-
-    report = {
-        "has_nan": total_nan > 0,
-        "total_nan_count": total_nan,
-        "cells_with_nan": cells_with_nan,
-        "dims_with_nan": dims_with_nan,
-        "nan_fraction": total_nan / embeddings.size if embeddings.size > 0 else 0.0,
-        "n_cells": mapping_result.n_cells,
-        "latent_dim": mapping_result.latent_dim,
-    }
-
-    if total_nan > 0:
-        log.error(
-            "NaN VALUES DETECTED in %s embeddings: %d total (%d cells, %d dims)",
-            mapping_result.reference_name,
-            total_nan,
-            cells_with_nan,
-            dims_with_nan,
-        )
-
-    return report
+    return hlca_latent[keep_mask], luca_latent[keep_mask], keep_mask

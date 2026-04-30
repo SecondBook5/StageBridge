@@ -1,0 +1,8 @@
+sample_id	donor_id	chromosome	position	reference_allele	alternate_allele	gene	tumor_vaf	tumor_depth	is_somatic
+S001	D001	chr7	55249071	C	T	EGFR	0.35	150	True
+S001	D001	chr12	25398284	G	A	KRAS	0.45	200	True
+S001	D001	chr17	7577121	G	A	TP53	0.52	180	True
+S002	D002	chr7	55259515	T	G	EGFR	0.28	120	True
+S002	D002	chr17	7577538	C	T	TP53	0.15	100	True
+S003	D003	chr11	534287	A	G	STK11	0.08	90	True
+S003	D003	chr19	10611418	G	C	KEAP1	0.22	130	True

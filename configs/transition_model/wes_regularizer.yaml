@@ -1,6 +1,0 @@
-transition_model:
-  wes_regularizer:
-    enabled: true
-    mode: regularizer
-    feature_path: ${oc.env:STAGEBRIDGE_DATA_ROOT,./data}/processed/features/wes_features.parquet
-    strength: 0.1

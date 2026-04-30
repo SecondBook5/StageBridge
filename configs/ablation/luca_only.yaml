@@ -1,0 +1,9 @@
+# Ablation: LuCA Only (Single Reference)
+# Tests: Does dual-reference help vs cancer-only?
+
+ablation_type: luca_only
+
+# Modifications
+model:
+  input_dim: 10  # LUCA_DIM only
+  _ablation_: luca_only

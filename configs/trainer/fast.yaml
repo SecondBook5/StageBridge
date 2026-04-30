@@ -1,0 +1,11 @@
+# Fast Training Configuration (for debugging/smoke tests)
+
+defaults:
+  - default
+
+num_epochs: 5
+warmup_epochs: 1
+checkpoint_every: 2
+eval_every: 1
+num_ot_pairs: 128
+batch_size: 32
