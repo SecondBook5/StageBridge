@@ -194,6 +194,37 @@ rule prepare_data_with_liana:
         """
 
 
+rule run_scenic:
+    """Run pySCENIC regulon analysis (slow, ~2-4 hours).
+
+    Computes TF activity scores via AUCell for regulon-based analysis.
+    """
+    input:
+        h5ad=SNRNA_H5AD,
+    output:
+        aucell=f"{DATA_DIR}/scenic/aucell_scores.parquet",
+        regulon_scores=f"{DATA_DIR}/scenic/regulon_scores.parquet",
+    params:
+        output_dir=f"{DATA_DIR}/scenic",
+    resources:
+        runtime=480,  # 8 hours
+        mem_mb=128000,
+    shell:
+        """
+        python -c "
+from pathlib import Path
+from stagebridge.biology.regulons import run_scenic_pipeline
+results = run_scenic_pipeline(
+    Path('{input.h5ad}'),
+    Path('{params.output_dir}'),
+    skip_grn=True,  # Use predefined lung cancer regulons for speed
+    n_jobs=8,
+)
+print('pySCENIC complete:', results)
+"
+        """
+
+
 # =============================================================================
 # DATA VALIDATION
 # =============================================================================
