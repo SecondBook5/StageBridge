@@ -112,10 +112,10 @@ PYTHON_END
 fi
 
 # =============================================================================
-# Step 4: Differential expression
+# Step 4: Differential expression (parallel by stage)
 # =============================================================================
 echo ""
-echo "[4/26] Differential expression..."
+echo "[4/26] Differential expression (parallel)..."
 if [ -f "$CANONICAL/de_analysis/de_stage_Normal.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -123,27 +123,76 @@ mkdir -p $CANONICAL/de_analysis
 python << 'PYTHON_END'
 import scanpy as sc
 import pandas as pd
+import numpy as np
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing as mp
 import os
+import warnings
+warnings.filterwarnings('ignore')
 
 SNRNA = os.environ.get('SNRNA', '/data1/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad')
 CANONICAL = os.environ.get('CANONICAL', '/data1/chaunzt1/stagebridge/processed/luad_evo/canonical')
 
-print('Loading snRNA data...')
-adata = sc.read_h5ad(SNRNA)
-print(f'  {adata.n_obs} cells')
+def run_de_for_stage(args):
+    """Run DE for one stage vs rest (in subprocess)."""
+    stage, adata_path, out_dir = args
+    import scanpy as sc
+    import pandas as pd
+    from pathlib import Path
+    import warnings
+    warnings.filterwarnings('ignore')
 
-out = Path(CANONICAL) / 'de_analysis'
+    out = Path(out_dir)
+    out_file = out / f'de_stage_{stage}.parquet'
 
-if 'stage' in adata.obs.columns:
-    print('Running DE by stage...')
-    sc.tl.rank_genes_groups(adata, groupby='stage', method='wilcoxon', n_genes=200)
-    for stage in adata.obs['stage'].unique():
-        df = sc.get.rank_genes_groups_df(adata, group=stage)
-        df.to_parquet(out / f'de_stage_{stage}.parquet')
-    print('  Saved DE by stage')
+    if out_file.exists():
+        return f'{stage}: already exists'
 
-print('DE complete')
+    # Load data in subprocess
+    adata = sc.read_h5ad(adata_path)
+
+    # Create binary grouping: this stage vs rest
+    adata.obs['_de_group'] = (adata.obs['stage'] == stage).astype(str)
+
+    # Run wilcoxon for this stage vs rest
+    sc.tl.rank_genes_groups(adata, groupby='_de_group', groups=['True'],
+                            reference='False', method='wilcoxon', n_genes=500)
+
+    df = sc.get.rank_genes_groups_df(adata, group='True')
+    df.to_parquet(out_file)
+
+    return f'{stage}: done ({len(df)} genes)'
+
+if __name__ == '__main__':
+    print('Loading snRNA data to get stages...')
+    adata = sc.read_h5ad(SNRNA)
+    print(f'  {adata.n_obs} cells')
+
+    out = Path(CANONICAL) / 'de_analysis'
+    stages = adata.obs['stage'].unique().tolist()
+    print(f'  Stages: {stages}')
+
+    # Free memory before spawning
+    del adata
+
+    # Parallel DE by stage
+    n_workers = min(len(stages), mp.cpu_count() - 1, 5)
+    print(f'Running DE in parallel ({n_workers} workers)...')
+
+    args_list = [(stage, SNRNA, str(out)) for stage in stages]
+
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        futures = {executor.submit(run_de_for_stage, args): args[0] for args in args_list}
+        for future in as_completed(futures):
+            stage = futures[future]
+            try:
+                result = future.result()
+                print(f'  {result}')
+            except Exception as e:
+                print(f'  {stage}: FAILED - {e}')
+
+    print('DE complete')
 PYTHON_END
 fi
 
