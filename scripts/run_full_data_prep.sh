@@ -655,12 +655,14 @@ if cell_type_key in adata.obs.columns:
 umap_df.to_parquet(out / 'umap_embedding.parquet')
 
 # PHATE if available
+phate_emb = None
 try:
     import phate
     print('Computing PHATE...')
     phate_op = phate.PHATE(n_components=2, n_jobs=-1, random_state=42)
     X = adata.obsm['X_pca'][:, :50]
     phate_emb = phate_op.fit_transform(X)
+    adata.obsm['X_phate'] = phate_emb
     phate_df = pd.DataFrame(phate_emb, index=adata.obs.index, columns=['PHATE1', 'PHATE2'])
     phate_df['stage'] = adata.obs['stage'].values if 'stage' in adata.obs.columns else None
     if cell_type_key in adata.obs.columns:
@@ -671,17 +673,44 @@ except ImportError:
 except Exception as e:
     print(f'PHATE failed: {e}')
 
-# Louvain/Leiden clustering at multiple resolutions
-print('Computing Louvain/Leiden clustering...')
+# Louvain/Leiden clustering at multiple resolutions (PCA-based)
+print('Computing Louvain/Leiden clustering (PCA neighbors)...')
 for res in [0.3, 0.5, 0.8, 1.0, 1.5]:
     sc.tl.leiden(adata, resolution=res, key_added=f'leiden_{res}')
     sc.tl.louvain(adata, resolution=res, key_added=f'louvain_{res}')
+
+# PHATE-based clustering (if PHATE was computed)
+if 'X_phate' in adata.obsm:
+    print('Computing PHATE-based clustering...')
+    # Build neighbor graph on PHATE embedding
+    import scanpy.neighbors
+    # Store original neighbors
+    orig_neighbors = adata.uns.get('neighbors', None)
+    orig_connectivities = adata.obsp.get('connectivities', None)
+    orig_distances = adata.obsp.get('distances', None)
+
+    # Compute neighbors on PHATE
+    sc.pp.neighbors(adata, use_rep='X_phate', n_neighbors=30, key_added='phate_neighbors')
+
+    # Leiden/Louvain on PHATE neighbors
+    for res in [0.5, 1.0]:
+        sc.tl.leiden(adata, resolution=res, neighbors_key='phate_neighbors', key_added=f'leiden_phate_{res}')
+        sc.tl.louvain(adata, resolution=res, neighbors_key='phate_neighbors', key_added=f'louvain_phate_{res}')
+
+    print(f'  PHATE leiden_0.5: {adata.obs[\"leiden_phate_0.5\"].nunique()} clusters')
+    print(f'  PHATE leiden_1.0: {adata.obs[\"leiden_phate_1.0\"].nunique()} clusters')
 
 # Save clustering results
 cluster_df = pd.DataFrame({'cell_id': adata.obs.index})
 for res in [0.3, 0.5, 0.8, 1.0, 1.5]:
     cluster_df[f'leiden_{res}'] = adata.obs[f'leiden_{res}'].values
     cluster_df[f'louvain_{res}'] = adata.obs[f'louvain_{res}'].values
+
+# Add PHATE clusters if available
+if 'leiden_phate_0.5' in adata.obs.columns:
+    for res in [0.5, 1.0]:
+        cluster_df[f'leiden_phate_{res}'] = adata.obs[f'leiden_phate_{res}'].values
+        cluster_df[f'louvain_phate_{res}'] = adata.obs[f'louvain_phate_{res}'].values
 
 if 'stage' in adata.obs.columns:
     cluster_df['stage'] = adata.obs['stage'].values
@@ -695,7 +724,22 @@ umap_df = pd.read_parquet(out / 'umap_embedding.parquet')
 for res in [0.5, 1.0]:
     umap_df[f'leiden_{res}'] = adata.obs[f'leiden_{res}'].values
     umap_df[f'louvain_{res}'] = adata.obs[f'louvain_{res}'].values
+    if f'leiden_phate_{res}' in adata.obs.columns:
+        umap_df[f'leiden_phate_{res}'] = adata.obs[f'leiden_phate_{res}'].values
+        umap_df[f'louvain_phate_{res}'] = adata.obs[f'louvain_phate_{res}'].values
 umap_df.to_parquet(out / 'umap_embedding.parquet')
+
+# Add clustering to PHATE embedding too
+phate_path = out / 'phate_embedding.parquet'
+if phate_path.exists():
+    phate_df = pd.read_parquet(phate_path)
+    for res in [0.5, 1.0]:
+        phate_df[f'leiden_{res}'] = adata.obs[f'leiden_{res}'].values
+        phate_df[f'louvain_{res}'] = adata.obs[f'louvain_{res}'].values
+        if f'leiden_phate_{res}' in adata.obs.columns:
+            phate_df[f'leiden_phate_{res}'] = adata.obs[f'leiden_phate_{res}'].values
+            phate_df[f'louvain_phate_{res}'] = adata.obs[f'louvain_phate_{res}'].values
+    phate_df.to_parquet(phate_path)
 
 print('Embedding computation complete')
 
