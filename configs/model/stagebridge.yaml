@@ -4,7 +4,7 @@
 _target_: stagebridge.models.StageBridge
 
 # Input dimensions (from contracts)
-input_dim: 40  # HLCA_DIM + LUCA_DIM
+input_dim: 40  # HLCA_DIM + LUCA_DIM (when not using GW fusion)
 hidden_dim: 256
 num_heads: 8
 num_encoder_layers: 2
@@ -29,7 +29,7 @@ hierarchical_num_inducing: 16
 
 # Drift head
 use_cross_attn_drift: true
-use_ude: false
+use_gated_baseline: false
 
 # Evolution branch (WES features)
 use_evolution_branch: false
@@ -38,3 +38,12 @@ evolution_mode: gated
 
 # Sample-level heads
 use_sample_heads: true
+
+# Gromov-Wasserstein Atlas Fusion
+# Principled alignment of HLCA (30d) and LuCA (10d) spaces
+# Replaces naive concatenation with geometric transport
+use_gw_fusion: true
+gw_output_dim: 64  # Fused reference dimension
+gw_sinkhorn_iters: 50  # Sinkhorn iterations (HPO: 20-100)
+gw_sinkhorn_reg: 0.1  # Entropic regularization (HPO: 0.01-1.0)
+gw_mode: barycentric  # project_to_hlca, project_to_luca, barycentric

@@ -27,12 +27,17 @@ ABLATION_CONFIGS = {
     "no_distance": {"refiner_use_spatial_rpe": False},
     "no_gate": {"use_cross_attn_drift": False},  # Falls back to MLP drift
     "random_niche": {},  # Handled at data level, not config
-    "hlca_only": {},  # Handled at data level
-    "luca_only": {},  # Handled at data level
+    "hlca_only": {"use_gw_fusion": False},  # Must disable GW (needs both refs)
+    "luca_only": {"use_gw_fusion": False},  # Must disable GW (needs both refs)
     "no_token_types": {},  # Would need model change
     "frozen_encoder": {},  # Handled at training level
     "no_ring_pooling": {"use_learned_ring_pooling": False},
     "no_context_refiner": {"use_context_refiner": False},
+    # GW fusion ablations
+    "no_gw_fusion": {"use_gw_fusion": False},  # Fall back to concat
+    "gw_project_hlca": {"use_gw_fusion": True, "gw_mode": "project_to_hlca"},
+    "gw_project_luca": {"use_gw_fusion": True, "gw_mode": "project_to_luca"},
+    "gw_barycentric": {"use_gw_fusion": True, "gw_mode": "barycentric"},
 }
 
 

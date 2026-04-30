@@ -46,6 +46,12 @@ def build_model(cfg: DictConfig) -> StageBridge:
         use_evolution_branch=cfg.model.use_evolution_branch,
         evolution_dim=cfg.model.evolution_dim,
         evolution_mode=cfg.model.evolution_mode,
+        # Gromov-Wasserstein fusion
+        use_gw_fusion=cfg.model.get("use_gw_fusion", False),
+        gw_output_dim=cfg.model.get("gw_output_dim", 64),
+        gw_sinkhorn_iters=cfg.model.get("gw_sinkhorn_iters", 50),
+        gw_sinkhorn_reg=cfg.model.get("gw_sinkhorn_reg", 0.1),
+        gw_mode=cfg.model.get("gw_mode", "barycentric"),
     )
     return StageBridge(model_cfg)
 
