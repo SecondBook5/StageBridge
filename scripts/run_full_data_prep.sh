@@ -985,18 +985,154 @@ if 'stage' in adata.obs.columns or cell_type_key in adata.obs.columns:
 # Deconvolution summary (from DestVI results if available)
 destvi_path = Path('/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet')
 if destvi_path.exists():
-    print('Summarizing deconvolution results...')
+    print('Summarizing DestVI deconvolution results...')
     deconv = pd.read_parquet(destvi_path)
-    deconv.to_parquet(out / 'spot_deconvolution.parquet')
+    deconv.to_parquet(out / 'spot_deconvolution_destvi.parquet')
 
     # Mean proportions by stage
     if 'stage' in adata.obs.columns:
         deconv['stage'] = adata.obs['stage'].values[:len(deconv)] if len(deconv) <= adata.n_obs else None
         if deconv['stage'].notna().any():
             stage_props = deconv.groupby('stage').mean()
-            stage_props.to_parquet(out / 'deconv_proportions_by_stage.parquet')
+            stage_props.to_parquet(out / 'deconv_proportions_by_stage_destvi.parquet')
+
+# Cell2location results if available
+c2l_path = Path('/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/cell2location/cell_type_proportions.parquet')
+if not c2l_path.exists():
+    c2l_path = Path('/data1/chaunzt1/stagebridge/results/spatial_benchmark/cell2location/cell_type_proportions.parquet')
+
+if c2l_path.exists():
+    print('Summarizing cell2location deconvolution results...')
+    c2l = pd.read_parquet(c2l_path)
+    c2l.to_parquet(out / 'spot_deconvolution_cell2location.parquet')
+
+    # Get cell type columns
+    exclude_cols = ['sample', 'stage', 'donor_id', 'x', 'y', 'spot_id', 'batch']
+    ct_cols = [c for c in c2l.columns if c not in exclude_cols and c2l[c].dtype in ['float64', 'float32']]
+
+    # Add spatial coords if not present
+    if 'x' not in c2l.columns and 'spatial' in adata.obsm:
+        c2l['x'] = adata.obsm['spatial'][:len(c2l), 0]
+        c2l['y'] = adata.obsm['spatial'][:len(c2l), 1]
+
+    # 1. Cell type abundance correlation matrix (co-localization modules)
+    print('  Computing cell type co-localization matrix...')
+    ct_corr = c2l[ct_cols].corr(method='pearson')
+    ct_corr.to_parquet(out / 'celltype_colocalization_corr.parquet')
+
+    # Hierarchical clustering of cell types by co-localization
+    from scipy.cluster.hierarchy import linkage, fcluster
+    from scipy.spatial.distance import squareform
+
+    dist_matrix = 1 - ct_corr.values
+    np.fill_diagonal(dist_matrix, 0)
+    dist_matrix = np.clip(dist_matrix, 0, 2)  # Ensure valid distances
+
+    linkage_matrix = linkage(squareform(dist_matrix), method='ward')
+    modules = fcluster(linkage_matrix, t=4, criterion='maxclust')
+
+    module_df = pd.DataFrame({
+        'cell_type': ct_cols,
+        'colocalization_module': modules,
+    })
+    module_df.to_parquet(out / 'celltype_colocalization_modules.parquet')
+
+    # 2. Mean proportions by stage
+    if 'stage' in adata.obs.columns:
+        c2l['stage'] = adata.obs['stage'].values[:len(c2l)]
+        stage_props = c2l.groupby('stage')[ct_cols].mean()
+        stage_props.to_parquet(out / 'deconv_proportions_by_stage_c2l.parquet')
+
+    # 3. Mean proportions by sample (for cross-sample comparison)
+    if 'sample' in adata.obs.columns:
+        c2l['sample'] = adata.obs['sample'].values[:len(c2l)]
+        sample_props = c2l.groupby('sample')[ct_cols].mean()
+        sample_props.to_parquet(out / 'deconv_proportions_by_sample_c2l.parquet')
 
 print('Visium analysis complete')
+"
+
+# 15b. Spatial vs snRNA-seq cell type frequency comparison
+echo ""
+echo "[15b/26] Comparing spatial vs snRNA-seq cell type frequencies..."
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+out = Path('$CANONICAL/visium')
+
+# Load snRNA-seq
+print('Loading snRNA-seq for comparison...')
+snrna = sc.read_h5ad('$SNRNA')
+cell_type_key = 'cell_type_luca' if 'cell_type_luca' in snrna.obs.columns else 'cell_type'
+
+# snRNA-seq cell type frequencies
+if cell_type_key in snrna.obs.columns:
+    snrna_freq = snrna.obs[cell_type_key].value_counts(normalize=True)
+    snrna_freq.name = 'snrna_frequency'
+
+    # Load spatial deconvolution (prefer cell2location)
+    c2l_path = out / 'spot_deconvolution_cell2location.parquet'
+    destvi_path = out / 'spot_deconvolution_destvi.parquet'
+
+    if c2l_path.exists():
+        deconv = pd.read_parquet(c2l_path)
+        method = 'cell2location'
+    elif destvi_path.exists():
+        deconv = pd.read_parquet(destvi_path)
+        method = 'destvi'
+    else:
+        deconv = None
+        method = None
+
+    if deconv is not None:
+        exclude_cols = ['sample', 'stage', 'donor_id', 'x', 'y', 'spot_id', 'batch']
+        ct_cols = [c for c in deconv.columns if c not in exclude_cols and deconv[c].dtype in ['float64', 'float32']]
+
+        # Spatial mean frequencies (mean abundance across all spots)
+        spatial_freq = deconv[ct_cols].mean()
+        spatial_freq = spatial_freq / spatial_freq.sum()  # Normalize
+        spatial_freq.name = 'spatial_frequency'
+
+        # Merge for comparison
+        comparison = pd.DataFrame({
+            'snrna_frequency': snrna_freq,
+            'spatial_frequency': spatial_freq,
+        })
+        comparison = comparison.dropna()
+        comparison['log2_ratio'] = np.log2((comparison['spatial_frequency'] + 1e-6) / (comparison['snrna_frequency'] + 1e-6))
+        comparison['method'] = method
+        comparison.to_parquet(out / 'spatial_vs_snrna_frequencies.parquet')
+        print(f'  Saved comparison ({method}): {len(comparison)} cell types')
+
+        # Per-sample comparison
+        if 'sample' in deconv.columns:
+            sample_comparison = []
+            for sample in deconv['sample'].unique():
+                sample_deconv = deconv[deconv['sample'] == sample]
+                sample_spatial = sample_deconv[ct_cols].mean()
+                sample_spatial = sample_spatial / sample_spatial.sum()
+
+                for ct in sample_spatial.index:
+                    if ct in snrna_freq.index:
+                        sample_comparison.append({
+                            'sample': sample,
+                            'cell_type': ct,
+                            'spatial_frequency': sample_spatial[ct],
+                            'snrna_frequency': snrna_freq[ct],
+                        })
+
+            sample_comp_df = pd.DataFrame(sample_comparison)
+            sample_comp_df['log2_ratio'] = np.log2(
+                (sample_comp_df['spatial_frequency'] + 1e-6) /
+                (sample_comp_df['snrna_frequency'] + 1e-6)
+            )
+            sample_comp_df.to_parquet(out / 'spatial_vs_snrna_by_sample.parquet')
+            print(f'  Saved per-sample comparison')
+
+print('Frequency comparison complete')
 "
 
 # 15. Spatial gene patterns (expression in space)
