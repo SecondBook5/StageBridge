@@ -2,12 +2,15 @@
 
 Builds neighborhoods with raw cells for learned ring pooling from existing cells.parquet.
 Uses LuCA DestVI deconvolution results for CAF/immune fractions.
+Optionally loads precomputed CytoTRACE/pseudotime from progression_scores.parquet.
 
 Usage:
     python -m stagebridge.pipelines.prepare_data \
         --cells /path/to/cells.parquet \
         --output-dir /path/to/output \
-        --destvi /path/to/luca/destvi/cell_type_proportions.parquet \
+        --destvi-luca /path/to/luca/destvi/cell_type_proportions.parquet \
+        --destvi-hlca /path/to/hlca/destvi/cell_type_proportions.parquet \
+        --progression /path/to/progression/progression_scores.parquet \
         --figures
 """
 
@@ -183,9 +186,13 @@ def build_neighborhoods(df: pd.DataFrame, config: PrepConfig) -> pd.DataFrame:
     return pd.DataFrame(neighborhoods)
 
 
-def add_conditioning_features(nhood_df: pd.DataFrame, cells_df: pd.DataFrame,
-                              destvi_fractions: pd.DataFrame | None) -> pd.DataFrame:
-    """Add conditioning features from cells and DestVI to neighborhoods."""
+def add_conditioning_features(
+    nhood_df: pd.DataFrame,
+    cells_df: pd.DataFrame,
+    destvi_fractions: pd.DataFrame | None,
+    progression_scores: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Add conditioning features from cells, DestVI, and progression scores."""
     # Create lookup from cell_id
     cells_indexed = cells_df.set_index('cell_id')
 
@@ -211,6 +218,13 @@ def add_conditioning_features(nhood_df: pd.DataFrame, cells_df: pd.DataFrame,
         for col in destvi_cols:
             if col in destvi_fractions.columns:
                 nhood_df[col] = destvi_cell_ids.map(destvi_fractions[col])
+
+    # Add progression scores (CytoTRACE, pseudotime) if available
+    if progression_scores is not None:
+        prog_indexed = progression_scores.set_index('cell_id')
+        for col in ['cytotrace', 'pseudotime']:
+            if col in prog_indexed.columns:
+                nhood_df[col] = nhood_df['cell_id'].map(prog_indexed[col])
 
     # Build stats_z from conditioning features (7 dims)
     stats_cols = ['caf_fraction', 'immune_fraction', 'diversity',
@@ -345,6 +359,7 @@ def prepare_data(
     output_dir: Path,
     destvi_luca_path: Path | None = None,
     destvi_hlca_path: Path | None = None,
+    progression_path: Path | None = None,
     config: PrepConfig | None = None,
     make_figures: bool = True,
 ) -> dict:
@@ -370,6 +385,13 @@ def prepare_data(
         print(f'  Immune fraction range: {destvi_fractions["immune_fraction"].min():.3f} - {destvi_fractions["immune_fraction"].max():.3f}')
         print(f'  Malignant fraction range: {destvi_fractions["malignant_fraction"].min():.3f} - {destvi_fractions["malignant_fraction"].max():.3f}')
 
+    # Load progression scores if provided
+    progression_scores = None
+    if progression_path and progression_path.exists():
+        print(f'Loading progression scores from {progression_path}...')
+        progression_scores = pd.read_parquet(progression_path)
+        print(f'  {len(progression_scores):,} cells with CytoTRACE/pseudotime')
+
     # Build neighborhoods
     print('Building neighborhoods with raw cells...')
     nhood_df = build_neighborhoods(cells_df, config)
@@ -377,7 +399,7 @@ def prepare_data(
 
     # Add conditioning features
     print('Adding conditioning features...')
-    nhood_df = add_conditioning_features(nhood_df, cells_df, destvi_fractions)
+    nhood_df = add_conditioning_features(nhood_df, cells_df, destvi_fractions, progression_scores)
 
     # Create split manifest
     print('Creating split manifest...')
@@ -414,6 +436,7 @@ def prepare_data(
         'stages': nhood_df['stage'].unique().tolist(),
         'ring_radii': list(config.ring_radii),
         'destvi_used': destvi_luca_path is not None,
+        'progression_used': progression_path is not None,
     }
 
     with open(output_dir / 'prep_summary.json', 'w') as f:
@@ -428,6 +451,7 @@ def main():
     parser.add_argument('--output-dir', required=True, type=Path, help='Output directory')
     parser.add_argument('--destvi-luca', type=Path, help='LuCA DestVI cell_type_proportions.parquet (fine-grained)')
     parser.add_argument('--destvi-hlca', type=Path, help='HLCA DestVI cell_type_proportions.parquet (coarse)')
+    parser.add_argument('--progression', type=Path, help='Precomputed progression_scores.parquet (CytoTRACE, pseudotime)')
     parser.add_argument('--figures', action='store_true', help='Generate QC figures')
     parser.add_argument('--max-cells-per-ring', type=int, default=50)
     args = parser.parse_args()
@@ -439,6 +463,7 @@ def main():
         output_dir=args.output_dir,
         destvi_luca_path=args.destvi_luca,
         destvi_hlca_path=args.destvi_hlca,
+        progression_path=args.progression,
         config=config,
         make_figures=args.figures,
     )

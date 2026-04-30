@@ -117,17 +117,19 @@ rule all:
 # DATA PREPARATION
 # =============================================================================
 
-# Raw cells input (from StageBridge_V1)
-RAW_CELLS = config["paths"].get("raw_cells", "/home/booka/projects/StageBridge_V1/cells.parquet")
-DESTVI_LUCA = config["paths"].get("destvi_luca", "/home/booka/projects/StageBridge_V1/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet")
-DESTVI_HLCA = config["paths"].get("destvi_hlca", "/home/booka/projects/StageBridge_V1/results/spatial_benchmark/hlca/destvi/cell_type_proportions.parquet")
+# Input paths for data preparation
+RAW_CELLS = config["paths"].get("raw_cells")
+DESTVI_LUCA = config["paths"].get("destvi_luca")
+DESTVI_HLCA = config["paths"].get("destvi_hlca")
+PROGRESSION_SCORES = config["paths"].get("progression_scores")
 
 rule prepare_data:
-    """Prepare data: build neighborhoods with raw cells, add cell types from both HLCA and LuCA DestVI."""
+    """Prepare data: build neighborhoods with raw cells, add cell types and progression scores."""
     input:
         cells=RAW_CELLS,
         destvi_luca=DESTVI_LUCA,
         destvi_hlca=DESTVI_HLCA,
+        progression=PROGRESSION_SCORES,
     output:
         cells=f"{DATA_DIR}/cells.parquet",  # Symlinked from input
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
@@ -144,6 +146,7 @@ rule prepare_data:
             --cells {input.cells} \
             --destvi-luca {input.destvi_luca} \
             --destvi-hlca {input.destvi_hlca} \
+            --progression {input.progression} \
             --output-dir {params.output_dir} \
             --figures
         """

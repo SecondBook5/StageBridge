@@ -11,17 +11,23 @@
 # HPC paths (default)
 paths:
   data_root: "/data1/chaunzt1/stagebridge"
-  data_dir: "/data1/chaunzt1/stagebridge/processed/luad_evo"
+  # Canonical dataset (preprocessed with progression scores)
+  data_dir: "/data1/chaunzt1/stagebridge/processed/luad_evo/canonical"
   output_dir: "/data1/chaunzt1/stagebridge/outputs/v1"
   results_dir: "/data1/chaunzt1/stagebridge/results"
   figures_dir: "/data1/chaunzt1/stagebridge/figures"
   hlca_dir: "/data1/chaunzt1/stagebridge/processed/HLCA"
   luca_dir: "/data1/chaunzt1/stagebridge/processed/LuCA"
-  # Raw input for data preparation (HPC paths)
-  raw_cells: "/data1/chaunzt1/stagebridge/processed/luad_evo/cells.parquet"
+  # Raw input for data preparation (if rebuilding)
+  raw_cells: "/data1/chaunzt1/stagebridge/processed/luad_evo/canonical/cells.parquet"
   # DestVI deconvolution results
   destvi_luca: "/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet"
   destvi_hlca: "/data1/chaunzt1/stagebridge/results/spatial_benchmark/hlca/destvi/cell_type_proportions.parquet"
+  # Expression data for LIANA/SCENIC (if needed)
+  snrna_h5ad: "/data1/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad"
+  spatial_h5ad: "/data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad"
+  # Precomputed progression scores
+  progression_scores: "/data1/chaunzt1/stagebridge/processed/luad_evo/canonical/progression/progression_scores.parquet"
 
 # Reference atlas configuration
 # NOTE: Latent dimensions are fixed by pretrained models
