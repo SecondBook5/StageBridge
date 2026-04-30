@@ -79,11 +79,12 @@ def run_ablation(
 
     # Train
     trainer_config = TrainerConfig(
+        output_dir=output_dir,
+        run_name=f"ablation_{ablation}",
         ssl_epochs=ssl_epochs,
         transition_epochs=transition_epochs,
-        checkpoint_dir=str(checkpoint_dir),
     )
-    trainer = StageBridgeTrainer(model, trainer_config)
+    trainer = StageBridgeTrainer(model, trainer_config, device=device)
     metrics = trainer.train(train_loader, val_loader)
 
     # Save checkpoint (matches CheckpointManager naming)

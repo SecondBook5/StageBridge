@@ -18,8 +18,10 @@ paths:
   figures_dir: "/data1/chaunzt1/stagebridge/figures"
   hlca_dir: "/data1/chaunzt1/stagebridge/processed/HLCA"
   luca_dir: "/data1/chaunzt1/stagebridge/processed/LuCA"
-  # Raw input for data preparation (if rebuilding)
-  raw_cells: "/data1/chaunzt1/stagebridge/processed/luad_evo/canonical/cells.parquet"
+  # Raw input for data preparation (if rebuilding from scratch)
+  # Set to null by default to avoid cyclic dependencies. Override when running prepare_data:
+  #   snakemake prepare_data --config raw_cells=/path/to/raw_cells.parquet
+  raw_cells: null  # "/data1/chaunzt1/stagebridge/processed/luad_evo/raw/cells.parquet"
   # DestVI deconvolution results
   destvi_luca: "/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet"
   destvi_hlca: "/data1/chaunzt1/stagebridge/results/spatial_benchmark/hlca/destvi/cell_type_proportions.parquet"
