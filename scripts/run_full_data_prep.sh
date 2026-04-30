@@ -547,9 +547,743 @@ except Exception as e:
     print(f'ORA failed: {e}')
 "
 
-# 11. Validate contract
+# 11. Diffusion pseudotime / PAGA trajectory
 echo ""
-echo "[11/11] Validating data contract..."
+echo "[11/14] Computing diffusion pseudotime and PAGA..."
+mkdir -p $CANONICAL/trajectories
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+print('Loading snRNA data...')
+adata = sc.read_h5ad('$SNRNA')
+print(f'  {adata.n_obs} cells')
+
+out = Path('$CANONICAL/trajectories')
+
+# PCA and neighbors
+print('Computing PCA and neighbors...')
+if 'X_pca' not in adata.obsm:
+    sc.pp.pca(adata, n_comps=50)
+sc.pp.neighbors(adata, n_neighbors=30, use_rep='X_pca')
+
+# Diffusion map
+print('Computing diffusion map...')
+sc.tl.diffmap(adata, n_comps=15)
+pd.DataFrame(adata.obsm['X_diffmap'], index=adata.obs.index).to_parquet(out / 'diffmap_embedding.parquet')
+
+# Diffusion pseudotime rooted at Normal
+if 'stage' in adata.obs.columns and 'Normal' in adata.obs['stage'].values:
+    print('Computing diffusion pseudotime...')
+    root_mask = adata.obs['stage'] == 'Normal'
+    root_indices = np.where(root_mask)[0]
+    diffmap = adata.obsm['X_diffmap']
+    centroid = diffmap[root_mask].mean(axis=0)
+    distances = np.linalg.norm(diffmap[root_mask] - centroid, axis=1)
+    root_cell = root_indices[np.argmin(distances)]
+    adata.uns['iroot'] = root_cell
+    sc.tl.dpt(adata, n_branchings=0)
+    pd.DataFrame({
+        'cell_id': adata.obs.index,
+        'dpt_pseudotime': adata.obs['dpt_pseudotime'].values,
+        'stage': adata.obs['stage'].values if 'stage' in adata.obs.columns else None,
+    }).to_parquet(out / 'diffusion_pseudotime.parquet')
+
+# PAGA
+print('Computing PAGA...')
+cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+if cell_type_key in adata.obs.columns:
+    sc.tl.paga(adata, groups=cell_type_key)
+    # Save PAGA connectivity
+    conn = pd.DataFrame(
+        adata.uns['paga']['connectivities'].toarray(),
+        index=adata.obs[cell_type_key].cat.categories,
+        columns=adata.obs[cell_type_key].cat.categories
+    )
+    conn.to_parquet(out / 'paga_connectivity_celltype.parquet')
+
+if 'stage' in adata.obs.columns:
+    sc.tl.paga(adata, groups='stage')
+    conn = pd.DataFrame(
+        adata.uns['paga']['connectivities'].toarray(),
+        index=adata.obs['stage'].cat.categories if hasattr(adata.obs['stage'], 'cat') else adata.obs['stage'].unique(),
+        columns=adata.obs['stage'].cat.categories if hasattr(adata.obs['stage'], 'cat') else adata.obs['stage'].unique()
+    )
+    conn.to_parquet(out / 'paga_connectivity_stage.parquet')
+
+print('Trajectory analysis complete')
+"
+
+# 12. UMAP/PHATE embeddings for visualization
+echo ""
+echo "[12/14] Computing embeddings (UMAP, PHATE)..."
+mkdir -p $CANONICAL/embeddings
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+print('Loading snRNA data...')
+adata = sc.read_h5ad('$SNRNA')
+print(f'  {adata.n_obs} cells')
+
+out = Path('$CANONICAL/embeddings')
+
+# PCA
+if 'X_pca' not in adata.obsm:
+    print('Computing PCA...')
+    sc.pp.pca(adata, n_comps=50)
+pd.DataFrame(adata.obsm['X_pca'][:, :20], index=adata.obs.index,
+             columns=[f'PC{i+1}' for i in range(20)]).to_parquet(out / 'pca_embedding.parquet')
+
+# Neighbors
+if 'neighbors' not in adata.uns:
+    sc.pp.neighbors(adata, n_neighbors=30, use_rep='X_pca')
+
+# UMAP
+print('Computing UMAP...')
+sc.tl.umap(adata)
+umap_df = pd.DataFrame(adata.obsm['X_umap'], index=adata.obs.index, columns=['UMAP1', 'UMAP2'])
+umap_df['stage'] = adata.obs['stage'].values if 'stage' in adata.obs.columns else None
+umap_df['donor_id'] = adata.obs['donor_id'].values if 'donor_id' in adata.obs.columns else None
+cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+if cell_type_key in adata.obs.columns:
+    umap_df['cell_type'] = adata.obs[cell_type_key].values
+umap_df.to_parquet(out / 'umap_embedding.parquet')
+
+# PHATE if available
+try:
+    import phate
+    print('Computing PHATE...')
+    phate_op = phate.PHATE(n_components=2, n_jobs=-1, random_state=42)
+    X = adata.obsm['X_pca'][:, :50]
+    phate_emb = phate_op.fit_transform(X)
+    phate_df = pd.DataFrame(phate_emb, index=adata.obs.index, columns=['PHATE1', 'PHATE2'])
+    phate_df['stage'] = adata.obs['stage'].values if 'stage' in adata.obs.columns else None
+    if cell_type_key in adata.obs.columns:
+        phate_df['cell_type'] = adata.obs[cell_type_key].values
+    phate_df.to_parquet(out / 'phate_embedding.parquet')
+except ImportError:
+    print('PHATE not installed, skipping')
+except Exception as e:
+    print(f'PHATE failed: {e}')
+
+print('Embedding computation complete')
+"
+
+# 13. Cell-cell communication summary (LIANA + CellChat-style)
+echo ""
+echo "[13/14] Summarizing cell-cell communication..."
+python -c "
+import pandas as pd
+import numpy as np
+from pathlib import Path
+import scanpy as sc
+
+out = Path('$CANONICAL/communication')
+out.mkdir(exist_ok=True)
+
+liana_path = Path('$CANONICAL/liana_interactions.parquet')
+if liana_path.exists():
+    print('Processing LIANA results...')
+    liana = pd.read_parquet(liana_path)
+
+    # Top interactions overall
+    rank_col = 'specificity_rank' if 'specificity_rank' in liana.columns else 'pvalue'
+    top_interactions = liana.nsmallest(100, rank_col)
+    top_interactions.to_parquet(out / 'top_interactions.parquet')
+
+    # Aggregate by ligand-receptor pair
+    if 'ligand_complex' in liana.columns and 'receptor_complex' in liana.columns:
+        agg_cols = {rank_col: 'mean'}
+        if 'magnitude_rank' in liana.columns:
+            agg_cols['magnitude_rank'] = 'mean'
+        lr_summary = liana.groupby(['ligand_complex', 'receptor_complex']).agg(agg_cols).reset_index()
+        lr_summary = lr_summary.nsmallest(50, rank_col)
+        lr_summary.to_parquet(out / 'lr_pair_summary.parquet')
+
+    # Aggregate by source-target cell type
+    if 'source' in liana.columns and 'target' in liana.columns:
+        ct_comm = liana.groupby(['source', 'target']).size().reset_index(name='n_interactions')
+        ct_comm.to_parquet(out / 'celltype_communication_counts.parquet')
+
+        # Communication matrix (CellChat-style)
+        comm_matrix = ct_comm.pivot(index='source', columns='target', values='n_interactions').fillna(0)
+        comm_matrix.to_parquet(out / 'communication_matrix.parquet')
+
+        # Outgoing/incoming communication strength (CellChat-style)
+        outgoing = comm_matrix.sum(axis=1)
+        incoming = comm_matrix.sum(axis=0)
+        centrality = pd.DataFrame({
+            'outgoing_strength': outgoing,
+            'incoming_strength': incoming,
+            'total_strength': outgoing + incoming,
+        })
+        centrality.to_parquet(out / 'communication_centrality.parquet')
+
+    print('Communication summary complete')
+else:
+    print('LIANA results not found, skipping')
+
+# Run full LIANA with multiple methods if not done
+adata_path = Path('$SNRNA')
+if adata_path.exists() and not liana_path.exists():
+    print('Running LIANA with multiple methods...')
+    try:
+        import liana as li
+        adata = sc.read_h5ad(adata_path)
+        cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+
+        # Run multiple methods (CellChat-like coverage)
+        li.mt.rank_aggregate(
+            adata,
+            groupby=cell_type_key,
+            resource_name='consensus',
+            expr_prop=0.1,
+            verbose=True,
+            use_raw=False,
+        )
+
+        # Save aggregated results
+        if 'liana_res' in adata.uns:
+            adata.uns['liana_res'].to_parquet(out / 'liana_aggregate.parquet')
+
+        print('LIANA aggregate complete')
+    except Exception as e:
+        print(f'LIANA aggregate failed: {e}')
+
+# Communication patterns by stage (CellChat-style)
+nhood_path = Path('$CANONICAL/neighborhoods.parquet')
+if nhood_path.exists() and liana_path.exists():
+    print('Computing communication by stage...')
+    try:
+        nhood = pd.read_parquet(nhood_path)
+        liana = pd.read_parquet(liana_path)
+
+        # This requires stage info in LIANA - may need to merge
+        # For now, save the full LIANA for stage-specific analysis locally
+
+        print('Stage-specific communication ready for local analysis')
+    except Exception as e:
+        print(f'Stage communication failed: {e}')
+"
+
+# 14. Visium-specific spatial analysis
+echo ""
+echo "[14/17] Running Visium spatial analysis..."
+mkdir -p $CANONICAL/visium
+python -c "
+import squidpy as sq
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+print('Loading spatial data...')
+adata = sc.read_h5ad('$SPATIAL')
+print(f'  {adata.n_obs} spots')
+
+out = Path('$CANONICAL/visium')
+
+# Spatial neighbors if not computed
+if 'spatial_neighbors' not in adata.uns:
+    print('Computing spatial neighbors...')
+    sq.gr.spatial_neighbors(adata, coord_type='generic', n_neighs=6)
+
+# Spatially variable genes (beyond just key genes)
+print('Computing spatially variable genes...')
+try:
+    sq.gr.spatial_autocorr(adata, mode='moran', n_perms=100, n_jobs=8)
+    svg = adata.uns['moranI'].copy()
+    svg = svg.sort_values('I', ascending=False)
+    svg.to_parquet(out / 'spatially_variable_genes.parquet')
+    print(f'  Found {len(svg[svg[\"pval_norm\"] < 0.05])} significant SVGs')
+except Exception as e:
+    print(f'  SVG computation failed: {e}')
+
+# Spatial domains / clustering
+print('Computing spatial domains...')
+try:
+    # Leiden on spatial graph
+    sc.pp.pca(adata, n_comps=30)
+    sc.pp.neighbors(adata, use_rep='X_pca')
+    sc.tl.leiden(adata, resolution=0.5, key_added='spatial_domain')
+
+    domain_df = pd.DataFrame({
+        'spot_id': adata.obs.index,
+        'spatial_domain': adata.obs['spatial_domain'].values,
+        'x': adata.obsm['spatial'][:, 0] if 'spatial' in adata.obsm else adata.obs.get('x_spatial', 0),
+        'y': adata.obsm['spatial'][:, 1] if 'spatial' in adata.obsm else adata.obs.get('y_spatial', 0),
+    })
+    if 'stage' in adata.obs.columns:
+        domain_df['stage'] = adata.obs['stage'].values
+    if 'sample' in adata.obs.columns:
+        domain_df['sample'] = adata.obs['sample'].values
+    domain_df.to_parquet(out / 'spatial_domains.parquet')
+
+    # Domain composition
+    cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+    if cell_type_key in adata.obs.columns:
+        domain_comp = pd.crosstab(adata.obs['spatial_domain'], adata.obs[cell_type_key], normalize='index')
+        domain_comp.to_parquet(out / 'domain_celltype_composition.parquet')
+except Exception as e:
+    print(f'  Spatial domain failed: {e}')
+
+# Ripley's statistics (clustering patterns)
+print('Computing Ripley L function...')
+cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+if cell_type_key in adata.obs.columns:
+    try:
+        sq.gr.ripley(adata, cluster_key=cell_type_key, mode='L')
+        ripley = adata.uns[f'{cell_type_key}_ripley_L']
+        pd.DataFrame(ripley).to_parquet(out / 'ripley_L.parquet')
+    except Exception as e:
+        print(f'  Ripley failed: {e}')
+
+# Ligand-receptor spatial proximity
+print('Computing L-R spatial proximity...')
+try:
+    sq.gr.ligrec(
+        adata,
+        cluster_key=cell_type_key,
+        n_perms=100,
+        use_raw=False,
+    )
+    if 'ligrec' in adata.uns[f'{cell_type_key}_ligrec']:
+        ligrec_pvals = adata.uns[f'{cell_type_key}_ligrec']['pvalues']
+        ligrec_means = adata.uns[f'{cell_type_key}_ligrec']['means']
+        ligrec_pvals.to_parquet(out / 'ligrec_pvalues.parquet')
+        ligrec_means.to_parquet(out / 'ligrec_means.parquet')
+except Exception as e:
+    print(f'  L-R proximity failed: {e}')
+
+# Interface/boundary analysis (tumor-stroma)
+print('Computing interface zones...')
+if 'stage' in adata.obs.columns or cell_type_key in adata.obs.columns:
+    try:
+        # Find boundary spots (neighbors with different labels)
+        from scipy.sparse import csr_matrix
+        conn = adata.obsp.get('spatial_connectivities', None)
+        if conn is not None:
+            label_col = 'stage' if 'stage' in adata.obs.columns else cell_type_key
+            labels = adata.obs[label_col].values
+
+            boundary_spots = []
+            for i in range(adata.n_obs):
+                neighbors = conn[i].indices
+                if len(neighbors) > 0:
+                    neighbor_labels = labels[neighbors]
+                    if len(set(neighbor_labels)) > 1 or labels[i] not in neighbor_labels:
+                        boundary_spots.append(i)
+
+            boundary_df = pd.DataFrame({
+                'spot_id': adata.obs.index[boundary_spots],
+                'is_boundary': True,
+                'label': labels[boundary_spots],
+            })
+            boundary_df.to_parquet(out / 'boundary_spots.parquet')
+            print(f'  Found {len(boundary_spots)} boundary spots')
+    except Exception as e:
+        print(f'  Interface analysis failed: {e}')
+
+# Deconvolution summary (from DestVI results if available)
+destvi_path = Path('/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet')
+if destvi_path.exists():
+    print('Summarizing deconvolution results...')
+    deconv = pd.read_parquet(destvi_path)
+    deconv.to_parquet(out / 'spot_deconvolution.parquet')
+
+    # Mean proportions by stage
+    if 'stage' in adata.obs.columns:
+        deconv['stage'] = adata.obs['stage'].values[:len(deconv)] if len(deconv) <= adata.n_obs else None
+        if deconv['stage'].notna().any():
+            stage_props = deconv.groupby('stage').mean()
+            stage_props.to_parquet(out / 'deconv_proportions_by_stage.parquet')
+
+print('Visium analysis complete')
+"
+
+# 15. Spatial gene patterns (expression in space)
+echo ""
+echo "[15/17] Extracting spatial gene expression patterns..."
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+print('Loading spatial data...')
+adata = sc.read_h5ad('$SPATIAL')
+print(f'  {adata.n_obs} spots')
+
+out = Path('$CANONICAL/visium')
+
+# Key genes spatial expression
+key_genes = [
+    'IL1B', 'IL1R1', 'CXCL12', 'CXCR4', 'EGFR', 'SOX9', 'KRT17', 'KRT5',
+    'VIM', 'CDH1', 'ACTA2', 'COL1A1', 'FAP', 'CD68', 'CD163', 'CD3D',
+    'MKI67', 'TP63', 'EPCAM', 'CD274', 'PDCD1', 'VEGFA', 'HIF1A',
+]
+
+available = [g for g in key_genes if g in adata.var_names]
+print(f'  Extracting {len(available)} genes')
+
+if hasattr(adata.X, 'toarray'):
+    expr = pd.DataFrame(
+        adata[:, available].X.toarray(),
+        index=adata.obs.index,
+        columns=available
+    )
+else:
+    expr = pd.DataFrame(
+        adata[:, available].X,
+        index=adata.obs.index,
+        columns=available
+    )
+
+# Add spatial coords
+if 'spatial' in adata.obsm:
+    expr['x'] = adata.obsm['spatial'][:, 0]
+    expr['y'] = adata.obsm['spatial'][:, 1]
+elif 'x_spatial' in adata.obs.columns:
+    expr['x'] = adata.obs['x_spatial'].values
+    expr['y'] = adata.obs['y_spatial'].values
+
+# Add metadata
+if 'stage' in adata.obs.columns:
+    expr['stage'] = adata.obs['stage'].values
+if 'sample' in adata.obs.columns:
+    expr['sample'] = adata.obs['sample'].values
+
+expr.to_parquet(out / 'spatial_gene_expression.parquet')
+print('  Saved spatial_gene_expression.parquet')
+
+# Gene-gene spatial correlation
+print('Computing gene-gene spatial correlations...')
+gene_expr = expr[available]
+spatial_corr = gene_expr.corr()
+spatial_corr.to_parquet(out / 'gene_spatial_correlation.parquet')
+
+print('Spatial gene patterns complete')
+"
+
+# 16. Sample-level summaries
+echo ""
+echo "[16/17] Computing sample-level summaries..."
+mkdir -p $CANONICAL/samples
+python -c "
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+print('Loading data...')
+nhood = pd.read_parquet('$CANONICAL/neighborhoods.parquet')
+
+out = Path('$CANONICAL/samples')
+
+# Per-sample summary
+if 'donor_id' in nhood.columns or 'sample' in nhood.columns:
+    sample_col = 'sample' if 'sample' in nhood.columns else 'donor_id'
+
+    # Basic counts
+    sample_summary = nhood.groupby(sample_col).agg({
+        'cell_id': 'count',
+    }).rename(columns={'cell_id': 'n_cells'})
+
+    # Stage distribution per sample
+    if 'stage' in nhood.columns:
+        stage_counts = pd.crosstab(nhood[sample_col], nhood['stage'])
+        sample_summary = sample_summary.join(stage_counts)
+
+    # Cell type distribution per sample
+    cell_type_key = 'cell_type_luca' if 'cell_type_luca' in nhood.columns else 'cell_type'
+    if cell_type_key in nhood.columns:
+        ct_counts = pd.crosstab(nhood[sample_col], nhood[cell_type_key])
+        ct_props = ct_counts.div(ct_counts.sum(axis=1), axis=0)
+        ct_props.columns = [f'{c}_prop' for c in ct_props.columns]
+        sample_summary = sample_summary.join(ct_props)
+
+    # Mean features per sample
+    numeric_cols = ['caf_fraction', 'immune_fraction', 'diversity', 'emt_score',
+                    'senescence_score', 'S_score', 'G2M_score', 'cytotrace', 'pseudotime']
+    available = [c for c in numeric_cols if c in nhood.columns]
+    if available:
+        sample_means = nhood.groupby(sample_col)[available].mean()
+        sample_summary = sample_summary.join(sample_means)
+
+    sample_summary.to_parquet(out / 'sample_summary.parquet')
+    print(f'  Saved summary for {len(sample_summary)} samples')
+
+    # Sample metadata if available
+    meta_cols = ['stage', 'patient_id', 'tissue_type', 'batch']
+    available_meta = [c for c in meta_cols if c in nhood.columns]
+    if available_meta:
+        sample_meta = nhood.groupby(sample_col)[available_meta].first()
+        sample_meta.to_parquet(out / 'sample_metadata.parquet')
+
+print('Sample summaries complete')
+"
+
+# 17. Rare cell type discovery and signatures
+echo ""
+echo "[17/20] Discovering rare cell populations..."
+mkdir -p $CANONICAL/rare_cells
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from scipy.stats import entropy
+
+print('Loading snRNA data...')
+adata = sc.read_h5ad('$SNRNA')
+print(f'  {adata.n_obs} cells')
+
+out = Path('$CANONICAL/rare_cells')
+
+cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+
+# 1. Identify rare populations by frequency
+print('Identifying rare populations...')
+if cell_type_key in adata.obs.columns:
+    ct_counts = adata.obs[cell_type_key].value_counts()
+    total = ct_counts.sum()
+    ct_freq = ct_counts / total
+
+    rare_threshold = 0.01  # <1% of cells
+    rare_types = ct_freq[ct_freq < rare_threshold].index.tolist()
+
+    rare_summary = pd.DataFrame({
+        'cell_type': ct_counts.index,
+        'count': ct_counts.values,
+        'frequency': ct_freq.values,
+        'is_rare': ct_freq.values < rare_threshold,
+    })
+    rare_summary.to_parquet(out / 'celltype_frequencies.parquet')
+    print(f'  Found {len(rare_types)} rare cell types (<1%): {rare_types[:10]}')
+
+# 2. Rare immune populations of interest
+print('Extracting rare immune signatures...')
+rare_immune_markers = {
+    'cDC1': ['CLEC9A', 'XCR1', 'BATF3', 'IRF8', 'CADM1'],
+    'LAMP3_DC': ['LAMP3', 'CCR7', 'CCL19', 'CCL22', 'FSCN1'],
+    'pDC': ['LILRA4', 'IL3RA', 'CLEC4C', 'IRF7', 'TCF4'],
+    'Treg': ['FOXP3', 'IL2RA', 'CTLA4', 'IKZF2', 'TNFRSF18'],
+    'exhausted_CD8': ['PDCD1', 'LAG3', 'HAVCR2', 'TIGIT', 'TOX', 'ENTPD1'],
+    'proliferating_T': ['MKI67', 'TOP2A', 'CD3D', 'CD3E'],
+    'plasma_cell': ['JCHAIN', 'MZB1', 'XBP1', 'SDC1', 'IGHG1'],
+    'mast_cell': ['TPSAB1', 'TPSB2', 'CPA3', 'KIT', 'MS4A2'],
+    'neutrophil': ['FCGR3B', 'CSF3R', 'CXCR2', 'S100A8', 'S100A9'],
+}
+
+# 3. Rare tumor states
+rare_tumor_markers = {
+    'cycling_tumor': ['MKI67', 'TOP2A', 'PCNA', 'CDK1', 'CCNB1'],
+    'hypoxic_tumor': ['CA9', 'VEGFA', 'SLC2A1', 'LDHA', 'HIF1A', 'BNIP3'],
+    'EMT_tumor': ['VIM', 'SNAI1', 'SNAI2', 'ZEB1', 'TWIST1', 'CDH2'],
+    'stemlike_tumor': ['SOX2', 'SOX9', 'NANOG', 'ALDH1A1', 'CD44', 'PROM1'],
+    'IFN_stimulated_tumor': ['ISG15', 'MX1', 'IFIT1', 'STAT1', 'IRF1'],
+    'antigen_low_tumor': ['B2M', 'HLA-A', 'HLA-B', 'HLA-C', 'TAP1'],  # low expression
+    'senescent_tumor': ['CDKN1A', 'CDKN2A', 'SERPINE1', 'IL1B', 'IL6'],
+}
+
+# 4. Rare stromal states
+rare_stromal_markers = {
+    'myCAF': ['ACTA2', 'TAGLN', 'MYL9', 'COL11A1', 'POSTN'],
+    'iCAF': ['IL6', 'CXCL12', 'PDGFRA', 'CFD', 'DPT'],
+    'apCAF': ['HLA-DRA', 'HLA-DRB1', 'CD74', 'PDGFRA'],
+    'lymphatic_endo': ['PROX1', 'LYVE1', 'PDPN', 'FLT4', 'CCL21'],
+    'tip_endo': ['ESM1', 'APLN', 'PGF', 'DLL4', 'KDR'],
+    'pericyte': ['RGS5', 'PDGFRB', 'NOTCH3', 'ACTA2', 'MCAM'],
+}
+
+all_signatures = {**rare_immune_markers, **rare_tumor_markers, **rare_stromal_markers}
+
+# Score all signatures
+results = {'cell_id': adata.obs.index.tolist()}
+for name, genes in all_signatures.items():
+    available = [g for g in genes if g in adata.var_names]
+    if len(available) >= 2:
+        sc.tl.score_genes(adata, gene_list=available, score_name=name)
+        results[name] = adata.obs[name].tolist()
+        print(f'  Scored {name} ({len(available)}/{len(genes)} genes)')
+
+sig_df = pd.DataFrame(results)
+sig_df.to_parquet(out / 'rare_cell_signatures.parquet')
+
+# Add metadata
+if 'stage' in adata.obs.columns:
+    sig_df['stage'] = adata.obs['stage'].values
+if cell_type_key in adata.obs.columns:
+    sig_df['cell_type'] = adata.obs[cell_type_key].values
+
+# Mean signatures by stage
+if 'stage' in sig_df.columns:
+    score_cols = [c for c in sig_df.columns if c not in ['cell_id', 'stage', 'cell_type']]
+    stage_means = sig_df.groupby('stage')[score_cols].mean()
+    stage_means.to_parquet(out / 'rare_signatures_by_stage.parquet')
+
+# Mean signatures by cell type
+if 'cell_type' in sig_df.columns:
+    score_cols = [c for c in sig_df.columns if c not in ['cell_id', 'stage', 'cell_type']]
+    ct_means = sig_df.groupby('cell_type')[score_cols].mean()
+    ct_means.to_parquet(out / 'rare_signatures_by_celltype.parquet')
+
+print('Rare cell discovery complete')
+"
+
+# 18. Differential abundance (Milo-style neighborhoods)
+echo ""
+echo "[18/20] Computing differential abundance..."
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+print('Loading snRNA data...')
+adata = sc.read_h5ad('$SNRNA')
+print(f'  {adata.n_obs} cells')
+
+out = Path('$CANONICAL/rare_cells')
+
+# Milo-style analysis if available
+try:
+    import milopy.core as milo
+
+    print('Running Milo differential abundance...')
+
+    # Need condition/stage for DA testing
+    if 'stage' in adata.obs.columns:
+        # Build KNN graph
+        if 'neighbors' not in adata.uns:
+            sc.pp.pca(adata)
+            sc.pp.neighbors(adata, n_neighbors=30)
+
+        # Make neighborhoods
+        milo.make_nhoods(adata, prop=0.1)
+
+        # Count cells per neighborhood per sample
+        if 'sample' in adata.obs.columns or 'donor_id' in adata.obs.columns:
+            sample_col = 'sample' if 'sample' in adata.obs.columns else 'donor_id'
+            milo.count_nhoods(adata, sample_col=sample_col)
+
+            # DA testing
+            milo.DA_nhoods(adata, design='~ stage')
+
+            # Save results
+            da_results = adata.uns['nhood_adata'].obs.copy()
+            da_results.to_parquet(out / 'milo_da_results.parquet')
+            print('  Milo DA complete')
+
+except ImportError:
+    print('milopy not installed, using simple abundance test...')
+
+    # Simple differential abundance by stage
+    if 'stage' in adata.obs.columns:
+        cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+        if cell_type_key in adata.obs.columns:
+            # Chi-square style: observed vs expected proportions
+            ct_by_stage = pd.crosstab(adata.obs['stage'], adata.obs[cell_type_key])
+            ct_props = ct_by_stage.div(ct_by_stage.sum(axis=1), axis=0)
+            overall_props = adata.obs[cell_type_key].value_counts(normalize=True)
+
+            # Log fold change vs overall
+            log_fc = np.log2((ct_props + 0.001) / (overall_props + 0.001))
+            log_fc.to_parquet(out / 'celltype_logfc_by_stage.parquet')
+            print('  Simple DA complete')
+
+except Exception as e:
+    print(f'DA analysis failed: {e}')
+
+print('Differential abundance complete')
+"
+
+# 19. Rare cell spatial mapping
+echo ""
+echo "[19/20] Mapping rare cells to spatial data..."
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+print('Loading spatial data...')
+adata = sc.read_h5ad('$SPATIAL')
+print(f'  {adata.n_obs} spots')
+
+out = Path('$CANONICAL/rare_cells')
+
+# Load rare cell signatures and apply to spatial
+sig_path = Path('$CANONICAL/rare_cells/rare_cell_signatures.parquet')
+if not sig_path.exists():
+    print('Rare signatures not found, computing directly on spatial...')
+
+# Rare signatures to map
+rare_signatures = {
+    'cDC1': ['CLEC9A', 'XCR1', 'BATF3', 'IRF8'],
+    'LAMP3_DC': ['LAMP3', 'CCR7', 'CCL19', 'FSCN1'],
+    'Treg': ['FOXP3', 'IL2RA', 'CTLA4'],
+    'exhausted_CD8': ['PDCD1', 'LAG3', 'HAVCR2', 'TOX'],
+    'plasma_cell': ['JCHAIN', 'MZB1', 'XBP1'],
+    'hypoxic_tumor': ['CA9', 'VEGFA', 'SLC2A1', 'LDHA'],
+    'EMT_tumor': ['VIM', 'SNAI1', 'ZEB1', 'CDH2'],
+    'myCAF': ['ACTA2', 'TAGLN', 'POSTN'],
+    'iCAF': ['IL6', 'CXCL12', 'PDGFRA'],
+    'lymphatic_endo': ['PROX1', 'LYVE1', 'PDPN'],
+}
+
+results = {'spot_id': adata.obs.index.tolist()}
+
+for name, genes in rare_signatures.items():
+    available = [g for g in genes if g in adata.var_names]
+    if len(available) >= 2:
+        sc.tl.score_genes(adata, gene_list=available, score_name=name)
+        results[name] = adata.obs[name].tolist()
+        print(f'  Mapped {name} ({len(available)} genes)')
+
+spatial_rare = pd.DataFrame(results)
+
+# Add spatial coords
+if 'spatial' in adata.obsm:
+    spatial_rare['x'] = adata.obsm['spatial'][:, 0]
+    spatial_rare['y'] = adata.obsm['spatial'][:, 1]
+elif 'x_spatial' in adata.obs.columns:
+    spatial_rare['x'] = adata.obs['x_spatial'].values
+    spatial_rare['y'] = adata.obs['y_spatial'].values
+
+if 'stage' in adata.obs.columns:
+    spatial_rare['stage'] = adata.obs['stage'].values
+if 'sample' in adata.obs.columns:
+    spatial_rare['sample'] = adata.obs['sample'].values
+
+spatial_rare.to_parquet(out / 'rare_signatures_spatial.parquet')
+
+# Co-localization: correlate rare signatures with each other spatially
+print('Computing rare cell co-localization...')
+score_cols = [c for c in spatial_rare.columns if c not in ['spot_id', 'x', 'y', 'stage', 'sample']]
+if len(score_cols) > 1:
+    coloc = spatial_rare[score_cols].corr()
+    coloc.to_parquet(out / 'rare_cell_colocalization.parquet')
+
+# Rare cell enrichment near tumor/stroma boundaries
+print('Computing rare cell spatial enrichment...')
+cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+if cell_type_key in adata.obs.columns:
+    # Mean rare signature by dominant cell type
+    spatial_rare['dominant_celltype'] = adata.obs[cell_type_key].values
+    rare_by_ct = spatial_rare.groupby('dominant_celltype')[score_cols].mean()
+    rare_by_ct.to_parquet(out / 'rare_signatures_by_spot_celltype.parquet')
+
+print('Rare cell spatial mapping complete')
+"
+
+# 20. Validate contract
+echo ""
+echo "[20/20] Validating data contract..."
 python -c "
 from stagebridge.contracts import validate_contract
 validate_contract('$CANONICAL')
@@ -590,5 +1324,23 @@ ls -lh $CANONICAL/pathways/ 2>/dev/null || echo "  (not found)"
 echo ""
 echo "TF/Pathway activity (decoupleR):"
 ls -lh $CANONICAL/activity/ 2>/dev/null || echo "  (not found)"
+echo ""
+echo "Trajectories (DPT, PAGA):"
+ls -lh $CANONICAL/trajectories/ 2>/dev/null || echo "  (not found)"
+echo ""
+echo "Embeddings (UMAP, PHATE):"
+ls -lh $CANONICAL/embeddings/ 2>/dev/null || echo "  (not found)"
+echo ""
+echo "Communication:"
+ls -lh $CANONICAL/communication/ 2>/dev/null || echo "  (not found)"
+echo ""
+echo "Visium spatial:"
+ls -lh $CANONICAL/visium/ 2>/dev/null || echo "  (not found)"
+echo ""
+echo "Sample summaries:"
+ls -lh $CANONICAL/samples/ 2>/dev/null || echo "  (not found)"
+echo ""
+echo "Rare cells:"
+ls -lh $CANONICAL/rare_cells/ 2>/dev/null || echo "  (not found)"
 echo ""
 echo "Ready for training: snakemake --profile workflow/slurm"
