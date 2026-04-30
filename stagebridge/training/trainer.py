@@ -1096,6 +1096,16 @@ class StageBridgeTrainer:
                 "num_encoder_layers": self.model.config.num_encoder_layers,
                 "max_neighbors": self.model.config.max_neighbors,
                 "num_stages": self.model.config.num_stages,
+                # GW fusion config (critical for checkpoint loading)
+                "use_gw_fusion": self.model.config.use_gw_fusion,
+                "gw_output_dim": self.model.config.gw_output_dim,
+                "gw_sinkhorn_iters": self.model.config.gw_sinkhorn_iters,
+                "gw_sinkhorn_reg": self.model.config.gw_sinkhorn_reg,
+                "gw_mode": self.model.config.gw_mode,
+                # Other model config
+                "use_learned_ring_pooling": self.model.config.use_learned_ring_pooling,
+                "use_context_refiner": self.model.config.use_context_refiner,
+                "use_cross_attn_drift": self.model.config.use_cross_attn_drift,
             },
             "trainer_config": {
                 "num_epochs": self.config.num_epochs,
