@@ -48,6 +48,9 @@ class NicheBatch:
         stage_idx: [B] stage indices
         donor_ids: List of donor IDs
         cell_ids: List of cell IDs
+        pathway_targets: [B, 14] PROGENy pathway activity targets (optional)
+        proliferation_target: [B] Ki67/proliferation label (optional)
+        evolution_features: [B, E] WES/genomic features (optional)
     """
 
     receiver: Tensor
@@ -60,6 +63,9 @@ class NicheBatch:
     stage_idx: Tensor
     donor_ids: list[str]
     cell_ids: list[str]
+    pathway_targets: Tensor | None = None
+    proliferation_target: Tensor | None = None
+    evolution_features: Tensor | None = None
 
     def to(self, device: str | torch.device) -> "NicheBatch":
         """Move tensors to device."""
@@ -74,6 +80,9 @@ class NicheBatch:
             stage_idx=self.stage_idx.to(device),
             donor_ids=self.donor_ids,
             cell_ids=self.cell_ids,
+            pathway_targets=self.pathway_targets.to(device) if self.pathway_targets is not None else None,
+            proliferation_target=self.proliferation_target.to(device) if self.proliferation_target is not None else None,
+            evolution_features=self.evolution_features.to(device) if self.evolution_features is not None else None,
         )
 
     def __len__(self) -> int:
@@ -179,6 +188,24 @@ class StageBridgeDataset(Dataset):
         if "stats_z" in row and row["stats_z"] is not None:
             stats = np.array(row["stats_z"], dtype=np.float32)
 
+        # Auxiliary targets for pathway and proliferation heads
+        pathway_targets = None
+        if "pathway_targets" in row and row["pathway_targets"] is not None:
+            pathway_targets = np.array(row["pathway_targets"], dtype=np.float32)
+
+        proliferation_target = None
+        if "proliferation_label" in row:
+            proliferation_target = float(row["proliferation_label"])
+        elif "Ki67" in row:
+            proliferation_target = float(row["Ki67"])
+
+        # Evolution/WES features
+        evolution_features = None
+        if "evolution_features" in row and row["evolution_features"] is not None:
+            evolution_features = np.array(row["evolution_features"], dtype=np.float32)
+        elif "wes_features" in row and row["wes_features"] is not None:
+            evolution_features = np.array(row["wes_features"], dtype=np.float32)
+
         return {
             "receiver": receiver,
             "ring_cells": ring_cells,
@@ -190,6 +217,9 @@ class StageBridgeDataset(Dataset):
             "stage_idx": stage_idx,
             "donor_id": donor_id,
             "cell_id": cell_id,
+            "pathway_targets": pathway_targets,
+            "proliferation_target": proliferation_target,
+            "evolution_features": evolution_features,
         }
 
     def get_stage_distribution(self) -> dict[str, int]:
@@ -225,6 +255,21 @@ def collate_niche_batch(samples: list[dict]) -> NicheBatch:
     if samples[0].get("stats") is not None:
         stats = torch.from_numpy(np.stack([s["stats"] for s in samples]))
 
+    # Auxiliary targets
+    pathway_targets = None
+    if samples[0].get("pathway_targets") is not None:
+        pathway_targets = torch.from_numpy(np.stack([s["pathway_targets"] for s in samples]))
+
+    proliferation_target = None
+    if samples[0].get("proliferation_target") is not None:
+        proliferation_target = torch.tensor(
+            [s["proliferation_target"] for s in samples], dtype=torch.float32
+        )
+
+    evolution_features = None
+    if samples[0].get("evolution_features") is not None:
+        evolution_features = torch.from_numpy(np.stack([s["evolution_features"] for s in samples]))
+
     donor_ids = [s["donor_id"] for s in samples]
     cell_ids = [s["cell_id"] for s in samples]
 
@@ -238,6 +283,9 @@ def collate_niche_batch(samples: list[dict]) -> NicheBatch:
         stats=stats,
         stage_idx=stage_idx,
         donor_ids=donor_ids,
+        pathway_targets=pathway_targets,
+        proliferation_target=proliferation_target,
+        evolution_features=evolution_features,
         cell_ids=cell_ids,
     )
 

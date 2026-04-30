@@ -431,6 +431,7 @@ class StageBridge(nn.Module):
         luca: Tensor,
         pathway: Tensor | None = None,
         stats: Tensor | None = None,
+        evolution_features: Tensor | None = None,
         return_reconstruction: bool = False,
         return_gw_coupling: bool = False,
     ) -> ReceiverNicheOutput:
@@ -451,6 +452,7 @@ class StageBridge(nn.Module):
             luca: [B, 10] LuCA reference embedding
             pathway: [B, D] pathway features (optional)
             stats: [B, D] stats features (optional)
+            evolution_features: [B, E] WES/genomic features (optional)
             return_reconstruction: Return receiver reconstruction for SSL
             return_gw_coupling: Return GW transport plan (for visualization)
 
@@ -501,6 +503,10 @@ class StageBridge(nn.Module):
             else:
                 stats_cond = stats
             context = self.stats_conditioner(context, stats_cond)
+
+        # Evolution branch: WES/genomic feature conditioning
+        if self.evolution_branch is not None and evolution_features is not None:
+            context = self.evolution_branch(context, evolution_features)
 
         return ReceiverNicheOutput(
             context=context,
