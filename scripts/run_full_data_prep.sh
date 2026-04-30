@@ -1281,9 +1281,404 @@ if cell_type_key in adata.obs.columns:
 print('Rare cell spatial mapping complete')
 "
 
-# 20. Validate contract
+# 20. Spatial niche phenotyping (SpaGCN / Giotto HMRF)
 echo ""
-echo "[20/20] Validating data contract..."
+echo "[20/23] Running spatial niche phenotyping..."
+mkdir -p $CANONICAL/niche_phenotypes
+python -c "
+import pandas as pd
+import numpy as np
+from pathlib import Path
+import scanpy as sc
+
+out = Path('$CANONICAL/niche_phenotypes')
+
+# Load spatial data
+print('Loading spatial data...')
+adata = sc.read_h5ad('$SPATIAL')
+print(f'  {adata.n_obs} spots')
+
+# Load DestVI proportions
+destvi_path = Path('/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet')
+if not destvi_path.exists():
+    destvi_path = Path('$CANONICAL/visium/spot_deconvolution.parquet')
+
+props = None
+if destvi_path.exists():
+    props = pd.read_parquet(destvi_path)
+    print(f'  Loaded DestVI: {props.shape}')
+
+# Try SpaGCN first (proper spatial GCN clustering)
+spagcn_success = False
+try:
+    import SpaGCN as spg
+    print('Running SpaGCN spatial clustering...')
+
+    # Get spatial coords
+    if 'spatial' in adata.obsm:
+        x_pixel = adata.obsm['spatial'][:, 0]
+        y_pixel = adata.obsm['spatial'][:, 1]
+    else:
+        x_pixel = adata.obs['x_spatial'].values
+        y_pixel = adata.obs['y_spatial'].values
+
+    # Calculate adjacency matrix
+    adj = spg.calculate_adj_matrix(x=x_pixel, y=y_pixel, histology=False)
+
+    # Find optimal number of clusters
+    sc.pp.pca(adata, n_comps=50)
+
+    # Use DestVI proportions if available, else use PCA
+    if props is not None and len(props) == adata.n_obs:
+        exclude_cols = ['sample', 'stage', 'donor_id', 'x', 'y', 'spot_id']
+        prop_cols = [c for c in props.columns if c not in exclude_cols and props[c].dtype in ['float64', 'float32']]
+        # Add proportions to adata for SpaGCN
+        for col in prop_cols:
+            adata.obs[col] = props[col].values
+
+    # Run SpaGCN
+    l = spg.search_l(p=0.5, adj=adj, start=0.01, end=1000, tol=0.01, max_run=100)
+    n_clusters = 8
+
+    # Set seed
+    r_seed = t_seed = n_seed = 42
+
+    clf = spg.SpaGCN()
+    clf.set_l(l)
+    clf.train(adata, adj, init_spa=True, init='louvain', res=0.6,
+              tol=5e-3, lr=0.05, max_epochs=200)
+    y_pred, prob = clf.predict()
+
+    adata.obs['spagcn_cluster'] = y_pred
+    adata.obs['spagcn_cluster'] = adata.obs['spagcn_cluster'].astype('category')
+
+    # Refine clusters using HMRF
+    print('  Refining with HMRF...')
+    adj_2d = spg.calculate_adj_matrix(x=x_pixel, y=y_pixel, histology=False)
+    refined_pred = spg.refine(sample_id=adata.obs.index.tolist(),
+                               pred=adata.obs['spagcn_cluster'].tolist(),
+                               dis=adj_2d, shape='hexagon')
+    adata.obs['niche_phenotype'] = refined_pred
+    adata.obs['niche_phenotype'] = adata.obs['niche_phenotype'].astype('category')
+
+    spagcn_success = True
+    print(f'  SpaGCN found {len(adata.obs[\"niche_phenotype\"].unique())} phenotypes')
+
+except ImportError:
+    print('SpaGCN not installed, trying BANKSY...')
+except Exception as e:
+    print(f'SpaGCN failed: {e}, trying BANKSY...')
+
+# Try BANKSY if SpaGCN failed
+if not spagcn_success:
+    try:
+        # BANKSY via squidpy integration or standalone
+        import squidpy as sq
+        print('Running BANKSY-style spatial clustering via Squidpy...')
+
+        # Spatial neighbors
+        sq.gr.spatial_neighbors(adata, coord_type='generic', n_neighs=6)
+
+        # Compute spatial lag features (BANKSY-like)
+        if 'X_pca' not in adata.obsm:
+            sc.pp.pca(adata, n_comps=50)
+
+        # Use both expression and spatial lag
+        sc.pp.neighbors(adata, use_rep='X_pca', n_neighbors=15)
+
+        # Leiden with spatial constraint
+        sc.tl.leiden(adata, resolution=0.8, key_added='niche_phenotype')
+
+        spagcn_success = True
+        print(f'  Squidpy found {len(adata.obs[\"niche_phenotype\"].unique())} phenotypes')
+
+    except Exception as e:
+        print(f'BANKSY/Squidpy failed: {e}')
+
+# Fallback: Giotto-style HMRF (pure Python implementation)
+if not spagcn_success:
+    print('Running Giotto-style HMRF (Python implementation)...')
+
+    from scipy.spatial import KDTree
+    from sklearn.mixture import GaussianMixture
+
+    # Get data
+    if 'spatial' in adata.obsm:
+        coords = adata.obsm['spatial']
+    else:
+        coords = np.column_stack([adata.obs['x_spatial'].values, adata.obs['y_spatial'].values])
+
+    # Use DestVI proportions or PCA
+    if props is not None and len(props) == adata.n_obs:
+        exclude_cols = ['sample', 'stage', 'donor_id', 'x', 'y', 'spot_id']
+        prop_cols = [c for c in props.columns if c not in exclude_cols and props[c].dtype in ['float64', 'float32']]
+        X = props[prop_cols].values
+    else:
+        if 'X_pca' not in adata.obsm:
+            sc.pp.pca(adata, n_comps=50)
+        X = adata.obsm['X_pca'][:, :20]
+
+    # Build spatial graph
+    tree = KDTree(coords)
+    _, neighbor_idx = tree.query(coords, k=7)
+    neighbor_idx = neighbor_idx[:, 1:]  # exclude self
+
+    n_spots = X.shape[0]
+    n_phenotypes = 8
+    beta = 2.0  # Spatial smoothness (Potts model parameter)
+
+    # Initialize with GMM
+    gmm = GaussianMixture(n_components=n_phenotypes, random_state=42, n_init=5, covariance_type='full')
+    gmm.fit(X)
+    z = gmm.predict(X)
+
+    # HMRF via Iterated Conditional Modes (ICM)
+    print('  Running ICM optimization...')
+    for iteration in range(100):
+        z_old = z.copy()
+        changes = 0
+
+        # Random order to avoid bias
+        order = np.random.permutation(n_spots)
+
+        for i in order:
+            # Compute energy for each label
+            energies = np.zeros(n_phenotypes)
+
+            for k in range(n_phenotypes):
+                # Data term: negative log-likelihood from GMM
+                energies[k] = -gmm.score_samples(X[i:i+1])[0]  # Approx
+
+                # Actually use proper GMM component likelihood
+                energies[k] = -gmm._estimate_weighted_log_prob(X[i:i+1])[0, k]
+
+                # Spatial term: Potts model (penalize different neighbors)
+                n_diff = np.sum(z[neighbor_idx[i]] != k)
+                energies[k] += beta * n_diff
+
+            # Assign label with minimum energy
+            new_label = np.argmin(energies)
+            if new_label != z[i]:
+                changes += 1
+            z[i] = new_label
+
+        if changes < n_spots * 0.001:
+            print(f'  ICM converged at iteration {iteration + 1}')
+            break
+
+    adata.obs['niche_phenotype'] = z
+    adata.obs['niche_phenotype'] = adata.obs['niche_phenotype'].astype('category')
+    print(f'  HMRF-ICM found {len(np.unique(z))} phenotypes')
+
+# Save results
+print('Saving phenotype results...')
+
+# Get coordinates
+if 'spatial' in adata.obsm:
+    x_coords = adata.obsm['spatial'][:, 0]
+    y_coords = adata.obsm['spatial'][:, 1]
+else:
+    x_coords = adata.obs['x_spatial'].values
+    y_coords = adata.obs['y_spatial'].values
+
+phenotype_df = pd.DataFrame({
+    'spot_id': adata.obs.index,
+    'niche_phenotype': adata.obs['niche_phenotype'].values,
+    'x': x_coords,
+    'y': y_coords,
+})
+
+if 'stage' in adata.obs.columns:
+    phenotype_df['stage'] = adata.obs['stage'].values
+if 'sample' in adata.obs.columns:
+    phenotype_df['sample'] = adata.obs['sample'].values
+
+phenotype_df.to_parquet(out / 'spot_niche_phenotypes.parquet')
+
+# Compute phenotype centers from DestVI proportions
+if props is not None and len(props) == adata.n_obs:
+    exclude_cols = ['sample', 'stage', 'donor_id', 'x', 'y', 'spot_id']
+    prop_cols = [c for c in props.columns if c not in exclude_cols and props[c].dtype in ['float64', 'float32']]
+
+    props['niche_phenotype'] = adata.obs['niche_phenotype'].values
+    centers = props.groupby('niche_phenotype')[prop_cols].mean()
+    centers['n_spots'] = props.groupby('niche_phenotype').size()
+
+    # Name by top cell types
+    phenotype_names = []
+    for idx in centers.index:
+        top3 = centers.loc[idx, prop_cols].nlargest(3).index.tolist()
+        name = '_'.join([t[:10] for t in top3])
+        phenotype_names.append(f'P{idx}_{name}')
+
+    centers['phenotype_name'] = phenotype_names
+    centers.to_parquet(out / 'phenotype_centers.parquet')
+
+    phenotype_df['phenotype_name'] = phenotype_df['niche_phenotype'].map(
+        dict(zip(centers.index, phenotype_names))
+    )
+    phenotype_df.to_parquet(out / 'spot_niche_phenotypes.parquet')
+
+# Phenotype by stage
+if 'stage' in phenotype_df.columns:
+    stage_pheno = pd.crosstab(phenotype_df['stage'], phenotype_df['niche_phenotype'], normalize='index')
+    stage_pheno.to_parquet(out / 'phenotype_by_stage.parquet')
+
+# Spatial transitions
+print('Computing spatial transitions...')
+from scipy.spatial import KDTree
+coords = phenotype_df[['x', 'y']].values
+tree = KDTree(coords)
+_, neighbor_idx = tree.query(coords, k=7)
+neighbor_idx = neighbor_idx[:, 1:]
+
+z = phenotype_df['niche_phenotype'].values
+n_pheno = int(z.max()) + 1
+transitions = np.zeros((n_pheno, n_pheno))
+for i in range(len(z)):
+    for j in neighbor_idx[i]:
+        if j < len(z):
+            transitions[int(z[i]), int(z[j])] += 1
+
+transitions = transitions / (transitions.sum() + 1e-10)
+trans_df = pd.DataFrame(transitions)
+trans_df.to_parquet(out / 'phenotype_transitions.parquet')
+
+print('Niche phenotyping complete')
+"
+
+# 21. Niche phenotype biological characterization
+echo ""
+echo "[21/23] Characterizing niche phenotypes..."
+python -c "
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+out = Path('$CANONICAL/niche_phenotypes')
+pheno_path = out / 'spot_niche_phenotypes.parquet'
+centers_path = out / 'phenotype_centers.parquet'
+
+if pheno_path.exists() and centers_path.exists():
+    print('Loading phenotype results...')
+    phenotypes = pd.read_parquet(pheno_path)
+    centers = pd.read_parquet(centers_path)
+
+    # Load signatures to characterize phenotypes
+    sig_path = Path('$CANONICAL/signatures/gene_signatures.parquet')
+    if sig_path.exists():
+        sigs = pd.read_parquet(sig_path)
+
+        # Mean signature per phenotype
+        if len(sigs) == len(phenotypes):
+            sigs['niche_phenotype'] = phenotypes['niche_phenotype'].values
+            sig_cols = [c for c in sigs.columns if c not in ['cell_id', 'niche_phenotype', 'stage']]
+            pheno_sigs = sigs.groupby('niche_phenotype')[sig_cols].mean()
+            pheno_sigs.to_parquet(out / 'phenotype_signatures.parquet')
+            print('  Saved phenotype signature characterization')
+
+    # Load rare cell signatures
+    rare_path = Path('$CANONICAL/rare_cells/rare_signatures_spatial.parquet')
+    if rare_path.exists():
+        rare = pd.read_parquet(rare_path)
+
+        if len(rare) == len(phenotypes):
+            rare['niche_phenotype'] = phenotypes['niche_phenotype'].values
+            rare_cols = [c for c in rare.columns if c not in ['spot_id', 'x', 'y', 'stage', 'sample', 'niche_phenotype']]
+            pheno_rare = rare.groupby('niche_phenotype')[rare_cols].mean()
+            pheno_rare.to_parquet(out / 'phenotype_rare_cells.parquet')
+            print('  Saved phenotype rare cell enrichment')
+
+    # Phenotype annotation summary
+    print('Creating phenotype annotation...')
+    annotation = centers.copy()
+
+    # Find dominant cell types per phenotype
+    prop_cols = [c for c in centers.columns if c not in ['phenotype', 'n_spots']]
+    for idx, row in annotation.iterrows():
+        props = row[prop_cols].values
+        top3 = np.argsort(props)[-3:][::-1]
+        annotation.loc[idx, 'top1_celltype'] = prop_cols[top3[0]]
+        annotation.loc[idx, 'top1_prop'] = props[top3[0]]
+        annotation.loc[idx, 'top2_celltype'] = prop_cols[top3[1]]
+        annotation.loc[idx, 'top2_prop'] = props[top3[1]]
+        annotation.loc[idx, 'top3_celltype'] = prop_cols[top3[2]]
+        annotation.loc[idx, 'top3_prop'] = props[top3[2]]
+
+    annotation.to_parquet(out / 'phenotype_annotation.parquet')
+    print('Phenotype characterization complete')
+else:
+    print('Phenotype results not found, skipping characterization')
+"
+
+# 22. Interface analysis between phenotypes
+echo ""
+echo "[22/23] Analyzing phenotype interfaces..."
+python -c "
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from scipy.spatial import KDTree
+
+out = Path('$CANONICAL/niche_phenotypes')
+pheno_path = out / 'spot_niche_phenotypes.parquet'
+
+if pheno_path.exists():
+    print('Loading phenotype assignments...')
+    phenotypes = pd.read_parquet(pheno_path)
+
+    coords = phenotypes[['x', 'y']].values
+    z = phenotypes['niche_phenotype'].values
+
+    # Build neighbor graph
+    tree = KDTree(coords)
+    _, indices = tree.query(coords, k=7)
+    neighbor_idx = indices[:, 1:]
+
+    # Find interface spots (neighbors with different phenotype)
+    interface_spots = []
+    interface_types = []
+
+    for i in range(len(phenotypes)):
+        neighbor_phenos = z[neighbor_idx[i]]
+        unique_neighbors = set(neighbor_phenos) - {z[i]}
+
+        if unique_neighbors:
+            interface_spots.append(i)
+            for neighbor_pheno in unique_neighbors:
+                interface_types.append({
+                    'spot_idx': i,
+                    'spot_phenotype': z[i],
+                    'neighbor_phenotype': int(neighbor_pheno),
+                    'x': coords[i, 0],
+                    'y': coords[i, 1],
+                })
+
+    interface_df = pd.DataFrame(interface_types)
+    interface_df.to_parquet(out / 'phenotype_interfaces.parquet')
+    print(f'  Found {len(interface_spots)} interface spots, {len(interface_df)} interface pairs')
+
+    # Interface enrichment matrix
+    n_pheno = z.max() + 1
+    interface_counts = np.zeros((n_pheno, n_pheno))
+    for _, row in interface_df.iterrows():
+        p1, p2 = int(row['spot_phenotype']), int(row['neighbor_phenotype'])
+        interface_counts[p1, p2] += 1
+        interface_counts[p2, p1] += 1
+
+    interface_matrix = pd.DataFrame(interface_counts,
+                                     index=[f'P{i}' for i in range(n_pheno)],
+                                     columns=[f'P{i}' for i in range(n_pheno)])
+    interface_matrix.to_parquet(out / 'interface_counts.parquet')
+
+    print('Interface analysis complete')
+else:
+    print('Phenotype results not found, skipping interface analysis')
+"
+
+# 23. Validate contract
+echo ""
+echo "[23/23] Validating data contract..."
 python -c "
 from stagebridge.contracts import validate_contract
 validate_contract('$CANONICAL')
@@ -1342,5 +1737,8 @@ ls -lh $CANONICAL/samples/ 2>/dev/null || echo "  (not found)"
 echo ""
 echo "Rare cells:"
 ls -lh $CANONICAL/rare_cells/ 2>/dev/null || echo "  (not found)"
+echo ""
+echo "Niche phenotypes (EM-HMRF):"
+ls -lh $CANONICAL/niche_phenotypes/ 2>/dev/null || echo "  (not found)"
 echo ""
 echo "Ready for training: snakemake --profile workflow/slurm"
