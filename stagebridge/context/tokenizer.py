@@ -21,6 +21,9 @@ class NicheTokenizer(nn.Module):
     then assembles the 9-token sequence:
     [receiver, ring_1, ring_2, ring_3, ring_4, hlca, luca, pathway, stats]
 
+    When use_fused_reference=True (for GW fusion), uses 8 tokens:
+    [receiver, ring_1, ring_2, ring_3, ring_4, fused_ref, pathway, stats]
+
     Args:
         input_dim: Raw cell embedding dimension
         hidden_dim: Output token dimension
@@ -28,10 +31,13 @@ class NicheTokenizer(nn.Module):
         num_heads: Attention heads for ring pooling
         num_inducing: ISAB inducing points per ring
         dropout: Dropout rate
+        use_fused_reference: Use single fused reference token (for GW fusion)
+        fused_ref_dim: Dimension of fused reference (if use_fused_reference)
     """
 
     NUM_RINGS = 4
     NUM_TOKENS = 9  # receiver + 4 rings + hlca + luca + pathway + stats
+    NUM_TOKENS_FUSED = 8  # receiver + 4 rings + fused_ref + pathway + stats
 
     def __init__(
         self,
@@ -42,15 +48,23 @@ class NicheTokenizer(nn.Module):
         num_inducing: int = 4,
         dropout: float = 0.1,
         stats_dim: int = 7,
+        use_fused_reference: bool = False,
+        fused_ref_dim: int | None = None,
     ) -> None:
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_rings = num_rings
         self.stats_dim = stats_dim
+        self.use_fused_reference = use_fused_reference
+        self.fused_ref_dim = fused_ref_dim or input_dim
 
         # Projection for non-pooled tokens (receiver, hlca, luca, pathway)
         self.token_proj = nn.Linear(input_dim, hidden_dim)
+
+        # Separate projection for fused reference (may have different dim)
+        if use_fused_reference:
+            self.fused_ref_proj = nn.Linear(self.fused_ref_dim, hidden_dim)
 
         # Separate projection for stats (different dimension)
         self.stats_proj = nn.Linear(stats_dim, hidden_dim)
@@ -79,6 +93,7 @@ class NicheTokenizer(nn.Module):
         luca: Tensor,
         pathway: Tensor | None = None,
         stats: Tensor | None = None,
+        fused_ref: Tensor | None = None,
     ) -> tuple[Tensor, Tensor, list[Tensor]]:
         """Tokenize neighborhood with learned ring pooling.
 
@@ -86,13 +101,14 @@ class NicheTokenizer(nn.Module):
             receiver: [B, D] receiver cell embedding
             ring_cells: List of 4 tensors, each [B, max_cells, D] cells in that ring
             ring_masks: List of 4 tensors, each [B, max_cells] boolean masks
-            hlca: [B, D] HLCA reference embedding
-            luca: [B, D] LuCA reference embedding
+            hlca: [B, D] HLCA reference embedding (ignored if fused_ref provided)
+            luca: [B, D] LuCA reference embedding (ignored if fused_ref provided)
             pathway: [B, D] pathway features (optional, zeros if None)
             stats: [B, D] stats features (optional, zeros if None)
+            fused_ref: [B, D_fused] GW-fused reference (if use_fused_reference)
 
         Returns:
-            tokens: [B, 9, hidden_dim] the 9-token sequence
+            tokens: [B, 9, hidden_dim] or [B, 8, hidden_dim] token sequence
             receiver_reconstruction: [B, input_dim] reconstructed receiver (for SSL)
             ring_attention: List of attention weights from ring pooling
         """
@@ -101,8 +117,6 @@ class NicheTokenizer(nn.Module):
 
         # Project fixed tokens
         receiver_token = self.token_proj(receiver)
-        hlca_token = self.token_proj(hlca)
-        luca_token = self.token_proj(luca)
 
         if pathway is not None:
             pathway_token = self.token_proj(pathway)
@@ -124,19 +138,35 @@ class NicheTokenizer(nn.Module):
             ring_token = pooler(cells, mask=mask)  # [B, hidden_dim]
             ring_tokens.append(ring_token)
 
-        # Assemble 9-token sequence
-        # Order: [receiver, ring_1, ring_2, ring_3, ring_4, hlca, luca, pathway, stats]
-        tokens = torch.stack([
-            receiver_token,
-            ring_tokens[0],
-            ring_tokens[1],
-            ring_tokens[2],
-            ring_tokens[3],
-            hlca_token,
-            luca_token,
-            pathway_token,
-            stats_token,
-        ], dim=1)  # [B, 9, hidden_dim]
+        # Assemble token sequence
+        if self.use_fused_reference and fused_ref is not None:
+            # 8-token sequence with single fused reference
+            fused_ref_token = self.fused_ref_proj(fused_ref)
+            tokens = torch.stack([
+                receiver_token,
+                ring_tokens[0],
+                ring_tokens[1],
+                ring_tokens[2],
+                ring_tokens[3],
+                fused_ref_token,
+                pathway_token,
+                stats_token,
+            ], dim=1)  # [B, 8, hidden_dim]
+        else:
+            # Standard 9-token sequence
+            hlca_token = self.token_proj(hlca)
+            luca_token = self.token_proj(luca)
+            tokens = torch.stack([
+                receiver_token,
+                ring_tokens[0],
+                ring_tokens[1],
+                ring_tokens[2],
+                ring_tokens[3],
+                hlca_token,
+                luca_token,
+                pathway_token,
+                stats_token,
+            ], dim=1)  # [B, 9, hidden_dim]
 
         # Reconstruction: project receiver_token back to input_dim for SSL
         receiver_reconstruction = self.reconstruction_head(receiver_token)

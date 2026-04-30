@@ -29,6 +29,7 @@ from stagebridge.transition.drift import (
     CrossAttentionDrift,
     FiLMConditioner,
 )
+from stagebridge.reference.gw_fusion import GromovWassersteinFusion, GWFusionConfig
 
 
 @dataclass(slots=True)
@@ -119,6 +120,13 @@ class StageBridgeConfig:
     ring_pooler_num_heads: int = 4
     ring_pooler_num_inducing: int = 4
     max_cells_per_ring: int = 50
+
+    # Gromov-Wasserstein fusion (replaces concat for HLCA/LuCA)
+    use_gw_fusion: bool = False
+    gw_output_dim: int = 40  # Output dim of fused representation
+    gw_sinkhorn_iters: int = 50
+    gw_sinkhorn_reg: float = 0.1
+    gw_mode: str = "barycentric"  # project_to_hlca, project_to_luca, barycentric
 
     @property
     def num_edges(self) -> int:
@@ -369,6 +377,21 @@ class StageBridge(nn.Module):
                 condition_dim=config.stats_dim,
             )
 
+        # Gromov-Wasserstein fusion for HLCA-LuCA alignment
+        # Must be initialized before tokenizer to know output dimension
+        self.gw_fusion: GromovWassersteinFusion | None = None
+        if config.use_gw_fusion:
+            gw_config = GWFusionConfig(
+                hlca_dim=30,  # Fixed by HLCA scANVI
+                luca_dim=10,  # Fixed by LuCA scVI
+                output_dim=config.gw_output_dim,
+                sinkhorn_iters=config.gw_sinkhorn_iters,
+                sinkhorn_reg=config.gw_sinkhorn_reg,
+                mode=config.gw_mode,
+                dropout=config.dropout,
+            )
+            self.gw_fusion = GromovWassersteinFusion(gw_config)
+
         # Learned ring pooling (individual cells per ring with ISAB+PMA)
         self.niche_tokenizer: NicheTokenizer | None = None
         if config.use_learned_ring_pooling:
@@ -380,6 +403,8 @@ class StageBridge(nn.Module):
                 num_inducing=config.ring_pooler_num_inducing,
                 dropout=config.dropout,
                 stats_dim=config.stats_dim,
+                use_fused_reference=config.use_gw_fusion,
+                fused_ref_dim=config.gw_output_dim if config.use_gw_fusion else None,
             )
 
     def encode_stage_pair(self, stage_src: int, stage_tgt: int) -> int:
@@ -407,6 +432,7 @@ class StageBridge(nn.Module):
         pathway: Tensor | None = None,
         stats: Tensor | None = None,
         return_reconstruction: bool = False,
+        return_gw_coupling: bool = False,
     ) -> ReceiverNicheOutput:
         """Encode niche with learned ring pooling.
 
@@ -414,15 +440,19 @@ class StageBridge(nn.Module):
         ISAB+PMA attention, then passes the 9-token structure through
         the hierarchical set transformer.
 
+        If use_gw_fusion is enabled, HLCA and LuCA embeddings are first
+        aligned via differentiable Gromov-Wasserstein before tokenization.
+
         Args:
             receiver: [B, D] receiver cell embedding
             ring_cells: List of 4 tensors, each [B, max_cells, D]
             ring_masks: List of 4 tensors, each [B, max_cells] (True = valid)
-            hlca: [B, D] HLCA reference embedding
-            luca: [B, D] LuCA reference embedding
+            hlca: [B, 30] HLCA reference embedding
+            luca: [B, 10] LuCA reference embedding
             pathway: [B, D] pathway features (optional)
             stats: [B, D] stats features (optional)
             return_reconstruction: Return receiver reconstruction for SSL
+            return_gw_coupling: Return GW transport plan (for visualization)
 
         Returns:
             ReceiverNicheOutput with context and attention weights
@@ -432,7 +462,19 @@ class StageBridge(nn.Module):
                 "NicheTokenizer not initialized. Set use_learned_ring_pooling=True"
             )
 
-        # NicheTokenizer: raw cells per ring -> 9-token structure
+        # Optional: Gromov-Wasserstein fusion before tokenization
+        gw_coupling = None
+        gw_cost = None
+        fused_ref = None
+        if self.gw_fusion is not None:
+            if return_gw_coupling:
+                fused_ref, gw_coupling, gw_cost = self.gw_fusion(
+                    hlca, luca, return_coupling=True
+                )
+            else:
+                fused_ref = self.gw_fusion(hlca, luca)
+
+        # NicheTokenizer: raw cells per ring -> 8 or 9-token structure
         tokens, receiver_reconstruction, ring_attention = self.niche_tokenizer(
             receiver=receiver,
             ring_cells=ring_cells,
@@ -441,6 +483,7 @@ class StageBridge(nn.Module):
             luca=luca,
             pathway=pathway,
             stats=stats,
+            fused_ref=fused_ref,  # If GW enabled, uses this; otherwise uses hlca/luca
         )
 
         # tokens: [B, 9, hidden_dim]
