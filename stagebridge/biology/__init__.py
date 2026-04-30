@@ -83,6 +83,16 @@ from stagebridge.biology.features import (
     compute_cell_lr_scores,
     compute_biological_features,
 )
+from stagebridge.biology.regulons import (
+    LUNG_CANCER_REGULONS,
+    run_grn_inference,
+    prune_grn_with_motifs,
+    compute_aucell,
+    compute_regulon_specificity,
+    score_predefined_regulons,
+    run_scenic_pipeline,
+    load_regulon_scores,
+)
 
 __all__ = [
     # L-R scoring
@@ -146,4 +156,13 @@ __all__ = [
     "run_liana_pathway_enrichment",
     "compute_cell_lr_scores",
     "compute_biological_features",
+    # Regulons (pySCENIC)
+    "LUNG_CANCER_REGULONS",
+    "run_grn_inference",
+    "prune_grn_with_motifs",
+    "compute_aucell",
+    "compute_regulon_specificity",
+    "score_predefined_regulons",
+    "run_scenic_pipeline",
+    "load_regulon_scores",
 ]
