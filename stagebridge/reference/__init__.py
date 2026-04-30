@@ -27,6 +27,13 @@ from stagebridge.reference.fusion import (
     ConcatFusion,
     get_fusion_module,
 )
+from stagebridge.reference.gw_fusion import (
+    GromovWassersteinFusion,
+    GWFusionConfig,
+    GWFusionLoss,
+    entropic_gromov_wasserstein,
+    sinkhorn,
+)
 from stagebridge.reference.confidence import (
     compute_confidence,
     ConfidenceResult,
@@ -48,6 +55,12 @@ __all__ = [
     "FiLMFusion",
     "ConcatFusion",
     "get_fusion_module",
+    # Gromov-Wasserstein fusion
+    "GromovWassersteinFusion",
+    "GWFusionConfig",
+    "GWFusionLoss",
+    "entropic_gromov_wasserstein",
+    "sinkhorn",
     # Confidence
     "compute_confidence",
     "ConfidenceResult",

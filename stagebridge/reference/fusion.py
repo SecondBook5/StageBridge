@@ -22,6 +22,7 @@ class FusionMethod(str, Enum):
     WEIGHTED = "weighted"
     GATED = "gated"
     FILM = "film"
+    GROMOV_WASSERSTEIN = "gromov_wasserstein"
 
 
 def fuse_embeddings(
@@ -311,5 +312,15 @@ def get_fusion_module(
         return GatedFusion(hlca_dim, luca_dim, **kwargs)
     elif method == FusionMethod.FILM:
         return FiLMFusion(hlca_dim, luca_dim, **kwargs)
+    elif method == FusionMethod.GROMOV_WASSERSTEIN:
+        from stagebridge.reference.gw_fusion import GromovWassersteinFusion, GWFusionConfig
+        output_dim = kwargs.pop('output_dim', hlca_dim + luca_dim)
+        config = GWFusionConfig(
+            hlca_dim=hlca_dim,
+            luca_dim=luca_dim,
+            output_dim=output_dim,
+            **kwargs,
+        )
+        return GromovWassersteinFusion(config)
     else:
         raise ValueError(f"No module for fusion method: {method}")
