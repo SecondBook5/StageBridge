@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 import torch
 
-from stagebridge.contracts import LATENT_DIM, STAGE_TO_IDX
+from stagebridge.contracts import LATENT_DIM, HLCA_DIM, LUCA_DIM, STATS_TOKEN_DIM, STAGE_TO_IDX
 from stagebridge.loaders import create_dataloaders
 from stagebridge.models import StageBridge, StageBridgeConfig
 from stagebridge.training import StageBridgeTrainer, TrainerConfig
@@ -40,10 +40,10 @@ def synthetic_data_dir() -> Path:
                 "donor_id": donors[i % n_donors],
                 "stage": stages[i % len(stages)],
                 "receiver_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "hlca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "luca_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                "hlca_z": np.random.randn(HLCA_DIM).astype(np.float32).tolist(),
+                "luca_z": np.random.randn(LUCA_DIM).astype(np.float32).tolist(),
                 "pathway_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
-                "stats_z": np.random.randn(LATENT_DIM).astype(np.float32).tolist(),
+                "stats_z": np.random.randn(STATS_TOKEN_DIM).astype(np.float32).tolist(),
             }
             for ring in range(1, 5):
                 n_ring_cells = np.random.randint(5, 15)
@@ -284,10 +284,10 @@ class TestDeviceCompatibility:
             receiver=torch.randn(batch_size, LATENT_DIM),
             ring_cells=[torch.randn(batch_size, 10, LATENT_DIM) for _ in range(4)],
             ring_masks=[torch.ones(batch_size, 10, dtype=torch.bool) for _ in range(4)],
-            hlca=torch.randn(batch_size, LATENT_DIM),
-            luca=torch.randn(batch_size, LATENT_DIM),
+            hlca=torch.randn(batch_size, HLCA_DIM),
+            luca=torch.randn(batch_size, LUCA_DIM),
             pathway=torch.randn(batch_size, LATENT_DIM),
-            stats=torch.randn(batch_size, LATENT_DIM),
+            stats=torch.randn(batch_size, STATS_TOKEN_DIM),
         )
         assert output.context.device.type == "cpu"
 
@@ -307,10 +307,10 @@ class TestDeviceCompatibility:
             receiver=torch.randn(batch_size, LATENT_DIM, device="cuda"),
             ring_cells=[torch.randn(batch_size, 10, LATENT_DIM, device="cuda") for _ in range(4)],
             ring_masks=[torch.ones(batch_size, 10, dtype=torch.bool, device="cuda") for _ in range(4)],
-            hlca=torch.randn(batch_size, LATENT_DIM, device="cuda"),
-            luca=torch.randn(batch_size, LATENT_DIM, device="cuda"),
+            hlca=torch.randn(batch_size, HLCA_DIM, device="cuda"),
+            luca=torch.randn(batch_size, LUCA_DIM, device="cuda"),
             pathway=torch.randn(batch_size, LATENT_DIM, device="cuda"),
-            stats=torch.randn(batch_size, LATENT_DIM, device="cuda"),
+            stats=torch.randn(batch_size, STATS_TOKEN_DIM, device="cuda"),
         )
         assert output.context.device.type == "cuda"
 

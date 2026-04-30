@@ -12,7 +12,7 @@ import pytest
 import torch
 
 from stagebridge.models import StageBridge, StageBridgeConfig
-from stagebridge.contracts import LATENT_DIM, MAX_CELLS_PER_RING
+from stagebridge.contracts import LATENT_DIM, HLCA_DIM, LUCA_DIM, STATS_TOKEN_DIM, MAX_CELLS_PER_RING
 
 
 class TestGradientFlowContracts:
@@ -51,10 +51,10 @@ class TestGradientFlowContracts:
             "receiver": torch.randn(batch_size, LATENT_DIM),
             "ring_cells": [torch.randn(batch_size, max_cells, LATENT_DIM) for _ in range(4)],
             "ring_masks": [torch.ones(batch_size, max_cells, dtype=torch.bool) for _ in range(4)],
-            "hlca": torch.randn(batch_size, LATENT_DIM),
-            "luca": torch.randn(batch_size, LATENT_DIM),
+            "hlca": torch.randn(batch_size, HLCA_DIM),
+            "luca": torch.randn(batch_size, LUCA_DIM),
             "pathway": torch.randn(batch_size, LATENT_DIM),
-            "stats": torch.randn(batch_size, LATENT_DIM),
+            "stats": torch.randn(batch_size, STATS_TOKEN_DIM),
             "t": torch.rand(batch_size),
             "x_t": torch.randn(batch_size, LATENT_DIM),
             "stage_pair_id": torch.zeros(batch_size, dtype=torch.long),
@@ -269,8 +269,8 @@ class TestNicheTokenizerGradientFlow:
         receiver = torch.randn(batch_size, LATENT_DIM)
         ring_cells = [torch.randn(batch_size, max_cells, LATENT_DIM) for _ in range(4)]
         ring_masks = [torch.ones(batch_size, max_cells, dtype=torch.bool) for _ in range(4)]
-        hlca = torch.randn(batch_size, LATENT_DIM)
-        luca = torch.randn(batch_size, LATENT_DIM)
+        hlca = torch.randn(batch_size, HLCA_DIM)
+        luca = torch.randn(batch_size, LUCA_DIM)
 
         tokenizer.zero_grad()
         tokens, reconstruction, _ = tokenizer(

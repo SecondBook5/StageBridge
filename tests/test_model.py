@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from stagebridge.models import StageBridge, StageBridgeConfig
-from stagebridge.contracts import LATENT_DIM, STAGE_TO_IDX
+from stagebridge.contracts import LATENT_DIM, HLCA_DIM, LUCA_DIM, STATS_TOKEN_DIM, STAGE_TO_IDX
 
 
 class TestStageBridgeConfig:
@@ -65,10 +65,10 @@ class TestStageBridgeModel:
             "receiver": torch.randn(batch_size, LATENT_DIM),
             "ring_cells": [torch.randn(batch_size, max_cells, LATENT_DIM) for _ in range(4)],
             "ring_masks": [torch.ones(batch_size, max_cells, dtype=torch.bool) for _ in range(4)],
-            "hlca": torch.randn(batch_size, LATENT_DIM),
-            "luca": torch.randn(batch_size, LATENT_DIM),
+            "hlca": torch.randn(batch_size, HLCA_DIM),
+            "luca": torch.randn(batch_size, LUCA_DIM),
             "pathway": torch.randn(batch_size, LATENT_DIM),
-            "stats": torch.randn(batch_size, LATENT_DIM),
+            "stats": torch.randn(batch_size, STATS_TOKEN_DIM),
         }
 
     def test_model_creation(self, model: StageBridge):
@@ -164,10 +164,10 @@ class TestStageBridgeModel:
             receiver=torch.randn(batch_size, LATENT_DIM),
             ring_cells=ring_cells,
             ring_masks=ring_masks,
-            hlca=torch.randn(batch_size, LATENT_DIM),
-            luca=torch.randn(batch_size, LATENT_DIM),
+            hlca=torch.randn(batch_size, HLCA_DIM),
+            luca=torch.randn(batch_size, LUCA_DIM),
             pathway=torch.randn(batch_size, LATENT_DIM),
-            stats=torch.randn(batch_size, LATENT_DIM),
+            stats=torch.randn(batch_size, STATS_TOKEN_DIM),
         )
         assert output.context.shape == (batch_size, 64)
 
@@ -186,10 +186,10 @@ class TestStageBridgeModel:
             receiver=torch.randn(batch_size, LATENT_DIM),
             ring_cells=ring_cells,
             ring_masks=ring_masks,
-            hlca=torch.randn(batch_size, LATENT_DIM),
-            luca=torch.randn(batch_size, LATENT_DIM),
+            hlca=torch.randn(batch_size, HLCA_DIM),
+            luca=torch.randn(batch_size, LUCA_DIM),
             pathway=torch.randn(batch_size, LATENT_DIM),
-            stats=torch.randn(batch_size, LATENT_DIM),
+            stats=torch.randn(batch_size, STATS_TOKEN_DIM),
         )
         assert not torch.isnan(output.context).any()
 
@@ -221,8 +221,8 @@ class TestNicheTokenizer:
             receiver=torch.randn(batch_size, LATENT_DIM),
             ring_cells=[torch.randn(batch_size, max_cells, LATENT_DIM) for _ in range(4)],
             ring_masks=[torch.ones(batch_size, max_cells, dtype=torch.bool) for _ in range(4)],
-            hlca=torch.randn(batch_size, LATENT_DIM),
-            luca=torch.randn(batch_size, LATENT_DIM),
+            hlca=torch.randn(batch_size, HLCA_DIM),
+            luca=torch.randn(batch_size, LUCA_DIM),
         )
 
         # 9 tokens: receiver + 4 rings + hlca + luca + pathway + stats (last two optional)
@@ -238,8 +238,8 @@ class TestNicheTokenizer:
             receiver=receiver,
             ring_cells=[torch.randn(batch_size, 10, LATENT_DIM) for _ in range(4)],
             ring_masks=[torch.ones(batch_size, 10, dtype=torch.bool) for _ in range(4)],
-            hlca=torch.randn(batch_size, LATENT_DIM),
-            luca=torch.randn(batch_size, LATENT_DIM),
+            hlca=torch.randn(batch_size, HLCA_DIM),
+            luca=torch.randn(batch_size, LUCA_DIM),
         )
 
         assert reconstruction.shape == receiver.shape
