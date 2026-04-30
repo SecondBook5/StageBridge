@@ -671,6 +671,32 @@ except ImportError:
 except Exception as e:
     print(f'PHATE failed: {e}')
 
+# Louvain/Leiden clustering at multiple resolutions
+print('Computing Louvain/Leiden clustering...')
+for res in [0.3, 0.5, 0.8, 1.0, 1.5]:
+    sc.tl.leiden(adata, resolution=res, key_added=f'leiden_{res}')
+    sc.tl.louvain(adata, resolution=res, key_added=f'louvain_{res}')
+
+# Save clustering results
+cluster_df = pd.DataFrame({'cell_id': adata.obs.index})
+for res in [0.3, 0.5, 0.8, 1.0, 1.5]:
+    cluster_df[f'leiden_{res}'] = adata.obs[f'leiden_{res}'].values
+    cluster_df[f'louvain_{res}'] = adata.obs[f'louvain_{res}'].values
+
+if 'stage' in adata.obs.columns:
+    cluster_df['stage'] = adata.obs['stage'].values
+if cell_type_key in adata.obs.columns:
+    cluster_df['cell_type'] = adata.obs[cell_type_key].values
+
+cluster_df.to_parquet(out / 'clustering.parquet')
+
+# Add clustering to UMAP for convenience
+umap_df = pd.read_parquet(out / 'umap_embedding.parquet')
+for res in [0.5, 1.0]:
+    umap_df[f'leiden_{res}'] = adata.obs[f'leiden_{res}'].values
+    umap_df[f'louvain_{res}'] = adata.obs[f'louvain_{res}'].values
+umap_df.to_parquet(out / 'umap_embedding.parquet')
+
 print('Embedding computation complete')
 "
 
