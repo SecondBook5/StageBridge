@@ -53,7 +53,7 @@ SEED = config["experiment"]["seed"]
 
 FOLDS = list(range(N_FOLDS))
 SEEDS = list(range(N_SEEDS))
-BASELINES = config.get("baselines", ["pooling_mlp", "deepsets", "set_transformer", "graphsage"])
+BASELINES = config.get("baselines", ["pooling", "deepsets", "set_transformer", "graphsage"])
 ABLATIONS = config.get("ablations", [
     "full",
     "no_niche",
