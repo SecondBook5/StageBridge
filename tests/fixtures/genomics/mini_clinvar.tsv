@@ -1,0 +1,6 @@
+chromosome	position	reference_allele	alternate_allele	gene	clinvar_significance
+chr17	43093850	C	T	BRCA1	Pathogenic
+chr13	32332662	A	G	BRCA2	Likely pathogenic
+chr11	108236086	G	A	ATM	Uncertain significance
+chr16	68849949	C	T	PALB2	Benign
+chr17	7577121	G	A	TP53	Pathogenic

@@ -1,8 +1,0 @@
-spatial_mapping:
-  method: tacco
-  execution_mode: rebuild_cached
-  label_col: hlca_label
-  annotation_method: OT
-  fallback_annotation_method: nnls
-  max_reference_cells_per_label: 1000
-  verbose: 0

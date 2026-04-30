@@ -1,0 +1,10 @@
+# Ablation: No WES Features
+# Tests: Do whole-exome sequencing features (genomic mutations) help?
+
+ablation_type: no_wes
+
+# Modifications
+model:
+  use_evolution_branch: false
+  evolution_dim: 0
+  _ablation_: disable_wes

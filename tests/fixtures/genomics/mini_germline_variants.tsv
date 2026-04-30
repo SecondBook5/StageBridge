@@ -1,0 +1,5 @@
+sample_id	donor_id	chromosome	position	reference_allele	alternate_allele	gene	normal_vaf	normal_depth	is_germline
+D001	D001	chr17	43093850	C	T	BRCA1	0.50	80	True
+D001	D001	chr13	32332662	A	G	BRCA2	0.48	75	True
+D002	D002	chr11	108236086	G	A	ATM	0.51	90	True
+D003	D003	chr16	68849949	C	T	PALB2	0.49	85	True

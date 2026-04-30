@@ -1,67 +1,69 @@
-"""
-Baseline models for comparison with StageBridge.
+"""Baseline models for StageBridge.
 
-These baselines test the core novelty claim:
-"Cross-sectional progression becomes more identifiable when cell representations
-are conditioned on receiver-centered local niche context and anchored to both
-healthy and disease references."
+The baseline ladder tests the core scientific claim:
+"Cross-sectional progression becomes more identifiable when conditioned
+on receiver-centered local niche context"
 
-Baselines:
-1. PoolingMLP - Simple bag-of-cells pooling + MLP (no structure)
-2. DeepSets - Permutation-invariant set function
-3. SetTransformer - Flat attention without spatial structure
-4. GraphSAGE - Graph neural network with spatial edges
+Ladder (simplest to most complex):
+1. PoolingMLP - No structure (bag-of-cells)
+2. DeepSets - Permutation invariance only
+3. SetTransformer - Flat attention (no spatial structure)
+4. GraphSAGE - Spatial graph structure (symmetric aggregation)
 5. StageBridge - Receiver-centered niche + dual references (full model)
 
-Usage:
-    from stagebridge.baselines import load_benchmark_tensors, train_baseline
+Each baseline uses the same input format as StageBridge:
+    forward(receiver, neighbors, distances, x_t, t, stage_pair_id, neighbor_mask)
 
-    tensors = load_benchmark_tensors(Path("data/canonical/benchmark"))
-    # Train and evaluate baselines on semi_synthetic.pt
+This allows fair comparison with identical data loading and training loops.
 """
 
-# Note: Legacy per-cell evaluation functions removed (were deprecated)
-# Use set_baselines for H2 validation instead
-
-# Proper set-based baselines for H2 validation
-from stagebridge.baselines.set_baselines import (
-    BaselineOutput,
-    PoolingMLPBaseline,
-    DeepSetsBaseline,
-    SetTransformerBaseline,
-    GraphSAGEBaseline,
-    ReceiverCenteredBaseline,
-    BASELINE_REGISTRY,
-    create_baseline,
+from stagebridge.baselines.pooling import (
+    PoolingMLP,
+    MaxPoolMLP,
+    PoolingBaselineConfig,
 )
-# Import existing baselines from other modules
-from stagebridge.context_model.baselines_lesion import (
-    PooledLesionBaseline,
-    DeepSetsLesionBaseline,
-    LesionSetTransformerBaseline,
-)
-from stagebridge.transition_model.baselines import (
-    DeepSetsFlowModel,
-    NoContextFlowModel,
-    LinearTransitionBaseline,
-)
+from stagebridge.baselines.deepsets import DeepSets, DeepSetsConfig
+from stagebridge.baselines.set_transformer import SetTransformer, SetTransformerConfig
+from stagebridge.baselines.graph_sage import GraphSAGE, GraphSAGEConfig
 
 __all__ = [
-    # Set-based baselines (CORRECT - for H2 validation)
-    "BaselineOutput",
-    "PoolingMLPBaseline",
-    "DeepSetsBaseline",
-    "SetTransformerBaseline",
-    "GraphSAGEBaseline",
-    "ReceiverCenteredBaseline",
-    "BASELINE_REGISTRY",
-    "create_baseline",
-    # Lesion-level baselines
-    "PooledLesionBaseline",
-    "DeepSetsLesionBaseline",
-    "LesionSetTransformerBaseline",
-    # Transition baselines
-    "DeepSetsFlowModel",
-    "NoContextFlowModel",
-    "LinearTransitionBaseline",
+    # Pooling baselines
+    "PoolingMLP",
+    "MaxPoolMLP",
+    "PoolingBaselineConfig",
+    # DeepSets
+    "DeepSets",
+    "DeepSetsConfig",
+    # Set Transformer
+    "SetTransformer",
+    "SetTransformerConfig",
+    # GraphSAGE
+    "GraphSAGE",
+    "GraphSAGEConfig",
 ]
+
+
+def get_baseline(name: str, **kwargs):
+    """Get a baseline model by name.
+
+    Args:
+        name: One of "pooling", "maxpool", "deepsets", "set_transformer", "graphsage"
+        **kwargs: Config overrides
+
+    Returns:
+        Instantiated baseline model
+    """
+    baselines = {
+        "pooling": (PoolingMLP, PoolingBaselineConfig),
+        "maxpool": (MaxPoolMLP, PoolingBaselineConfig),
+        "deepsets": (DeepSets, DeepSetsConfig),
+        "set_transformer": (SetTransformer, SetTransformerConfig),
+        "graphsage": (GraphSAGE, GraphSAGEConfig),
+    }
+
+    if name not in baselines:
+        raise ValueError(f"Unknown baseline '{name}'. Available: {list(baselines.keys())}")
+
+    model_cls, config_cls = baselines[name]
+    config = config_cls(**kwargs)
+    return model_cls(config)

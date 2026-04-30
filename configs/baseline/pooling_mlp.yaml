@@ -1,0 +1,12 @@
+# Baseline: Pooling MLP
+# Simplest baseline - mean pool all cells, MLP predictor
+
+baseline_name: pooling_mlp
+
+model:
+  _target_: stagebridge.baselines.PoolingMLP
+  input_dim: 40
+  hidden_dim: 128
+  num_layers: 3
+  pool_type: mean
+  dropout: 0.1

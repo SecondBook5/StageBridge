@@ -1,0 +1,9 @@
+# Ablation: No Niche Context
+# Tests: Does local neighborhood information help?
+
+ablation_type: no_niche
+
+# Modifications
+model:
+  # Zero out context in drift head (use latent path only)
+  _ablation_: zero_context

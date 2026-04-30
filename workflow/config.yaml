@@ -1,69 +1,156 @@
 # =============================================================================
-# StageBridge V1 Pipeline Configuration
+# StageBridge Pipeline Configuration
+# =============================================================================
+# Override via: snakemake --config data_root=/your/path
+# Or set STAGEBRIDGE_ENV=local for local development
+
+# =============================================================================
+# Paths
 # =============================================================================
 
-# Data paths (override via: snakemake --config data_root=/your/path)
-data_root: "/data1/chaunzt1/stagebridge"
+# HPC paths (default)
+paths:
+  data_root: "/data1/chaunzt1/stagebridge"
+  data_dir: "/data1/chaunzt1/stagebridge/processed/luad_evo"
+  output_dir: "/data1/chaunzt1/stagebridge/outputs/v1"
+  results_dir: "/data1/chaunzt1/stagebridge/results"
+  figures_dir: "/data1/chaunzt1/stagebridge/figures"
+  hlca_dir: "/data1/chaunzt1/stagebridge/processed/HLCA"
+  luca_dir: "/data1/chaunzt1/stagebridge/processed/LuCA"
+  # Raw input for data preparation (HPC paths)
+  raw_cells: "/data1/chaunzt1/stagebridge/processed/luad_evo/cells.parquet"
+  # DestVI deconvolution results
+  destvi_luca: "/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet"
+  destvi_hlca: "/data1/chaunzt1/stagebridge/results/spatial_benchmark/hlca/destvi/cell_type_proportions.parquet"
 
-# Reference mapping parameters
-# NOTE: These dimensions are fixed by the pretrained reference atlas models.
-# Canonical values defined in: stagebridge/config.py
+# Reference atlas configuration
+# NOTE: Latent dimensions are fixed by pretrained models
 hlca:
   latent_key: "X_scanvi_emb"
   latent_dim: 30  # Fixed by HLCA scANVI model
-  surgery_epochs: 200
 
 luca:
   latent_key: "X_scANVI"
   latent_dim: 10  # Fixed by LuCA scVI model
-  surgery_epochs: 200
 
-# Derived: fused_latent_dim = hlca.latent_dim + luca.latent_dim = 40
-# This is the input dimension for the StageBridge model.
+# Derived: fused_latent_dim = 30 + 10 = 40 (LATENT_DIM in contracts.py)
 
-# Spatial backend parameters
-spatial:
-  backends:
-    - tangram
-    - destvi
-    - tacco
-    - cell2location
-  canonical_selection: "auto"  # or specify: "tangram"
+# =============================================================================
+# Experiment Settings
+# =============================================================================
 
-# Training parameters
-training:
-  ssl_epochs: 100
-  transition_epochs: 50
-  batch_size: 256
-  learning_rate: 0.0001
-  hidden_dim: 128  # Model internal hidden dimension (tunable)
-  context_dim: 256  # Context projection dimension (tunable)
-  n_gpus: 4
+experiment:
+  n_folds: 5
+  n_seeds: 3
+  seed: 42
+
+# =============================================================================
+# Model Settings
+# =============================================================================
+
+model:
+  input_dim: 40           # hlca.latent_dim + luca.latent_dim
+  hidden_dim: 128
+  num_heads: 4
+  num_encoder_layers: 2
+  use_learned_ring_pooling: true
+  use_context_refiner: true
+
+# =============================================================================
+# Training Settings
+# =============================================================================
+
+trainer:
+  # Two-stage training
+  ssl_epochs: 50
+  transition_epochs: 100
+
+  # Learning rate
+  learning_rate: 1e-4
+  weight_decay: 1e-5
+  warmup_epochs: 5
+  min_lr: 1e-6
+  transition_lr_factor: 0.1
+
+  # Batch size
+  batch_size: 64
+
+  # Checkpointing
   checkpoint_every: 10
+  eval_every: 1
+
+  # Early stopping
+  early_stopping_enabled: true
   early_stopping_patience: 20
 
-# Ablation studies
-ablations:
-  - no_niche
-  - pooled_niche
-  - no_hierarchy
-  - no_hlca
-  - no_luca
-  - single_reference
-  - no_attention
-  - no_flow
-  - deterministic
-  - no_genomics
-  - no_uncertainty
-  - reduced_latent
-  - no_ssl
-  - baseline_mlp
+# =============================================================================
+# Baselines
+# =============================================================================
 
-# Publication figures
+baselines:
+  - pooling_mlp
+  - deepsets
+  - set_transformer
+  - graphsage
+
+# =============================================================================
+# Ablations
+# =============================================================================
+
+ablations:
+  - full                 # Full model (control)
+  - no_niche             # Remove niche context entirely
+  - no_distance          # Remove distance-based attention
+  - no_gate              # Remove biological baseline gate
+  - random_niche         # Shuffle niche assignments
+  - hlca_only            # Only HLCA reference (no LuCA)
+  - luca_only            # Only LuCA reference (no HLCA)
+  - no_token_types       # Remove token type embeddings
+  - frozen_encoder       # Freeze encoder during transition training
+  - no_ring_pooling      # Mean pooling instead of ISAB+PMA
+  - no_context_refiner   # Remove HierarchicalSetTransformer
+
+# =============================================================================
+# SLURM Resources
+# =============================================================================
+
+resources:
+  partition: "gpu"
+  account: "chaunzt1"
+
+  # Default resources
+  default_gpu: 1
+  default_time: "24:00:00"
+  default_mem_mb: 64000
+
+  # Job-specific overrides
+  train_full:
+    gpu: 1
+    time: "48:00:00"
+    mem_mb: 64000
+
+  train_baseline:
+    gpu: 1
+    time: "12:00:00"
+    mem_mb: 32000
+
+  inference:
+    gpu: 1
+    time: "4:00:00"
+    mem_mb: 32000
+
+  evaluation:
+    gpu: 0
+    time: "2:00:00"
+    mem_mb: 16000
+
+# =============================================================================
+# Figures
+# =============================================================================
+
 figures:
   dpi: 300
   formats:
     - png
     - pdf
-    - svg
   style: "publication"

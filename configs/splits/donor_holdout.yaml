@@ -1,5 +1,0 @@
-splits:
-  name: donor_holdout
-  n_folds: 3
-  min_stages_per_donor: 2
-  stage_coverage_required: true

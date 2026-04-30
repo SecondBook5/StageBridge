@@ -1,124 +1,109 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
 .Python
-*.egg-info/
-dist/
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
 .eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
 *.egg
 
-# Virtual environments
-.venv/
-venv/
-env/
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.benchmarks/
+
+# Translations
+*.mo
+*.pot
+
+# Environments
 .env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.spyderproject
+.spyproject
+.ropeproject
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
 # Jupyter
 .ipynb_checkpoints/
+*.ipynb
 
-# Data files (never commit)
+# Data files (large, should not be committed)
+data/raw/
+data/processed/
+data/external/
 *.h5ad
 *.h5
-*.hdf5
-*.mtx
-*.mtx.gz
-*.tar.gz
-*.tgz
-*.csv.gz
-*.tsv.gz
-*.bed
-*.bam
-*.bai
-*.fastq*
-*.fq*
+*.parquet
 *.zarr/
 
-# Large binary files
-*.pdf
-*.png
-*.jpg
-*.jpeg
-*.zip
-
-# Reference code/papers (local only)
-docs/luca_code/
-
-# Generated outputs (local only)
-outputs/
+# Model outputs
+checkpoints/
 runs/
+outputs/
+results/
+demo_output/
 
-# Reports and results (generated per-run)
-reports/benchmarks/
-reports/labels/
-reports/tables/
-reports/figures/
-reports/*.json
-results/registry/
-results/milestones/
-results/runs/
-results/summaries/
-results/figures/
+# Snakemake
+.snakemake/
 
-# Local data and configs
-configs/data/local.yaml
-.local_data/
-.deps/
+# Logs
+logs/
+*.log
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# Coverage and tooling
-.coverage
-htmlcov/
-.pytest_cache/
-.ruff_cache/
+# Session files
+.remember/tmp/
 
-# Claude Code
-.claude/
-AGENTS.md
-# Runtime artifacts
-artifacts/
-
-# Working notebooks
-notebooks/
-
-# Archive (working notes)
-archive/
-CLAUDE.md
-
-# Large result files (generated, not for git)
-results/reference_mapping/
-results/spatial_benchmark/
-
-# Logs directory (runtime logs)
-logs/
-
-# Data directory (local data files)
-data/
-
-# SLURM output files
-slurm-*.out
-*.err
-
-# Reference PDFs (download separately)
-docs/architecture/*.pdf
-docs/*.pdf
-docs/luca-master.zip
-docs/luca_code/
-CLAUDE.md
-.claude/
-PUBLICATION_QUALITY_REPORT.md
-docs/paper/
-
-# Baseline run results (large files)
-results/baseline_runs/
+# Temporary files
+*.tmp
+*.temp

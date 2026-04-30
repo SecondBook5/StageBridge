@@ -1,0 +1,17 @@
+barcode	sample_id	donor_id	x	y	stage	cell_type
+AAACGC-1	S001	D001	100	200	Normal	Epithelial
+AAACGA-1	S001	D001	105	205	Normal	Fibroblast
+AAACGT-1	S001	D001	150	250	Preinvasive	Epithelial
+AAACTC-1	S001	D001	155	255	Preinvasive	Macrophage
+AAACTG-1	S001	D001	200	300	Invasive	Epithelial
+AAACTT-1	S001	D001	205	305	Invasive	CAF
+AACGCC-1	S002	D002	50	100	Normal	Epithelial
+AACGCA-1	S002	D002	55	105	Normal	T_cell
+AACGCT-1	S002	D002	100	150	Preinvasive	Epithelial
+AACGTC-1	S002	D002	105	155	Preinvasive	Macrophage
+AACGTG-1	S002	D002	150	200	Invasive	Epithelial
+AACGTT-1	S002	D002	155	205	Invasive	CAF
+ACTGCC-1	S003	D003	25	50	Normal	Fibroblast
+ACTGCA-1	S003	D003	30	55	Normal	Endothelial
+ACTGCT-1	S003	D003	75	100	Preinvasive	Epithelial
+ACTGTC-1	S003	D003	125	150	Invasive	Epithelial

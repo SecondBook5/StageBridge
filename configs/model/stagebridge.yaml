@@ -1,0 +1,40 @@
+# StageBridge Model Configuration
+# Full receiver-centered niche encoder with cross-attention drift
+
+_target_: stagebridge.models.StageBridge
+
+# Input dimensions (from contracts)
+input_dim: 40  # HLCA_DIM + LUCA_DIM
+hidden_dim: 256
+num_heads: 8
+num_encoder_layers: 2
+max_neighbors: 8
+num_stages: 3
+
+# Embeddings
+time_dim: 32
+stage_dim: 32
+
+# Regularization
+dropout: 0.1
+
+# Context refinement (SAB layers)
+use_context_refiner: true
+num_refiner_layers: 2
+
+# Hierarchical aggregation (ISAB + PMA)
+use_hierarchical: true
+hierarchical_num_layers: 2
+hierarchical_num_inducing: 16
+
+# Drift head
+use_cross_attn_drift: true
+use_ude: false
+
+# Evolution branch (WES features)
+use_evolution_branch: false
+evolution_dim: 8
+evolution_mode: gated
+
+# Sample-level heads
+use_sample_heads: true

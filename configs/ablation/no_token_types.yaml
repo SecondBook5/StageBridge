@@ -1,0 +1,9 @@
+# Ablation: No Token Type Embeddings
+# Tests: Does distinguishing receiver/spatial/HLCA/LuCA tokens matter?
+
+ablation_type: no_token_types
+
+# Modifications - disable token type embeddings
+model:
+  use_token_type_embeddings: false
+  _ablation_: disable_token_type_embeddings

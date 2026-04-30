@@ -1,0 +1,13 @@
+# Baseline: Set Transformer
+# Self-attention over set elements (no spatial structure)
+
+baseline_name: set_transformer
+
+model:
+  _target_: stagebridge.baselines.SetTransformer
+  input_dim: 40
+  hidden_dim: 128
+  num_heads: 4
+  num_layers: 2
+  num_inducing_points: 16
+  dropout: 0.1
