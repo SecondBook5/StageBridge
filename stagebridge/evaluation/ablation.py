@@ -22,7 +22,8 @@ from stagebridge.models import StageBridge, StageBridgeConfig
 from stagebridge.training import StageBridgeTrainer, TrainerConfig
 
 ABLATION_CONFIGS = {
-    "full": {},
+    # Full model: GW fusion enabled (the complete StageBridge architecture)
+    "full": {"use_gw_fusion": True, "gw_mode": "barycentric"},
     "no_niche": {"max_neighbors": 0},
     "no_distance": {"refiner_use_spatial_rpe": False},
     "no_gate": {"use_cross_attn_drift": False},  # Falls back to MLP drift

@@ -61,6 +61,12 @@ model:
   num_encoder_layers: 2
   use_learned_ring_pooling: true
   use_context_refiner: true
+  # Gromov-Wasserstein atlas fusion (replaces naive HLCA+LuCA concat)
+  use_gw_fusion: true
+  gw_output_dim: 64       # Fused reference dimension
+  gw_sinkhorn_iters: 50   # Sinkhorn iterations
+  gw_sinkhorn_reg: 0.1    # Entropic regularization
+  gw_mode: barycentric    # project_to_hlca, project_to_luca, barycentric
 
 # =============================================================================
 # Training Settings

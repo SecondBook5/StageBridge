@@ -1231,10 +1231,24 @@ if __name__ == "__main__":
     parser.add_argument("--transition-epochs", type=int, default=100)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=64)
+    # GW fusion args
+    parser.add_argument("--use-gw-fusion", action="store_true", default=True,
+                        help="Enable Gromov-Wasserstein atlas fusion (default: True)")
+    parser.add_argument("--no-gw-fusion", dest="use_gw_fusion", action="store_false",
+                        help="Disable GW fusion, use naive concat")
+    parser.add_argument("--gw-output-dim", type=int, default=64)
+    parser.add_argument("--gw-mode", choices=["barycentric", "project_to_hlca", "project_to_luca"],
+                        default="barycentric")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    model_config = StageBridgeConfig(
+        use_gw_fusion=args.use_gw_fusion,
+        gw_output_dim=args.gw_output_dim,
+        gw_mode=args.gw_mode,
+    )
 
     trainer_config = TrainerConfig(
         ssl_epochs=args.ssl_epochs,
@@ -1247,6 +1261,7 @@ if __name__ == "__main__":
     result = train_stagebridge(
         data_dir=args.data_dir,
         output_dir=args.output_dir,
+        model_config=model_config,
         trainer_config=trainer_config,
         fold_idx=args.fold_idx,
     )

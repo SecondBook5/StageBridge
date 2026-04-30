@@ -261,6 +261,8 @@ rule train_full:
 
     STAGE 1 (SSL): Masked receiver reconstruction
     STAGE 2 (Transition): OT-CFM flow matching
+
+    GW fusion is enabled by default for the full model.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
@@ -275,6 +277,8 @@ rule train_full:
         transition_epochs=config["trainer"]["transition_epochs"],
         lr=config["trainer"]["learning_rate"],
         batch_size=config["trainer"]["batch_size"],
+        gw_output_dim=config["model"].get("gw_output_dim", 64),
+        gw_mode=config["model"].get("gw_mode", "barycentric"),
     resources:
         gpu=1,
         runtime=2880,  # 48 hours
@@ -289,7 +293,10 @@ rule train_full:
             --ssl-epochs {params.ssl_epochs} \
             --transition-epochs {params.transition_epochs} \
             --learning-rate {params.lr} \
-            --batch-size {params.batch_size}
+            --batch-size {params.batch_size} \
+            --use-gw-fusion \
+            --gw-output-dim {params.gw_output_dim} \
+            --gw-mode {params.gw_mode}
         """
 
 
