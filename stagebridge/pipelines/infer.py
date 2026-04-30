@@ -93,11 +93,12 @@ def run_inference(
                 "context_z": niche_output.context.cpu().numpy().tolist(),
             }
 
-            # Add reconstruction if available (for SSL evaluation)
-            if niche_output.receiver_reconstruction is not None:
-                pred_dict["predicted_z"] = niche_output.receiver_reconstruction.cpu().numpy().tolist()
-            else:
-                pred_dict["predicted_z"] = niche_output.context.cpu().numpy().tolist()
+            # Add reconstruction (required for SSL evaluation - must be 40d to match gt_receivers)
+            if niche_output.receiver_reconstruction is None:
+                raise RuntimeError(
+                    "receiver_reconstruction is None - model must be called with return_reconstruction=True"
+                )
+            pred_dict["predicted_z"] = niche_output.receiver_reconstruction.cpu().numpy().tolist()
 
             predictions.append(pd.DataFrame(pred_dict))
 
