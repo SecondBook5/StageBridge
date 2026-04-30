@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""Hyperparameter Optimization for StageBridge.
+
+Uses Optuna to search over model and training hyperparameters.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch.optim import AdamW
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger(__name__)
+
+try:
+    import optuna
+    from optuna import Trial
+    OPTUNA_AVAILABLE = True
+except ImportError:
+    OPTUNA_AVAILABLE = False
+    log.warning("Optuna not available - install with: pip install optuna")
+
+
+def run_hpo(
+    data_dir: Path,
+    output_dir: Path,
+    n_trials: int = 30,
+    n_epochs_per_trial: int = 10,
+    batch_size: int = 64,
+    seed: int = 42,
+    device: torch.device | None = None,
+    n_jobs: int = 1,
+    storage: str | None = None,
+) -> tuple:
+    """Run Optuna HPO for StageBridge.
+
+    Args:
+        data_dir: Path to data directory with neighborhoods.parquet
+        output_dir: Output directory for results
+        n_trials: Number of Optuna trials
+        n_epochs_per_trial: Training epochs per trial
+        batch_size: Batch size
+        seed: Random seed
+        device: Torch device
+        n_jobs: Parallel trials (1 = sequential)
+        storage: Optuna storage URL for distributed HPO
+
+    Returns:
+        (study, best_params)
+    """
+    if not OPTUNA_AVAILABLE:
+        log.error("Optuna not available")
+        return None, {}
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    from stagebridge.loaders import create_dataloaders
+
+    log.info("Loading data...")
+    train_loader, val_loader, _ = create_dataloaders(
+        data_dir, fold_idx=0, batch_size=batch_size, num_workers=4
+    )
+
+    if train_loader is None:
+        raise ValueError("No training data found")
+
+    log.info(f"  Train batches: {len(train_loader)}")
+    log.info(f"  Val batches: {len(val_loader) if val_loader else 0}")
+
+    def objective(trial: Trial) -> float:
+        from stagebridge.models.stagebridge import StageBridge, StageBridgeConfig
+
+        # Hyperparameters to optimize
+        lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
+        hidden_dim = trial.suggest_categorical("hidden_dim", [128, 256])
+        num_heads = trial.suggest_categorical("num_heads", [4, 8])
+        dropout = trial.suggest_float("dropout", 0.05, 0.3)
+
+        # GW fusion hyperparameters
+        use_gw_fusion = trial.suggest_categorical("use_gw_fusion", [True, False])
+        gw_output_dim = trial.suggest_categorical("gw_output_dim", [40, 64, 96]) if use_gw_fusion else 40
+        gw_sinkhorn_reg = trial.suggest_float("gw_sinkhorn_reg", 0.01, 1.0, log=True) if use_gw_fusion else 0.1
+
+        # Training weights
+        ssl_weight = trial.suggest_float("ssl_weight", 0.3, 0.7)
+        pathway_weight = trial.suggest_float("pathway_weight", 0.01, 0.2, log=True)
+        proliferation_weight = trial.suggest_float("proliferation_weight", 0.01, 0.2, log=True)
+
+        config = StageBridgeConfig(
+            hidden_dim=hidden_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            use_gw_fusion=use_gw_fusion,
+            gw_output_dim=gw_output_dim,
+            gw_sinkhorn_reg=gw_sinkhorn_reg,
+            use_learned_ring_pooling=True,
+            use_context_refiner=True,
+            use_cross_attn_drift=True,
+            use_pathway_head=True,
+            use_proliferation_head=True,
+        )
+
+        model = StageBridge(config).to(device)
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+
+        # Training loop (simplified - SSL + transition combined)
+        model.train()
+        for epoch in range(n_epochs_per_trial):
+            epoch_loss = 0.0
+            n_batches = 0
+
+            for batch in train_loader:
+                batch = batch.to(device)
+                optimizer.zero_grad()
+
+                # Encode niche
+                niche_output = model.encode_niche(
+                    receiver=batch.receiver,
+                    ring_cells=batch.ring_cells,
+                    ring_masks=batch.ring_masks,
+                    hlca=batch.hlca,
+                    luca=batch.luca,
+                    pathway=batch.pathway,
+                    stats=batch.stats,
+                    evolution_features=batch.evolution_features,
+                    return_reconstruction=True,
+                )
+
+                # SSL loss: receiver reconstruction
+                ssl_loss = F.mse_loss(niche_output.receiver_reconstruction, batch.receiver)
+
+                # Transition loss: flow matching
+                x0 = batch.receiver
+                x1 = batch.receiver + 0.1 * torch.randn_like(batch.receiver)  # Simple target
+                t = torch.rand(x0.shape[0], device=device)
+                x_t = (1 - t.unsqueeze(1)) * x0 + t.unsqueeze(1) * x1
+                u_t = x1 - x0
+
+                stage_pair_id = torch.zeros(x0.shape[0], dtype=torch.long, device=device)
+                v_t = model.forward_vector_field(
+                    x_t=x_t,
+                    t=t,
+                    context=niche_output.context,
+                    stage_pair_id=stage_pair_id,
+                    context_tokens=niche_output.context_tokens,
+                )
+                transition_loss = F.mse_loss(v_t, u_t)
+
+                # Auxiliary losses
+                loss_pathway = torch.tensor(0.0, device=device)
+                if model.pathway_head is not None and batch.pathway_targets is not None:
+                    pathway_logits = model.pathway_head(niche_output.context)
+                    loss_pathway = F.mse_loss(pathway_logits, batch.pathway_targets)
+
+                loss_proliferation = torch.tensor(0.0, device=device)
+                if model.proliferation_head is not None and batch.proliferation_target is not None:
+                    prolif_logit = model.proliferation_head(niche_output.context)
+                    loss_proliferation = F.binary_cross_entropy_with_logits(
+                        prolif_logit.squeeze(-1), batch.proliferation_target
+                    )
+
+                loss = (
+                    ssl_weight * ssl_loss
+                    + (1 - ssl_weight) * transition_loss
+                    + pathway_weight * loss_pathway
+                    + proliferation_weight * loss_proliferation
+                )
+
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+
+                epoch_loss += loss.item()
+                n_batches += 1
+
+            # Report for pruning
+            trial.report(epoch_loss / n_batches, epoch)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+
+        # Validation
+        model.eval()
+        val_loss = 0.0
+        n_val = 0
+        with torch.no_grad():
+            for batch in (val_loader or []):
+                batch = batch.to(device)
+
+                niche_output = model.encode_niche(
+                    receiver=batch.receiver,
+                    ring_cells=batch.ring_cells,
+                    ring_masks=batch.ring_masks,
+                    hlca=batch.hlca,
+                    luca=batch.luca,
+                    pathway=batch.pathway,
+                    stats=batch.stats,
+                    evolution_features=batch.evolution_features,
+                    return_reconstruction=True,
+                )
+
+                ssl_loss = F.mse_loss(niche_output.receiver_reconstruction, batch.receiver)
+                val_loss += ssl_loss.item()
+                n_val += 1
+
+        return val_loss / max(n_val, 1) if n_val > 0 else epoch_loss / n_batches
+
+    # Create study
+    study_name = f"stagebridge_hpo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if storage:
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=storage,
+            load_if_exists=True,
+            direction="minimize",
+            pruner=optuna.pruners.MedianPruner(),
+        )
+    else:
+        study = optuna.create_study(
+            direction="minimize",
+            pruner=optuna.pruners.MedianPruner(),
+        )
+
+    study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=True)
+
+    best_params = study.best_params
+    log.info(f"Best params: {best_params}")
+    log.info(f"Best value: {study.best_value:.6f}")
+
+    return study, best_params
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run HPO for StageBridge")
+    parser.add_argument("--data-dir", type=Path, required=True, help="Data directory")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
+    parser.add_argument("--n-trials", type=int, default=30, help="Number of trials")
+    parser.add_argument("--n-epochs", type=int, default=10, help="Epochs per trial")
+    parser.add_argument("--batch-size", type=int, default=64, help="Batch size")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--n-jobs", type=int, default=1, help="Parallel trials")
+    parser.add_argument("--storage", type=str, default=None, help="Optuna storage URL")
+    args = parser.parse_args()
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    log.info("=" * 60)
+    log.info("StageBridge Hyperparameter Optimization")
+    log.info("=" * 60)
+    log.info(f"  Data: {args.data_dir}")
+    log.info(f"  Output: {args.output_dir}")
+    log.info(f"  Device: {device}")
+    log.info(f"  Trials: {args.n_trials}")
+    log.info("=" * 60)
+
+    study, best_params = run_hpo(
+        data_dir=args.data_dir,
+        output_dir=args.output_dir,
+        n_trials=args.n_trials,
+        n_epochs_per_trial=args.n_epochs,
+        batch_size=args.batch_size,
+        seed=args.seed,
+        device=device,
+        n_jobs=args.n_jobs,
+        storage=args.storage,
+    )
+
+    # Save results
+    if best_params:
+        with open(args.output_dir / "best_params.json", "w") as f:
+            json.dump(best_params, f, indent=2)
+
+        history = {
+            "best_params": best_params,
+            "best_value": study.best_value if study else None,
+            "n_trials": args.n_trials,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if study:
+            history["all_trials"] = [
+                {"number": t.number, "value": t.value, "params": t.params}
+                for t in study.trials if t.value is not None
+            ]
+
+        with open(args.output_dir / "optimization_history.json", "w") as f:
+            json.dump(history, f, indent=2)
+
+    log.info("HPO Complete")
+
+
+if __name__ == "__main__":
+    main()
