@@ -62,6 +62,12 @@ from stagebridge.biology.germline_niche import (
     discover_intervention_targets,
     run_germline_causal_discovery,
 )
+from stagebridge.biology.progression import (
+    compute_cytotrace,
+    compute_diffusion_pseudotime,
+    compute_progression_scores,
+    load_progression_scores,
+)
 
 __all__ = [
     # L-R scoring
@@ -106,4 +112,9 @@ __all__ = [
     "discover_velocity_modifiers",
     "discover_intervention_targets",
     "run_germline_causal_discovery",
+    # Progression scoring
+    "compute_cytotrace",
+    "compute_diffusion_pseudotime",
+    "compute_progression_scores",
+    "load_progression_scores",
 ]
