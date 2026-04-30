@@ -64,6 +64,9 @@ ABLATIONS = config.get("ablations", [
     "luca_only",
     "no_token_types",
     "frozen_encoder",
+    # Architecture ablations
+    "no_ring_pooling",
+    "no_context_refiner",
     # GW fusion ablations
     "no_gw_fusion",
     "gw_project_hlca",
@@ -129,23 +132,31 @@ DESTVI_HLCA = config["paths"].get("destvi_hlca")
 PROGRESSION_SCORES = config["paths"].get("progression_scores")
 SNRNA_H5AD = config["paths"].get("snrna_h5ad")  # Optional: for h5ad-based features
 
+# Output directory for data preparation (separate from canonical data_dir to avoid cycles)
+# By default, outputs to a 'prepared/' subdirectory. Override with prep_output_dir config.
+PREP_OUTPUT_DIR = config["paths"].get("prep_output_dir", f"{DATA_ROOT}/prepared")
+
 rule prepare_data:
     """Prepare data: build neighborhoods with raw cells, add cell types and progression scores.
+
+    This rule prepares data from raw inputs. To avoid cyclic dependencies when raw_cells
+    is in the same directory as data_dir, set prep_output_dir to a different location:
+        snakemake prepare_data --config prep_output_dir=/path/to/output
 
     Optionally computes h5ad-based biological features (EMT, senescence, SASP) if --h5ad provided.
     """
     input:
-        cells=RAW_CELLS,
-        destvi_luca=DESTVI_LUCA,
-        destvi_hlca=DESTVI_HLCA,
-        progression=PROGRESSION_SCORES,
+        cells=ancient(RAW_CELLS) if RAW_CELLS and RAW_CELLS != "null" else [],
+        destvi_luca=ancient(DESTVI_LUCA) if DESTVI_LUCA and DESTVI_LUCA != "null" else [],
+        destvi_hlca=ancient(DESTVI_HLCA) if DESTVI_HLCA and DESTVI_HLCA != "null" else [],
+        progression=ancient(PROGRESSION_SCORES) if PROGRESSION_SCORES and PROGRESSION_SCORES != "null" else [],
     output:
-        cells=f"{DATA_DIR}/cells.parquet",  # Symlinked from input
-        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
-        manifest=f"{DATA_DIR}/split_manifest.json",
-        summary=f"{DATA_DIR}/prep_summary.json",
+        cells=f"{PREP_OUTPUT_DIR}/cells.parquet",
+        neighborhoods=f"{PREP_OUTPUT_DIR}/neighborhoods.parquet",
+        manifest=f"{PREP_OUTPUT_DIR}/split_manifest.json",
+        summary=f"{PREP_OUTPUT_DIR}/prep_summary.json",
     params:
-        output_dir=DATA_DIR,
+        output_dir=PREP_OUTPUT_DIR,
         h5ad=SNRNA_H5AD,
     resources:
         runtime=480,  # 8 hours
@@ -167,12 +178,13 @@ rule prepare_data_with_liana:
     """Extended data prep including LIANA L-R analysis (slow, ~30-60 min).
 
     Use this rule when you need ligand-receptor interaction scores.
+    Run explicitly: snakemake prepare_data_with_liana --config raw_cells=/path/to/cells.parquet
     """
     input:
-        cells=RAW_CELLS,
-        destvi_luca=DESTVI_LUCA,
-        destvi_hlca=DESTVI_HLCA,
-        progression=PROGRESSION_SCORES,
+        cells=ancient(RAW_CELLS) if RAW_CELLS and RAW_CELLS != "null" else [],
+        destvi_luca=ancient(DESTVI_LUCA) if DESTVI_LUCA and DESTVI_LUCA != "null" else [],
+        destvi_hlca=ancient(DESTVI_HLCA) if DESTVI_HLCA and DESTVI_HLCA != "null" else [],
+        progression=ancient(PROGRESSION_SCORES) if PROGRESSION_SCORES and PROGRESSION_SCORES != "null" else [],
     output:
         cells=f"{DATA_DIR}/liana/cells.parquet",
         neighborhoods=f"{DATA_DIR}/liana/neighborhoods.parquet",
