@@ -698,6 +698,73 @@ for res in [0.5, 1.0]:
 umap_df.to_parquet(out / 'umap_embedding.parquet')
 
 print('Embedding computation complete')
+
+# Cluster annotation
+print('Annotating clusters...')
+
+# 1. Majority voting from reference labels
+if cell_type_key in adata.obs.columns:
+    for res in [0.5, 1.0]:
+        cluster_col = f'leiden_{res}'
+
+        # Majority cell type per cluster
+        majority = adata.obs.groupby(cluster_col)[cell_type_key].agg(
+            lambda x: x.value_counts().index[0] if len(x) > 0 else 'Unknown'
+        )
+
+        # Purity (fraction of majority type)
+        purity = adata.obs.groupby(cluster_col)[cell_type_key].agg(
+            lambda x: x.value_counts().iloc[0] / len(x) if len(x) > 0 else 0
+        )
+
+        annotation = pd.DataFrame({
+            'cluster': majority.index,
+            'majority_celltype': majority.values,
+            'purity': purity.values,
+            'n_cells': adata.obs[cluster_col].value_counts()[majority.index].values,
+        })
+        annotation.to_parquet(out / f'cluster_annotation_{cluster_col}.parquet')
+
+# 2. Marker gene enrichment per cluster
+print('Computing cluster markers...')
+for res in [0.5, 1.0]:
+    cluster_col = f'leiden_{res}'
+    sc.tl.rank_genes_groups(adata, groupby=cluster_col, method='wilcoxon', n_genes=50)
+
+    # Save top markers per cluster
+    markers = []
+    for cluster in adata.obs[cluster_col].unique():
+        df = sc.get.rank_genes_groups_df(adata, group=str(cluster))
+        df['cluster'] = cluster
+        markers.append(df.head(20))
+
+    marker_df = pd.concat(markers, ignore_index=True)
+    marker_df.to_parquet(out / f'cluster_markers_{cluster_col}.parquet')
+
+# 3. CellTypist for immune refinement (if installed)
+try:
+    import celltypist
+    from celltypist import models
+
+    print('Running CellTypist for immune annotation...')
+    models.download_models(force_update=False, model='Immune_All_Low.pkl')
+    model = models.Model.load(model='Immune_All_Low.pkl')
+
+    predictions = celltypist.annotate(adata, model=model, majority_voting=True)
+    adata.obs['celltypist_label'] = predictions.predicted_labels['majority_voting']
+
+    celltypist_df = pd.DataFrame({
+        'cell_id': adata.obs.index,
+        'celltypist_label': adata.obs['celltypist_label'].values,
+        'celltypist_conf': predictions.probability_matrix.max(axis=1).values,
+    })
+    celltypist_df.to_parquet(out / 'celltypist_annotation.parquet')
+    print('  CellTypist complete')
+
+except ImportError:
+    print('CellTypist not installed, skipping')
+except Exception as e:
+    print(f'CellTypist failed: {e}')
 "
 
 # 13. Cell-cell communication summary (LIANA + CellChat-style)
