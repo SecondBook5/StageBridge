@@ -68,6 +68,21 @@ from stagebridge.biology.progression import (
     compute_progression_scores,
     load_progression_scores,
 )
+from stagebridge.biology.features import (
+    EMT_MESENCHYMAL,
+    EMT_EPITHELIAL,
+    SENESCENCE_CORE,
+    SASP_GENES,
+    compute_emt_score,
+    compute_senescence_score,
+    compute_sasp_score,
+    compute_all_signatures,
+    run_liana,
+    extract_il1b_interactions,
+    run_liana_pathway_enrichment,
+    compute_cell_lr_scores,
+    compute_biological_features,
+)
 
 __all__ = [
     # L-R scoring
@@ -117,4 +132,18 @@ __all__ = [
     "compute_diffusion_pseudotime",
     "compute_progression_scores",
     "load_progression_scores",
+    # Biological features (EMT, senescence, LIANA)
+    "EMT_MESENCHYMAL",
+    "EMT_EPITHELIAL",
+    "SENESCENCE_CORE",
+    "SASP_GENES",
+    "compute_emt_score",
+    "compute_senescence_score",
+    "compute_sasp_score",
+    "compute_all_signatures",
+    "run_liana",
+    "extract_il1b_interactions",
+    "run_liana_pathway_enrichment",
+    "compute_cell_lr_scores",
+    "compute_biological_features",
 ]

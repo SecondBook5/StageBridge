@@ -122,9 +122,13 @@ RAW_CELLS = config["paths"].get("raw_cells")
 DESTVI_LUCA = config["paths"].get("destvi_luca")
 DESTVI_HLCA = config["paths"].get("destvi_hlca")
 PROGRESSION_SCORES = config["paths"].get("progression_scores")
+SNRNA_H5AD = config["paths"].get("snrna_h5ad")  # Optional: for h5ad-based features
 
 rule prepare_data:
-    """Prepare data: build neighborhoods with raw cells, add cell types and progression scores."""
+    """Prepare data: build neighborhoods with raw cells, add cell types and progression scores.
+
+    Optionally computes h5ad-based biological features (EMT, senescence, SASP) if --h5ad provided.
+    """
     input:
         cells=RAW_CELLS,
         destvi_luca=DESTVI_LUCA,
@@ -137,6 +141,7 @@ rule prepare_data:
         summary=f"{DATA_DIR}/prep_summary.json",
     params:
         output_dir=DATA_DIR,
+        h5ad=SNRNA_H5AD,
     resources:
         runtime=480,  # 8 hours
         mem_mb=128000,
@@ -148,6 +153,43 @@ rule prepare_data:
             --destvi-hlca {input.destvi_hlca} \
             --progression {input.progression} \
             --output-dir {params.output_dir} \
+            --figures \
+            $([ -n "{params.h5ad}" ] && echo "--h5ad {params.h5ad}")
+        """
+
+
+rule prepare_data_with_liana:
+    """Extended data prep including LIANA L-R analysis (slow, ~30-60 min).
+
+    Use this rule when you need ligand-receptor interaction scores.
+    """
+    input:
+        cells=RAW_CELLS,
+        destvi_luca=DESTVI_LUCA,
+        destvi_hlca=DESTVI_HLCA,
+        progression=PROGRESSION_SCORES,
+    output:
+        cells=f"{DATA_DIR}/liana/cells.parquet",
+        neighborhoods=f"{DATA_DIR}/liana/neighborhoods.parquet",
+        manifest=f"{DATA_DIR}/liana/split_manifest.json",
+        summary=f"{DATA_DIR}/liana/prep_summary.json",
+        liana_results=f"{DATA_DIR}/liana/liana_interactions.parquet",
+    params:
+        output_dir=f"{DATA_DIR}/liana",
+        h5ad=SNRNA_H5AD,
+    resources:
+        runtime=720,  # 12 hours (LIANA is slow)
+        mem_mb=192000,
+    shell:
+        """
+        python -m stagebridge.pipelines.prepare_data \
+            --cells {input.cells} \
+            --destvi-luca {input.destvi_luca} \
+            --destvi-hlca {input.destvi_hlca} \
+            --progression {input.progression} \
+            --output-dir {params.output_dir} \
+            --h5ad {params.h5ad} \
+            --run-liana \
             --figures
         """
 

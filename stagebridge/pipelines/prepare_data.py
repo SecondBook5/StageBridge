@@ -2,7 +2,10 @@
 
 Builds neighborhoods with raw cells for learned ring pooling from existing cells.parquet.
 Uses LuCA DestVI deconvolution results for CAF/immune fractions.
-Optionally loads precomputed CytoTRACE/pseudotime from progression_scores.parquet.
+Optionally loads precomputed scores or computes from h5ad:
+- CytoTRACE/pseudotime from progression_scores.parquet
+- EMT/senescence/SASP from h5ad expression
+- LIANA L-R scores from h5ad (slow, optional)
 
 Usage:
     python -m stagebridge.pipelines.prepare_data \
@@ -11,6 +14,7 @@ Usage:
         --destvi-luca /path/to/luca/destvi/cell_type_proportions.parquet \
         --destvi-hlca /path/to/hlca/destvi/cell_type_proportions.parquet \
         --progression /path/to/progression/progression_scores.parquet \
+        --h5ad /path/to/snrna_with_celltypes.h5ad \
         --figures
 """
 
@@ -191,8 +195,9 @@ def add_conditioning_features(
     cells_df: pd.DataFrame,
     destvi_fractions: pd.DataFrame | None,
     progression_scores: pd.DataFrame | None = None,
+    biological_features: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Add conditioning features from cells, DestVI, and progression scores."""
+    """Add conditioning features from cells, DestVI, progression, and biological scores."""
     # Create lookup from cell_id
     cells_indexed = cells_df.set_index('cell_id')
 
@@ -225,6 +230,13 @@ def add_conditioning_features(
         for col in ['cytotrace', 'pseudotime']:
             if col in prog_indexed.columns:
                 nhood_df[col] = nhood_df['cell_id'].map(prog_indexed[col])
+
+    # Add biological features (EMT, senescence, SASP) if available
+    if biological_features is not None:
+        bio_indexed = biological_features.set_index('cell_id')
+        for col in ['emt_score', 'senescence_score', 'sasp_score', 'lr_activity_score']:
+            if col in bio_indexed.columns:
+                nhood_df[col] = nhood_df['cell_id'].map(bio_indexed[col])
 
     # Build stats_z from conditioning features (7 dims)
     stats_cols = ['caf_fraction', 'immune_fraction', 'diversity',
@@ -360,6 +372,8 @@ def prepare_data(
     destvi_luca_path: Path | None = None,
     destvi_hlca_path: Path | None = None,
     progression_path: Path | None = None,
+    h5ad_path: Path | None = None,
+    run_liana: bool = False,
     config: PrepConfig | None = None,
     make_figures: bool = True,
 ) -> dict:
@@ -392,6 +406,18 @@ def prepare_data(
         progression_scores = pd.read_parquet(progression_path)
         print(f'  {len(progression_scores):,} cells with CytoTRACE/pseudotime')
 
+    # Compute biological features from h5ad if provided
+    biological_features = None
+    if h5ad_path and h5ad_path.exists():
+        print(f'Computing biological features from {h5ad_path}...')
+        from stagebridge.biology.features import compute_biological_features
+        biological_features = compute_biological_features(
+            h5ad_path,
+            output_path=output_dir / 'biological_features.parquet',
+            run_liana_analysis=run_liana,
+        )
+        print(f'  {len(biological_features):,} cells with EMT/senescence/SASP scores')
+
     # Build neighborhoods
     print('Building neighborhoods with raw cells...')
     nhood_df = build_neighborhoods(cells_df, config)
@@ -399,7 +425,9 @@ def prepare_data(
 
     # Add conditioning features
     print('Adding conditioning features...')
-    nhood_df = add_conditioning_features(nhood_df, cells_df, destvi_fractions, progression_scores)
+    nhood_df = add_conditioning_features(
+        nhood_df, cells_df, destvi_fractions, progression_scores, biological_features
+    )
 
     # Create split manifest
     print('Creating split manifest...')
@@ -437,6 +465,8 @@ def prepare_data(
         'ring_radii': list(config.ring_radii),
         'destvi_used': destvi_luca_path is not None,
         'progression_used': progression_path is not None,
+        'h5ad_used': h5ad_path is not None,
+        'liana_used': run_liana,
     }
 
     with open(output_dir / 'prep_summary.json', 'w') as f:
@@ -452,7 +482,9 @@ def main():
     parser.add_argument('--destvi-luca', type=Path, help='LuCA DestVI cell_type_proportions.parquet (fine-grained)')
     parser.add_argument('--destvi-hlca', type=Path, help='HLCA DestVI cell_type_proportions.parquet (coarse)')
     parser.add_argument('--progression', type=Path, help='Precomputed progression_scores.parquet (CytoTRACE, pseudotime)')
-    parser.add_argument('--figures', action='store_true', help='Generate QC figures')
+    parser.add_argument('--h5ad', type=Path, help='h5ad for EMT/senescence/SASP scores')
+    parser.add_argument('--run-liana', action='store_true', help='Run LIANA L-R analysis (slow)')
+    parser.add_argument('--figures', action='store_true', help='Generate publication figures')
     parser.add_argument('--max-cells-per-ring', type=int, default=50)
     args = parser.parse_args()
 
@@ -464,6 +496,8 @@ def main():
         destvi_luca_path=args.destvi_luca,
         destvi_hlca_path=args.destvi_hlca,
         progression_path=args.progression,
+        h5ad_path=args.h5ad,
+        run_liana=args.run_liana,
         config=config,
         make_figures=args.figures,
     )
