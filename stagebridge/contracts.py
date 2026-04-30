@@ -802,11 +802,11 @@ NEIGHBORHOODS_SCHEMA = ParquetSchema(
         ColumnSchema("ring_3_distances", "list", required=False, nullable=True, description="Distances to ring 3 cells"),
         ColumnSchema("ring_4_distances", "list", required=False, nullable=True, description="Distances to ring 4 cells"),
         # Reference embeddings
-        ColumnSchema("hlca_z", "list", required=True, nullable=False, description="HLCA reference embedding [LATENT_DIM]"),
-        ColumnSchema("luca_z", "list", required=True, nullable=False, description="LuCA reference embedding [LATENT_DIM]"),
+        ColumnSchema("hlca_z", "list", required=True, nullable=False, description="HLCA reference embedding [HLCA_DIM=30]"),
+        ColumnSchema("luca_z", "list", required=True, nullable=False, description="LuCA reference embedding [LUCA_DIM=10]"),
         # Optional pathway/stats (can also be zeros)
-        ColumnSchema("pathway_z", "list", required=False, nullable=True, description="Pathway features [LATENT_DIM]"),
-        ColumnSchema("stats_z", "list", required=False, nullable=True, description="Stats features [LATENT_DIM]"),
+        ColumnSchema("pathway_z", "list", required=False, nullable=True, description="Pathway features [LATENT_DIM=40]"),
+        ColumnSchema("stats_z", "list", required=False, nullable=True, description="Stats features [STATS_TOKEN_DIM=7]"),
     ],
 )
 

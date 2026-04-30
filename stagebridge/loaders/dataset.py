@@ -38,13 +38,13 @@ class NicheBatch:
     pools using learned ISAB+PMA attention.
 
     Attributes:
-        receiver: [B, D] receiver cell embeddings
-        ring_cells: List of 4 tensors, each [B, max_cells, D]
+        receiver: [B, 40] receiver cell embeddings (HLCA+LuCA concat)
+        ring_cells: List of 4 tensors, each [B, max_cells, 40] (fused embeddings)
         ring_masks: List of 4 tensors, each [B, max_cells] (True = valid)
-        hlca: [B, D] HLCA reference embedding
-        luca: [B, D] LuCA reference embedding
-        pathway: [B, D] pathway features (optional, zeros if None)
-        stats: [B, D] stats features (optional, zeros if None)
+        hlca: [B, 30] HLCA reference embedding
+        luca: [B, 10] LuCA reference embedding
+        pathway: [B, 40] pathway features (optional, zeros if None)
+        stats: [B, 7] stats features (optional, zeros if None)
         stage_idx: [B] stage indices
         donor_ids: List of donor IDs
         cell_ids: List of cell IDs
