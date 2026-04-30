@@ -1676,9 +1676,178 @@ else:
     print('Phenotype results not found, skipping interface analysis')
 "
 
-# 23. Validate contract
+# 23. QC metrics (mito, ribo, counts, genes)
 echo ""
-echo "[23/23] Validating data contract..."
+echo "[23/26] Computing QC metrics..."
+mkdir -p $CANONICAL/qc
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+out = Path('$CANONICAL/qc')
+
+# snRNA-seq QC
+print('Computing snRNA-seq QC metrics...')
+adata = sc.read_h5ad('$SNRNA')
+print(f'  {adata.n_obs} cells')
+
+# Compute QC metrics if not present
+if 'pct_counts_mt' not in adata.obs.columns:
+    adata.var['mt'] = adata.var_names.str.startswith('MT-')
+    sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
+
+if 'pct_counts_ribo' not in adata.obs.columns:
+    adata.var['ribo'] = adata.var_names.str.match('^RP[SL]')
+    sc.pp.calculate_qc_metrics(adata, qc_vars=['ribo'], percent_top=None, log1p=False, inplace=True)
+
+# Also compute hemoglobin if present
+adata.var['hb'] = adata.var_names.str.match('^HB[^P]')
+if adata.var['hb'].sum() > 0:
+    sc.pp.calculate_qc_metrics(adata, qc_vars=['hb'], percent_top=None, log1p=False, inplace=True)
+
+# Save QC table
+qc_cols = ['n_genes_by_counts', 'total_counts', 'pct_counts_mt', 'pct_counts_ribo']
+if 'pct_counts_hb' in adata.obs.columns:
+    qc_cols.append('pct_counts_hb')
+
+qc_df = adata.obs[qc_cols].copy()
+qc_df['cell_id'] = adata.obs.index
+
+if 'stage' in adata.obs.columns:
+    qc_df['stage'] = adata.obs['stage'].values
+if 'donor_id' in adata.obs.columns:
+    qc_df['donor_id'] = adata.obs['donor_id'].values
+if 'sample' in adata.obs.columns:
+    qc_df['sample'] = adata.obs['sample'].values
+
+cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
+if cell_type_key in adata.obs.columns:
+    qc_df['cell_type'] = adata.obs[cell_type_key].values
+
+qc_df.to_parquet(out / 'snrna_qc_metrics.parquet')
+print('  Saved snrna_qc_metrics.parquet')
+
+# QC summary by stage
+if 'stage' in qc_df.columns:
+    stage_qc = qc_df.groupby('stage')[qc_cols].agg(['mean', 'median', 'std'])
+    stage_qc.to_parquet(out / 'qc_by_stage.parquet')
+
+# QC summary by cell type
+if 'cell_type' in qc_df.columns:
+    ct_qc = qc_df.groupby('cell_type')[qc_cols].agg(['mean', 'median', 'std'])
+    ct_qc.to_parquet(out / 'qc_by_celltype.parquet')
+
+# QC summary by sample/donor
+sample_col = 'sample' if 'sample' in qc_df.columns else 'donor_id'
+if sample_col in qc_df.columns:
+    sample_qc = qc_df.groupby(sample_col)[qc_cols].agg(['mean', 'median', 'std'])
+    sample_qc.to_parquet(out / 'qc_by_sample.parquet')
+
+# Thresholds used (for reporting)
+thresholds = {
+    'min_genes': 200,
+    'max_genes': 8000,
+    'max_pct_mt': 20,
+    'max_pct_ribo': 50,
+    'min_counts': 500,
+}
+pd.Series(thresholds).to_frame('value').to_parquet(out / 'qc_thresholds.parquet')
+
+print('snRNA QC complete')
+"
+
+# 24. Spatial QC metrics
+echo ""
+echo "[24/26] Computing spatial QC metrics..."
+python -c "
+import scanpy as sc
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+out = Path('$CANONICAL/qc')
+
+print('Computing spatial QC metrics...')
+adata = sc.read_h5ad('$SPATIAL')
+print(f'  {adata.n_obs} spots')
+
+# Compute QC metrics
+if 'pct_counts_mt' not in adata.obs.columns:
+    adata.var['mt'] = adata.var_names.str.startswith('MT-')
+    sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
+
+if 'pct_counts_ribo' not in adata.obs.columns:
+    adata.var['ribo'] = adata.var_names.str.match('^RP[SL]')
+    sc.pp.calculate_qc_metrics(adata, qc_vars=['ribo'], percent_top=None, log1p=False, inplace=True)
+
+# Save QC table
+qc_cols = ['n_genes_by_counts', 'total_counts', 'pct_counts_mt', 'pct_counts_ribo']
+
+qc_df = adata.obs[qc_cols].copy()
+qc_df['spot_id'] = adata.obs.index
+
+# Add spatial coords
+if 'spatial' in adata.obsm:
+    qc_df['x'] = adata.obsm['spatial'][:, 0]
+    qc_df['y'] = adata.obsm['spatial'][:, 1]
+elif 'x_spatial' in adata.obs.columns:
+    qc_df['x'] = adata.obs['x_spatial'].values
+    qc_df['y'] = adata.obs['y_spatial'].values
+
+if 'stage' in adata.obs.columns:
+    qc_df['stage'] = adata.obs['stage'].values
+if 'sample' in adata.obs.columns:
+    qc_df['sample'] = adata.obs['sample'].values
+
+qc_df.to_parquet(out / 'spatial_qc_metrics.parquet')
+print('  Saved spatial_qc_metrics.parquet')
+
+# QC by sample
+if 'sample' in qc_df.columns:
+    sample_qc = qc_df.groupby('sample')[qc_cols].agg(['mean', 'median', 'std', 'count'])
+    sample_qc.to_parquet(out / 'spatial_qc_by_sample.parquet')
+
+# QC by stage
+if 'stage' in qc_df.columns:
+    stage_qc = qc_df.groupby('stage')[qc_cols].agg(['mean', 'median', 'std'])
+    stage_qc.to_parquet(out / 'spatial_qc_by_stage.parquet')
+
+print('Spatial QC complete')
+"
+
+# 25. Doublet scores (if available)
+echo ""
+echo "[25/26] Extracting doublet scores..."
+python -c "
+import scanpy as sc
+import pandas as pd
+from pathlib import Path
+
+out = Path('$CANONICAL/qc')
+
+print('Checking for doublet scores...')
+adata = sc.read_h5ad('$SNRNA')
+
+doublet_cols = ['doublet_score', 'scrublet_score', 'DoubletFinder_score', 'predicted_doublet']
+found = [c for c in doublet_cols if c in adata.obs.columns]
+
+if found:
+    doublet_df = adata.obs[found].copy()
+    doublet_df['cell_id'] = adata.obs.index
+    if 'stage' in adata.obs.columns:
+        doublet_df['stage'] = adata.obs['stage'].values
+    doublet_df.to_parquet(out / 'doublet_scores.parquet')
+    print(f'  Saved doublet scores: {found}')
+else:
+    print('  No doublet scores found in adata.obs')
+    print('  Run Scrublet or DoubletFinder if needed')
+"
+
+# 26. Validate contract
+echo ""
+echo "[26/26] Validating data contract..."
 python -c "
 from stagebridge.contracts import validate_contract
 validate_contract('$CANONICAL')
@@ -1740,5 +1909,8 @@ ls -lh $CANONICAL/rare_cells/ 2>/dev/null || echo "  (not found)"
 echo ""
 echo "Niche phenotypes (EM-HMRF):"
 ls -lh $CANONICAL/niche_phenotypes/ 2>/dev/null || echo "  (not found)"
+echo ""
+echo "QC metrics:"
+ls -lh $CANONICAL/qc/ 2>/dev/null || echo "  (not found)"
 echo ""
 echo "Ready for training: snakemake --profile workflow/slurm"
