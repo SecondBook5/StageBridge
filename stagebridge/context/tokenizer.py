@@ -39,6 +39,10 @@ class NicheTokenizer(nn.Module):
     NUM_TOKENS = 9  # receiver + 4 rings + hlca + luca + pathway + stats
     NUM_TOKENS_FUSED = 8  # receiver + 4 rings + fused_ref + pathway + stats
 
+    # Fixed dimensions from contracts
+    HLCA_DIM = 30
+    LUCA_DIM = 10
+
     def __init__(
         self,
         input_dim: int = 40,
@@ -59,10 +63,14 @@ class NicheTokenizer(nn.Module):
         self.use_fused_reference = use_fused_reference
         self.fused_ref_dim = fused_ref_dim or input_dim
 
-        # Projection for non-pooled tokens (receiver, hlca, luca, pathway)
+        # Projection for receiver and pathway (40d = HLCA+LuCA concat)
         self.token_proj = nn.Linear(input_dim, hidden_dim)
 
-        # Separate projection for fused reference (may have different dim)
+        # Separate projections for HLCA (30d) and LuCA (10d) reference tokens
+        self.hlca_proj = nn.Linear(self.HLCA_DIM, hidden_dim)
+        self.luca_proj = nn.Linear(self.LUCA_DIM, hidden_dim)
+
+        # Projection for fused reference (when GW fusion enabled)
         if use_fused_reference:
             self.fused_ref_proj = nn.Linear(self.fused_ref_dim, hidden_dim)
 
@@ -153,9 +161,9 @@ class NicheTokenizer(nn.Module):
                 stats_token,
             ], dim=1)  # [B, 8, hidden_dim]
         else:
-            # Standard 9-token sequence
-            hlca_token = self.token_proj(hlca)
-            luca_token = self.token_proj(luca)
+            # Standard 9-token sequence with separate HLCA/LuCA projections
+            hlca_token = self.hlca_proj(hlca)  # 30d -> hidden_dim
+            luca_token = self.luca_proj(luca)  # 10d -> hidden_dim
             tokens = torch.stack([
                 receiver_token,
                 ring_tokens[0],
