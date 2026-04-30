@@ -33,37 +33,41 @@ This document provides a complete mathematical and architectural specification o
 StageBridge learns to predict how cells transition between disease stages (e.g., AAH -> AIS -> MIA -> LUAD) by conditioning on the local spatial neighborhood (niche) around each cell. The key insight is **receiver-centering**: the focal cell receives signals from its neighbors, so it should be the query in attention, with neighbors as keys/values.
 
 ```
-                              StageBridge Full Architecture
+                              StageBridge v1-core Architecture
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                         │
-│  INPUT: Receiver + 8 Neighbors + Distances + (optional) WES Features                   │
+│  INPUT: Receiver + Ring Cells (variable per ring) + HLCA/LuCA refs + Stats             │
 │  ────────────────────────────────────────────────────────────────────                   │
 │                              │                                                          │
 │                              ▼                                                          │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │                    DUAL-REFERENCE EMBEDDING (40d)                                │   │
-│  │       HLCA (30d, healthy lung)  +  LuCA (10d, lung cancer)                      │   │
+│  │          GROMOV-WASSERSTEIN ATLAS FUSION (configurable: use_gw_fusion)           │   │
+│  │                                                                                  │   │
+│  │   HLCA (30d) ──┐                                                                │   │
+│  │                ├──▶ Entropic GW (Sinkhorn) ──▶ Fused Reference (64d)            │   │
+│  │   LuCA (10d) ──┘         │                                                      │   │
+│  │               Modes: barycentric | project_to_hlca | project_to_luca            │   │
+│  │               (if disabled: separate HLCA + LuCA tokens → 9-token structure)    │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                              │                                                          │
 │                              ▼                                                          │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │              RECEIVER-CENTERED NICHE ENCODER                                     │   │
+│  │                    NICHE TOKENIZER (Learned Ring Pooling)                        │   │
 │  │                                                                                  │   │
-│  │   Receiver ──Q──▶ ┌──────────────────────────┐                                  │   │
-│  │                   │  Cross-Attention x L     │ ◀── Distance Bias (RBF)          │   │
-│  │   Neighbors ─K,V─▶│  + Token Type Embeddings │                                  │   │
-│  │                   └──────────────────────────┘                                  │   │
-│  │                              │                                                   │   │
-│  │                   Context + Context Tokens [B, 9, H]                            │   │
+│  │   Ring 1 cells ──▶ [ISAB ──▶ PMA] ──▶ Ring 1 Token                             │   │
+│  │   Ring 2 cells ──▶ [ISAB ──▶ PMA] ──▶ Ring 2 Token                             │   │
+│  │   Ring 3 cells ──▶ [ISAB ──▶ PMA] ──▶ Ring 3 Token                             │   │
+│  │   Ring 4 cells ──▶ [ISAB ──▶ PMA] ──▶ Ring 4 Token                             │   │
+│  │                                                                                  │   │
+│  │   Assemble: [Receiver, Ring1-4, FusedRef, Pathway, Stats] → 8 tokens            │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                              │                                                          │
 │                              ▼                                                          │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │              CONTEXT REFINER (SetTransformer SAB layers)                         │   │
+│  │         HIERARCHICAL SET TRANSFORMER (Context Refinement)                        │   │
 │  │                                                                                  │   │
-│  │   Context Tokens ──▶ [SAB x num_refiner_layers] ──▶ Refined Tokens              │   │
-│  │                                                                                  │   │
-│  │   Allows tokens to interact and share information before downstream use         │   │
+│  │   Tokens ──▶ ISAB ──▶ ISAB(spatial_rpe) ──▶ SAB ──▶ PMA ──▶ Context [B, H]     │   │
+│  │                                              └─────────────▶ Refined Tokens      │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                              │                                                          │
 │          ┌───────────────────┴───────────────────┐                                     │
@@ -80,16 +84,15 @@ StageBridge learns to predict how cells transition between disease stages (e.g.,
 │  │  │ Ctx Tokens ─K,V─▶   │  │     │  │                       ▼             │   │    │
 │  │  │        │            │  │     │  │                     [PMA]           │   │    │
 │  │  │        ▼            │  │     │  │                       │             │   │    │
-│  │  │  Gated Mixture      │  │     │  │            Sample Embedding [B, H]  │   │    │
-│  │  │  g*ctx + (1-g)*lat  │  │     │  └─────────────────────────────────────┘   │    │
-│  │  └─────────────────────┘  │     │                    │                        │    │
-│  │           │               │     │                    ▼                        │    │
-│  │           ▼               │     │  ┌─────────────────────────────────────┐   │    │
-│  │  Drift Velocity v(x,t)    │     │  │ SAMPLE-LEVEL HEADS                  │   │    │
-│  │  [B, 40]                  │     │  │                                     │   │    │
+│  │  │   Drift v(x,t,c)    │  │     │  │            Sample Embedding [B, H]  │   │    │
+│  │  └─────────────────────┘  │     │  └─────────────────────────────────────┘   │    │
+│  │           │               │     │                    │                        │    │
+│  │           ▼               │     │                    ▼                        │    │
+│  │  Drift Velocity [B, 40]   │     │  ┌─────────────────────────────────────┐   │    │
+│  │                           │     │  │ SAMPLE-LEVEL HEADS                  │   │    │
 │  │                           │     │  │ Stage Logits [B, num_stages]        │   │    │
-│  │  (Optional UDE mode:      │     │  │ Displacement [B, H]                 │   │    │
-│  │   blend baseline+learned) │     │  └─────────────────────────────────────┘   │    │
+│  │                           │     │  │ Displacement [B, H]                 │   │    │
+│  │                           │     │  └─────────────────────────────────────┘   │    │
 │  └───────────────────────────┘     └─────────────────────────────────────────────┘    │
 │                                                                                         │
 │  (Optional) EVOLUTION BRANCH: WES features ──▶ Gated fusion with context               │
@@ -178,21 +181,70 @@ Each cell is embedded into a 40-dimensional space:
 | HLCA | 30d | Healthy Lung Cell Atlas - positions cell relative to normal tissue |
 | LuCA | 10d | Lung Cancer Atlas - positions cell relative to disease states |
 
-### 9-Token Niche Structure
+### Gromov-Wasserstein Atlas Fusion (Configurable)
 
+By default, StageBridge uses **differentiable Gromov-Wasserstein (GW) optimal transport** to align HLCA and LuCA embeddings before creating reference tokens. This is superior to naive concatenation because:
+
+1. **Geometric alignment**: GW finds correspondences that preserve pairwise distances within each atlas
+2. **Differentiable**: Entropic regularization with Sinkhorn algorithm enables end-to-end training
+3. **Balanced representation**: Prevents one atlas from dominating variance (observed with concat)
+
+**GW Fusion Modes** (`gw_mode` config):
+- `barycentric` (default): Wasserstein barycenter interpolation between atlases
+- `project_to_hlca`: Project LuCA into HLCA geometry
+- `project_to_luca`: Project HLCA into LuCA geometry
+
+**Configuration** (`StageBridgeConfig`):
+```python
+use_gw_fusion: bool = True        # Enable GW fusion (vs naive concat)
+gw_output_dim: int = 64           # Fused reference dimension
+gw_sinkhorn_iters: int = 50       # Sinkhorn iterations
+gw_sinkhorn_reg: float = 0.1      # Entropic regularization
+gw_mode: str = "barycentric"      # Fusion mode
+```
+
+When `use_gw_fusion=False`, falls back to separate HLCA and LuCA tokens (9-token structure).
+
+### Token Structure
+
+**With GW Fusion (8 tokens):**
 ```
 Token Index    Type              Description
 ──────────────────────────────────────────────────────────────
-    0          Receiver          Focal cell (query source)
-    1          Ring 1            Nearest neighbor
-    2          Ring 2            2nd nearest
-    3          Ring 3            3rd nearest
-    4          Ring 4            4th nearest
-    5          HLCA Token        Aggregated HLCA-mapped neighbors
-    6          LuCA Token        Aggregated LuCA-mapped neighbors
-    7          Pathway Token     Gene pathway activity summary
-    8          Stats Token       Neighborhood statistics
+    0          Receiver          Focal cell (40d fused embedding)
+    1          Ring 1            Pooled cells from ring 1 (ISAB+PMA)
+    2          Ring 2            Pooled cells from ring 2 (ISAB+PMA)
+    3          Ring 3            Pooled cells from ring 3 (ISAB+PMA)
+    4          Ring 4            Pooled cells from ring 4 (ISAB+PMA)
+    5          Fused Ref         GW-aligned HLCA+LuCA (64d -> hidden)
+    6          Pathway Token     Gene pathway activity summary
+    7          Stats Token       Neighborhood statistics (7d)
 ```
+
+**Without GW Fusion (9 tokens):**
+```
+Token Index    Type              Description
+──────────────────────────────────────────────────────────────
+    0          Receiver          Focal cell (40d fused embedding)
+    1          Ring 1            Pooled cells from ring 1 (ISAB+PMA)
+    2          Ring 2            Pooled cells from ring 2 (ISAB+PMA)
+    3          Ring 3            Pooled cells from ring 3 (ISAB+PMA)
+    4          Ring 4            Pooled cells from ring 4 (ISAB+PMA)
+    5          HLCA Token        HLCA reference (30d -> hidden)
+    6          LuCA Token        LuCA reference (10d -> hidden)
+    7          Pathway Token     Gene pathway activity summary
+    8          Stats Token       Neighborhood statistics (7d)
+```
+
+### Learned Ring Pooling (ISAB + PMA)
+
+Each spatial ring contains variable numbers of cells. Instead of mean pooling, we use **learned Set Transformer pooling**:
+
+```
+Ring cells [B, max_cells, 40] --> ISAB(num_inducing=4) --> PMA(1 seed) --> Ring token [B, hidden]
+```
+
+This allows the model to learn which cells in each ring are most relevant to the receiver.
 
 ---
 
@@ -589,16 +641,38 @@ def sample_trajectory(x0, context, stage_pair_id, num_steps=8, sigma=0.0):
 
 StageBridge supports systematic ablation experiments to validate each component's contribution.
 
+### Core Ablations
+
 | Ablation | What's Removed | Tests |
 |----------|----------------|-------|
-| `full` | Nothing | Baseline comparison |
+| `full` | Nothing (GW enabled) | Full model baseline |
 | `no_niche` | Zero context path | Does niche matter at all? |
-| `no_distance` | Zero distance encoding | Does spatial structure matter? |
-| `no_gate` | Fix gate=1 | Is adaptive gating useful? |
-| `no_token_types` | Zero token type embeddings | Do semantic roles matter? |
+| `no_distance` | Spatial RPE disabled | Does spatial structure matter? |
+| `no_ring_pooling` | Use mean pooling | Does learned pooling help? |
+| `no_context_refiner` | Skip ISAB→SAB→PMA | Does hierarchical refinement help? |
 | `random_niche` | Shuffle neighbor assignment | Is specific niche identity important? |
-| `hlca_only` | Remove LuCA reference | Is disease reference needed? |
-| `luca_only` | Remove HLCA reference | Is healthy reference needed? |
+| `frozen_encoder` | Freeze encoder in stage 2 | Does SSL pretrain transfer? |
+
+### Reference Ablations
+
+| Ablation | Configuration | Tests |
+|----------|---------------|-------|
+| `hlca_only` | `use_gw_fusion=False`, zero LuCA | Is disease reference needed? |
+| `luca_only` | `use_gw_fusion=False`, zero HLCA | Is healthy reference needed? |
+
+### Gromov-Wasserstein Fusion Ablations
+
+| Ablation | Configuration | Tests |
+|----------|---------------|-------|
+| `no_gw_fusion` | `use_gw_fusion=False` (concat) | Is GW fusion better than concat? |
+| `gw_barycentric` | `gw_mode="barycentric"` | Wasserstein barycenter (default) |
+| `gw_project_hlca` | `gw_mode="project_to_hlca"` | Project LuCA into HLCA space |
+| `gw_project_luca` | `gw_mode="project_to_luca"` | Project HLCA into LuCA space |
+
+### Evolution Branch Ablations
+
+| Ablation | What's Changed | Tests |
+|----------|----------------|-------|
 | `no_wes` | Disable evolution branch | Do genomic features help? |
 | `with_wes` | Enable evolution branch | Does WES improve predictions? |
 
@@ -611,14 +685,22 @@ stagebridge/
 ├── models/
 │   └── stagebridge.py          # Main StageBridge class with all components
 ├── context/
-│   ├── encoder.py              # ReceiverCenteredNicheEncoder
-│   ├── layers.py               # SAB, ISAB, PMA, SinusoidalTimeEmbedding
+│   ├── tokenizer.py            # NicheTokenizer with learned ring pooling
+│   ├── encoder.py              # ReceiverCenteredNicheEncoder (legacy)
+│   ├── layers.py               # SAB, ISAB, PMA, RingPooler, SinusoidalTimeEmbedding
 │   ├── aggregation.py          # HierarchicalAggregator, SampleLevelHeads
 │   └── evolution.py            # EvolutionBranch (WES conditioning)
+├── reference/
+│   └── gw_fusion.py            # GromovWassersteinFusion, GWFusionConfig, GWFusionLoss
 ├── transition/
-│   └── drift.py                # CrossAttentionDrift, UDEGate, BiologicalBaselineDrift
+│   └── drift.py                # CrossAttentionDrift, FiLMConditioner
 ├── training/
-│   └── trainer.py              # StageBridgeTrainer with OT-CFM
+│   └── trainer.py              # StageBridgeTrainer with two-stage training
+├── loaders/
+│   ├── dataset.py              # StageBridgeDataset, NicheBatch, collate_niche_batch
+│   └── splits.py               # Cross-validation fold management
+├── evaluation/
+│   └── ablation.py             # Ablation experiment runner
 └── baselines/
     ├── pooling.py              # PoolingMLP baseline
     ├── deepsets.py             # DeepSets baseline
