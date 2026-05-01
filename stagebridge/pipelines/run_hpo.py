@@ -83,6 +83,11 @@ def run_hpo(
     log.info(f"  Train batches: {len(train_loader)}")
     log.info(f"  Val batches: {len(val_loader) if val_loader else 0}")
 
+    # Detect evolution_dim from data (may differ from contracts.EVOLUTION_DIM)
+    sample_batch = next(iter(train_loader))
+    evolution_dim = sample_batch.evolution_features.shape[-1] if sample_batch.evolution_features is not None else 0
+    log.info(f"  Evolution dim: {evolution_dim}")
+
     def objective(trial: Trial) -> float:
         from stagebridge.models.stagebridge import StageBridge, StageBridgeConfig
 
@@ -114,7 +119,8 @@ def run_hpo(
             use_cross_attn_drift=True,
             use_pathway_head=True,
             use_proliferation_head=True,
-            use_evolution_branch=True,  # WES + clonal conditioning
+            use_evolution_branch=evolution_dim > 0,
+            evolution_dim=evolution_dim,
         )
 
         model = StageBridge(config).to(device)
