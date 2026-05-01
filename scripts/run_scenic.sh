@@ -92,27 +92,52 @@ print('  This takes 2-4 hours on 800k cells')
 print(f'Loading {SNRNA}...')
 import anndata as ad
 import h5py
+from scipy import sparse
 
 with h5py.File(SNRNA, 'r') as f:
-    # Read var names
-    if '_index' in f['var']:
-        var_names = f['var']['_index'][:].astype(str)
-    else:
-        var_names = f['var']['gene_ids'][:].astype(str) if 'gene_ids' in f['var'] else None
+    # Debug: print structure
+    print(f'  Keys: {list(f.keys())}')
+    print(f'  var keys: {list(f["var"].keys()) if "var" in f else "N/A"}')
+    print(f'  obs keys: {list(f["obs"].keys()) if "obs" in f else "N/A"}')
+
+    # Read var names (try multiple possible keys)
+    var_names = None
+    for key in ['_index', 'index', 'gene_ids', 'gene_names']:
+        if 'var' in f and key in f['var']:
+            var_names = f['var'][key][:].astype(str)
+            print(f'  Using var key: {key}')
+            break
 
     # Read obs names
-    obs_names = f['obs']['_index'][:].astype(str)
+    obs_names = None
+    for key in ['_index', 'index', 'cell_ids', 'barcode']:
+        if 'obs' in f and key in f['obs']:
+            obs_names = f['obs'][key][:].astype(str)
+            print(f'  Using obs key: {key}')
+            break
 
-    # Read X
-    X = f['X'][:]
+    # Read X (handle sparse or dense)
+    if 'X' in f:
+        X_grp = f['X']
+        if isinstance(X_grp, h5py.Dataset):
+            X = X_grp[:]
+        elif 'data' in X_grp:  # sparse format
+            data = X_grp['data'][:]
+            indices = X_grp['indices'][:]
+            indptr = X_grp['indptr'][:]
+            shape = tuple(X_grp.attrs['shape']) if 'shape' in X_grp.attrs else (len(obs_names), len(var_names))
+            X = sparse.csr_matrix((data, indices, indptr), shape=shape)
+        else:
+            raise ValueError(f'Unknown X format: {list(X_grp.keys())}')
 
-from scipy import sparse
 if not sparse.issparse(X):
     X = sparse.csr_matrix(X)
 
 adata = ad.AnnData(X=X)
-adata.obs_names = pd.Index(obs_names)
-adata.var_names = pd.Index(var_names)
+if obs_names is not None:
+    adata.obs_names = pd.Index(obs_names)
+if var_names is not None:
+    adata.var_names = pd.Index(var_names)
 
 print(f'  {adata.n_obs:,} cells x {adata.n_vars:,} genes')
 
