@@ -1084,8 +1084,7 @@ if __name__ == "__main__":
         ssl_epochs=args.ssl_epochs,
         transition_epochs=args.transition_epochs,
         learning_rate=hpo.get("lr", args.learning_rate),
-        output_dir=str(args.output_dir),
-        checkpoint_dir=str(args.output_dir / "checkpoints"),
+        output_dir=args.output_dir,
     )
 
     result = train_stagebridge(
