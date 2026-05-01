@@ -67,23 +67,90 @@ fi
 
 mkdir -p $CANONICAL/scenic
 
-python -c "
+python << 'PYTHON_END'
+import scanpy as sc
+import pandas as pd
+import numpy as np
 from pathlib import Path
-from stagebridge.biology.regulons import run_scenic_pipeline
+from arboreto.algo import grnboost2
+from arboreto.utils import load_tf_names
+from pyscenic.aucell import aucell
+from pyscenic.prune import prune2df, df2regulons
+from ctxcore.rnkdb import FeatherRankingDatabase
+
+SNRNA = '$SNRNA'
+OUTPUT_DIR = Path('$CANONICAL/scenic')
+MOTIF_DB = Path('$MOTIF_DB')
+ANNOTATIONS = Path('$ANNOTATIONS')
+TF_LIST = '$TF_LIST'
+N_JOBS = 8
 
 print('Running full pySCENIC pipeline...')
 print('  This takes 2-4 hours on 800k cells')
 
-results = run_scenic_pipeline(
-    Path('$SNRNA'),
-    Path('$CANONICAL/scenic'),
-    motif_db_path=Path('$MOTIF_DB'),
-    annotation_path=Path('$ANNOTATIONS'),
-    skip_grn=False,  # Run full GRNBoost2 + cistarget
-    n_jobs=8,
-)
-print('pySCENIC complete:', results)
-"
+# Load data
+print(f'Loading {SNRNA}...')
+adata = sc.read_h5ad(SNRNA)
+print(f'  {adata.n_obs:,} cells x {adata.n_vars:,} genes')
+
+# Get expression matrix
+X = adata.X
+if hasattr(X, 'toarray'):
+    X = X.toarray()
+expr_df = pd.DataFrame(X, index=adata.obs_names, columns=adata.var_names)
+
+# Step 1: GRN inference
+adj_path = OUTPUT_DIR / 'adjacencies.parquet'
+if adj_path.exists():
+    print(f'Loading existing adjacencies from {adj_path}')
+    adjacencies = pd.read_parquet(adj_path)
+else:
+    print('Step 1: Running GRNBoost2...')
+    tf_list = load_tf_names(TF_LIST)
+    tf_list = [tf for tf in tf_list if tf in adata.var_names]
+    print(f'  Using {len(tf_list)} TFs present in data')
+
+    adjacencies = grnboost2(
+        expression_data=expr_df,
+        tf_names=tf_list,
+        verbose=True,
+        client_or_address='local',
+        seed=42,
+    )
+    adjacencies.to_parquet(adj_path)
+    print(f'  Found {len(adjacencies):,} TF-target pairs')
+
+# Step 2: Motif pruning
+print('Step 2: Pruning with cistarget motif enrichment...')
+dbs = [FeatherRankingDatabase(MOTIF_DB)]
+df_motifs = prune2df(dbs, adjacencies, ANNOTATIONS, num_workers=N_JOBS)
+regulons = df2regulons(df_motifs)
+print(f'  Found {len(regulons)} regulons')
+
+# Step 3: AUCell scoring
+print('Step 3: Computing AUCell scores...')
+auc_mtx = aucell(expr_df, regulons, num_workers=N_JOBS)
+auc_path = OUTPUT_DIR / 'aucell_scores.parquet'
+auc_mtx.to_parquet(auc_path)
+print(f'  Computed activity for {auc_mtx.shape[0]:,} cells x {auc_mtx.shape[1]} regulons')
+
+# Save regulon summary
+print('Saving regulon summary...')
+regulon_dict = {r.name: list(r.genes) for r in regulons}
+regulon_sizes = {name: len(genes) for name, genes in regulon_dict.items()}
+summary = pd.DataFrame({
+    'regulon': list(regulon_sizes.keys()),
+    'n_genes': list(regulon_sizes.values()),
+    'mean_activity': [auc_mtx[r].mean() for r in regulon_sizes.keys()],
+    'std_activity': [auc_mtx[r].std() for r in regulon_sizes.keys()],
+})
+summary.to_parquet(OUTPUT_DIR / 'regulon_scores.parquet')
+
+print('pySCENIC complete!')
+print(f'  adjacencies: {adj_path}')
+print(f'  aucell: {auc_path}')
+print(f'  summary: {OUTPUT_DIR / "regulon_scores.parquet"}')
+PYTHON_END
 
 echo ""
 echo "pySCENIC complete! Results in: $CANONICAL/scenic/"
