@@ -60,14 +60,171 @@ fi
 
 echo "Databases ready in: $DB_DIR"
 
-if [ -f "$CANONICAL/scenic/aucell_scores.parquet" ]; then
-    echo "SCENIC results already exist, skipping"
-    exit 0
-fi
-
 mkdir -p $CANONICAL/scenic
 
-python << PYTHON_END
+# =============================================================================
+# Step 1: Convert h5ad to loom (pySCENIC CLI requires loom format)
+# =============================================================================
+LOOM_INPUT=$CANONICAL/scenic/input.loom
+LOOM_OUTPUT=$CANONICAL/scenic/output.loom
+ADJ_FILE=$CANONICAL/scenic/adjacencies.csv
+REG_FILE=$CANONICAL/scenic/regulons.csv
+
+if [ ! -f "$LOOM_INPUT" ]; then
+    echo "Converting h5ad to loom..."
+    python << CONVERT_END
+import scanpy as sc
+import loompy as lp
+import numpy as np
+import h5py
+import pandas as pd
+from scipy import sparse
+
+SNRNA = '$SNRNA'
+LOOM_PATH = '$LOOM_INPUT'
+
+print(f'Loading {SNRNA}...')
+# Load minimal data to avoid uns issues
+with h5py.File(SNRNA, 'r') as f:
+    # Get gene names
+    var_names = f['var']['gene'][:].astype(str)
+    # Get cell IDs
+    obs_names = f['obs']['cell_id'][:].astype(str)
+    # Get X (sparse)
+    X_grp = f['X']
+    if 'data' in X_grp:
+        data = X_grp['data'][:]
+        indices = X_grp['indices'][:]
+        indptr = X_grp['indptr'][:]
+        shape = (len(obs_names), len(var_names))
+        X = sparse.csr_matrix((data, indices, indptr), shape=shape)
+    else:
+        X = X_grp[:]
+
+if sparse.issparse(X):
+    X = X.toarray()
+
+print(f'  {X.shape[0]:,} cells x {X.shape[1]:,} genes')
+
+# Create loom file
+row_attrs = {'Gene': np.array(var_names)}
+col_attrs = {
+    'CellID': np.array(obs_names),
+    'nGene': np.array(np.sum(X > 0, axis=1)).flatten(),
+    'nUMI': np.array(np.sum(X, axis=1)).flatten(),
+}
+
+print(f'Writing loom file...')
+lp.create(LOOM_PATH, X.T, row_attrs, col_attrs)
+print(f'  Saved {LOOM_PATH}')
+CONVERT_END
+fi
+
+# =============================================================================
+# Step 2: GRN inference with GRNBoost2 (pyscenic grn)
+# =============================================================================
+if [ ! -f "$ADJ_FILE" ]; then
+    echo ""
+    echo "Step 1/3: Running GRNBoost2 (this takes 1-2 hours)..."
+    pyscenic grn $LOOM_INPUT $TF_LIST \
+        -o $ADJ_FILE \
+        --num_workers 8 \
+        --seed 42
+    echo "  Saved adjacencies to $ADJ_FILE"
+else
+    echo "Step 1/3: Adjacencies exist, skipping GRN inference"
+fi
+
+# =============================================================================
+# Step 3: Motif pruning with cistarget (pyscenic ctx)
+# =============================================================================
+if [ ! -f "$REG_FILE" ]; then
+    echo ""
+    echo "Step 2/3: Pruning with cistarget motifs (this takes 30-60 min)..."
+    pyscenic ctx $ADJ_FILE $MOTIF_DB \
+        --annotations_fname $ANNOTATIONS \
+        --expression_mtx_fname $LOOM_INPUT \
+        --output $REG_FILE \
+        --mask_dropouts \
+        --num_workers 8
+    echo "  Saved regulons to $REG_FILE"
+else
+    echo "Step 2/3: Regulons exist, skipping motif pruning"
+fi
+
+# =============================================================================
+# Step 4: AUCell scoring (pyscenic aucell)
+# =============================================================================
+if [ ! -f "$LOOM_OUTPUT" ]; then
+    echo ""
+    echo "Step 3/3: Computing AUCell scores..."
+    pyscenic aucell $LOOM_INPUT $REG_FILE \
+        --output $LOOM_OUTPUT \
+        --num_workers 8
+    echo "  Saved AUCell results to $LOOM_OUTPUT"
+else
+    echo "Step 3/3: AUCell results exist, skipping"
+fi
+
+# =============================================================================
+# Step 5: Convert results to parquet
+# =============================================================================
+echo ""
+echo "Converting results to parquet..."
+python << EXPORT_END
+import loompy as lp
+import pandas as pd
+from pathlib import Path
+
+OUTPUT_DIR = Path('$CANONICAL/scenic')
+
+# Load AUCell results from loom
+lf = lp.connect('$LOOM_OUTPUT', mode='r', validate=False)
+auc_mtx = pd.DataFrame(lf.ca.RegulonsAUC, index=lf.ca.CellID)
+lf.close()
+
+print(f'  {auc_mtx.shape[0]:,} cells x {auc_mtx.shape[1]} regulons')
+
+# Save as parquet
+auc_mtx.to_parquet(OUTPUT_DIR / 'aucell_scores.parquet')
+print(f'  Saved aucell_scores.parquet')
+
+# Save regulon summary
+summary = pd.DataFrame({
+    'regulon': auc_mtx.columns,
+    'mean_activity': auc_mtx.mean().values,
+    'std_activity': auc_mtx.std().values,
+})
+summary.to_parquet(OUTPUT_DIR / 'regulon_scores.parquet')
+print(f'  Saved regulon_scores.parquet')
+
+# Convert adjacencies CSV to parquet
+adj = pd.read_csv(OUTPUT_DIR / 'adjacencies.csv')
+adj.to_parquet(OUTPUT_DIR / 'adjacencies.parquet')
+print(f'  Saved adjacencies.parquet ({len(adj):,} TF-target pairs)')
+EXPORT_END
+
+echo ""
+echo "pySCENIC complete! Results in: $CANONICAL/scenic/"
+echo "  - adjacencies.parquet: TF-target network"
+echo "  - aucell_scores.parquet: Per-cell regulon activity"
+echo "  - regulon_scores.parquet: Regulon summary stats"
+
+# =============================================================================
+# Step 6: Generate figures (optional)
+# =============================================================================
+if [ "$MAKE_FIGURES" = true ]; then
+    echo ""
+    echo "=============================================="
+    echo "Generating SCENIC figures..."
+    echo "=============================================="
+    python scripts/run_scenic.py --figures-only
+fi
+
+exit 0
+
+# OLD INLINE CODE (kept for reference, not executed)
+python << PYTHON_END_UNUSED
 import scanpy as sc
 import pandas as pd
 import numpy as np
