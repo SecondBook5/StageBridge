@@ -92,6 +92,18 @@ from stagebridge.biology.tf_pathway_activity import (
     compute_pseudobulk_activity,
     compute_spatial_activity,
 )
+from stagebridge.biology.gsea import (
+    run_gsea_prerank,
+    run_gsea_from_de,
+    run_gsea_all_stages,
+    run_gsea,
+    HALLMARK_PATHWAYS,
+)
+from stagebridge.biology.trajectories import (
+    compute_diffusion_map,
+    compute_paga,
+    run_trajectories,
+)
 
 __all__ = [
     # L-R scoring
@@ -163,4 +175,14 @@ __all__ = [
     "rank_by_group",
     "compute_pseudobulk_activity",
     "compute_spatial_activity",
+    # GSEA
+    "run_gsea_prerank",
+    "run_gsea_from_de",
+    "run_gsea_all_stages",
+    "run_gsea",
+    "HALLMARK_PATHWAYS",
+    # Trajectories
+    "compute_diffusion_map",
+    "compute_paga",
+    "run_trajectories",
 ]
