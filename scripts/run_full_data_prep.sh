@@ -484,24 +484,96 @@ try:
         sample_col = 'donor_id' if 'donor_id' in adata.obs.columns else 'sample_id'
         print(f'  Aggregating by {sample_col}...')
 
-        # Pseudobulk aggregation
-        pdata = dc.pp.pseudobulk(adata=adata, sample_col=sample_col, groups_col='stage' if 'stage' in adata.obs.columns else None)
+        # Pseudobulk aggregation (per sample, per stage)
+        pdata = dc.pp.pseudobulk(
+            adata=adata,
+            sample_col=sample_col,
+            groups_col='stage' if 'stage' in adata.obs.columns else None,
+            mode='sum',
+        )
         print(f'  {pdata.n_obs} pseudobulk samples')
 
-        # TF activity on pseudobulk
+        # Filter low-quality pseudobulk samples
+        dc.pp.filter_samples(pdata, min_cells=10, min_counts=1000)
+        print(f'  {pdata.n_obs} samples after QC')
+
+        # Save per-sample activity (direct ULM on pseudobulk expression)
+        print('  Per-sample TF/pathway activity...')
+        pdata.layers['counts'] = pdata.X.copy()
+        sc.pp.normalize_total(pdata, target_sum=1e4)
+        sc.pp.log1p(pdata)
+
         dc.mt.ulm(data=pdata, net=collectri)
         pb_tf = dc.pp.get_obsm(adata=pdata, key='score_ulm')
         pd.DataFrame(pb_tf.X, index=pb_tf.obs.index, columns=pb_tf.var.index).to_parquet(out / 'pseudobulk_tf_activity.parquet')
 
-        # Pathway activity on pseudobulk
         dc.mt.ulm(data=pdata, net=progeny)
         pb_pw = dc.pp.get_obsm(adata=pdata, key='score_ulm')
         pd.DataFrame(pb_pw.X, index=pb_pw.obs.index, columns=pb_pw.var.index).to_parquet(out / 'pseudobulk_pathway_activity.parquet')
 
-        # Hallmark on pseudobulk
         dc.mt.ulm(data=pdata, net=hallmark)
         pb_hm = dc.pp.get_obsm(adata=pdata, key='score_ulm')
         pd.DataFrame(pb_hm.X, index=pb_hm.obs.index, columns=pb_hm.var.index).to_parquet(out / 'pseudobulk_hallmark_activity.parquet')
+
+        # DEA-based enrichment (LUAD vs Normal) - statistically robust
+        if 'stage' in pdata.obs.columns:
+            print('  Running DEA-based enrichment (LUAD vs Normal)...')
+            try:
+                from pydeseq2.dds import DeseqDataSet, DefaultInference
+                from pydeseq2.ds import DeseqStats
+
+                # Restore raw counts
+                dc.pp.swap_layer(adata=pdata, key='counts', inplace=True)
+
+                # Filter genes
+                dc.pp.filter_by_expr(pdata, group='stage', min_count=10, min_total_count=15)
+
+                # Get samples with LUAD or Normal
+                dea_samples = pdata[pdata.obs['stage'].isin(['LUAD', 'Normal'])].copy()
+
+                if dea_samples.n_obs >= 4:
+                    inference = DefaultInference(n_cpus=4)
+                    dds = DeseqDataSet(
+                        adata=dea_samples,
+                        design_factors=['stage'],
+                        refit_cooks=True,
+                        inference=inference,
+                    )
+                    dds.deseq2()
+
+                    stat_res = DeseqStats(dds, contrast=['stage', 'LUAD', 'Normal'], inference=inference)
+                    stat_res.summary()
+                    results_df = stat_res.results_df
+
+                    # Save DEA results
+                    results_df.to_parquet(out / 'pseudobulk_dea_luad_vs_normal.parquet')
+
+                    # Use t-statistics for enrichment
+                    data = results_df[['stat']].T.rename(index={'stat': 'LUAD.vs.Normal'})
+
+                    # TF enrichment from DEA stats
+                    tf_acts, tf_padj = dc.mt.ulm(data=data, net=collectri)
+                    tf_results = pd.DataFrame({'name': tf_acts.columns, 'score': tf_acts.values[0], 'padj': tf_padj.values[0]})
+                    tf_results.to_parquet(out / 'pseudobulk_dea_tf_enrichment.parquet')
+
+                    # Pathway enrichment from DEA stats
+                    pw_acts, pw_padj = dc.mt.ulm(data=data, net=progeny)
+                    pw_results = pd.DataFrame({'name': pw_acts.columns, 'score': pw_acts.values[0], 'padj': pw_padj.values[0]})
+                    pw_results.to_parquet(out / 'pseudobulk_dea_pathway_enrichment.parquet')
+
+                    # Hallmark enrichment from DEA stats
+                    hm_acts, hm_padj = dc.mt.ulm(data=data, net=hallmark)
+                    hm_results = pd.DataFrame({'name': hm_acts.columns, 'score': hm_acts.values[0], 'padj': hm_padj.values[0]})
+                    hm_results.to_parquet(out / 'pseudobulk_dea_hallmark_enrichment.parquet')
+
+                    print(f'    Top activated TFs: {tf_results.nlargest(5, "score")["name"].tolist()}')
+                    print(f'    Top repressed TFs: {tf_results.nsmallest(5, "score")["name"].tolist()}')
+                else:
+                    print('  SKIP DEA: not enough samples with LUAD/Normal')
+            except ImportError:
+                print('  SKIP DEA: pydeseq2 not installed')
+            except Exception as e:
+                print(f'  DEA failed: {e}')
     else:
         print('  SKIP: no donor_id or sample_id column')
 
