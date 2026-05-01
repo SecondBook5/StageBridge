@@ -178,6 +178,43 @@ WES_DIM = len(WES_COLS)  # 17 features
 
 
 # =============================================================================
+# CLONAL FEATURES (from inferCNV)
+# =============================================================================
+
+# Cell-level clonal features
+CLONAL_CELL_COLS = (
+    "cnv_score",           # CNV burden per cell
+    "cnv_score_z",         # Z-scored within patient
+    "clone_size",          # Number of cells in this clone
+    "clone_rank",          # Rank within patient (0=largest)
+    "is_major_clone",      # Binary: is largest clone
+    "clone_fraction",      # Fraction of patient cells in this clone
+)
+
+# Patient-level clonal features (broadcasted to cells)
+CLONAL_PATIENT_COLS = (
+    "n_clones",                  # Total clones in patient
+    "clonal_entropy",            # Shannon entropy of clone distribution
+    "clonal_diversity",          # Gini-Simpson diversity
+    "clonal_pattern_idx",        # 0=1a (new invasive), 1=1b (shared), 2=uncategorized
+    "aneuploidy_score",          # Overall aneuploidy burden
+    "clone_sharing_ratio",       # Fraction of clones shared precursor<->invasive
+    "has_invasive_only_clones",  # Binary: new clones in invasive
+)
+
+CLONAL_COLS = CLONAL_CELL_COLS + CLONAL_PATIENT_COLS
+CLONAL_DIM = len(CLONAL_COLS)  # 13 features
+
+
+# =============================================================================
+# EVOLUTION BRANCH (combined WES + clonal)
+# =============================================================================
+
+EVOLUTION_COLS = WES_COLS + CLONAL_COLS
+EVOLUTION_DIM = len(EVOLUTION_COLS)  # 30 features
+
+
+# =============================================================================
 # PATHWAY FEATURES (in token 7)
 # =============================================================================
 
