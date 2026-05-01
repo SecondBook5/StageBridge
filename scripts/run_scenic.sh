@@ -102,19 +102,23 @@ with h5py.File(SNRNA, 'r') as f:
 
     # Read var names (try multiple possible keys)
     var_names = None
-    for key in ['_index', 'index', 'gene_ids', 'gene_names']:
+    for key in ['gene', 'gene_ids', 'gene_names', '_index', 'index']:
         if 'var' in f and key in f['var']:
-            var_names = f['var'][key][:].astype(str)
-            print(f'  Using var key: {key}')
-            break
+            data = f['var'][key]
+            if isinstance(data, h5py.Dataset):
+                var_names = data[:].astype(str)
+                print(f'  Using var key: {key}')
+                break
 
     # Read obs names
     obs_names = None
-    for key in ['_index', 'index', 'cell_ids', 'barcode']:
+    for key in ['cell_id', 'barcode', 'cell_ids', '_index', 'index']:
         if 'obs' in f and key in f['obs']:
-            obs_names = f['obs'][key][:].astype(str)
-            print(f'  Using obs key: {key}')
-            break
+            data = f['obs'][key]
+            if isinstance(data, h5py.Dataset):
+                obs_names = data[:].astype(str)
+                print(f'  Using obs key: {key}')
+                break
 
     # Read X (handle sparse or dense)
     if 'X' in f:
