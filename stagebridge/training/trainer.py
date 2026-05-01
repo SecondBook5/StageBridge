@@ -1078,6 +1078,7 @@ if __name__ == "__main__":
         use_learned_ring_pooling=True,
         use_context_refiner=True,
         use_cross_attn_drift=True,
+        use_evolution_branch=True,  # WES + clonal conditioning
     )
 
     trainer_config = TrainerConfig(

@@ -133,6 +133,7 @@ DESTVI_LUCA = config["paths"].get("destvi_luca")
 DESTVI_HLCA = config["paths"].get("destvi_hlca")
 PROGRESSION_SCORES = config["paths"].get("progression_scores")
 SNRNA_H5AD = config["paths"].get("snrna_h5ad")  # Optional: for h5ad-based features
+EVOLUTION_FEATURES = config["paths"].get("evolution_features")  # WES + clonal features
 
 # Output directory for data preparation (separate from canonical data_dir to avoid cycles)
 # By default, outputs to a 'prepared/' subdirectory. Override with prep_output_dir config.
@@ -146,12 +147,14 @@ rule prepare_data:
         snakemake prepare_data --config prep_output_dir=/path/to/output
 
     Optionally computes h5ad-based biological features (EMT, senescence, SASP) if --h5ad provided.
+    Optionally adds evolution features (WES + clonal) if --evolution provided.
     """
     input:
         cells=ancient(RAW_CELLS) if RAW_CELLS and RAW_CELLS != "null" else [],
         destvi_luca=ancient(DESTVI_LUCA) if DESTVI_LUCA and DESTVI_LUCA != "null" else [],
         destvi_hlca=ancient(DESTVI_HLCA) if DESTVI_HLCA and DESTVI_HLCA != "null" else [],
         progression=ancient(PROGRESSION_SCORES) if PROGRESSION_SCORES and PROGRESSION_SCORES != "null" else [],
+        evolution=ancient(EVOLUTION_FEATURES) if EVOLUTION_FEATURES and EVOLUTION_FEATURES != "null" else [],
     output:
         cells=f"{PREP_OUTPUT_DIR}/cells.parquet",
         neighborhoods=f"{PREP_OUTPUT_DIR}/neighborhoods.parquet",
@@ -160,6 +163,7 @@ rule prepare_data:
     params:
         output_dir=PREP_OUTPUT_DIR,
         h5ad=SNRNA_H5AD,
+        evolution=EVOLUTION_FEATURES,
     resources:
         mem_mb=256000,
         runtime=480,  # 8 hours
@@ -174,7 +178,8 @@ rule prepare_data:
             --progression {input.progression} \
             --output-dir {params.output_dir} \
             --figures \
-            $([ -n "{params.h5ad}" ] && echo "--h5ad {params.h5ad}")
+            $([ -n "{params.h5ad}" ] && echo "--h5ad {params.h5ad}") \
+            $([ -n "{params.evolution}" ] && echo "--evolution {params.evolution}")
         """
 
 

@@ -30,6 +30,10 @@ paths:
   spatial_h5ad: "/data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad"
   # Precomputed progression scores
   progression_scores: "/data1/chaunzt1/stagebridge/processed/luad_evo/canonical/progression/progression_scores.parquet"
+  # Evolution features (WES + clonal from inferCNV)
+  evolution_features: "/data1/chaunzt1/stagebridge/processed/luad_evo/evolution_features.parquet"
+  # Clone assignments (for computing niche-level clonal features)
+  clone_assignments: "/data1/chaunzt1/stagebridge/processed/luad_evo/clone_assignments.parquet"
 
 # Reference atlas configuration
 # NOTE: Latent dimensions are fixed by pretrained models
@@ -69,6 +73,10 @@ model:
   gw_sinkhorn_iters: 50   # Sinkhorn iterations
   gw_sinkhorn_reg: 0.1    # Entropic regularization
   gw_mode: barycentric    # project_to_hlca, project_to_luca, barycentric
+  # Evolution branch (WES + clonal conditioning)
+  use_evolution_branch: true
+  evolution_dim: 28       # EVOLUTION_DIM from contracts (15 WES + 13 clonal)
+  evolution_mode: gated   # gated or film
 
 # =============================================================================
 # Training Settings
