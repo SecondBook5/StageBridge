@@ -104,9 +104,9 @@ class StageBridgeConfig:
     # Drift head
     use_cross_attn_drift: bool = True
 
-    # Evolution branch
+    # Evolution branch (WES somatic mutations)
     use_evolution_branch: bool = False
-    evolution_dim: int = 8
+    evolution_dim: int = 17  # WES_DIM from contracts (tmb + mutations + hotspots + OncoKB)
     evolution_mode: str = "gated"
 
     # Sample-level heads

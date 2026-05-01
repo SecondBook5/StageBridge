@@ -155,6 +155,7 @@ TOKEN_TYPE_IDS = {
 # =============================================================================
 
 WES_COLS = (
+    # Core binary mutation flags
     "tmb",
     "kras_mut",
     "egfr_mut",
@@ -163,8 +164,17 @@ WES_COLS = (
     "keap1_mut",
     "smad4_mut",
     "braf_mut",
+    # Specific hotspot variants (for OncoKB actionability)
+    "egfr_L858R",
+    "egfr_exon19del",
+    "egfr_T790M",
+    "kras_G12C",
+    "kras_G12V",
+    # OncoKB actionability
+    "has_level1_mutation",
+    "has_actionable_mutation",
 )
-WES_DIM = len(WES_COLS)
+WES_DIM = len(WES_COLS)  # 17 features
 
 
 # =============================================================================
