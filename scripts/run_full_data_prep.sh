@@ -721,23 +721,31 @@ umap_df['stage'] = adata.obs['stage'].values if 'stage' in adata.obs.columns els
 if cell_type_key in adata.obs.columns:
     umap_df['cell_type'] = adata.obs[cell_type_key].values
 
-# PHATE
+# PHATE (with checkpoint)
 phate_emb = None
-try:
-    import phate
-    print('Computing PHATE...')
-    phate_op = phate.PHATE(n_components=2, n_jobs=-1, random_state=42)
-    phate_emb = phate_op.fit_transform(adata.obsm['X_pca'][:, :50])
+phate_checkpoint = out / 'phate_embedding.parquet'
+if phate_checkpoint.exists():
+    print('Loading PHATE from checkpoint...')
+    phate_df = pd.read_parquet(phate_checkpoint)
+    phate_emb = phate_df[['PHATE1', 'PHATE2']].values
     adata.obsm['X_phate'] = phate_emb
-    phate_df = pd.DataFrame(phate_emb, index=adata.obs.index, columns=['PHATE1', 'PHATE2'])
-    phate_df['stage'] = adata.obs['stage'].values if 'stage' in adata.obs.columns else None
-    if cell_type_key in adata.obs.columns:
-        phate_df['cell_type'] = adata.obs[cell_type_key].values
-    phate_df.to_parquet(out / 'phate_embedding.parquet')
-except ImportError:
-    print('PHATE not installed')
-except Exception as e:
-    print(f'PHATE failed: {e}')
+else:
+    try:
+        import phate
+        print('Computing PHATE...')
+        phate_op = phate.PHATE(n_components=2, n_jobs=-1, random_state=42)
+        phate_emb = phate_op.fit_transform(adata.obsm['X_pca'][:, :50])
+        adata.obsm['X_phate'] = phate_emb
+        phate_df = pd.DataFrame(phate_emb, index=adata.obs.index, columns=['PHATE1', 'PHATE2'])
+        phate_df['stage'] = adata.obs['stage'].values if 'stage' in adata.obs.columns else None
+        if cell_type_key in adata.obs.columns:
+            phate_df['cell_type'] = adata.obs[cell_type_key].values
+        phate_df.to_parquet(phate_checkpoint)
+        print('  Saved PHATE checkpoint')
+    except ImportError:
+        print('PHATE not installed')
+    except Exception as e:
+        print(f'PHATE failed: {e}')
 
 # Clustering (PCA-based)
 print('Computing Leiden clustering...')
