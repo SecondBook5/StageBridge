@@ -112,87 +112,71 @@ PYTHON_END
 fi
 
 # =============================================================================
-# Step 4: Differential expression (parallel by stage)
+# Step 4: Differential expression (sequential with progress)
 # =============================================================================
 echo ""
-echo "[4/26] Differential expression (parallel)..."
+echo "[4/26] Differential expression..."
 if [ -f "$CANONICAL/de_analysis/de_stage_Normal.parquet" ]; then
     echo "  SKIP: exists"
 else
 mkdir -p $CANONICAL/de_analysis
-python << 'PYTHON_END'
+python -u << 'PYTHON_END'
 import scanpy as sc
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing as mp
 import os
+import sys
 import warnings
 warnings.filterwarnings('ignore')
+
+from tqdm import tqdm
 
 SNRNA = os.environ.get('SNRNA', '/data1/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad')
 CANONICAL = os.environ.get('CANONICAL', '/data1/chaunzt1/stagebridge/processed/luad_evo/canonical')
 
-def run_de_for_stage(args):
-    """Run DE for one stage vs rest (in subprocess)."""
-    stage, adata_path, out_dir = args
-    import scanpy as sc
-    import pandas as pd
-    from pathlib import Path
-    import warnings
-    warnings.filterwarnings('ignore')
+print('Loading snRNA data...', flush=True)
+adata = sc.read_h5ad(SNRNA)
+print(f'  {adata.n_obs} cells x {adata.n_vars} genes', flush=True)
 
-    out = Path(out_dir)
+out = Path(CANONICAL) / 'de_analysis'
+stages = adata.obs['stage'].unique().tolist()
+print(f'  Stages: {stages}', flush=True)
+
+# Run DE for each stage vs rest
+for stage in tqdm(stages, desc='DE by stage'):
     out_file = out / f'de_stage_{stage}.parquet'
 
     if out_file.exists():
-        return f'{stage}: already exists'
+        tqdm.write(f'  {stage}: SKIP (exists)')
+        continue
 
-    # Load data in subprocess
-    adata = sc.read_h5ad(adata_path)
+    # Subset to speed up: this stage + random sample of others
+    stage_mask = adata.obs['stage'] == stage
+    n_stage = stage_mask.sum()
 
-    # Create binary grouping: this stage vs rest
-    adata.obs['_de_group'] = (adata.obs['stage'] == stage).astype(str)
+    # For "rest", sample up to 2x the stage size (cap at 50k for speed)
+    rest_mask = ~stage_mask
+    n_rest = min(rest_mask.sum(), max(n_stage * 2, 50000))
 
-    # Run wilcoxon for this stage vs rest
-    sc.tl.rank_genes_groups(adata, groupby='_de_group', groups=['True'],
-                            reference='False', method='wilcoxon', n_genes=500)
+    rest_idx = np.random.choice(np.where(rest_mask)[0], size=n_rest, replace=False)
+    stage_idx = np.where(stage_mask)[0]
 
-    df = sc.get.rank_genes_groups_df(adata, group='True')
+    subset_idx = np.concatenate([stage_idx, rest_idx])
+    adata_sub = adata[subset_idx].copy()
+    adata_sub.obs['_group'] = (adata_sub.obs['stage'] == stage).map({True: stage, False: 'rest'})
+
+    tqdm.write(f'  {stage}: {n_stage} vs {n_rest} cells')
+
+    # Run wilcoxon
+    sc.tl.rank_genes_groups(adata_sub, groupby='_group', groups=[stage],
+                            reference='rest', method='wilcoxon', n_genes=500)
+
+    df = sc.get.rank_genes_groups_df(adata_sub, group=stage)
     df.to_parquet(out_file)
+    tqdm.write(f'  {stage}: saved {len(df)} genes')
 
-    return f'{stage}: done ({len(df)} genes)'
-
-if __name__ == '__main__':
-    print('Loading snRNA data to get stages...')
-    adata = sc.read_h5ad(SNRNA)
-    print(f'  {adata.n_obs} cells')
-
-    out = Path(CANONICAL) / 'de_analysis'
-    stages = adata.obs['stage'].unique().tolist()
-    print(f'  Stages: {stages}')
-
-    # Free memory before spawning
-    del adata
-
-    # Parallel DE by stage
-    n_workers = min(len(stages), mp.cpu_count() - 1, 5)
-    print(f'Running DE in parallel ({n_workers} workers)...')
-
-    args_list = [(stage, SNRNA, str(out)) for stage in stages]
-
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        futures = {executor.submit(run_de_for_stage, args): args[0] for args in args_list}
-        for future in as_completed(futures):
-            stage = futures[future]
-            try:
-                result = future.result()
-                print(f'  {result}')
-            except Exception as e:
-                print(f'  {stage}: FAILED - {e}')
-
-    print('DE complete')
+print('DE complete', flush=True)
 PYTHON_END
 fi
 
