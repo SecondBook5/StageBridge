@@ -128,14 +128,20 @@ class StageBridgeDataset(Dataset):
 
         self.neighborhoods = pd.read_parquet(neighborhoods_path)
 
-        # Detect format: tokenized (tokens column) vs ring columns
-        self.tokenized_format = "tokens" in self.neighborhoods.columns
+        # Detect format: ring columns required for ISAB→PMA learned pooling
         self.ring_format = "ring_1_cells" in self.neighborhoods.columns
+        self.tokenized_format = "tokens" in self.neighborhoods.columns
 
-        if not self.tokenized_format and not self.ring_format:
+        if not self.ring_format:
+            if self.tokenized_format:
+                raise ValueError(
+                    "neighborhoods.parquet has tokenized format (pre-pooled z_pooled), "
+                    "but architecture requires ring-column format with individual cells "
+                    "for ISAB→PMA learned pooling. Run: python scripts/fix_canonical_data.py"
+                )
             raise ValueError(
-                "neighborhoods.parquet must have either 'tokens' column (Format A) "
-                "or 'ring_1_cells' columns (Format B)"
+                "neighborhoods.parquet must have ring columns (ring_1_cells, ring_2_cells, ...) "
+                "for ISAB→PMA learned pooling. Run: python scripts/fix_canonical_data.py"
             )
 
         if donors is not None:
