@@ -245,5 +245,173 @@ class TestNicheTokenizer:
         assert reconstruction.shape == receiver.shape
 
 
+class TestPrototypeBottlenecks:
+    """Test prototype bottleneck components for interpretable niche archetypes."""
+
+    @pytest.fixture(autouse=True)
+    def seed(self):
+        torch.manual_seed(42)
+
+    @pytest.fixture
+    def batch(self) -> dict:
+        batch_size = 4
+        max_cells = 10
+        return {
+            "receiver": torch.randn(batch_size, LATENT_DIM),
+            "ring_cells": [torch.randn(batch_size, max_cells, LATENT_DIM) for _ in range(4)],
+            "ring_masks": [torch.ones(batch_size, max_cells, dtype=torch.bool) for _ in range(4)],
+            "hlca": torch.randn(batch_size, HLCA_DIM),
+            "luca": torch.randn(batch_size, LUCA_DIM),
+            "pathway": torch.randn(batch_size, LATENT_DIM),
+            "stats": torch.randn(batch_size, STATS_TOKEN_DIM),
+        }
+
+    def test_niche_prototype_bottleneck_disabled(self, batch: dict):
+        """Model without niche prototypes should not produce prototype composition."""
+        config = StageBridgeConfig(
+            hidden_dim=64,
+            num_heads=2,
+            use_niche_prototypes=False,
+        )
+        model = StageBridge(config)
+        output = model.encode_niche(**batch)
+
+        assert output.niche_prototype_composition is None
+
+    def test_niche_prototype_bottleneck_enabled(self, batch: dict):
+        """Model with niche prototypes should produce valid prototype composition."""
+        num_prototypes = 8
+        config = StageBridgeConfig(
+            hidden_dim=64,
+            num_heads=2,
+            use_niche_prototypes=True,
+            num_niche_prototypes=num_prototypes,
+        )
+        model = StageBridge(config)
+        output = model.encode_niche(**batch)
+
+        # Should have prototype composition
+        assert output.niche_prototype_composition is not None
+        assert output.niche_prototype_composition.shape[-1] == num_prototypes
+
+        # Composition should sum to 1 (soft assignment)
+        composition_sum = output.niche_prototype_composition.sum(dim=-1)
+        assert torch.allclose(composition_sum, torch.ones_like(composition_sum), atol=1e-5)
+
+        # Context should still be valid
+        assert output.context.shape == (4, 64)
+        assert not torch.isnan(output.context).any()
+
+    def test_niche_prototype_bottleneck_gradients(self, batch: dict):
+        """Gradients should flow through niche prototype bottleneck."""
+        config = StageBridgeConfig(
+            hidden_dim=64,
+            num_heads=2,
+            use_niche_prototypes=True,
+            num_niche_prototypes=8,
+        )
+        model = StageBridge(config)
+        output = model.encode_niche(**batch)
+
+        # Backprop through context
+        loss = output.context.sum()
+        loss.backward()
+
+        # Prototype bank should have gradients
+        assert model.niche_prototype_bottleneck.prototypes.grad is not None
+        assert not torch.isnan(model.niche_prototype_bottleneck.prototypes.grad).any()
+
+    def test_hierarchical_prototype_bottleneck_disabled(self):
+        """Hierarchical aggregator without prototypes should work."""
+        config = StageBridgeConfig(
+            hidden_dim=64,
+            num_heads=2,
+            use_hierarchical=True,
+            hierarchical_use_prototypes=False,
+        )
+        model = StageBridge(config)
+
+        # Aggregate multiple niches
+        niche_embeddings = torch.randn(2, 10, 64)  # 2 samples, 10 niches each
+        result = model.aggregate_niches(niche_embeddings)
+
+        assert "sample_embedding" in result
+        assert result["sample_embedding"].shape == (2, 64)
+        assert result.get("prototype_output") is None
+
+    def test_hierarchical_prototype_bottleneck_enabled(self):
+        """Hierarchical aggregator with prototypes should produce composition."""
+        num_prototypes = 8
+        config = StageBridgeConfig(
+            hidden_dim=64,
+            num_heads=2,
+            use_hierarchical=True,
+            hierarchical_use_prototypes=True,
+            hierarchical_num_prototypes=num_prototypes,
+        )
+        model = StageBridge(config)
+
+        # Aggregate multiple niches
+        niche_embeddings = torch.randn(2, 10, 64)  # 2 samples, 10 niches each
+        result = model.aggregate_niches(niche_embeddings)
+
+        assert "sample_embedding" in result
+        assert result["sample_embedding"].shape == (2, 64)
+
+        # Should have prototype output
+        assert result.get("prototype_output") is not None
+        proto_out = result["prototype_output"]
+        # Hierarchical bottleneck routes aggregated niche embeddings through prototypes
+        # Shape is [B, num_prototypes] since it operates on per-niche level before aggregation
+        assert proto_out.prototype_composition.shape[-1] == num_prototypes
+
+    def test_dual_prototypes_enabled(self, batch: dict):
+        """Both prototype bottlenecks should work together."""
+        config = StageBridgeConfig(
+            hidden_dim=64,
+            num_heads=2,
+            use_niche_prototypes=True,
+            num_niche_prototypes=16,
+            use_hierarchical=True,
+            hierarchical_use_prototypes=True,
+            hierarchical_num_prototypes=8,
+        )
+        model = StageBridge(config)
+
+        # First encode individual niches
+        output = model.encode_niche(**batch)
+        assert output.niche_prototype_composition is not None
+        assert output.niche_prototype_composition.shape[-1] == 16
+
+        # Then aggregate multiple niches
+        niche_embeddings = torch.randn(2, 10, 64)
+        result = model.aggregate_niches(niche_embeddings)
+        assert result["prototype_output"] is not None
+        assert result["prototype_output"].prototype_composition.shape[-1] == 8
+
+    def test_prototype_interpretability(self, batch: dict):
+        """Prototype assignments should be interpretable (not uniform)."""
+        config = StageBridgeConfig(
+            hidden_dim=64,
+            num_heads=2,
+            use_niche_prototypes=True,
+            num_niche_prototypes=8,
+        )
+        model = StageBridge(config)
+
+        # Run multiple batches
+        compositions = []
+        for _ in range(5):
+            batch_copy = {k: v.clone() if torch.is_tensor(v) else [t.clone() for t in v] for k, v in batch.items()}
+            output = model.encode_niche(**batch_copy)
+            compositions.append(output.niche_prototype_composition)
+
+        # Stack and check variance - should not be uniform assignment
+        all_comps = torch.stack(compositions)
+        # Each sample should have some variance in prototype assignment
+        per_sample_std = all_comps.std(dim=-1).mean()
+        assert per_sample_std > 0.01, "Prototype assignments too uniform"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
