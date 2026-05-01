@@ -426,9 +426,7 @@ class ContractValidator:
         if not has_individual and not has_single:
             self._error("cells", f"Missing fused embedding: need either z_fused or z_fused_0..z_fused_{LATENT_DIM-1}")
 
-        wes_present = [c for c in WES_COLS if c in cells.columns]
-        if 0 < len(wes_present) < WES_DIM:
-            self._warn("cells", f"Partial WES columns: {len(wes_present)}/{WES_DIM} (missing columns will be zero-filled)")
+        # WES columns are optional - partial is fine (missing will be zero-filled at runtime)
 
         for col in ["cell_id", "donor_id", "stage"]:
             if col in cells.columns and cells[col].isna().any():
