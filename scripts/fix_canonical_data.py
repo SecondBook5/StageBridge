@@ -229,7 +229,30 @@ def rebuild_neighborhoods(cells: pd.DataFrame, nhood_path: Path, dry_run: bool =
     nhood_df = pd.DataFrame(all_neighborhoods)
 
     # Build stats_z from conditioning features (5 dims)
+    # NOTE: caf_fraction, immune_fraction, diversity need to be computed from cell_type
+    # S_score and G2M_score come from transfer_cols
     print("\n    Building stats_z...")
+
+    # Check if cell_type exists for computing fractions
+    has_cell_type = 'cell_type' in nhood_df.columns and nhood_df['cell_type'].notna().any()
+    if has_cell_type:
+        print("    Computing caf_fraction, immune_fraction, diversity from cell_type...")
+        # Define cell type categories (adjust based on your atlas)
+        caf_types = ['CAF', 'Fibroblast', 'Myofibroblast']
+        immune_types = ['Macrophage', 'T cell', 'B cell', 'NK', 'Mast', 'Dendritic', 'Monocyte', 'Neutrophil']
+
+        # For each neighborhood, we'd need ring cell types - but we only have embeddings
+        # So we'll set these to 0 for now and compute them properly in prepare_data
+        print("    WARNING: cell_type fractions require ring cell types, setting to 0")
+        nhood_df['caf_fraction'] = 0.0
+        nhood_df['immune_fraction'] = 0.0
+        nhood_df['diversity'] = 0.0
+    else:
+        print("    No cell_type column, setting fractions to 0")
+        nhood_df['caf_fraction'] = 0.0
+        nhood_df['immune_fraction'] = 0.0
+        nhood_df['diversity'] = 0.0
+
     stats_cols = ['caf_fraction', 'immune_fraction', 'diversity', 'S_score', 'G2M_score']
     stats_z = []
     for _, row in tqdm(nhood_df.iterrows(), total=len(nhood_df), desc="stats_z"):
