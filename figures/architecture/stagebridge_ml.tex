@@ -208,42 +208,70 @@
 % Arrow a->b
 \draw[arraccent] (52, 62) -- (58, 62);
 
-% ============================================
-% c) CONTEXT ENCODER
-% ============================================
-\begin{scope}[shift={(120, 62)}]
-    \node[panel, minimum width=48mm, minimum height=44mm] at (24, 0) {};
-    \node[title, anchor=west] at (4, 19) {c};
-    \node[subtitle, anchor=west] at (10, 19) {Context Encoder};
-
-    % Encoder block
-    \node[bgblock, minimum width=38mm, minimum height=30mm] at (24, -2) {};
-
-    % Layers
-    \node[mhblock=encoder, minimum width=2.6cm] (l1) at (24, 8) {RecvAttn};
-    \node[layer=encoder, minimum width=2.6cm] (ffn1) at (24, 0) {FFN + LN};
-    \node[mhblock=encoder, minimum width=2.6cm] (l2) at (24, -8) {RecvAttn};
-    \node[layer=encoder, minimum width=2.6cm] (ffn2) at (24, -16) {FFN + LN};
-
-    \draw[arr] (24, 14) -- (l1);
-    \draw[arr] (l1) -- (ffn1);
-    \draw[arr] (ffn1) -- (l2);
-    \draw[arr] (l2) -- (ffn2);
-
-    % Skip connections
-    \draw[skip] (l1.west) -- ++(-3,0) |- (ffn1.west);
-    \draw[skip] (l2.west) -- ++(-3,0) |- (ffn2.west);
-
-    \node[dim, anchor=west] at (44, 0) {$\times L$};
-
-    % Output
-    \node[iocircle=refcol, minimum size=2.6em] (ctx) at (24, -28) {\textbf{c}};
-    \draw[arrthick] (ffn2) -- (ctx);
-    \node[dim, anchor=west] at (30, -28) {$\mathbb{R}^D$};
-\end{scope}
-
 % Arrow b->c
 \draw[arraccent] (114, 62) -- (120, 62);
+
+% ============================================
+% c) GROMOV-WASSERSTEIN FUSION
+% ============================================
+\begin{scope}[shift={(120, 62)}]
+    \node[panel, minimum width=52mm, minimum height=44mm] at (26, 0) {};
+    \node[title, anchor=west] at (4, 19) {c};
+    \node[subtitle, anchor=west] at (10, 19) {Gromov-Wasserstein Fusion};
+
+    % HLCA latent space (left)
+    \node[layer=encoder, minimum width=1.6cm, minimum height=2.4cm] (hlca) at (12, 2) {};
+    \node[dim] at (12, 10) {HLCA};
+    \node[dim] at (12, -6) {$\mathbb{R}^{30}$};
+
+    % Points in HLCA space
+    \fill[encoder!80] (10, 6) circle (0.9mm);
+    \fill[encoder!80] (11, 1) circle (0.9mm);
+    \fill[encoder!80] (14, 4) circle (0.9mm);
+    \fill[encoder!80] (13, -1) circle (0.9mm);
+
+    % Distance annotation in HLCA
+    \draw[textsub!50, line width=0.3pt] (10, 6) -- (14, 4);
+    \node[dim] at (9, 3) {$d_H$};
+
+    % LuCA latent space (right)
+    \node[layer=drift, minimum width=1.6cm, minimum height=2.4cm] (luca) at (40, 2) {};
+    \node[dim] at (40, 10) {LuCA};
+    \node[dim] at (40, -6) {$\mathbb{R}^{10}$};
+
+    % Points in LuCA space
+    \fill[drift!80] (38, 6) circle (0.9mm);
+    \fill[drift!80] (39, 1) circle (0.9mm);
+    \fill[drift!80] (42, 4) circle (0.9mm);
+    \fill[drift!80] (41, -1) circle (0.9mm);
+
+    % Distance annotation in LuCA
+    \draw[textsub!50, line width=0.3pt] (38, 6) -- (42, 4);
+    \node[dim] at (44, 3) {$d_L$};
+
+    % GW coupling (curved dashed lines)
+    \draw[arr, draw=accent!60, dashed, bend left=20] (14, 4) to (38, 6);
+    \draw[arr, draw=accent!60, dashed, bend left=10] (11, 1) to (39, 1);
+    \draw[arr, draw=accent!40, dashed, bend right=10] (13, -1) to (41, -1);
+    \draw[arr, draw=accent!40, dashed, bend right=20] (10, 6) to (42, 4);
+
+    % GW optimization box
+    \node[layer=attention, minimum width=2.4cm] (gw) at (26, -14) {GW Transport};
+
+    \draw[arr] (hlca.south) -- (12, -14) -- (gw.west);
+    \draw[arr] (luca.south) -- (40, -14) -- (gw.east);
+
+    % Output fused embedding
+    \node[iocircle=refcol, minimum size=2.4em] (fused) at (26, -24) {$z_f$};
+    \draw[arrthick] (gw) -- (fused);
+    \node[dim, anchor=west] at (32, -24) {$\mathbb{R}^{40}$};
+
+    % Equation
+    \node[math] at (26, -32) {$\min_T \sum |d_H(i,j) - d_L(k,l)|^2 T_{ik}T_{jl}$};
+\end{scope}
+
+% Arrow c->d
+\draw[arraccent] (172, 62) -- (172, 30);
 
 % ============================================
 % d) CROSS-ATTENTION DRIFT
@@ -321,8 +349,8 @@
     \node[math] at (84, -28) {$v_\theta = g \cdot v_{\text{ctx}} + (1{-}g) \cdot v_{\text{lat}}$};
 \end{scope}
 
-% Context connection
-\draw[arrthick, draw=refcol!70] (144, 34) -- (144, 22) -| (18, -14);
+% Context connection from GW fusion (panel c) to CrossAttentionDrift (panel d)
+\draw[arrthick, draw=refcol!70] (146, 38) -- (146, 22) -| (18, -14);
 
 % ============================================
 % e) OT-CFM
