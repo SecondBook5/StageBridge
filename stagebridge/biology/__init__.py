@@ -83,15 +83,14 @@ from stagebridge.biology.features import (
     compute_cell_lr_scores,
     compute_biological_features,
 )
-from stagebridge.biology.regulons import (
-    LUNG_CANCER_REGULONS,
-    run_grn_inference,
-    prune_grn_with_motifs,
-    compute_aucell,
-    compute_regulon_specificity,
-    score_predefined_regulons,
-    run_scenic_pipeline,
-    load_regulon_scores,
+from stagebridge.biology.tf_pathway_activity import (
+    compute_tf_activity,
+    compute_pathway_activity,
+    compute_hallmark_activity,
+    rank_by_progression,
+    rank_by_group,
+    compute_pseudobulk_activity,
+    compute_spatial_activity,
 )
 
 __all__ = [
@@ -156,13 +155,12 @@ __all__ = [
     "run_liana_pathway_enrichment",
     "compute_cell_lr_scores",
     "compute_biological_features",
-    # Regulons (pySCENIC)
-    "LUNG_CANCER_REGULONS",
-    "run_grn_inference",
-    "prune_grn_with_motifs",
-    "compute_aucell",
-    "compute_regulon_specificity",
-    "score_predefined_regulons",
-    "run_scenic_pipeline",
-    "load_regulon_scores",
+    # TF/Pathway activity (decoupleR)
+    "compute_tf_activity",
+    "compute_pathway_activity",
+    "compute_hallmark_activity",
+    "rank_by_progression",
+    "rank_by_group",
+    "compute_pseudobulk_activity",
+    "compute_spatial_activity",
 ]
