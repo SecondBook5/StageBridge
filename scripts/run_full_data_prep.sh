@@ -39,7 +39,7 @@ run_step() {
 # Step 1: Main data prep with LIANA
 # =============================================================================
 echo ""
-echo "[1/26] Main data prep with LIANA..."
+echo "[1/16] Main data prep with LIANA..."
 if [ -f "$CANONICAL/liana_interactions.parquet" ]; then
     echo "  SKIP: LIANA results exist"
 else
@@ -58,14 +58,14 @@ fi
 # Step 2: SCENIC - run separately
 # =============================================================================
 echo ""
-echo "[2/26] SCENIC regulon analysis..."
+echo "[2/16] SCENIC regulon analysis..."
 echo "  SKIP: Run separately with: bash scripts/run_scenic.sh"
 
 # =============================================================================
 # Step 3: Squidpy spatial statistics
 # =============================================================================
 echo ""
-echo "[3/26] Squidpy spatial statistics..."
+echo "[3/16] Squidpy spatial statistics..."
 if [ -f "$CANONICAL/spatial_stats/nhood_enrichment.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -115,7 +115,7 @@ fi
 # Step 4: Differential expression (sequential with progress)
 # =============================================================================
 echo ""
-echo "[4/26] Differential expression..."
+echo "[4/16] Differential expression..."
 # Check all 5 stages exist, not just Normal
 if [ -f "$CANONICAL/de_analysis/de_stage_Normal.parquet" ] && \
    [ -f "$CANONICAL/de_analysis/de_stage_AAH.parquet" ] && \
@@ -189,7 +189,7 @@ fi
 # Step 5: Summary statistics
 # =============================================================================
 echo ""
-echo "[5/26] Summary statistics..."
+echo "[5/16] Summary statistics..."
 if [ -f "$CANONICAL/summary_stats/celltype_proportions_by_stage.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -237,7 +237,7 @@ fi
 # Step 6: Gene signatures
 # =============================================================================
 echo ""
-echo "[6/26] Gene signatures..."
+echo "[6/16] Gene signatures..."
 if [ -f "$CANONICAL/signatures/gene_signatures.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -286,7 +286,7 @@ fi
 # Step 7: Key gene expression
 # =============================================================================
 echo ""
-echo "[7/26] Key gene expression..."
+echo "[7/16] Key gene expression..."
 if [ -f "$CANONICAL/expression/key_genes_expression.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -334,7 +334,7 @@ fi
 # Step 8: GSEA
 # =============================================================================
 echo ""
-echo "[8/26] GSEA pathway enrichment..."
+echo "[8/16] GSEA pathway enrichment..."
 if [ -f "$CANONICAL/pathways/gsea_hallmark_Normal.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -379,7 +379,7 @@ fi
 # Step 9: decoupleR
 # =============================================================================
 echo ""
-echo "[9/26] decoupleR TF/pathway activity..."
+echo "[9/16] decoupleR TF/pathway activity..."
 if [ -f "$CANONICAL/activity/pathway_activity_progeny.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -635,7 +635,7 @@ fi
 # Step 10: Trajectories
 # =============================================================================
 echo ""
-echo "[10/26] Diffusion pseudotime / PAGA..."
+echo "[10/16] Diffusion pseudotime / PAGA..."
 if [ -f "$CANONICAL/trajectories/diffusion_pseudotime.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -686,7 +686,7 @@ fi
 # Step 11: Embeddings (UMAP/PHATE) + clustering
 # =============================================================================
 echo ""
-echo "[11/26] UMAP/PHATE embeddings + clustering..."
+echo "[11/16] UMAP/PHATE embeddings + clustering..."
 if [ -f "$CANONICAL/embeddings/umap_embedding.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -779,7 +779,7 @@ fi
 # Step 12: Communication summary
 # =============================================================================
 echo ""
-echo "[12/26] Cell-cell communication summary..."
+echo "[12/16] Cell-cell communication summary..."
 if [ -f "$CANONICAL/communication/communication_matrix.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -827,7 +827,7 @@ fi
 # Step 13: Visium analysis
 # =============================================================================
 echo ""
-echo "[13/26] Visium spatial analysis..."
+echo "[13/16] Visium spatial analysis..."
 if [ -f "$CANONICAL/visium/celltype_colocalization_corr.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -883,7 +883,7 @@ fi
 # Step 14: Rare cells
 # =============================================================================
 echo ""
-echo "[14/26] Rare cell signatures..."
+echo "[14/16] Rare cell signatures..."
 if [ -f "$CANONICAL/rare_cells/rare_cell_signatures.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -946,7 +946,7 @@ fi
 # Step 15: Niche phenotyping
 # =============================================================================
 echo ""
-echo "[15/26] Spatial niche phenotyping..."
+echo "[15/16] Spatial niche phenotyping..."
 if [ -f "$CANONICAL/niche_phenotypes/spot_niche_phenotypes.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -1060,7 +1060,7 @@ fi
 # Step 16: QC metrics
 # =============================================================================
 echo ""
-echo "[16/26] QC metrics..."
+echo "[16/16] QC metrics..."
 if [ -f "$CANONICAL/qc/snrna_qc_metrics.parquet" ]; then
     echo "  SKIP: exists"
 else
