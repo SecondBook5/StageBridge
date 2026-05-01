@@ -10,135 +10,205 @@
 
 ---
 
-## Panel-by-Panel Description
+## Panel a: Set Transformer Tokenization
 
-### Panel a: Set Transformer Tokenization
+**Purpose:** Handle variable-size inputs (neighborhoods have different numbers of cells) while producing fixed-size outputs.
 
-**What it does:** Converts a variable number of neighbor cells into a fixed 9-token sequence.
+**Architecture:**
+- **ISAB** (Induced Set Attention Block): Uses m=4 learnable inducing points to compress N input cells into m intermediate representations in O(Nm) instead of O(N²)
+- **PMA** (Pooling by Multihead Attention): k=8 learnable seed vectors query the ISAB output to produce exactly k output tokens
 
-**Components:**
-- **ISAB** (Induced Set Attention Block): Compresses variable-length input using m=4 inducing points
-- **PMA** (Pooling by Multihead Attention): Outputs k=8 fixed tokens
-
-**Output tokens:**
-- 1 **receiver** (red) - the cell we're modeling
-- 4 **spatial rings** (blue) - concentric neighborhood summaries
-- 2 **reference** (green) - HLCA and LuCA atlas embeddings  
-- 1 **stats** (yellow) - biological covariates (cell cycle, etc.)
-
-**How to say it:**
-> "We take a variable number of neighboring cells and compress them into a fixed 9-token representation using a Set Transformer. This gives us the receiver cell, four concentric spatial rings, two reference atlas embeddings, and a statistics token."
+**Output:** 9 tokens of dimension D each:
+| Token | Description |
+|-------|-------------|
+| recv | Receiver cell embedding |
+| ring₁₋₄ | Spatial ring aggregations (concentric shells) |
+| ref₁₋₂ | HLCA and LuCA reference embeddings |
+| stats | Biological covariates |
 
 ---
 
-### Panel b: Receiver-Centered Attention
+## Panel b: Receiver-Centered Attention
 
-**What it does:** The receiver cell attends to spatial context with distance-aware weighting.
+### Equation
 
-**Equation:**
-```
-softmax(QK^T / sqrt(d) - beta * d)
-```
+$$\alpha = \text{softmax}\left(\frac{QK^\top}{\sqrt{d}} - \beta \cdot \mathbf{d}\right)$$
 
-**How to say it:**
-> "This is standard scaled dot-product attention, but we subtract a distance penalty. The term Q-K-transpose over root-d is the usual attention score. We then subtract beta times the physical distance d. Beta is learned and positive, so nearby cells get higher attention weights than distant cells. This is inspired by AMICI's distance decay mechanism."
+$$\text{output} = \sum_j \alpha_j V_j$$
 
-**Output:**
-```
-sum_j (alpha_j * V_j)
-```
+### Mathematical Explanation
 
-> "The output is a weighted sum of value vectors, where the weights alpha come from the distance-penalized softmax."
+**Standard attention** computes compatibility scores between query Q and keys K:
 
----
+$$a_{ij} = \frac{q_i^\top k_j}{\sqrt{d}}$$
 
-### Panel c: Gromov-Wasserstein Fusion
+where d is the key dimension. The √d scaling prevents dot products from growing too large with high dimensions (which would push softmax into saturated regions with near-zero gradients).
 
-**What it does:** Aligns HLCA (healthy, 30D) and LuCA (cancer, 10D) embeddings by matching their internal distance structures.
+**Distance-penalized attention** modifies this by subtracting a term proportional to physical distance:
 
-**Equation:**
-```
-min_T sum |d_H(i,j) - d_L(k,l)|^2 * T_ik * T_jl
-```
+$$a_{ij} = \frac{q_i^\top k_j}{\sqrt{d}} - \beta \cdot d_{ij}$$
 
-**How to say it:**
-> "We minimize over transport plans T. For each pair of points i,j in the HLCA space and k,l in the LuCA space, we compute how different their pairwise distances are - d_H of i,j versus d_L of k,l. We square that difference and weight it by the coupling entries T_ik and T_jl. The optimization finds a coupling that makes HLCA and LuCA distances as consistent as possible."
+where:
+- $d_{ij}$ = Euclidean distance between cell i and cell j in physical space
+- $\beta > 0$ = learned scalar parameter
 
-> "In plain terms: if two cells are close in healthy-reference space, they should also be close in cancer-reference space after alignment."
+**Effect:** Since softmax is monotonic, subtracting $\beta d_{ij}$ reduces the attention weight for distant cells. Larger $\beta$ means sharper spatial decay. The model learns $\beta$ to find the optimal spatial scale for niche influence.
 
-**Output:** Fused embedding z_f in R^40
+**Biological motivation:** Cell-cell signaling (cytokines, ligand-receptor) decays with distance. This inductive bias encodes that prior.
+
+**Connection to AMICI:** This formulation follows Gabor et al.'s AMICI (Attentive MIL for Cell-Cell Interaction), which showed distance-aware attention improves cell communication modeling.
 
 ---
 
-### Panel d: CrossAttentionDrift Network
+## Panel c: Gromov-Wasserstein Fusion
 
-**What it does:** Predicts the velocity (direction of change) for a cell state, conditioned on niche context.
+### Equation
+
+$$\min_{T \in \Pi(\mu, \nu)} \sum_{i,j,k,l} |d_H(i,j) - d_L(k,l)|^2 \cdot T_{ik} \cdot T_{jl}$$
+
+### Mathematical Explanation
+
+**The problem:** We have two point clouds in different spaces:
+- HLCA embeddings: $\{h_i\}_{i=1}^n \subset \mathbb{R}^{30}$ (healthy reference)
+- LuCA embeddings: $\{l_k\}_{k=1}^m \subset \mathbb{R}^{10}$ (cancer reference)
+
+Standard optimal transport requires a ground cost c(i,k) between points, but these live in incompatible spaces with different dimensions.
+
+**Gromov-Wasserstein solution:** Instead of comparing points directly, compare *pairwise distances within each space*:
+- $d_H(i,j) = \|h_i - h_j\|$ = distance between points i,j in HLCA space
+- $d_L(k,l) = \|l_k - l_l\|$ = distance between points k,l in LuCA space
+
+**The transport plan** $T \in \mathbb{R}^{n \times m}_+$ is a coupling matrix where:
+- $T_{ik}$ = how much mass flows from HLCA point i to LuCA point k
+- Row sums match source marginal: $\sum_k T_{ik} = \mu_i$
+- Column sums match target marginal: $\sum_i T_{ik} = \nu_k$
+
+**The objective** penalizes couplings that distort distance structure:
+- If $d_H(i,j)$ is small (i,j close in HLCA) but $d_L(k,l)$ is large (their images k,l far in LuCA), the term $|d_H(i,j) - d_L(k,l)|^2$ is large
+- Weighting by $T_{ik} T_{jl}$ means this penalty only matters when i→k and j→l have significant transport mass
+
+**Intuition:** GW finds a "soft assignment" between spaces that preserves neighborhood structure. If two cells are similar in the healthy atlas, their cancer-atlas counterparts should also be similar.
+
+**Output:** The fused embedding $z_f \in \mathbb{R}^{40}$ is formed by concatenating the aligned representations (or using the barycentric projection from the coupling).
+
+---
+
+## Panel d: CrossAttentionDrift Network
+
+### Equation
+
+$$v_\theta = g \cdot v_{\text{ctx}} + (1-g) \cdot v_{\text{lat}}$$
+
+where $g = \sigma(f(x_t, \tau, s)) \in [0,1]$
+
+### Mathematical Explanation
 
 **Inputs:**
-- x_t = current cell state at time t
-- tau = time embedding
-- c = niche context vector
-- s = disease stage
+- $x_t \in \mathbb{R}^D$ = cell state at flow time t
+- $\tau \in \mathbb{R}^{d_\tau}$ = sinusoidal time embedding
+- $\mathbf{c} \in \mathbb{R}^D$ = niche context vector (from encoder)
+- $s \in \mathbb{R}^{d_s}$ = disease stage embedding
 
-**Two parallel paths:**
-1. **Context-conditioned path:** Cross-attention where (state + time) queries attend to context
-2. **Latent-only path:** MLP that ignores context
+**Two parallel pathways:**
 
-**Equation:**
-```
-v_theta = g * v_ctx + (1-g) * v_lat
-```
+1. **Context-conditioned path** (cross-attention):
+   - Query: $Q = W_Q [x_t; \tau]$ (concatenation of state and time)
+   - Key/Value: $K = W_K \mathbf{c}, \quad V = W_V \mathbf{c}$
+   - Output: $v_{\text{ctx}} = \text{FFN}(\text{CrossAttn}(Q, K, V))$
 
-**How to say it:**
-> "The final velocity v-theta is a weighted blend of two predictions. v-ctx is the context-aware prediction from cross-attention. v-lat is the context-free prediction from the MLP. The gate g, which passes through a sigmoid, learns when to trust context versus when to rely on the cell's intrinsic state. When g is high, context matters; when g is low, the cell follows its own trajectory."
+2. **Latent-only path** (MLP):
+   - $v_{\text{lat}} = \text{MLP}([x_t; \tau; s])$
+   - No access to context $\mathbf{c}$
 
----
+**Gating mechanism:**
+- $g = \sigma(f(x_t, \tau, s))$ where $\sigma$ is sigmoid
+- When $g \to 1$: output dominated by context-aware $v_{\text{ctx}}$
+- When $g \to 0$: output dominated by context-free $v_{\text{lat}}$
 
-### Panel e: Optimal Transport CFM
+**Why two paths?** 
+- Some cell state changes are niche-dependent (e.g., immune evasion triggered by local TME)
+- Some are cell-autonomous (e.g., cell cycle, intrinsic differentiation programs)
+- The gate learns which regime applies at each point in state-time space
 
-**What it does:** Trains the model to predict straight-line velocities between optimally-coupled cell states.
-
-**Components:**
-- **pi*** = optimal coupling matrix (computed via Sinkhorn algorithm)
-- **x_0** = source cell state
-- **x_1** = target cell state  
-- **x_t** = interpolated state at time t
-
-**Equation:**
-```
-L = E_{t, pi*}[||v_theta(x_t, t | c) - (x_1 - x_0)||^2]
-```
-
-**How to say it:**
-> "The loss L is an expectation over time t and over source-target pairs sampled from the optimal coupling pi-star. For each pair, we interpolate to get x_t, ask the model to predict v-theta, and penalize the squared difference from the true velocity x_1 minus x_0. We're training the model to predict straight-line paths between optimally matched cell states."
-
-> "The Sinkhorn algorithm finds which source cells should map to which target cells - it's not random pairing, it's optimal transport pairing that minimizes total movement cost."
+**Biological interpretation:** In early precursor stages, niche context (IL1B signaling, immune interactions) may strongly influence trajectory. In late-stage autonomous tumor cells, intrinsic programs dominate. The gate captures this transition.
 
 ---
 
-## Quick Reference: How to Pronounce Symbols
+## Panel e: Optimal Transport Conditional Flow Matching
 
-| Symbol | Say |
-|--------|-----|
-| x_t | "x sub t" or "x at time t" |
-| v_theta | "v theta" (the learned velocity) |
-| pi* | "pi star" (optimal coupling) |
-| d_H, d_L | "d sub H", "d sub L" (distances in HLCA/LuCA space) |
-| T_ik | "T i-k" (transport plan entry) |
-| alpha_j | "alpha j" (attention weight) |
-| beta | "beta" (distance decay parameter) |
-| sigma(g) | "sigma of g" (sigmoid gate) |
+### Equation
+
+$$\mathcal{L} = \mathbb{E}_{t \sim U[0,1], \, (x_0, x_1) \sim \pi^*}\left[\|v_\theta(x_t, t \mid \mathbf{c}) - (x_1 - x_0)\|^2\right]$$
+
+where $x_t = (1-t)x_0 + tx_1$ (linear interpolation)
+
+### Mathematical Explanation
+
+**Flow matching setup:**
+- Source distribution: $p_0$ (e.g., healthy/early cell states)
+- Target distribution: $p_1$ (e.g., cancer/late cell states)
+- Goal: learn a vector field $v_\theta$ that transports $p_0$ to $p_1$
+
+**Why optimal transport coupling?**
+Standard flow matching samples $(x_0, x_1)$ independently from $p_0$ and $p_1$. This creates crossing trajectories and inefficient transport.
+
+OT-CFM uses the **optimal coupling** $\pi^* \in \Pi(p_0, p_1)$:
+
+$$\pi^* = \arg\min_{\pi} \mathbb{E}_{(x_0, x_1) \sim \pi}[\|x_1 - x_0\|^2]$$
+
+This is the 2-Wasserstein optimal transport plan, computed via Sinkhorn algorithm (entropic regularization for efficiency).
+
+**The conditional flow:**
+Given a coupled pair $(x_0, x_1) \sim \pi^*$, the interpolant is:
+
+$$x_t = (1-t)x_0 + tx_1$$
+
+The **conditional velocity field** for this pair is constant:
+
+$$u_t(x \mid x_0, x_1) = x_1 - x_0$$
+
+**Training objective:**
+The model $v_\theta$ learns to predict this conditional velocity:
+
+$$\mathcal{L} = \mathbb{E}\left[\|v_\theta(x_t, t \mid \mathbf{c}) - (x_1 - x_0)\|^2\right]$$
+
+**Why this works (Lipman et al., 2023):**
+The marginal vector field $u_t(x) = \mathbb{E}[x_1 - x_0 \mid x_t = x]$ generates the same flow as solving the continuity equation. Training on conditional paths recovers the marginal field.
+
+**Conditioning on context:**
+The context $\mathbf{c}$ makes this a *conditional* flow matching problem:
+- Different niches → different velocity fields
+- The model learns: "given THIS niche context, which direction should the cell move?"
+
+**Inference:**
+At test time, solve the ODE:
+
+$$\frac{dx}{dt} = v_\theta(x, t \mid \mathbf{c}), \quad x(0) = x_0$$
+
+to transport a source state to its predicted target state given niche context.
 
 ---
 
-## Talking Points for Presentations
+## Symbol Reference
 
-1. **Why tokenization?** "Single-cell neighborhoods vary in size - some cells have 5 neighbors, some have 50. The Set Transformer gives us a fixed representation regardless."
+| Symbol | Domain | Meaning |
+|--------|--------|---------|
+| $x_t$ | $\mathbb{R}^D$ | Cell state at flow time t |
+| $v_\theta$ | $\mathbb{R}^D$ | Learned velocity field |
+| $\pi^*$ | $\mathbb{R}^{n \times m}_+$ | Optimal transport coupling |
+| $T$ | $\mathbb{R}^{n \times m}_+$ | GW transport plan |
+| $d_H, d_L$ | $\mathbb{R}_+$ | Pairwise distances in HLCA/LuCA |
+| $\alpha_j$ | $[0,1]$ | Attention weight (sums to 1) |
+| $\beta$ | $\mathbb{R}_+$ | Learned distance decay |
+| $g$ | $[0,1]$ | Sigmoid gate value |
+| $\mathbf{c}$ | $\mathbb{R}^D$ | Niche context vector |
 
-2. **Why receiver-centered?** "We're modeling how the microenvironment affects THIS cell specifically. The receiver is the query, the neighborhood is the context."
+---
 
-3. **Why GW fusion?** "HLCA tells us about healthy cell states, LuCA about cancer states. GW aligns them structurally rather than just concatenating - it preserves the geometry of both spaces."
+## Key References
 
-4. **Why the gate?** "Sometimes niche context matters a lot (early progression), sometimes less (cell-autonomous changes). The gate learns this automatically."
-
-5. **Why OT-CFM?** "Optimal transport gives us biologically meaningful pairings between cell states. Flow matching learns smooth, reversible trajectories - we can run the model forward (progression) or backward (what was the precursor state?)."
+- **Set Transformer:** Lee et al., 2019 - ISAB and PMA for set-input networks
+- **AMICI:** Gabor et al., 2023 - Distance-aware attention for cell-cell interaction
+- **Gromov-Wasserstein:** Mémoli, 2011; Peyré et al., 2016 - OT between incompatible spaces
+- **Flow Matching:** Lipman et al., 2023 - Training continuous normalizing flows
+- **OT-CFM:** Tong et al., 2023 - Optimal transport for flow matching
