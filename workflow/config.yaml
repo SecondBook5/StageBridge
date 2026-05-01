@@ -148,28 +148,28 @@ resources:
   # Default resources
   default_gpu: 1
   default_time: "24:00:00"
-  default_mem_mb: 64000
+  default_mem_mb: 256000
 
   # Job-specific overrides
   train_full:
     gpu: 1
     time: "48:00:00"
-    mem_mb: 64000
+    mem_mb: 256000
 
   train_baseline:
     gpu: 1
     time: "12:00:00"
-    mem_mb: 32000
+    mem_mb: 256000
 
   inference:
     gpu: 1
     time: "4:00:00"
-    mem_mb: 32000
+    mem_mb: 256000
 
   evaluation:
     gpu: 0
     time: "2:00:00"
-    mem_mb: 16000
+    mem_mb: 256000
 
 # =============================================================================
 # Figures
