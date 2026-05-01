@@ -233,8 +233,9 @@ def rebuild_neighborhoods(cells: pd.DataFrame, nhood_path: Path, dry_run: bool =
     print("\n    Building stats_z...")
 
     # Try to load fractions from DestVI output (gammas summed by cell type category)
-    destvi_luca_path = DATA.parent / "stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet"
+    destvi_luca_path = Path("/data1/chaunzt1/stagebridge/runs/spatial_benchmark/luca/destvi/cell_type_proportions.parquet")
     if not destvi_luca_path.exists():
+        # Fallback to results/ location
         destvi_luca_path = Path("/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet")
 
     if destvi_luca_path.exists():
