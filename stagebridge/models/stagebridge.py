@@ -30,6 +30,7 @@ from stagebridge.transition.drift import (
     FiLMConditioner,
 )
 from stagebridge.reference.gw_fusion import GromovWassersteinFusion, GWFusionConfig
+from stagebridge.contracts import EVOLUTION_DIM, STATS_TOKEN_DIM
 
 
 @dataclass(slots=True)
@@ -104,9 +105,9 @@ class StageBridgeConfig:
     # Drift head
     use_cross_attn_drift: bool = True
 
-    # Evolution branch (WES somatic mutations)
+    # Evolution branch (WES somatic mutations + clonal features)
     use_evolution_branch: bool = False
-    evolution_dim: int = 17  # WES_DIM from contracts (tmb + mutations + hotspots + OncoKB)
+    evolution_dim: int = EVOLUTION_DIM  # WES + clonal from contracts
     evolution_mode: str = "gated"
 
     # Sample-level heads
@@ -119,7 +120,7 @@ class StageBridgeConfig:
 
     # Biological conditioning (stats token features)
     use_stats_conditioning: bool = True
-    stats_dim: int = 5  # caf_fraction, immune_fraction, diversity, S_score, G2M_score
+    stats_dim: int = STATS_TOKEN_DIM  # from contracts
 
     # Learned ring pooling (individual cells per ring with ISAB+PMA)
     use_learned_ring_pooling: bool = True
