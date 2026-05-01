@@ -12,6 +12,7 @@ Key modules:
 - novel_discovery: Hypothesis generation from unexplained attention patterns
 - validation_report: Publication-ready validation summaries
 - clinical_actionability: ACMG/OncoKB variant annotation and therapy prioritization
+- niche_discovery: NMF-based niche archetype discovery from deconvolution
 """
 
 from stagebridge.biology.lr_scoring import (
@@ -104,6 +105,14 @@ from stagebridge.biology.trajectories import (
     compute_paga,
     run_trajectories,
 )
+from stagebridge.biology.niche_discovery import (
+    NicheArchetype,
+    NicheDiscoveryResult,
+    discover_niches,
+    select_n_archetypes,
+    plot_niche_discovery,
+    run_niche_discovery,
+)
 
 __all__ = [
     # L-R scoring
@@ -185,4 +194,11 @@ __all__ = [
     "compute_diffusion_map",
     "compute_paga",
     "run_trajectories",
+    # Niche discovery (NMF on deconvolution)
+    "NicheArchetype",
+    "NicheDiscoveryResult",
+    "discover_niches",
+    "select_n_archetypes",
+    "plot_niche_discovery",
+    "run_niche_discovery",
 ]
