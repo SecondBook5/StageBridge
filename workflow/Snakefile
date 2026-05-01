@@ -161,8 +161,10 @@ rule prepare_data:
         output_dir=PREP_OUTPUT_DIR,
         h5ad=SNRNA_H5AD,
     resources:
+        mem_mb=256000,
         runtime=480,  # 8 hours
-        mem_mb=128000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.prepare_data \
@@ -197,8 +199,10 @@ rule prepare_data_with_liana:
         output_dir=f"{DATA_DIR}/liana",
         h5ad=SNRNA_H5AD,
     resources:
+        mem_mb=256000,
         runtime=720,  # 12 hours (LIANA is slow)
-        mem_mb=192000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.prepare_data \
@@ -226,8 +230,10 @@ rule run_scenic:
     params:
         output_dir=f"{DATA_DIR}/scenic",
     resources:
+        mem_mb=256000,
         runtime=480,  # 8 hours
-        mem_mb=128000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -c "
@@ -256,6 +262,10 @@ rule validate_data:
         manifest=f"{DATA_DIR}/split_manifest.json",
     output:
         touch(f"{OUTPUT_DIR}/.data_validated")
+    resources:
+        mem_mb=256000,
+        runtime=60,
+        slurm_partition="gpu",
     shell:
         """
         python -c "
@@ -288,9 +298,10 @@ rule hpo:
         n_epochs=config.get("hpo", {}).get("n_epochs_per_trial", 10),
         batch_size=config["trainer"]["batch_size"],
     resources:
-        gpu=1,
+        mem_mb=256000,
         runtime=480,  # 8 hours
-        mem_mb=128000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.run_hpo \
@@ -331,9 +342,10 @@ rule train_full:
         transition_epochs=config["trainer"]["transition_epochs"],
         batch_size=config["trainer"]["batch_size"],
     resources:
-        gpu=1,
+        mem_mb=256000,
         runtime=2880,  # 48 hours
-        mem_mb=64000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.training.trainer \
@@ -365,9 +377,10 @@ rule train_baseline:
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/baselines/{w.baseline}/fold_{w.fold}",
     resources:
-        gpu=1,
+        mem_mb=256000,
         runtime=720,  # 12 hours
-        mem_mb=32000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.baselines.train \
@@ -396,9 +409,10 @@ rule run_ablation:
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}",
     resources:
-        gpu=1,
+        mem_mb=256000,
         runtime=1440,  # 24 hours
-        mem_mb=64000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.evaluation.ablation \
@@ -425,9 +439,10 @@ rule infer_full:
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/inference/full/fold_{w.fold}",
     resources:
-        gpu=1,
+        mem_mb=256000,
         runtime=240,  # 4 hours
-        mem_mb=32000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.infer \
@@ -453,8 +468,10 @@ rule evaluate_full:
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/evaluation/full/fold_{w.fold}",
     resources:
+        mem_mb=256000,
         runtime=120,  # 2 hours
-        mem_mb=16000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.evaluation.evaluate \
@@ -483,8 +500,9 @@ rule comparison_report:
         output_dir=OUTPUT_DIR,
         results_dir=RESULTS_DIR,
     resources:
+        mem_mb=128000,
         runtime=30,
-        mem_mb=4000,
+        slurm_partition="cpu",
     run:
         import json
         from pathlib import Path
@@ -586,9 +604,10 @@ rule run_inference_for_figures:
     params:
         run_dir=f"{OUTPUT_DIR}/inference/figure_data",
     resources:
-        gpu=1,
+        mem_mb=256000,
         runtime=240,  # 4 hours
-        mem_mb=32000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.infer \
@@ -621,8 +640,9 @@ rule fig1_architecture:
         pdf=f"{FIGURES_DIR}/fig1_architecture.pdf",
         png=f"{FIGURES_DIR}/fig1_architecture.png",
     resources:
+        mem_mb=128000,
         runtime=10,
-        mem_mb=4000,
+        slurm_partition="cpu",
     shell:
         """
         python -m stagebridge.pipelines.generate_figures architecture \
@@ -641,8 +661,9 @@ rule fig2_training_baselines:
     params:
         results_dir=RESULTS_DIR,
     resources:
+        mem_mb=128000,
         runtime=15,
-        mem_mb=8000,
+        slurm_partition="cpu",
     shell:
         """
         python -m stagebridge.pipelines.generate_figures training \
@@ -661,8 +682,9 @@ rule fig3_ablations:
     params:
         results_dir=RESULTS_DIR,
     resources:
+        mem_mb=128000,
         runtime=15,
-        mem_mb=8000,
+        slurm_partition="cpu",
     shell:
         """
         python -m stagebridge.pipelines.generate_figures ablations \
@@ -687,8 +709,10 @@ rule fig4_embedding_flow:
         pdf=f"{FIGURES_DIR}/fig4_embedding_flow.pdf",
         png=f"{FIGURES_DIR}/fig4_embedding_flow.png",
     resources:
+        mem_mb=256000,
         runtime=30,
-        mem_mb=16000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.generate_figures embedding_flow \
@@ -715,8 +739,10 @@ rule fig5_biological_validation:
         pdf=f"{FIGURES_DIR}/fig5_biological_validation.pdf",
         png=f"{FIGURES_DIR}/fig5_biological_validation.png",
     resources:
+        mem_mb=256000,
         runtime=30,
-        mem_mb=16000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.generate_figures biological \
@@ -736,8 +762,10 @@ rule fig6_phase_portrait:
         pdf=f"{FIGURES_DIR}/fig6_phase_portrait.pdf",
         png=f"{FIGURES_DIR}/fig6_phase_portrait.png",
     resources:
+        mem_mb=256000,
         runtime=30,
-        mem_mb=16000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.generate_figures phase_portrait \
@@ -756,8 +784,10 @@ rule fig7_trajectories:
         pdf=f"{FIGURES_DIR}/fig7_trajectories.pdf",
         png=f"{FIGURES_DIR}/fig7_trajectories.png",
     resources:
+        mem_mb=256000,
         runtime=30,
-        mem_mb=16000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.generate_figures trajectories \
@@ -776,8 +806,10 @@ rule fig8_spatial_attention:
         pdf=f"{FIGURES_DIR}/fig8_spatial_attention.pdf",
         png=f"{FIGURES_DIR}/fig8_spatial_attention.png",
     resources:
+        mem_mb=256000,
         runtime=30,
-        mem_mb=16000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.generate_figures spatial_attention \
@@ -804,8 +836,10 @@ rule fig9_novel_biology:
         pdf=f"{FIGURES_DIR}/fig9_novel_biology.pdf",
         png=f"{FIGURES_DIR}/fig9_novel_biology.png",
     resources:
+        mem_mb=256000,
         runtime=30,
-        mem_mb=16000,
+        slurm_partition="gpu",
+        gpu=1,
     shell:
         """
         python -m stagebridge.pipelines.generate_figures novel_biology \
