@@ -396,35 +396,166 @@ out = Path(CANONICAL) / 'activity'
 
 try:
     import decoupler as dc
-    print('Running decoupleR...')
+    import numpy as np
+    print('Running decoupleR (all 4 modes)...')
 
+    # =========================================================================
+    # 1. SINGLE-CELL ENRICHMENT (per-cell TF/pathway scores)
+    # =========================================================================
+    print('\\n[1/4] Single-cell enrichment...')
     adata = sc.read_h5ad(SNRNA)
     print(f'  {adata.n_obs} cells')
 
+    # TF activity (CollecTRI)
     print('  TF activity (CollecTRI)...')
     collectri = dc.op.collectri(organism='human')
     dc.mt.ulm(data=adata, net=collectri)
     tf_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
     pd.DataFrame(tf_acts.X, index=tf_acts.obs.index, columns=tf_acts.var.index).to_parquet(out / 'tf_activity_collectri.parquet')
 
+    # Pathway activity (PROGENy)
     print('  Pathway activity (PROGENy)...')
     progeny = dc.op.progeny(organism='human')
     dc.mt.ulm(data=adata, net=progeny)
     pathway_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
     pd.DataFrame(pathway_acts.X, index=pathway_acts.obs.index, columns=pathway_acts.var.index).to_parquet(out / 'pathway_activity_progeny.parquet')
 
+    # Hallmark gene sets (MSigDB)
+    print('  Hallmark gene sets...')
+    hallmark = dc.op.hallmark(organism='human')
+    dc.mt.ulm(data=adata, net=hallmark)
+    hallmark_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
+    pd.DataFrame(hallmark_acts.X, index=hallmark_acts.obs.index, columns=hallmark_acts.var.index).to_parquet(out / 'hallmark_activity.parquet')
+
+    # Stage summaries
     if 'stage' in adata.obs.columns:
-        tf_df = pd.DataFrame(tf_acts.X, index=tf_acts.obs.index, columns=tf_acts.var.index)
-        tf_df['stage'] = adata.obs['stage'].values
-        tf_df.groupby('stage').mean().to_parquet(out / 'tf_activity_by_stage.parquet')
+        for name, acts in [('tf', tf_acts), ('pathway', pathway_acts), ('hallmark', hallmark_acts)]:
+            df = pd.DataFrame(acts.X, index=acts.obs.index, columns=acts.var.index)
+            df['stage'] = adata.obs['stage'].values
+            df.groupby('stage').mean().to_parquet(out / f'{name}_activity_by_stage.parquet')
 
-        pw_df = pd.DataFrame(pathway_acts.X, index=pathway_acts.obs.index, columns=pathway_acts.var.index)
-        pw_df['stage'] = adata.obs['stage'].values
-        pw_df.groupby('stage').mean().to_parquet(out / 'pathway_activity_by_stage.parquet')
+    # =========================================================================
+    # 2. PSEUDOTIME ENRICHMENT (TFs/pathways correlated with progression)
+    # =========================================================================
+    print('\\n[2/4] Pseudotime enrichment (progression analysis)...')
+    if 'stage' in adata.obs.columns:
+        # Map stages to numeric progression order
+        stage_map = {'Normal': 0, 'AAH': 1, 'AIS': 2, 'MIA': 3, 'LUAD': 4}
+        adata.obs['stage_num'] = adata.obs['stage'].map(stage_map)
 
-    print('decoupleR complete')
+        # TFs ranked by correlation with progression
+        print('  Ranking TFs by progression...')
+        tf_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
+        tf_score.obs['stage_num'] = adata.obs['stage_num'].values
+        tf_prog = dc.tl.rankby_order(adata=tf_score, order='stage_num')
+        tf_prog.to_parquet(out / 'tf_progression_correlation.parquet')
+        print(f'    Top increasing: {tf_prog.head(5)["name"].tolist()}')
+        print(f'    Top decreasing: {tf_prog.tail(5)["name"].tolist()}')
+
+        # Pathways ranked by correlation with progression
+        print('  Ranking pathways by progression...')
+        dc.mt.ulm(data=adata, net=progeny)
+        pw_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
+        pw_score.obs['stage_num'] = adata.obs['stage_num'].values
+        pw_prog = dc.tl.rankby_order(adata=pw_score, order='stage_num')
+        pw_prog.to_parquet(out / 'pathway_progression_correlation.parquet')
+
+        # Hallmarks ranked by progression
+        print('  Ranking hallmarks by progression...')
+        dc.mt.ulm(data=adata, net=hallmark)
+        hm_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
+        hm_score.obs['stage_num'] = adata.obs['stage_num'].values
+        hm_prog = dc.tl.rankby_order(adata=hm_score, order='stage_num')
+        hm_prog.to_parquet(out / 'hallmark_progression_correlation.parquet')
+
+        # Stage-specific markers (rankby_group)
+        print('  Finding stage-specific TFs...')
+        dc.mt.ulm(data=adata, net=collectri)
+        tf_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
+        tf_score.obs['stage'] = adata.obs['stage'].values
+        tf_markers = dc.tl.rankby_group(adata=tf_score, groupby='stage', reference='rest')
+        tf_markers.to_parquet(out / 'tf_markers_by_stage.parquet')
+
+    # =========================================================================
+    # 3. PSEUDOBULK ENRICHMENT (sample-level, statistically robust)
+    # =========================================================================
+    print('\\n[3/4] Pseudobulk enrichment...')
+    if 'donor_id' in adata.obs.columns or 'sample_id' in adata.obs.columns:
+        sample_col = 'donor_id' if 'donor_id' in adata.obs.columns else 'sample_id'
+        print(f'  Aggregating by {sample_col}...')
+
+        # Pseudobulk aggregation
+        pdata = dc.pp.pseudobulk(adata=adata, sample_col=sample_col, groups_col='stage' if 'stage' in adata.obs.columns else None)
+        print(f'  {pdata.n_obs} pseudobulk samples')
+
+        # TF activity on pseudobulk
+        dc.mt.ulm(data=pdata, net=collectri)
+        pb_tf = dc.pp.get_obsm(adata=pdata, key='score_ulm')
+        pd.DataFrame(pb_tf.X, index=pb_tf.obs.index, columns=pb_tf.var.index).to_parquet(out / 'pseudobulk_tf_activity.parquet')
+
+        # Pathway activity on pseudobulk
+        dc.mt.ulm(data=pdata, net=progeny)
+        pb_pw = dc.pp.get_obsm(adata=pdata, key='score_ulm')
+        pd.DataFrame(pb_pw.X, index=pb_pw.obs.index, columns=pb_pw.var.index).to_parquet(out / 'pseudobulk_pathway_activity.parquet')
+
+        # Hallmark on pseudobulk
+        dc.mt.ulm(data=pdata, net=hallmark)
+        pb_hm = dc.pp.get_obsm(adata=pdata, key='score_ulm')
+        pd.DataFrame(pb_hm.X, index=pb_hm.obs.index, columns=pb_hm.var.index).to_parquet(out / 'pseudobulk_hallmark_activity.parquet')
+    else:
+        print('  SKIP: no donor_id or sample_id column')
+
+    # =========================================================================
+    # 4. SPATIAL ENRICHMENT (for Visium data with spatial smoothing)
+    # =========================================================================
+    print('\\n[4/4] Spatial enrichment...')
+    spatial_path = os.environ.get('SPATIAL', '/data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad')
+    spatial_out = Path(CANONICAL) / 'spatial_activity'
+    spatial_out.mkdir(exist_ok=True)
+
+    if Path(spatial_path).exists():
+        print(f'  Loading {spatial_path}...')
+        sdata = sc.read_h5ad(spatial_path)
+        print(f'  {sdata.n_obs} spots')
+
+        # Spatial smoothing (KNN-based weighting)
+        if 'spatial' in sdata.obsm:
+            print('  Applying spatial smoothing...')
+            dc.pp.knn(sdata, key='spatial', bw=100, cutoff=0.1)
+            sdata.X = sdata.obsp['spatial_connectivities'].dot(sdata.X)
+
+        # TF activity
+        print('  Spatial TF activity...')
+        dc.mt.ulm(data=sdata, net=collectri)
+        sp_tf = dc.pp.get_obsm(adata=sdata, key='score_ulm')
+        pd.DataFrame(sp_tf.X, index=sp_tf.obs.index, columns=sp_tf.var.index).to_parquet(spatial_out / 'spatial_tf_activity.parquet')
+
+        # Pathway activity
+        print('  Spatial pathway activity...')
+        dc.mt.ulm(data=sdata, net=progeny)
+        sp_pw = dc.pp.get_obsm(adata=sdata, key='score_ulm')
+        pd.DataFrame(sp_pw.X, index=sp_pw.obs.index, columns=sp_pw.var.index).to_parquet(spatial_out / 'spatial_pathway_activity.parquet')
+
+        # Hallmarks
+        print('  Spatial hallmark activity...')
+        dc.mt.ulm(data=sdata, net=hallmark)
+        sp_hm = dc.pp.get_obsm(adata=sdata, key='score_ulm')
+        pd.DataFrame(sp_hm.X, index=sp_hm.obs.index, columns=sp_hm.var.index).to_parquet(spatial_out / 'spatial_hallmark_activity.parquet')
+
+        # Stage summaries for spatial
+        if 'stage' in sdata.obs.columns:
+            for name, acts in [('tf', sp_tf), ('pathway', sp_pw), ('hallmark', sp_hm)]:
+                df = pd.DataFrame(acts.X, index=acts.obs.index, columns=acts.var.index)
+                df['stage'] = sdata.obs['stage'].values
+                df.groupby('stage').mean().to_parquet(spatial_out / f'spatial_{name}_by_stage.parquet')
+    else:
+        print('  SKIP: spatial data not found')
+
+    print('\\ndecoupleR complete (all 4 modes)')
 except ImportError:
     print('decoupleR not installed')
+except Exception as e:
+    print(f'decoupleR error: {e}')
 PYTHON_END
 fi
 
