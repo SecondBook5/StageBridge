@@ -239,22 +239,21 @@ LIANA_LR_COLUMNS = (
 # These biological signals are INPUTS to the model (conditioning), NOT targets.
 # This avoids circular validation - we control for these effects rather than
 # predicting them. See memory/design_conditioning_vs_encoding.md.
+#
+# NOTE: Do NOT include il1b_raw, kac_raw, or other validation targets here.
+# Those are what we're trying to discover, not control for.
 
 STATS_TOKEN_COLUMNS = (
+    # Niche composition (from DestVI deconvolution)
+    "caf_fraction",
+    "immune_fraction",
+    "diversity",
     # Cell cycle (needed to identify rare cycling KAC progenitors)
     "S_score",
     "G2M_score",
-    # CAF niche context (controls for stromal microenvironment)
-    "myCAF_score",
-    "iCAF_score",
-    "apCAF_score",
-    # Plasticity state (controls for EMT continuum)
-    "emt_score",
-    # Clonal context (separates clone vs niche effects)
-    "clone_size",  # Numeric; clone_id/subclone_id are categorical
 )
 
-STATS_TOKEN_DIM = len(STATS_TOKEN_COLUMNS)  # 7 features
+STATS_TOKEN_DIM = len(STATS_TOKEN_COLUMNS)  # 5 features
 
 
 # =============================================================================
@@ -837,7 +836,7 @@ NEIGHBORHOODS_SCHEMA = ParquetSchema(
         ColumnSchema("luca_z", "list", required=True, nullable=False, description="LuCA reference embedding [LUCA_DIM=10]"),
         # Optional pathway/stats (can also be zeros)
         ColumnSchema("pathway_z", "list", required=False, nullable=True, description="Pathway features [LATENT_DIM=40]"),
-        ColumnSchema("stats_z", "list", required=False, nullable=True, description="Stats features [STATS_TOKEN_DIM=7]"),
+        ColumnSchema("stats_z", "list", required=False, nullable=True, description="Stats features [STATS_TOKEN_DIM=5]"),
     ],
 )
 

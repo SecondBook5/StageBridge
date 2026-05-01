@@ -238,9 +238,11 @@ def add_conditioning_features(
             if col in bio_indexed.columns:
                 nhood_df[col] = nhood_df['cell_id'].map(bio_indexed[col])
 
-    # Build stats_z from conditioning features (7 dims)
+    # Build stats_z from conditioning features (5 dims)
+    # NOTE: il1b_raw and kac_raw removed - those are validation targets, not inputs
+    # Feeding them would create circular logic (model "discovers" what we gave it)
     stats_cols = ['caf_fraction', 'immune_fraction', 'diversity',
-                  'S_score', 'G2M_score', 'il1b_raw', 'kac_raw']
+                  'S_score', 'G2M_score']
 
     stats_z = []
     for _, row in nhood_df.iterrows():
@@ -311,7 +313,7 @@ def generate_qc_figures(nhood_df: pd.DataFrame, output_dir: Path):
 
     # 1. Feature distributions by stage
     fig, axes = plt.subplots(2, 3, figsize=(12, 8))
-    features = ['caf_fraction', 'immune_fraction', 'diversity', 'S_score', 'G2M_score', 'il1b_raw']
+    features = ['caf_fraction', 'immune_fraction', 'diversity', 'S_score', 'G2M_score']
 
     for ax, feat in zip(axes.flat, features):
         if feat in nhood_df.columns:
@@ -349,7 +351,7 @@ def generate_qc_figures(nhood_df: pd.DataFrame, output_dir: Path):
     donor_df = nhood_df[nhood_df['donor_id'] == sample_donor]
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 10))
-    spatial_features = ['caf_fraction', 'immune_fraction', 'diversity', 'il1b_raw']
+    spatial_features = ['caf_fraction', 'immune_fraction', 'diversity']
 
     for ax, feat in zip(axes.flat, spatial_features):
         if feat in donor_df.columns:
