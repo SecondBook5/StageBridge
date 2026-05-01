@@ -114,6 +114,7 @@ def run_hpo(
             use_cross_attn_drift=True,
             use_pathway_head=True,
             use_proliferation_head=True,
+            use_evolution_branch=True,  # WES + clonal conditioning
         )
 
         model = StageBridge(config).to(device)
