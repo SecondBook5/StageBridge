@@ -22,7 +22,7 @@ from torch import Tensor, nn
 from stagebridge.context.encoder import ReceiverCenteredNicheEncoder, ReceiverNicheOutput
 from stagebridge.context.layers import SAB, ISAB, PMA, SinusoidalTimeEmbedding, FeedForwardBlock
 from stagebridge.context.tokenizer import NicheTokenizer
-from stagebridge.context.aggregation import HierarchicalAggregator, SampleLevelHeads
+from stagebridge.context.aggregation import HierarchicalAggregator, SampleLevelHeads, PrototypeBottleneck
 from stagebridge.context.evolution import EvolutionBranch
 from stagebridge.models.heads import PathwayHead, ProliferationHead
 from stagebridge.transition.drift import (
@@ -94,6 +94,12 @@ class StageBridgeConfig:
     use_hierarchical: bool = True
     hierarchical_num_layers: int = 2
     hierarchical_num_inducing: int = 16
+    hierarchical_use_prototypes: bool = False  # Sample-level prototype bottleneck
+    hierarchical_num_prototypes: int = 8  # Patient niche composition archetypes
+
+    # Neighborhood-level prototype bottleneck (after context refiner)
+    use_niche_prototypes: bool = False
+    num_niche_prototypes: int = 16  # Local niche archetypes (IL1B-high, fibrotic, etc.)
 
     # Drift head
     use_cross_attn_drift: bool = True
@@ -295,6 +301,15 @@ class StageBridge(nn.Module):
                 use_spatial_rpe=config.refiner_use_spatial_rpe,
             )
 
+        # Neighborhood-level prototype bottleneck (interpretable niche archetypes)
+        self.niche_prototype_bottleneck: PrototypeBottleneck | None = None
+        if config.use_niche_prototypes:
+            self.niche_prototype_bottleneck = PrototypeBottleneck(
+                model_dim=config.hidden_dim,
+                num_prototypes=config.num_niche_prototypes,
+                sparse_assignment=False,
+            )
+
         # Time and stage embeddings
         self.time_embedding = SinusoidalTimeEmbedding(config.time_dim)
         self.stage_embedding = nn.Embedding(config.num_edges, config.stage_dim)
@@ -344,6 +359,8 @@ class StageBridge(nn.Module):
                 num_layers=config.hierarchical_num_layers,
                 num_inducing_points=config.hierarchical_num_inducing,
                 dropout=config.dropout,
+                use_prototypes=config.hierarchical_use_prototypes,
+                num_prototypes=config.hierarchical_num_prototypes,
             )
 
         # Sample-level prediction heads
@@ -496,6 +513,12 @@ class StageBridge(nn.Module):
             context = tokens.mean(dim=1)
             context_tokens = tokens
 
+        # Neighborhood-level prototype bottleneck (interpretable niche archetypes)
+        niche_prototype_output = None
+        if self.niche_prototype_bottleneck is not None:
+            niche_prototype_output = self.niche_prototype_bottleneck(context.unsqueeze(1))
+            context = niche_prototype_output.aligned_embeddings.squeeze(1)
+
         # Stats conditioning (if enabled and provided)
         if self.stats_conditioner is not None and stats is not None:
             if stats.shape[-1] != self.config.stats_dim:
@@ -516,6 +539,7 @@ class StageBridge(nn.Module):
             value_l1_loss=None,
             empty_attention=None,
             receiver_reconstruction=receiver_reconstruction if return_reconstruction else None,
+            niche_prototype_composition=niche_prototype_output.prototype_composition if niche_prototype_output else None,
         )
 
     def aggregate_niches(
