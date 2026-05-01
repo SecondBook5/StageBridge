@@ -740,10 +740,10 @@ except Exception as e:
     print(f'PHATE failed: {e}')
 
 # Clustering (PCA-based)
-print('Computing Leiden/Louvain clustering...')
+print('Computing Leiden clustering...')
 for res in [0.3, 0.5, 0.8, 1.0, 1.5]:
     sc.tl.leiden(adata, resolution=res, key_added=f'leiden_{res}')
-    sc.tl.louvain(adata, resolution=res, key_added=f'louvain_{res}')
+    # sc.tl.louvain(adata, resolution=res, key_added=f'louvain_{res}')  # louvain requires pkg_resources
 
 # PHATE-based clustering
 if 'X_phate' in adata.obsm:
@@ -751,17 +751,17 @@ if 'X_phate' in adata.obsm:
     sc.pp.neighbors(adata, use_rep='X_phate', n_neighbors=30, key_added='phate_neighbors')
     for res in [0.5, 1.0]:
         sc.tl.leiden(adata, resolution=res, neighbors_key='phate_neighbors', key_added=f'leiden_phate_{res}')
-        sc.tl.louvain(adata, resolution=res, neighbors_key='phate_neighbors', key_added=f'louvain_phate_{res}')
+        # sc.tl.louvain(adata, resolution=res, neighbors_key='phate_neighbors', key_added=f'louvain_phate_{res}')
 
 # Save clustering
 cluster_df = pd.DataFrame({'cell_id': adata.obs.index})
 for res in [0.3, 0.5, 0.8, 1.0, 1.5]:
     cluster_df[f'leiden_{res}'] = adata.obs[f'leiden_{res}'].values
-    cluster_df[f'louvain_{res}'] = adata.obs[f'louvain_{res}'].values
+    # cluster_df[f'louvain_{res}'] = adata.obs[f'louvain_{res}'].values
 if 'leiden_phate_0.5' in adata.obs.columns:
     for res in [0.5, 1.0]:
         cluster_df[f'leiden_phate_{res}'] = adata.obs[f'leiden_phate_{res}'].values
-        cluster_df[f'louvain_phate_{res}'] = adata.obs[f'louvain_phate_{res}'].values
+        # cluster_df[f'louvain_phate_{res}'] = adata.obs[f'louvain_phate_{res}'].values
 cluster_df.to_parquet(out / 'clustering.parquet')
 
 # Add clusters to UMAP
