@@ -88,9 +88,32 @@ N_JOBS = 8
 print('Running full pySCENIC pipeline...')
 print('  This takes 2-4 hours on 800k cells')
 
-# Load data
+# Load data (skip problematic uns fields by reading only X, obs, var)
 print(f'Loading {SNRNA}...')
-adata = sc.read_h5ad(SNRNA)
+import anndata as ad
+import h5py
+
+with h5py.File(SNRNA, 'r') as f:
+    # Read var names
+    if '_index' in f['var']:
+        var_names = f['var']['_index'][:].astype(str)
+    else:
+        var_names = f['var']['gene_ids'][:].astype(str) if 'gene_ids' in f['var'] else None
+
+    # Read obs names
+    obs_names = f['obs']['_index'][:].astype(str)
+
+    # Read X
+    X = f['X'][:]
+
+from scipy import sparse
+if not sparse.issparse(X):
+    X = sparse.csr_matrix(X)
+
+adata = ad.AnnData(X=X)
+adata.obs_names = pd.Index(obs_names)
+adata.var_names = pd.Index(var_names)
+
 print(f'  {adata.n_obs:,} cells x {adata.n_vars:,} genes')
 
 # Get expression matrix
