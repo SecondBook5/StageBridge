@@ -155,9 +155,9 @@ for stage in tqdm(stages, desc='DE by stage'):
     stage_mask = adata.obs['stage'] == stage
     n_stage = stage_mask.sum()
 
-    # For "rest", sample up to 2x the stage size (cap at 50k for speed)
+    # For "rest", sample min(available, 50k) for speed
     rest_mask = ~stage_mask
-    n_rest = min(rest_mask.sum(), max(n_stage * 2, 50000))
+    n_rest = min(rest_mask.sum(), 50000)
 
     rest_idx = np.random.choice(np.where(rest_mask)[0], size=n_rest, replace=False)
     stage_idx = np.where(stage_mask)[0]
