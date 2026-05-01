@@ -67,7 +67,7 @@ fi
 
 mkdir -p $CANONICAL/scenic
 
-python << 'PYTHON_END'
+python << PYTHON_END
 import scanpy as sc
 import pandas as pd
 import numpy as np
