@@ -1,25 +1,15 @@
-"""Visualization module for publication-quality figures."""
+"""Visualization module for StageBridge publication figures."""
 
-from stagebridge.viz.theme import (
-    configure_publication_style,
-    STAGE_COLORS,
-    CELLTYPE_COLORS,
-    save_figure,
-)
-from stagebridge.viz.features import (
-    plot_feature_distributions,
-    plot_spatial_features,
-    plot_umap_features,
-    plot_progression_panel,
+from .figures import (
+    load_data,
+    compute_embedding,
+    compute_ot_flow_field,
+    compute_flux_decomposition,
 )
 
 __all__ = [
-    "configure_publication_style",
-    "STAGE_COLORS",
-    "CELLTYPE_COLORS",
-    "save_figure",
-    "plot_feature_distributions",
-    "plot_spatial_features",
-    "plot_umap_features",
-    "plot_progression_panel",
+    "load_data",
+    "compute_embedding", 
+    "compute_ot_flow_field",
+    "compute_flux_decomposition",
 ]
