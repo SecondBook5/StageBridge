@@ -206,17 +206,19 @@ class StageBridgeDataset(Dataset):
             ring_cells.append(padded)
             ring_masks.append(mask)
 
-        # Pathway from token 7
+        # Pathway from token 7 (may be None even if key exists)
         pathway = None
         pathway_token = tokens[7] if len(tokens) > 7 else {}
-        if "z_fused" in pathway_token:
-            pathway = np.array(pathway_token["z_fused"], dtype=np.float32)
+        pathway_val = pathway_token.get("z_fused")
+        if pathway_val is not None and hasattr(pathway_val, "__len__"):
+            pathway = np.array(pathway_val, dtype=np.float32)
 
-        # Stats from token 8
+        # Stats from token 8 (may be None even if key exists)
         stats = None
         stats_token = tokens[8] if len(tokens) > 8 else {}
-        if "z_fused" in stats_token:
-            stats = np.array(stats_token["z_fused"], dtype=np.float32)
+        stats_val = stats_token.get("z_fused")
+        if stats_val is not None and hasattr(stats_val, "__len__"):
+            stats = np.array(stats_val, dtype=np.float32)
 
         # Auxiliary targets (may be in receiver token or row)
         pathway_targets = None
