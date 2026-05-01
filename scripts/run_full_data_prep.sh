@@ -39,7 +39,7 @@ run_step() {
 # Step 1: Main data prep with LIANA
 # =============================================================================
 echo ""
-echo "[1/16] Main data prep with LIANA..."
+echo "[1/15] Main data prep with LIANA..."
 if [ -f "$CANONICAL/liana_interactions.parquet" ]; then
     echo "  SKIP: LIANA results exist"
 else
@@ -55,17 +55,12 @@ else
 fi
 
 # =============================================================================
-# Step 2: SCENIC - REMOVED (using CollecTRI from decoupleR instead)
-# =============================================================================
-echo ""
-echo "[2/16] SCENIC regulon analysis..."
-echo "  SKIP: Using CollecTRI from decoupleR (step 9) instead"
 
 # =============================================================================
 # Step 3: Squidpy spatial statistics
 # =============================================================================
 echo ""
-echo "[3/16] Squidpy spatial statistics..."
+echo "[3/15] Squidpy spatial statistics..."
 if [ -f "$CANONICAL/spatial_stats/nhood_enrichment.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -118,7 +113,7 @@ fi
 # Step 4: Differential expression (sequential with progress)
 # =============================================================================
 echo ""
-echo "[4/16] Differential expression..."
+echo "[4/15] Differential expression..."
 # Check all 5 stages exist, not just Normal
 if [ -f "$CANONICAL/de_analysis/de_stage_Normal.parquet" ] && \
    [ -f "$CANONICAL/de_analysis/de_stage_AAH.parquet" ] && \
@@ -192,7 +187,7 @@ fi
 # Step 5: Summary statistics
 # =============================================================================
 echo ""
-echo "[5/16] Summary statistics..."
+echo "[5/15] Summary statistics..."
 if [ -f "$CANONICAL/summary_stats/celltype_proportions_by_stage.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -240,7 +235,7 @@ fi
 # Step 6: Gene signatures
 # =============================================================================
 echo ""
-echo "[6/16] Gene signatures..."
+echo "[6/15] Gene signatures..."
 if [ -f "$CANONICAL/signatures/gene_signatures.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -289,7 +284,7 @@ fi
 # Step 7: Key gene expression
 # =============================================================================
 echo ""
-echo "[7/16] Key gene expression..."
+echo "[7/15] Key gene expression..."
 if [ -f "$CANONICAL/expression/key_genes_expression.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -337,7 +332,7 @@ fi
 # Step 8: GSEA
 # =============================================================================
 echo ""
-echo "[8/16] GSEA pathway enrichment..."
+echo "[8/15] GSEA pathway enrichment..."
 if [ -f "$CANONICAL/pathways/gsea_hallmark_Normal.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -379,254 +374,161 @@ PYTHON_END
 fi
 
 # =============================================================================
-# Step 9: decoupleR
+# Step 9: decoupleR TF/pathway activity
 # =============================================================================
 echo ""
-echo "[9/16] decoupleR TF/pathway activity..."
+echo "[9/15] decoupleR TF/pathway activity..."
 if [ -f "$CANONICAL/activity/pathway_activity_progeny.parquet" ]; then
     echo "  SKIP: exists"
 else
 mkdir -p $CANONICAL/activity
+mkdir -p $CANONICAL/spatial_activity
 python << 'PYTHON_END'
 import scanpy as sc
 import pandas as pd
 from pathlib import Path
 import os
 
+from stagebridge.biology import (
+    compute_tf_activity,
+    compute_pathway_activity,
+    compute_hallmark_activity,
+    rank_by_progression,
+    rank_by_group,
+)
+
 SNRNA = os.environ.get('SNRNA', '/data1/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad')
+SPATIAL = os.environ.get('SPATIAL', '/data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad')
 CANONICAL = os.environ.get('CANONICAL', '/data1/chaunzt1/stagebridge/processed/luad_evo/canonical')
 out = Path(CANONICAL) / 'activity'
+spatial_out = Path(CANONICAL) / 'spatial_activity'
 
-try:
+print('Running decoupleR activity analysis...')
+
+# =========================================================================
+# 1. SINGLE-CELL ENRICHMENT
+# =========================================================================
+print('\\n[1/4] Single-cell enrichment...')
+adata = sc.read_h5ad(SNRNA)
+print(f'  {adata.n_obs} cells')
+
+print('  TF activity (CollecTRI)...')
+tf_df = compute_tf_activity(adata)
+tf_df.to_parquet(out / 'tf_activity_collectri.parquet')
+
+print('  Pathway activity (PROGENy)...')
+pw_df = compute_pathway_activity(adata)
+pw_df.to_parquet(out / 'pathway_activity_progeny.parquet')
+
+print('  Hallmark gene sets...')
+hm_df = compute_hallmark_activity(adata)
+hm_df.to_parquet(out / 'hallmark_activity.parquet')
+
+# Stage summaries
+if 'stage' in adata.obs.columns:
+    for name, df in [('tf', tf_df), ('pathway', pw_df), ('hallmark', hm_df)]:
+        df_copy = df.copy()
+        df_copy['stage'] = adata.obs['stage'].values
+        df_copy.groupby('stage').mean().to_parquet(out / f'{name}_activity_by_stage.parquet')
+
+# =========================================================================
+# 2. PSEUDOTIME ENRICHMENT (progression correlation)
+# =========================================================================
+print('\\n[2/4] Pseudotime enrichment...')
+if 'stage' in adata.obs.columns:
     import decoupler as dc
-    import numpy as np
-    print('Running decoupleR (all 4 modes)...')
 
-    # =========================================================================
-    # 1. SINGLE-CELL ENRICHMENT (per-cell TF/pathway scores)
-    # =========================================================================
-    print('\\n[1/4] Single-cell enrichment...')
-    adata = sc.read_h5ad(SNRNA)
-    print(f'  {adata.n_obs} cells')
+    stage_map = {'Normal': 0, 'AAH': 1, 'AIS': 2, 'MIA': 3, 'LUAD': 4}
+    adata.obs['stage_num'] = adata.obs['stage'].map(stage_map)
 
-    # TF activity (CollecTRI)
-    print('  TF activity (CollecTRI)...')
-    collectri = dc.op.collectri(organism='human')
-    dc.mt.ulm(data=adata, net=collectri)
-    tf_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
-    pd.DataFrame(tf_acts.X, index=tf_acts.obs.index, columns=tf_acts.var.index).to_parquet(out / 'tf_activity_collectri.parquet')
+    # TF progression
+    print('  Ranking TFs by progression...')
+    tf_prog = rank_by_progression(adata, order_col='stage_num')
+    tf_prog.to_parquet(out / 'tf_progression_correlation.parquet')
 
-    # Pathway activity (PROGENy)
-    print('  Pathway activity (PROGENy)...')
+    # Pathway progression
+    print('  Ranking pathways by progression...')
     progeny = dc.op.progeny(organism='human')
     dc.mt.ulm(data=adata, net=progeny)
-    pathway_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
-    pd.DataFrame(pathway_acts.X, index=pathway_acts.obs.index, columns=pathway_acts.var.index).to_parquet(out / 'pathway_activity_progeny.parquet')
+    pw_prog = rank_by_progression(adata, order_col='stage_num')
+    pw_prog.to_parquet(out / 'pathway_progression_correlation.parquet')
 
-    # Hallmark gene sets (MSigDB)
-    print('  Hallmark gene sets...')
+    # Hallmark progression
+    print('  Ranking hallmarks by progression...')
     hallmark = dc.op.hallmark(organism='human')
     dc.mt.ulm(data=adata, net=hallmark)
-    hallmark_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
-    pd.DataFrame(hallmark_acts.X, index=hallmark_acts.obs.index, columns=hallmark_acts.var.index).to_parquet(out / 'hallmark_activity.parquet')
+    hm_prog = rank_by_progression(adata, order_col='stage_num')
+    hm_prog.to_parquet(out / 'hallmark_progression_correlation.parquet')
 
-    # Stage summaries
-    if 'stage' in adata.obs.columns:
-        for name, acts in [('tf', tf_acts), ('pathway', pathway_acts), ('hallmark', hallmark_acts)]:
-            df = pd.DataFrame(acts.X, index=acts.obs.index, columns=acts.var.index)
-            df['stage'] = adata.obs['stage'].values
-            df.groupby('stage').mean().to_parquet(out / f'{name}_activity_by_stage.parquet')
+    # Stage markers
+    print('  Finding stage-specific TFs...')
+    collectri = dc.op.collectri(organism='human')
+    dc.mt.ulm(data=adata, net=collectri)
+    tf_markers = rank_by_group(adata, groupby='stage')
+    tf_markers.to_parquet(out / 'tf_markers_by_stage.parquet')
 
-    # =========================================================================
-    # 2. PSEUDOTIME ENRICHMENT (TFs/pathways correlated with progression)
-    # =========================================================================
-    print('\\n[2/4] Pseudotime enrichment (progression analysis)...')
-    if 'stage' in adata.obs.columns:
-        # Map stages to numeric progression order
-        stage_map = {'Normal': 0, 'AAH': 1, 'AIS': 2, 'MIA': 3, 'LUAD': 4}
-        adata.obs['stage_num'] = adata.obs['stage'].map(stage_map)
+# =========================================================================
+# 3. PSEUDOBULK ENRICHMENT
+# =========================================================================
+print('\\n[3/4] Pseudobulk enrichment...')
+sample_col = 'donor_id' if 'donor_id' in adata.obs.columns else 'sample_id' if 'sample_id' in adata.obs.columns else None
+if sample_col:
+    import decoupler as dc
 
-        # TFs ranked by correlation with progression
-        print('  Ranking TFs by progression...')
-        tf_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
-        tf_score.obs['stage_num'] = adata.obs['stage_num'].values
-        tf_prog = dc.tl.rankby_order(adata=tf_score, order='stage_num', stat='dcor')
-        tf_prog.to_parquet(out / 'tf_progression_correlation.parquet')
-        print(f'    Top increasing: {tf_prog.head(5)["name"].tolist()}')
-        print(f'    Top decreasing: {tf_prog.tail(5)["name"].tolist()}')
+    print(f'  Aggregating by {sample_col}...')
+    pdata = dc.pp.pseudobulk(adata=adata, sample_col=sample_col,
+                             groups_col='stage' if 'stage' in adata.obs.columns else None, mode='sum')
+    dc.pp.filter_samples(pdata, min_cells=10, min_counts=1000)
+    print(f'  {pdata.n_obs} pseudobulk samples')
 
-        # Pathways ranked by correlation with progression
-        print('  Ranking pathways by progression...')
-        dc.mt.ulm(data=adata, net=progeny)
-        pw_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
-        pw_score.obs['stage_num'] = adata.obs['stage_num'].values
-        pw_prog = dc.tl.rankby_order(adata=pw_score, order='stage_num', stat='dcor')
-        pw_prog.to_parquet(out / 'pathway_progression_correlation.parquet')
+    pdata.layers['counts'] = pdata.X.copy()
+    sc.pp.normalize_total(pdata, target_sum=1e4)
+    sc.pp.log1p(pdata)
 
-        # Hallmarks ranked by progression
-        print('  Ranking hallmarks by progression...')
-        dc.mt.ulm(data=adata, net=hallmark)
-        hm_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
-        hm_score.obs['stage_num'] = adata.obs['stage_num'].values
-        hm_prog = dc.tl.rankby_order(adata=hm_score, order='stage_num', stat='dcor')
-        hm_prog.to_parquet(out / 'hallmark_progression_correlation.parquet')
+    pb_tf = compute_tf_activity(pdata)
+    pb_tf.to_parquet(out / 'pseudobulk_tf_activity.parquet')
 
-        # Stage-specific markers (rankby_group)
-        print('  Finding stage-specific TFs...')
-        dc.mt.ulm(data=adata, net=collectri)
-        tf_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
-        tf_score.obs['stage'] = adata.obs['stage'].values
-        tf_markers = dc.tl.rankby_group(adata=tf_score, groupby='stage', reference='rest')
-        tf_markers.to_parquet(out / 'tf_markers_by_stage.parquet')
+    pb_pw = compute_pathway_activity(pdata)
+    pb_pw.to_parquet(out / 'pseudobulk_pathway_activity.parquet')
 
-    # =========================================================================
-    # 3. PSEUDOBULK ENRICHMENT (sample-level, statistically robust)
-    # =========================================================================
-    print('\\n[3/4] Pseudobulk enrichment...')
-    if 'donor_id' in adata.obs.columns or 'sample_id' in adata.obs.columns:
-        sample_col = 'donor_id' if 'donor_id' in adata.obs.columns else 'sample_id'
-        print(f'  Aggregating by {sample_col}...')
+    pb_hm = compute_hallmark_activity(pdata)
+    pb_hm.to_parquet(out / 'pseudobulk_hallmark_activity.parquet')
+else:
+    print('  SKIP: no sample column')
 
-        # Pseudobulk aggregation (per sample, per stage)
-        pdata = dc.pp.pseudobulk(
-            adata=adata,
-            sample_col=sample_col,
-            groups_col='stage' if 'stage' in adata.obs.columns else None,
-            mode='sum',
-        )
-        print(f'  {pdata.n_obs} pseudobulk samples')
+# =========================================================================
+# 4. SPATIAL ENRICHMENT
+# =========================================================================
+print('\\n[4/4] Spatial enrichment...')
+if Path(SPATIAL).exists():
+    sdata = sc.read_h5ad(SPATIAL)
+    print(f'  {sdata.n_obs} spots')
 
-        # Filter low-quality pseudobulk samples
-        dc.pp.filter_samples(pdata, min_cells=10, min_counts=1000)
-        print(f'  {pdata.n_obs} samples after QC')
+    # Spatial smoothing
+    if 'spatial' in sdata.obsm:
+        import decoupler as dc
+        print('  Applying spatial smoothing...')
+        dc.pp.knn(sdata, key='spatial', bw=100, cutoff=0.1)
+        sdata.X = sdata.obsp['spatial_connectivities'].dot(sdata.X)
 
-        # Save per-sample activity (direct ULM on pseudobulk expression)
-        print('  Per-sample TF/pathway activity...')
-        pdata.layers['counts'] = pdata.X.copy()
-        sc.pp.normalize_total(pdata, target_sum=1e4)
-        sc.pp.log1p(pdata)
+    sp_tf = compute_tf_activity(sdata)
+    sp_tf.to_parquet(spatial_out / 'spatial_tf_activity.parquet')
 
-        dc.mt.ulm(data=pdata, net=collectri)
-        pb_tf = dc.pp.get_obsm(adata=pdata, key='score_ulm')
-        pd.DataFrame(pb_tf.X, index=pb_tf.obs.index, columns=pb_tf.var.index).to_parquet(out / 'pseudobulk_tf_activity.parquet')
+    sp_pw = compute_pathway_activity(sdata)
+    sp_pw.to_parquet(spatial_out / 'spatial_pathway_activity.parquet')
 
-        dc.mt.ulm(data=pdata, net=progeny)
-        pb_pw = dc.pp.get_obsm(adata=pdata, key='score_ulm')
-        pd.DataFrame(pb_pw.X, index=pb_pw.obs.index, columns=pb_pw.var.index).to_parquet(out / 'pseudobulk_pathway_activity.parquet')
+    sp_hm = compute_hallmark_activity(sdata)
+    sp_hm.to_parquet(spatial_out / 'spatial_hallmark_activity.parquet')
 
-        dc.mt.ulm(data=pdata, net=hallmark)
-        pb_hm = dc.pp.get_obsm(adata=pdata, key='score_ulm')
-        pd.DataFrame(pb_hm.X, index=pb_hm.obs.index, columns=pb_hm.var.index).to_parquet(out / 'pseudobulk_hallmark_activity.parquet')
+    if 'stage' in sdata.obs.columns:
+        for name, df in [('tf', sp_tf), ('pathway', sp_pw), ('hallmark', sp_hm)]:
+            df_copy = df.copy()
+            df_copy['stage'] = sdata.obs['stage'].values
+            df_copy.groupby('stage').mean().to_parquet(spatial_out / f'spatial_{name}_by_stage.parquet')
+else:
+    print('  SKIP: spatial data not found')
 
-        # DEA-based enrichment (LUAD vs Normal) - statistically robust
-        if 'stage' in pdata.obs.columns:
-            print('  Running DEA-based enrichment (LUAD vs Normal)...')
-            try:
-                from pydeseq2.dds import DeseqDataSet, DefaultInference
-                from pydeseq2.ds import DeseqStats
-
-                # Restore raw counts
-                dc.pp.swap_layer(adata=pdata, key='counts', inplace=True)
-
-                # Filter genes
-                dc.pp.filter_by_expr(pdata, group='stage', min_count=10, min_total_count=15)
-
-                # Get samples with LUAD or Normal
-                dea_samples = pdata[pdata.obs['stage'].isin(['LUAD', 'Normal'])].copy()
-
-                if dea_samples.n_obs >= 4:
-                    inference = DefaultInference(n_cpus=4)
-                    dds = DeseqDataSet(
-                        adata=dea_samples,
-                        design_factors=['stage'],
-                        refit_cooks=True,
-                        inference=inference,
-                    )
-                    dds.deseq2()
-
-                    stat_res = DeseqStats(dds, contrast=['stage', 'LUAD', 'Normal'], inference=inference)
-                    stat_res.summary()
-                    results_df = stat_res.results_df
-
-                    # Save DEA results
-                    results_df.to_parquet(out / 'pseudobulk_dea_luad_vs_normal.parquet')
-
-                    # Use t-statistics for enrichment
-                    data = results_df[['stat']].T.rename(index={'stat': 'LUAD.vs.Normal'})
-
-                    # TF enrichment from DEA stats
-                    tf_acts, tf_padj = dc.mt.ulm(data=data, net=collectri)
-                    tf_results = pd.DataFrame({'name': tf_acts.columns, 'score': tf_acts.values[0], 'padj': tf_padj.values[0]})
-                    tf_results.to_parquet(out / 'pseudobulk_dea_tf_enrichment.parquet')
-
-                    # Pathway enrichment from DEA stats
-                    pw_acts, pw_padj = dc.mt.ulm(data=data, net=progeny)
-                    pw_results = pd.DataFrame({'name': pw_acts.columns, 'score': pw_acts.values[0], 'padj': pw_padj.values[0]})
-                    pw_results.to_parquet(out / 'pseudobulk_dea_pathway_enrichment.parquet')
-
-                    # Hallmark enrichment from DEA stats
-                    hm_acts, hm_padj = dc.mt.ulm(data=data, net=hallmark)
-                    hm_results = pd.DataFrame({'name': hm_acts.columns, 'score': hm_acts.values[0], 'padj': hm_padj.values[0]})
-                    hm_results.to_parquet(out / 'pseudobulk_dea_hallmark_enrichment.parquet')
-
-                    print(f'    Top activated TFs: {tf_results.nlargest(5, "score")["name"].tolist()}')
-                    print(f'    Top repressed TFs: {tf_results.nsmallest(5, "score")["name"].tolist()}')
-                else:
-                    print('  SKIP DEA: not enough samples with LUAD/Normal')
-            except ImportError:
-                print('  SKIP DEA: pydeseq2 not installed')
-            except Exception as e:
-                print(f'  DEA failed: {e}')
-    else:
-        print('  SKIP: no donor_id or sample_id column')
-
-    # =========================================================================
-    # 4. SPATIAL ENRICHMENT (for Visium data with spatial smoothing)
-    # =========================================================================
-    print('\\n[4/4] Spatial enrichment...')
-    spatial_path = os.environ.get('SPATIAL', '/data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad')
-    spatial_out = Path(CANONICAL) / 'spatial_activity'
-    spatial_out.mkdir(exist_ok=True)
-
-    if Path(spatial_path).exists():
-        print(f'  Loading {spatial_path}...')
-        sdata = sc.read_h5ad(spatial_path)
-        print(f'  {sdata.n_obs} spots')
-
-        # Spatial smoothing (KNN-based weighting)
-        if 'spatial' in sdata.obsm:
-            print('  Applying spatial smoothing...')
-            dc.pp.knn(sdata, key='spatial', bw=100, cutoff=0.1)
-            sdata.X = sdata.obsp['spatial_connectivities'].dot(sdata.X)
-
-        # TF activity
-        print('  Spatial TF activity...')
-        dc.mt.ulm(data=sdata, net=collectri)
-        sp_tf = dc.pp.get_obsm(adata=sdata, key='score_ulm')
-        pd.DataFrame(sp_tf.X, index=sp_tf.obs.index, columns=sp_tf.var.index).to_parquet(spatial_out / 'spatial_tf_activity.parquet')
-
-        # Pathway activity
-        print('  Spatial pathway activity...')
-        dc.mt.ulm(data=sdata, net=progeny)
-        sp_pw = dc.pp.get_obsm(adata=sdata, key='score_ulm')
-        pd.DataFrame(sp_pw.X, index=sp_pw.obs.index, columns=sp_pw.var.index).to_parquet(spatial_out / 'spatial_pathway_activity.parquet')
-
-        # Hallmarks
-        print('  Spatial hallmark activity...')
-        dc.mt.ulm(data=sdata, net=hallmark)
-        sp_hm = dc.pp.get_obsm(adata=sdata, key='score_ulm')
-        pd.DataFrame(sp_hm.X, index=sp_hm.obs.index, columns=sp_hm.var.index).to_parquet(spatial_out / 'spatial_hallmark_activity.parquet')
-
-        # Stage summaries for spatial
-        if 'stage' in sdata.obs.columns:
-            for name, acts in [('tf', sp_tf), ('pathway', sp_pw), ('hallmark', sp_hm)]:
-                df = pd.DataFrame(acts.X, index=acts.obs.index, columns=acts.var.index)
-                df['stage'] = sdata.obs['stage'].values
-                df.groupby('stage').mean().to_parquet(spatial_out / f'spatial_{name}_by_stage.parquet')
-    else:
-        print('  SKIP: spatial data not found')
-
-    print('\\ndecoupleR complete (all 4 modes)')
+print('\\ndecoupleR complete')
 except ImportError:
     print('decoupleR not installed')
 except Exception as e:
@@ -638,7 +540,7 @@ fi
 # Step 10: Trajectories
 # =============================================================================
 echo ""
-echo "[10/16] Diffusion pseudotime / PAGA..."
+echo "[10/15] Diffusion pseudotime / PAGA..."
 if [ -f "$CANONICAL/trajectories/diffusion_pseudotime.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -689,7 +591,7 @@ fi
 # Step 11: Embeddings (UMAP/PHATE) + clustering
 # =============================================================================
 echo ""
-echo "[11/16] UMAP/PHATE embeddings + clustering..."
+echo "[11/15] UMAP/PHATE embeddings + clustering..."
 if [ -f "$CANONICAL/embeddings/umap_embedding.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -790,7 +692,7 @@ fi
 # Step 12: Communication summary
 # =============================================================================
 echo ""
-echo "[12/16] Cell-cell communication summary..."
+echo "[12/15] Cell-cell communication summary..."
 if [ -f "$CANONICAL/communication/communication_matrix.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -838,7 +740,7 @@ fi
 # Step 13: Visium analysis
 # =============================================================================
 echo ""
-echo "[13/16] Visium spatial analysis..."
+echo "[13/15] Visium spatial analysis..."
 if [ -f "$CANONICAL/visium/celltype_colocalization_corr.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -894,7 +796,7 @@ fi
 # Step 14: Rare cells
 # =============================================================================
 echo ""
-echo "[14/16] Rare cell signatures..."
+echo "[14/15] Rare cell signatures..."
 if [ -f "$CANONICAL/rare_cells/rare_cell_signatures.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -957,7 +859,7 @@ fi
 # Step 15: Niche phenotyping
 # =============================================================================
 echo ""
-echo "[15/16] Spatial niche phenotyping..."
+echo "[15/15] Spatial niche phenotyping..."
 if [ -f "$CANONICAL/niche_phenotypes/spot_niche_phenotypes.parquet" ]; then
     echo "  SKIP: exists"
 else
@@ -1071,7 +973,7 @@ fi
 # Step 16: QC metrics
 # =============================================================================
 echo ""
-echo "[16/16] QC metrics..."
+echo "[16/15] QC metrics..."
 if [ -f "$CANONICAL/qc/snrna_qc_metrics.parquet" ]; then
     echo "  SKIP: exists"
 else
