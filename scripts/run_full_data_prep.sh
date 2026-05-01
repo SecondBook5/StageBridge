@@ -402,17 +402,15 @@ try:
     print(f'  {adata.n_obs} cells')
 
     print('  TF activity (CollecTRI)...')
-    collectri = dc.get_collectri(organism='human', split_complexes=False)
-    dc.decouple(mat=adata, net=collectri, source='source', target='target', weight='weight',
-                methods='ulm', consensus=False, verbose=True)
-    tf_acts = dc.get_acts(adata, obsm_key='ulm_estimate')
+    collectri = dc.op.collectri(organism='human')
+    dc.mt.ulm(data=adata, net=collectri)
+    tf_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
     pd.DataFrame(tf_acts.X, index=tf_acts.obs.index, columns=tf_acts.var.index).to_parquet(out / 'tf_activity_collectri.parquet')
 
     print('  Pathway activity (PROGENy)...')
-    progeny = dc.get_progeny(organism='human', top=300)
-    dc.decouple(mat=adata, net=progeny, source='source', target='target', weight='weight',
-                methods='mlm', consensus=False, verbose=True)
-    pathway_acts = dc.get_acts(adata, obsm_key='mlm_estimate')
+    progeny = dc.op.progeny(organism='human')
+    dc.mt.ulm(data=adata, net=progeny)
+    pathway_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
     pd.DataFrame(pathway_acts.X, index=pathway_acts.obs.index, columns=pathway_acts.var.index).to_parquet(out / 'pathway_activity_progeny.parquet')
 
     if 'stage' in adata.obs.columns:
