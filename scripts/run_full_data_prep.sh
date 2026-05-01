@@ -116,8 +116,13 @@ fi
 # =============================================================================
 echo ""
 echo "[4/26] Differential expression..."
-if [ -f "$CANONICAL/de_analysis/de_stage_Normal.parquet" ]; then
-    echo "  SKIP: exists"
+# Check all 5 stages exist, not just Normal
+if [ -f "$CANONICAL/de_analysis/de_stage_Normal.parquet" ] && \
+   [ -f "$CANONICAL/de_analysis/de_stage_AAH.parquet" ] && \
+   [ -f "$CANONICAL/de_analysis/de_stage_AIS.parquet" ] && \
+   [ -f "$CANONICAL/de_analysis/de_stage_MIA.parquet" ] && \
+   [ -f "$CANONICAL/de_analysis/de_stage_LUAD.parquet" ]; then
+    echo "  SKIP: all stages exist"
 else
 mkdir -p $CANONICAL/de_analysis
 python -u << 'PYTHON_END'
@@ -392,31 +397,33 @@ out = Path(CANONICAL) / 'activity'
 try:
     import decoupler as dc
     print('Running decoupleR...')
-    
+
     adata = sc.read_h5ad(SNRNA)
     print(f'  {adata.n_obs} cells')
-    
+
     print('  TF activity (CollecTRI)...')
-    dc.run_ulm(mat=adata, net=dc.get_collectri(organism='human', split_complexes=False),
-               source='source', target='target', weight='weight', verbose=True)
+    collectri = dc.get_collectri(organism='human', split_complexes=False)
+    dc.decouple(mat=adata, net=collectri, source='source', target='target', weight='weight',
+                methods='ulm', consensus=False, verbose=True)
     tf_acts = dc.get_acts(adata, obsm_key='ulm_estimate')
     pd.DataFrame(tf_acts.X, index=tf_acts.obs.index, columns=tf_acts.var.index).to_parquet(out / 'tf_activity_collectri.parquet')
-    
+
     print('  Pathway activity (PROGENy)...')
-    dc.run_mlm(mat=adata, net=dc.get_progeny(organism='human', top=300),
-               source='source', target='target', weight='weight', verbose=True)
+    progeny = dc.get_progeny(organism='human', top=300)
+    dc.decouple(mat=adata, net=progeny, source='source', target='target', weight='weight',
+                methods='mlm', consensus=False, verbose=True)
     pathway_acts = dc.get_acts(adata, obsm_key='mlm_estimate')
     pd.DataFrame(pathway_acts.X, index=pathway_acts.obs.index, columns=pathway_acts.var.index).to_parquet(out / 'pathway_activity_progeny.parquet')
-    
+
     if 'stage' in adata.obs.columns:
         tf_df = pd.DataFrame(tf_acts.X, index=tf_acts.obs.index, columns=tf_acts.var.index)
         tf_df['stage'] = adata.obs['stage'].values
         tf_df.groupby('stage').mean().to_parquet(out / 'tf_activity_by_stage.parquet')
-        
+
         pw_df = pd.DataFrame(pathway_acts.X, index=pathway_acts.obs.index, columns=pathway_acts.var.index)
         pw_df['stage'] = adata.obs['stage'].values
         pw_df.groupby('stage').mean().to_parquet(out / 'pathway_activity_by_stage.parquet')
-    
+
     print('decoupleR complete')
 except ImportError:
     print('decoupleR not installed')
