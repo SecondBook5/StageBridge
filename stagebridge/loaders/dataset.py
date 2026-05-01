@@ -128,6 +128,16 @@ class StageBridgeDataset(Dataset):
 
         self.neighborhoods = pd.read_parquet(neighborhoods_path)
 
+        # Detect format: tokenized (tokens column) vs ring columns
+        self.tokenized_format = "tokens" in self.neighborhoods.columns
+        self.ring_format = "ring_1_cells" in self.neighborhoods.columns
+
+        if not self.tokenized_format and not self.ring_format:
+            raise ValueError(
+                "neighborhoods.parquet must have either 'tokens' column (Format A) "
+                "or 'ring_1_cells' columns (Format B)"
+            )
+
         if donors is not None:
             self.neighborhoods = self.neighborhoods[
                 self.neighborhoods["donor_id"].isin(set(donors))
@@ -152,6 +162,92 @@ class StageBridgeDataset(Dataset):
         stage = row["stage"]
         stage_idx = STAGE_TO_IDX.get(stage, 0)
 
+        if self.tokenized_format:
+            # Format A: tokens column with 9 token dicts
+            return self._getitem_tokenized(row, cell_id, donor_id, stage_idx)
+        else:
+            # Format B: ring columns with separate receiver_z, hlca_z, luca_z
+            return self._getitem_ring_format(row, cell_id, donor_id, stage_idx)
+
+    def _getitem_tokenized(self, row, cell_id, donor_id, stage_idx) -> dict:
+        """Handle tokenized format (tokens column with 9 token dicts)."""
+        tokens = row["tokens"]
+
+        # Token 0 = receiver, tokens 1-4 = rings, token 5 = hlca, token 6 = luca
+        # token 7 = pathway, token 8 = stats
+        receiver_token = tokens[0]
+        receiver = np.array(receiver_token.get("z_fused", np.zeros(self.latent_dim)), dtype=np.float32)
+
+        # HLCA from token 5
+        hlca_token = tokens[5] if len(tokens) > 5 else {}
+        hlca = np.array(hlca_token.get("z_hlca", np.zeros(30)), dtype=np.float32)
+
+        # LuCA from token 6
+        luca_token = tokens[6] if len(tokens) > 6 else {}
+        luca = np.array(luca_token.get("z_luca", np.zeros(10)), dtype=np.float32)
+
+        # Ring cells from tokens 1-4 (use z_pooled which is the aggregated embedding)
+        ring_cells = []
+        ring_masks = []
+        for i in range(1, self.NUM_RINGS + 1):
+            ring_token = tokens[i] if len(tokens) > i else {}
+
+            # z_pooled is the aggregated ring embedding, treat as single "cell"
+            z_pooled = ring_token.get("z_pooled")
+            if z_pooled is not None and hasattr(z_pooled, "__len__") and len(z_pooled) > 0:
+                padded = np.zeros((self.max_cells_per_ring, self.latent_dim), dtype=np.float32)
+                mask = np.zeros(self.max_cells_per_ring, dtype=bool)
+                padded[0] = np.array(z_pooled, dtype=np.float32)[:self.latent_dim]
+                mask[0] = True
+            else:
+                padded = np.zeros((self.max_cells_per_ring, self.latent_dim), dtype=np.float32)
+                mask = np.zeros(self.max_cells_per_ring, dtype=bool)
+
+            ring_cells.append(padded)
+            ring_masks.append(mask)
+
+        # Pathway from token 7
+        pathway = None
+        pathway_token = tokens[7] if len(tokens) > 7 else {}
+        if "z_fused" in pathway_token:
+            pathway = np.array(pathway_token["z_fused"], dtype=np.float32)
+
+        # Stats from token 8
+        stats = None
+        stats_token = tokens[8] if len(tokens) > 8 else {}
+        if "z_fused" in stats_token:
+            stats = np.array(stats_token["z_fused"], dtype=np.float32)
+
+        # Auxiliary targets (may be in receiver token or row)
+        pathway_targets = None
+        proliferation_target = None
+
+        # Try to get proliferation from receiver token stats
+        if "S_score" in receiver_token and receiver_token["S_score"] is not None:
+            s_score = receiver_token.get("S_score", 0) or 0
+            g2m_score = receiver_token.get("G2M_score", 0) or 0
+            proliferation_target = float(s_score + g2m_score)
+
+        evolution_features = None
+
+        return {
+            "receiver": receiver,
+            "ring_cells": ring_cells,
+            "ring_masks": ring_masks,
+            "hlca": hlca,
+            "luca": luca,
+            "pathway": pathway,
+            "stats": stats,
+            "stage_idx": stage_idx,
+            "donor_id": donor_id,
+            "cell_id": cell_id,
+            "pathway_targets": pathway_targets,
+            "proliferation_target": proliferation_target,
+            "evolution_features": evolution_features,
+        }
+
+    def _getitem_ring_format(self, row, cell_id, donor_id, stage_idx) -> dict:
+        """Handle ring column format (receiver_z, hlca_z, luca_z, ring_N_cells)."""
         receiver = np.array(row["receiver_z"], dtype=np.float32)
         hlca = np.array(row["hlca_z"], dtype=np.float32)
         luca = np.array(row["luca_z"], dtype=np.float32)
@@ -160,7 +256,6 @@ class StageBridgeDataset(Dataset):
         ring_masks = []
         for i in range(1, self.NUM_RINGS + 1):
             cells_list = row[f"ring_{i}_cells"]
-            # Handle both list and numpy array from parquet
             if cells_list is None:
                 n_cells = 0
             elif isinstance(cells_list, np.ndarray):
@@ -188,7 +283,6 @@ class StageBridgeDataset(Dataset):
         if "stats_z" in row and row["stats_z"] is not None:
             stats = np.array(row["stats_z"], dtype=np.float32)
 
-        # Auxiliary targets for pathway and proliferation heads
         pathway_targets = None
         if "pathway_targets" in row and row["pathway_targets"] is not None:
             pathway_targets = np.array(row["pathway_targets"], dtype=np.float32)
