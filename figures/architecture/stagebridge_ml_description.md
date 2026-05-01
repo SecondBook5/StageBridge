@@ -2,138 +2,132 @@
 
 **File:** `stagebridge_ml.tex` / `stagebridge_ml.pdf`
 
-**Title:** StageBridge Architecture - Receiver-centered niche encoding with OT-CFM for cell state transitions
+---
+
+## One-Sentence Summary
+
+> StageBridge tokenizes variable-size cellular neighborhoods into fixed 9-token sequences, uses receiver-centered attention with distance decay to capture microenvironment influence, fuses healthy and cancer atlas references via Gromov-Wasserstein transport, then learns a gated conditional flow that predicts cell state transitions given niche context.
 
 ---
 
-## Overview
-
-This figure illustrates the complete StageBridge model architecture in 5 panels, showing how cellular neighborhoods are tokenized, processed through attention mechanisms, fused with reference atlases, and used to predict cell state transitions via conditional flow matching.
-
----
-
-## Panel Descriptions
+## Panel-by-Panel Description
 
 ### Panel a: Set Transformer Tokenization
 
-**What it shows:** Converting variable-size cellular neighborhoods into fixed-length token sequences.
+**What it does:** Converts a variable number of neighbor cells into a fixed 9-token sequence.
 
 **Components:**
-- **Input:** Variable number of neighbor cells (blue circles)
-- **ISAB:** Induced Set Attention Block (m=4 inducing points) - compresses variable input
-- **PMA:** Pooling by Multihead Attention (k=8) - produces fixed output
+- **ISAB** (Induced Set Attention Block): Compresses variable-length input using m=4 inducing points
+- **PMA** (Pooling by Multihead Attention): Outputs k=8 fixed tokens
 
-**Output tokens (9 total, dimension D each):**
-| Token | Color | Description |
-|-------|-------|-------------|
-| recv | Red | Receiver cell (the cell being modeled) |
-| ring_1-4 | Blue | Spatial ring tokens (concentric neighborhoods) |
-| ref | Green | Reference atlas embeddings (HLCA + LuCA) |
-| stats | Yellow | Biological statistics (cell cycle, etc.) |
+**Output tokens:**
+- 1 **receiver** (red) - the cell we're modeling
+- 4 **spatial rings** (blue) - concentric neighborhood summaries
+- 2 **reference** (green) - HLCA and LuCA atlas embeddings  
+- 1 **stats** (yellow) - biological covariates (cell cycle, etc.)
 
-**Key point:** "No matter how many neighbors a cell has, we get the same 9-token representation."
+**How to say it:**
+> "We take a variable number of neighboring cells and compress them into a fixed 9-token representation using a Set Transformer. This gives us the receiver cell, four concentric spatial rings, two reference atlas embeddings, and a statistics token."
 
 ---
 
 ### Panel b: Receiver-Centered Attention
 
-**What it shows:** How the receiver cell attends to its spatial context with distance-aware attention.
-
-**Mechanism:**
-- **Query:** Receiver token only
-- **Keys/Values:** Spatial ring tokens
-- **Distance decay:** Attention scores are penalized by physical distance
+**What it does:** The receiver cell attends to spatial context with distance-aware weighting.
 
 **Equation:**
 ```
-attention = softmax(QK^T / sqrt(d) - beta * distance)
-output = sum_j(alpha_j * V_j)
+softmax(QK^T / sqrt(d) - beta * d)
 ```
 
-**Key point:** "Nearby cells have more influence than distant cells, controlled by learned parameter beta."
+**How to say it:**
+> "This is standard scaled dot-product attention, but we subtract a distance penalty. The term Q-K-transpose over root-d is the usual attention score. We then subtract beta times the physical distance d. Beta is learned and positive, so nearby cells get higher attention weights than distant cells. This is inspired by AMICI's distance decay mechanism."
+
+**Output:**
+```
+sum_j (alpha_j * V_j)
+```
+
+> "The output is a weighted sum of value vectors, where the weights alpha come from the distance-penalized softmax."
 
 ---
 
 ### Panel c: Gromov-Wasserstein Fusion
 
-**What it shows:** Aligning and fusing two reference atlas embeddings (healthy vs cancer).
-
-**Components:**
-- **HLCA space:** Healthy Lung Cell Atlas embeddings (30D)
-- **LuCA space:** Lung Cancer Atlas embeddings (10D)
-- **GW Transport:** Gromov-Wasserstein optimal transport alignment
+**What it does:** Aligns HLCA (healthy, 30D) and LuCA (cancer, 10D) embeddings by matching their internal distance structures.
 
 **Equation:**
 ```
 min_T sum |d_H(i,j) - d_L(k,l)|^2 * T_ik * T_jl
 ```
 
-**Output:** Fused embedding z_f in R^40
+**How to say it:**
+> "We minimize over transport plans T. For each pair of points i,j in the HLCA space and k,l in the LuCA space, we compute how different their pairwise distances are - d_H of i,j versus d_L of k,l. We square that difference and weight it by the coupling entries T_ik and T_jl. The optimization finds a coupling that makes HLCA and LuCA distances as consistent as possible."
 
-**Key point:** "We align healthy and cancer reference spaces by preserving pairwise distance structure, not just concatenating."
+> "In plain terms: if two cells are close in healthy-reference space, they should also be close in cancer-reference space after alignment."
+
+**Output:** Fused embedding z_f in R^40
 
 ---
 
 ### Panel d: CrossAttentionDrift Network
 
-**What it shows:** The velocity prediction network that drives the flow matching.
+**What it does:** Predicts the velocity (direction of change) for a cell state, conditioned on niche context.
 
 **Inputs:**
-| Symbol | Name | Description |
-|--------|------|-------------|
-| x_t | state | Current cell state at time t |
-| tau | time | Flow time embedding |
-| c | context | Niche context vector from encoder |
-| s | stage | Disease stage embedding |
+- x_t = current cell state at time t
+- tau = time embedding
+- c = niche context vector
+- s = disease stage
 
 **Two parallel paths:**
-1. **Context-conditioned path:** Cross-attention between (state, time) query and context keys/values
-2. **Latent-only path:** MLP processing state, time, and stage directly
+1. **Context-conditioned path:** Cross-attention where (state + time) queries attend to context
+2. **Latent-only path:** MLP that ignores context
 
-**Gating mechanism:**
+**Equation:**
 ```
 v_theta = g * v_ctx + (1-g) * v_lat
 ```
 
-**Key point:** "The model can blend context-dependent and context-independent predictions, learning when niche matters."
+**How to say it:**
+> "The final velocity v-theta is a weighted blend of two predictions. v-ctx is the context-aware prediction from cross-attention. v-lat is the context-free prediction from the MLP. The gate g, which passes through a sigmoid, learns when to trust context versus when to rely on the cell's intrinsic state. When g is high, context matters; when g is low, the cell follows its own trajectory."
 
 ---
 
 ### Panel e: Optimal Transport CFM
 
-**What it shows:** The flow matching training objective with optimal transport coupling.
+**What it does:** Trains the model to predict straight-line velocities between optimally-coupled cell states.
 
 **Components:**
-- **pi*:** Optimal coupling matrix (computed via Sinkhorn)
-- **x_0:** Source cell state
-- **x_1:** Target cell state
-- **x_t:** Interpolated state at time t
-- **v_theta:** Predicted velocity
+- **pi*** = optimal coupling matrix (computed via Sinkhorn algorithm)
+- **x_0** = source cell state
+- **x_1** = target cell state  
+- **x_t** = interpolated state at time t
 
-**Loss function:**
+**Equation:**
 ```
 L = E_{t, pi*}[||v_theta(x_t, t | c) - (x_1 - x_0)||^2]
 ```
 
-**Key point:** "We train the model to predict straight-line velocities between optimally-coupled source-target pairs."
+**How to say it:**
+> "The loss L is an expectation over time t and over source-target pairs sampled from the optimal coupling pi-star. For each pair, we interpolate to get x_t, ask the model to predict v-theta, and penalize the squared difference from the true velocity x_1 minus x_0. We're training the model to predict straight-line paths between optimally matched cell states."
+
+> "The Sinkhorn algorithm finds which source cells should map to which target cells - it's not random pairing, it's optimal transport pairing that minimizes total movement cost."
 
 ---
 
-## Legend
+## Quick Reference: How to Pronounce Symbols
 
-| Symbol | Color | Meaning |
-|--------|-------|---------|
-| Red box | Salmon | Receiver token |
-| Blue box | Sky blue | Spatial tokens |
-| Green box/circle | Mint | Context/reference |
-| Purple box | Lavender | Multi-head attention |
-| Yellow box | Gold | Gate/stats |
-
----
-
-## One-Sentence Summary
-
-> StageBridge tokenizes variable-size cellular neighborhoods into fixed 9-token sequences, uses receiver-centered attention with distance decay to capture microenvironment influence, fuses healthy and cancer atlas references via Gromov-Wasserstein transport, then learns a gated conditional flow that predicts cell state transitions given niche context.
+| Symbol | Say |
+|--------|-----|
+| x_t | "x sub t" or "x at time t" |
+| v_theta | "v theta" (the learned velocity) |
+| pi* | "pi star" (optimal coupling) |
+| d_H, d_L | "d sub H", "d sub L" (distances in HLCA/LuCA space) |
+| T_ik | "T i-k" (transport plan entry) |
+| alpha_j | "alpha j" (attention weight) |
+| beta | "beta" (distance decay parameter) |
+| sigma(g) | "sigma of g" (sigmoid gate) |
 
 ---
 
@@ -143,8 +137,8 @@ L = E_{t, pi*}[||v_theta(x_t, t | c) - (x_1 - x_0)||^2]
 
 2. **Why receiver-centered?** "We're modeling how the microenvironment affects THIS cell specifically. The receiver is the query, the neighborhood is the context."
 
-3. **Why GW fusion?** "HLCA tells us about healthy cell states, LuCA about cancer states. GW aligns them structurally rather than just concatenating."
+3. **Why GW fusion?** "HLCA tells us about healthy cell states, LuCA about cancer states. GW aligns them structurally rather than just concatenating - it preserves the geometry of both spaces."
 
-4. **Why the gate?** "Sometimes niche context matters a lot (early progression), sometimes less (cell-autonomous changes). The gate learns this."
+4. **Why the gate?** "Sometimes niche context matters a lot (early progression), sometimes less (cell-autonomous changes). The gate learns this automatically."
 
-5. **Why OT-CFM?** "Optimal transport gives us biologically meaningful pairings between cell states. Flow matching learns smooth, reversible trajectories."
+5. **Why OT-CFM?** "Optimal transport gives us biologically meaningful pairings between cell states. Flow matching learns smooth, reversible trajectories - we can run the model forward (progression) or backward (what was the precursor state?)."

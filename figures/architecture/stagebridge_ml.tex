@@ -112,14 +112,14 @@
 % HEADER
 % ============================================
 \node[font=\fontsize{14}{16}\selectfont\bfseries\sffamily, text=textmain, anchor=west]
-    at (0, 118) {StageBridge Architecture};
+    at (0, 72) {StageBridge Architecture};
 \node[font=\fontsize{8}{9}\selectfont\sffamily, text=textsub, anchor=west]
-    at (0, 111) {Receiver-centered niche encoding with OT-CFM for cell state transitions};
+    at (0, 66) {Receiver-centered niche encoding with OT-CFM for cell state transitions};
 
 % ============================================
 % a) TOKENIZATION
 % ============================================
-\begin{scope}[shift={(0, 62)}]
+\begin{scope}[shift={(0, 24)}]
     \node[panel, minimum width=52mm, minimum height=44mm] at (26, 0) {};
     \node[title, anchor=west] at (4, 19) {a};
     \node[subtitle, anchor=west] at (10, 19) {Set Transformer Tokenization};
@@ -165,7 +165,7 @@
 % ============================================
 % b) RECEIVER-CENTERED ATTENTION
 % ============================================
-\begin{scope}[shift={(58, 62)}]
+\begin{scope}[shift={(58, 24)}]
     \node[panel, minimum width=56mm, minimum height=44mm] at (28, 0) {};
     \node[title, anchor=west] at (4, 19) {b};
     \node[subtitle, anchor=west] at (10, 19) {Receiver-Centered Attention};
@@ -206,15 +206,15 @@
 \end{scope}
 
 % Arrow a->b
-\draw[arraccent] (52, 62) -- (58, 62);
+\draw[arraccent] (52, 24) -- (58, 24);
 
 % Arrow b->c
-\draw[arraccent] (114, 62) -- (120, 62);
+\draw[arraccent] (114, 24) -- (120, 24);
 
 % ============================================
 % c) GROMOV-WASSERSTEIN FUSION
 % ============================================
-\begin{scope}[shift={(120, 62)}]
+\begin{scope}[shift={(120, 24)}]
     \node[panel, minimum width=52mm, minimum height=44mm] at (26, 0) {};
     \node[title, anchor=west] at (4, 19) {c};
     \node[subtitle, anchor=west] at (10, 19) {Gromov-Wasserstein Fusion};
@@ -271,12 +271,12 @@
 \end{scope}
 
 % Arrow c->d
-\draw[arraccent] (172, 62) -- (172, 30);
+\draw[arraccent] (172, 24) -- (172, -8);
 
 % ============================================
 % d) CROSS-ATTENTION DRIFT
 % ============================================
-\begin{scope}[shift={(0, -8)}]
+\begin{scope}[shift={(0, -46)}]
     \node[panel, minimum width=168mm, minimum height=54mm] at (84, 0) {};
     \node[title, anchor=west] at (4, 24) {d};
     \node[subtitle, anchor=west] at (10, 24) {CrossAttentionDrift Network};
@@ -350,12 +350,12 @@
 \end{scope}
 
 % Context connection from GW fusion (panel c) to CrossAttentionDrift (panel d)
-\draw[arrthick, draw=refcol!70] (146, 38) -- (146, 22) -| (18, -14);
+\draw[arrthick, draw=refcol!70] (146, 0) -- (146, -16) -| (18, -52);
 
 % ============================================
 % e) OT-CFM
 % ============================================
-\begin{scope}[shift={(40, -78)}]
+\begin{scope}[shift={(0, -104)}]
     \node[panel, minimum width=88mm, minimum height=36mm] at (44, 0) {};
     \node[title, anchor=west] at (4, 15) {e};
     \node[subtitle, anchor=west] at (10, 15) {Optimal Transport CFM};
@@ -400,7 +400,7 @@
 % ============================================
 % LEGEND
 % ============================================
-\begin{scope}[shift={(0, -102)}]
+\begin{scope}[shift={(0, -140)}]
     \node[tok=recv, minimum size=5mm] at (14, 0) {};
     \node[annot, anchor=west] at (18, 0) {receiver};
 
