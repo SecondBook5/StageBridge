@@ -227,6 +227,52 @@ def rebuild_neighborhoods(cells: pd.DataFrame, nhood_path: Path, dry_run: bool =
             all_neighborhoods.append(nhood)
 
     nhood_df = pd.DataFrame(all_neighborhoods)
+
+    # Build stats_z from conditioning features (5 dims)
+    print("\n    Building stats_z...")
+    stats_cols = ['caf_fraction', 'immune_fraction', 'diversity', 'S_score', 'G2M_score']
+    stats_z = []
+    for _, row in tqdm(nhood_df.iterrows(), total=len(nhood_df), desc="stats_z"):
+        vals = [float(row.get(col, 0)) if pd.notna(row.get(col)) else 0.0 for col in stats_cols]
+        stats_z.append(vals)
+    nhood_df['stats_z'] = stats_z
+
+    # Build pathway_z from cells if pathway columns exist (14 PROGENy pathways -> 40 dims padded)
+    pathway_cols = [f'pathway_raw_{i}' for i in range(14)]
+    if all(col in spatial_cells.columns for col in pathway_cols):
+        print("    Building pathway_z...")
+        cells_indexed = spatial_cells.set_index('cell_id')
+        pathway_z = []
+        for cell_id in tqdm(nhood_df['cell_id'], desc="pathway_z"):
+            if cell_id in cells_indexed.index:
+                vals = [float(cells_indexed.loc[cell_id, col]) if pd.notna(cells_indexed.loc[cell_id, col]) else 0.0 for col in pathway_cols]
+                vals = vals + [0.0] * (40 - len(vals))  # Pad to 40 dims
+            else:
+                vals = [0.0] * 40
+            pathway_z.append(vals)
+        nhood_df['pathway_z'] = pathway_z
+    else:
+        print("    Skipping pathway_z (no pathway_raw_* columns in cells)")
+
+    # Add evolution features if available
+    evo_path = DATA / "evolution_features.parquet"
+    if evo_path.exists():
+        print("    Adding evolution_features...")
+        from stagebridge.contracts import EVOLUTION_COLS
+        evo = pd.read_parquet(evo_path).set_index('cell_id')
+        evo_cols = [c for c in EVOLUTION_COLS if c in evo.columns]
+        print(f"    Found {len(evo_cols)} evolution columns")
+        evolution_z = []
+        for cell_id in tqdm(nhood_df['cell_id'], desc="evolution_features"):
+            if cell_id in evo.index:
+                vals = [float(evo.loc[cell_id, c]) if pd.notna(evo.loc[cell_id, c]) else 0.0 for c in evo_cols]
+            else:
+                vals = [0.0] * len(evo_cols)
+            evolution_z.append(vals)
+        nhood_df['evolution_features'] = evolution_z
+    else:
+        print(f"    Skipping evolution_features ({evo_path} not found)")
+
     print(f"    Built {len(nhood_df):,} neighborhoods")
 
     # Verify embeddings are not zero
@@ -258,8 +304,11 @@ def rebuild_neighborhoods(cells: pd.DataFrame, nhood_path: Path, dry_run: bool =
             import shutil
             shutil.copy(nhood_path, backup_path)
 
-        print(f"    Saving neighborhoods.parquet...")
-        nhood_df.to_parquet(nhood_path)
+        print(f"    Saving neighborhoods.parquet (with compression)...")
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        table = pa.Table.from_pandas(nhood_df)
+        pq.write_table(table, nhood_path, compression='zstd')
         print(f"    Saved {len(nhood_df):,} neighborhoods")
     else:
         print(f"\n    DRY RUN - would save {len(nhood_df):,} neighborhoods")
