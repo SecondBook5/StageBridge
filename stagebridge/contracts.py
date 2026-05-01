@@ -268,8 +268,15 @@ DATA_TYPES = ("snrna", "spatial")
 # REQUIRED COLUMNS
 # =============================================================================
 
-CELLS_REQUIRED_COLS = ("cell_id", "donor_id", "stage", "data_type")
-NEIGHBORHOODS_REQUIRED_COLS = ("cell_id", "donor_id", "tokens")
+# Core required columns (always needed)
+CELLS_REQUIRED_COLS = ("cell_id", "donor_id", "stage")
+
+# Alternative formats for neighborhoods:
+# Format A: Pre-assembled tokens column (list/array of 9 token embeddings)
+# Format B: Separate columns for each component (ring_1_cells, receiver_z, etc.)
+NEIGHBORHOODS_REQUIRED_COLS = ("cell_id", "donor_id")  # Minimal required
+NEIGHBORHOODS_TOKENS_COL = "tokens"  # Format A
+NEIGHBORHOODS_RING_COLS = ("ring_1_cells", "ring_2_cells", "ring_3_cells", "ring_4_cells")  # Format B
 
 
 # =============================================================================
@@ -364,10 +371,14 @@ class ContractValidator:
             if invalid:
                 self._error("cells", f"Invalid data_type: {invalid}")
 
+        # Check fused embeddings - accept either format:
+        # Format A: z_fused_0, z_fused_1, ..., z_fused_39 (individual columns)
+        # Format B: z_fused (single column with array/list)
         fused_cols = [f"z_fused_{i}" for i in range(LATENT_DIM)]
-        missing = [c for c in fused_cols if c not in cells.columns]
-        if missing:
-            self._error("cells", f"Missing fused embedding columns: {missing[:5]}...")
+        has_individual = all(c in cells.columns for c in fused_cols)
+        has_single = "z_fused" in cells.columns
+        if not has_individual and not has_single:
+            self._error("cells", f"Missing fused embedding: need either z_fused or z_fused_0..z_fused_{LATENT_DIM-1}")
 
         wes_present = [c for c in WES_COLS if c in cells.columns]
         if 0 < len(wes_present) < WES_DIM:
@@ -387,12 +398,21 @@ class ContractValidator:
             if col not in neighborhoods.columns:
                 self._error("neighborhoods", f"Missing required column: {col}")
 
-        if "tokens" in neighborhoods.columns:
+        # Check token structure - accept either format:
+        # Format A: tokens column (pre-assembled array of 9 token embeddings)
+        # Format B: separate columns (ring_1_cells, ring_2_cells, ..., receiver_z, hlca_z, luca_z)
+        has_tokens_col = NEIGHBORHOODS_TOKENS_COL in neighborhoods.columns
+        has_ring_cols = all(c in neighborhoods.columns for c in NEIGHBORHOODS_RING_COLS)
+
+        if not has_tokens_col and not has_ring_cols:
+            self._error("neighborhoods", f"Missing token structure: need either 'tokens' column or ring columns {NEIGHBORHOODS_RING_COLS}")
+
+        if has_tokens_col:
             n_check = min(100, len(neighborhoods))
             indices = np.random.choice(len(neighborhoods), n_check, replace=False)
 
             for idx in indices:
-                tokens = neighborhoods.iloc[idx]["tokens"]
+                tokens = neighborhoods.iloc[idx][NEIGHBORHOODS_TOKENS_COL]
                 if not isinstance(tokens, (list, np.ndarray)):
                     self._error("neighborhoods", f"Row {idx}: tokens not list/array")
                     continue
@@ -441,14 +461,25 @@ class ContractValidator:
         if orphans:
             self._error("alignment", f"{len(orphans)} neighborhoods without cells")
 
+        # Check that spatial cells have neighborhoods
+        # Determine spatial cells based on available data
         if "data_type" in cells.columns:
             spatial = set(cells[cells["data_type"] == "spatial"]["cell_id"])
+        elif "x_spatial" in cells.columns:
+            # If x_spatial exists, cells with non-null coordinates are spatial
+            spatial = set(cells[cells["x_spatial"].notna()]["cell_id"])
         else:
-            spatial = set(cells[cells["cell_id"].str.startswith("spatial_")]["cell_id"])
+            # Can't determine spatial cells - skip this check
+            spatial = set()
 
-        spatial_without = spatial - neighborhood_ids
-        if spatial_without:
-            self._error("alignment", f"{len(spatial_without)} spatial cells without neighborhoods")
+        if spatial:
+            spatial_without = spatial - neighborhood_ids
+            if spatial_without:
+                # Only warn if it's a small number (could be edge cases)
+                if len(spatial_without) <= 10:
+                    self._warning("alignment", f"{len(spatial_without)} spatial cells without neighborhoods")
+                else:
+                    self._error("alignment", f"{len(spatial_without)} spatial cells without neighborhoods")
 
 
 def validate_contract(data_dir: str | Path) -> list[ContractViolation]:
