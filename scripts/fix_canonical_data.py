@@ -213,6 +213,7 @@ def rebuild_neighborhoods(cells: pd.DataFrame, nhood_path: Path, dry_run: bool =
 
             # Transfer additional columns from cells
             transfer_cols = [
+                "cell_type",  # From DestVI deconvolution
                 "S_score", "G2M_score", "phase",
                 "clonal_pattern", "clonal_pattern_idx",
                 "tmb", "kras_mut", "egfr_mut", "tp53_mut",
