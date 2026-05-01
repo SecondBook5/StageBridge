@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor, nn
 
-from stagebridge.context.encoder import ReceiverCenteredNicheEncoder, ReceiverNicheOutput
+from stagebridge.context.encoder import ReceiverNicheOutput
 from stagebridge.context.layers import SAB, ISAB, PMA, SinusoidalTimeEmbedding, FeedForwardBlock
 from stagebridge.context.tokenizer import NicheTokenizer
 from stagebridge.context.aggregation import HierarchicalAggregator, SampleLevelHeads, PrototypeBottleneck
@@ -279,16 +279,6 @@ class StageBridge(nn.Module):
     def __init__(self, config: StageBridgeConfig) -> None:
         super().__init__()
         self.config = config
-
-        # Core niche encoder
-        self.niche_encoder = ReceiverCenteredNicheEncoder(
-            input_dim=config.input_dim,
-            hidden_dim=config.hidden_dim,
-            num_heads=config.num_heads,
-            num_layers=config.num_encoder_layers,
-            max_neighbors=config.max_neighbors,
-            dropout=config.dropout,
-        )
 
         # Hierarchical Set Transformer: ISAB → ISAB(spatial_rpe) → SAB → PMA
         self.context_refiner: HierarchicalSetTransformer | None = None
@@ -771,75 +761,6 @@ class StageBridge(nn.Module):
             trajectory.append(x)
 
         return torch.stack(trajectory, dim=1)
-
-    def forward(
-        self,
-        receiver: Tensor,
-        neighbors: Tensor,
-        distances: Tensor,
-        x_t: Tensor,
-        t: Tensor,
-        stage_pair_id: Tensor,
-        neighbor_mask: Tensor | None = None,
-        token_type_ids: Tensor | None = None,
-        evolution_features: Tensor | None = None,
-        stats_features: Tensor | None = None,
-    ) -> StageBridgeOutput:
-        """Full forward pass: encode niche context then predict drift.
-
-        Args:
-            receiver: [B, D] receiver cell embeddings
-            neighbors: [B, K, D] neighbor cell embeddings
-            distances: [B, K] distances from receiver to neighbors
-            x_t: [B, D] current state for drift prediction
-            t: [B] time in [0, 1]
-            stage_pair_id: [B] stage transition indices
-            neighbor_mask: [B, K] boolean mask (True = valid)
-            token_type_ids: [B, K] token type indices
-            evolution_features: [B, E] optional WES features
-            stats_features: [B, S] biological conditioning (cell cycle, CAF, etc.)
-
-        Returns:
-            StageBridgeOutput with context, prediction, and attention
-        """
-        niche_output = self.encode_niche(
-            receiver=receiver,
-            neighbors=neighbors,
-            distances=distances,
-            neighbor_mask=neighbor_mask,
-            token_type_ids=token_type_ids,
-            evolution_features=evolution_features,
-            stats_features=stats_features,
-        )
-
-        prediction = self.forward_vector_field(
-            x_t=x_t,
-            t=t,
-            context=niche_output.context,
-            stage_pair_id=stage_pair_id,
-            context_tokens=niche_output.context_tokens,
-        )
-
-        # Auxiliary biological predictions from context
-        pathway_logits = None
-        if self.pathway_head is not None:
-            pathway_logits = self.pathway_head(niche_output.context)
-
-        proliferation_logit = None
-        if self.proliferation_head is not None:
-            proliferation_logit = self.proliferation_head(niche_output.context)
-
-        return StageBridgeOutput(
-            context=niche_output.context,
-            context_tokens=niche_output.context_tokens,
-            prediction=prediction,
-            attention_weights=niche_output.attention_weights,
-            entropy_loss=niche_output.entropy_loss,
-            value_l1_loss=niche_output.value_l1_loss,
-            empty_attention=niche_output.empty_attention,
-            pathway_logits=pathway_logits,
-            proliferation_logit=proliferation_logit,
-        )
 
     def sample_forward(
         self,

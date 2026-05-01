@@ -11,7 +11,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from stagebridge.context.layers import RingPooler
+from stagebridge.context.layers import RingPooler, PMA
 
 
 class NicheTokenizer(nn.Module):
@@ -88,6 +88,14 @@ class NicheTokenizer(nn.Module):
             )
             for _ in range(num_rings)
         ])
+
+        # Learned pooling for SSL reconstruction (pool context tokens, not receiver)
+        self.ssl_pooler = PMA(
+            dim=hidden_dim,
+            num_heads=num_heads,
+            num_seed_vectors=1,
+            dropout=dropout,
+        )
 
         # Reconstruction head: project back to input_dim for SSL
         self.reconstruction_head = nn.Linear(hidden_dim, input_dim)
@@ -200,8 +208,9 @@ class NicheTokenizer(nn.Module):
             ], dim=1)  # [B, 8, hidden_dim]
 
         # SSL Reconstruction: predict receiver from CONTEXT ONLY (no receiver leakage)
-        # Pool context tokens and project to input space
-        context_pooled = context_only_tokens.mean(dim=1)  # [B, hidden_dim]
+        # Use learned PMA pooling over context tokens (more expressive than mean)
+        context_pooled = self.ssl_pooler(context_only_tokens)  # [B, 1, hidden_dim]
+        context_pooled = context_pooled.squeeze(1)  # [B, hidden_dim]
         receiver_reconstruction = self.reconstruction_head(context_pooled)
 
         return tokens, receiver_reconstruction, ring_attention
