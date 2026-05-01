@@ -30,6 +30,8 @@ import pandas as pd
 from scipy.spatial import KDTree
 from scipy.stats import entropy
 
+from stagebridge.contracts import EVOLUTION_COLS
+
 
 # LuCA cell type groupings for biological fractions
 CAF_TYPES = ['fibroblast of lung', 'bronchus fibroblast of lung', 'stromal cell']
@@ -196,8 +198,9 @@ def add_conditioning_features(
     destvi_fractions: pd.DataFrame | None,
     progression_scores: pd.DataFrame | None = None,
     biological_features: pd.DataFrame | None = None,
+    evolution_features: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Add conditioning features from cells, DestVI, progression, and biological scores."""
+    """Add conditioning features from cells, DestVI, progression, biological, and evolution."""
     # Create lookup from cell_id
     cells_indexed = cells_df.set_index('cell_id')
 
@@ -267,6 +270,23 @@ def add_conditioning_features(
             else:
                 pathway_z.append([0.0] * 40)
         nhood_df['pathway_z'] = pathway_z
+
+    # Evolution features (WES + clonal) if available
+    if evolution_features is not None:
+        evo_indexed = evolution_features.set_index('cell_id')
+        # Find which EVOLUTION_COLS are present
+        evo_cols = [c for c in EVOLUTION_COLS if c in evo_indexed.columns]
+        if evo_cols:
+            print(f'  Building evolution_features array from {len(evo_cols)} columns')
+            evolution_z = []
+            for cell_id in nhood_df['cell_id']:
+                if cell_id in evo_indexed.index:
+                    vals = [float(evo_indexed.loc[cell_id, col]) if pd.notna(evo_indexed.loc[cell_id, col]) else 0.0
+                            for col in evo_cols]
+                else:
+                    vals = [0.0] * len(evo_cols)
+                evolution_z.append(vals)
+            nhood_df['evolution_features'] = evolution_z
 
     return nhood_df
 
@@ -375,6 +395,7 @@ def prepare_data(
     destvi_hlca_path: Path | None = None,
     progression_path: Path | None = None,
     h5ad_path: Path | None = None,
+    evolution_path: Path | None = None,
     run_liana: bool = False,
     config: PrepConfig | None = None,
     make_figures: bool = True,
@@ -420,6 +441,15 @@ def prepare_data(
         )
         print(f'  {len(biological_features):,} cells with EMT/senescence/SASP scores')
 
+    # Load evolution features (WES + clonal) if provided
+    evolution_features = None
+    if evolution_path and evolution_path.exists():
+        print(f'Loading evolution features from {evolution_path}...')
+        evolution_features = pd.read_parquet(evolution_path)
+        print(f'  {len(evolution_features):,} cells with WES/clonal features')
+        evo_cols = [c for c in EVOLUTION_COLS if c in evolution_features.columns]
+        print(f'  Available: {len(evo_cols)}/{len(EVOLUTION_COLS)} evolution columns')
+
     # Build neighborhoods
     print('Building neighborhoods with raw cells...')
     nhood_df = build_neighborhoods(cells_df, config)
@@ -428,7 +458,8 @@ def prepare_data(
     # Add conditioning features
     print('Adding conditioning features...')
     nhood_df = add_conditioning_features(
-        nhood_df, cells_df, destvi_fractions, progression_scores, biological_features
+        nhood_df, cells_df, destvi_fractions, progression_scores, biological_features,
+        evolution_features
     )
 
     # Create split manifest
@@ -468,6 +499,7 @@ def prepare_data(
         'destvi_used': destvi_luca_path is not None,
         'progression_used': progression_path is not None,
         'h5ad_used': h5ad_path is not None,
+        'evolution_used': evolution_path is not None,
         'liana_used': run_liana,
     }
 
@@ -485,6 +517,7 @@ def main():
     parser.add_argument('--destvi-hlca', type=Path, help='HLCA DestVI cell_type_proportions.parquet (coarse)')
     parser.add_argument('--progression', type=Path, help='Precomputed progression_scores.parquet (CytoTRACE, pseudotime)')
     parser.add_argument('--h5ad', type=Path, help='h5ad for EMT/senescence/SASP scores')
+    parser.add_argument('--evolution', type=Path, help='evolution_features.parquet (WES + clonal)')
     parser.add_argument('--run-liana', action='store_true', help='Run LIANA L-R analysis (slow)')
     parser.add_argument('--figures', action='store_true', help='Generate publication figures')
     parser.add_argument('--max-cells-per-ring', type=int, default=50)
@@ -499,6 +532,7 @@ def main():
         destvi_hlca_path=args.destvi_hlca,
         progression_path=args.progression,
         h5ad_path=args.h5ad,
+        evolution_path=args.evolution,
         run_liana=args.run_liana,
         config=config,
         make_figures=args.figures,
