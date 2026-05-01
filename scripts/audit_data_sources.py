@@ -34,14 +34,101 @@ def check_file(path: Path, description: str) -> bool:
     return exists
 
 
-def check_columns(df: pd.DataFrame, required: list, name: str) -> list:
+def check_columns(df: pd.DataFrame, required: list, name: str, check_values: bool = True) -> list:
     missing = [c for c in required if c not in df.columns]
     present = [c for c in required if c in df.columns]
     if missing:
         print(f"    MISSING {name}: {missing}")
     if present:
         print(f"    OK {name}: {present}")
+
+    # Check for NaN and value quality
+    if check_values and present:
+        for col in present:
+            n_total = len(df)
+            n_nan = df[col].isna().sum()
+            n_valid = n_total - n_nan
+            pct_nan = 100 * n_nan / n_total if n_total > 0 else 0
+
+            if pct_nan > 50:
+                status = "BAD"
+            elif pct_nan > 10:
+                status = "WARN"
+            elif pct_nan > 0:
+                status = "ok"
+            else:
+                status = "OK"
+
+            # Get value stats for numeric columns
+            if df[col].dtype in ['float64', 'float32', 'int64', 'int32']:
+                valid_vals = df[col].dropna()
+                if len(valid_vals) > 0:
+                    vmin, vmax = valid_vals.min(), valid_vals.max()
+                    vmean = valid_vals.mean()
+                    print(f"      [{status}] {col}: {n_valid:,}/{n_total:,} valid ({pct_nan:.1f}% NaN), range=[{vmin:.3g}, {vmax:.3g}], mean={vmean:.3g}")
+                else:
+                    print(f"      [BAD] {col}: ALL NaN")
+            elif df[col].dtype == 'object' or str(df[col].dtype) == 'category':
+                n_unique = df[col].nunique()
+                top_vals = df[col].value_counts().head(3).to_dict()
+                print(f"      [{status}] {col}: {n_valid:,}/{n_total:,} valid ({pct_nan:.1f}% NaN), {n_unique} unique, top: {top_vals}")
+            else:
+                print(f"      [{status}] {col}: {n_valid:,}/{n_total:,} valid ({pct_nan:.1f}% NaN)")
+
     return missing
+
+
+def check_embedding_quality(df: pd.DataFrame, col_or_prefix: str, expected_dim: int):
+    """Check embedding column(s) for quality."""
+    # Check if stored as single array column or multiple columns
+    if col_or_prefix in df.columns:
+        # Single column with arrays
+        sample = df[col_or_prefix].iloc[0]
+        if hasattr(sample, "__len__"):
+            dim = len(sample)
+            if dim != expected_dim:
+                print(f"      [WARN] {col_or_prefix}: dimension {dim}, expected {expected_dim}")
+            else:
+                print(f"      [OK] {col_or_prefix}: dimension {dim}")
+
+            # Check for NaN in embeddings
+            import numpy as np
+            n_nan = sum(1 for x in df[col_or_prefix] if x is None or (hasattr(x, '__iter__') and any(np.isnan(v) for v in x)))
+            if n_nan > 0:
+                print(f"      [WARN] {col_or_prefix}: {n_nan} rows with NaN values in embedding")
+
+            # Check value range
+            all_vals = []
+            for x in df[col_or_prefix].head(1000):
+                if x is not None and hasattr(x, '__iter__'):
+                    all_vals.extend(x)
+            if all_vals:
+                import numpy as np
+                all_vals = np.array(all_vals)
+                print(f"      [INFO] {col_or_prefix}: value range [{all_vals.min():.3g}, {all_vals.max():.3g}], mean={all_vals.mean():.3g}")
+        else:
+            print(f"      [BAD] {col_or_prefix}: not an array (scalar value)")
+    else:
+        # Check for individual columns (z_fused_0, z_fused_1, etc.)
+        cols = [f"{col_or_prefix}_{i}" for i in range(expected_dim)]
+        present = [c for c in cols if c in df.columns]
+        if len(present) == expected_dim:
+            print(f"      [OK] {col_or_prefix}_*: all {expected_dim} columns present")
+            # Check NaN
+            n_nan = df[present].isna().any(axis=1).sum()
+            if n_nan > 0:
+                pct = 100 * n_nan / len(df)
+                print(f"      [WARN] {col_or_prefix}_*: {n_nan} rows ({pct:.1f}%) with NaN")
+            # Check range
+            vals = df[present].values.flatten()
+            import numpy as np
+            vals = vals[~np.isnan(vals)]
+            if len(vals) > 0:
+                print(f"      [INFO] {col_or_prefix}_*: range [{vals.min():.3g}, {vals.max():.3g}], mean={vals.mean():.3g}")
+        elif len(present) > 0:
+            print(f"      [BAD] {col_or_prefix}_*: only {len(present)}/{expected_dim} columns")
+        else:
+            print(f"      [MISSING] {col_or_prefix}: neither array column nor individual columns found")
 
 
 def check_h5ad(path: Path, description: str):
@@ -123,32 +210,46 @@ def main():
     if check_file(cells_path, "cells.parquet"):
         df = pd.read_parquet(cells_path)
         print(f"    Shape: {df.shape[0]:,} cells x {df.shape[1]} columns")
-        check_columns(df, CELLS_REQUIRED, "required")
-        check_columns(df, CELLS_EMBEDDINGS, "embeddings")
-        check_columns(df, CELLS_CYCLE, "cell cycle")
-        check_columns(df, CELLS_WES, "WES")
-        check_columns(df, CELLS_SPATIAL, "spatial coords")
+        check_columns(df, CELLS_REQUIRED, "required", check_values=True)
+        check_columns(df, CELLS_CYCLE, "cell cycle", check_values=True)
+        check_columns(df, CELLS_WES, "WES", check_values=True)
+        check_columns(df, CELLS_SPATIAL, "spatial coords", check_values=True)
 
-        # Check embedding format
-        if "z_fused" in df.columns:
-            sample = df["z_fused"].iloc[0]
-            if hasattr(sample, "__len__"):
-                print(f"    z_fused format: array of length {len(sample)}")
-            else:
-                print(f"    z_fused format: scalar (need z_fused_0..z_fused_39)")
-        z_fused_cols = [c for c in df.columns if c.startswith("z_fused_")]
-        if z_fused_cols:
-            print(f"    z_fused_* columns: {len(z_fused_cols)}")
+        # Check embeddings with quality checks
+        print("    Embedding quality:")
+        check_embedding_quality(df, "z_fused", 40)
+        check_embedding_quality(df, "z_hlca", 30)
+        check_embedding_quality(df, "z_luca", 10)
 
     if check_file(nhood_path, "neighborhoods.parquet"):
         df = pd.read_parquet(nhood_path)
         print(f"    Shape: {df.shape[0]:,} neighborhoods x {df.shape[1]} columns")
-        check_columns(df, NHOOD_REQUIRED, "required")
+        check_columns(df, NHOOD_REQUIRED, "required", check_values=True)
 
         has_tokens = "tokens" in df.columns
         has_rings = all(c in df.columns for c in NHOOD_RINGS)
         print(f"    Format A (tokens column): {'YES' if has_tokens else 'NO'}")
         print(f"    Format B (ring columns): {'YES' if has_rings else 'NO'}")
+
+        # Check ring quality
+        if has_rings:
+            print("    Ring quality:")
+            for ring_col in ["ring_1_cells", "ring_2_cells", "ring_3_cells", "ring_4_cells"]:
+                if ring_col in df.columns:
+                    # Count empty rings
+                    n_empty = sum(1 for x in df[ring_col] if x is None or (hasattr(x, '__len__') and len(x) == 0))
+                    pct_empty = 100 * n_empty / len(df)
+                    # Get average ring size
+                    sizes = [len(x) for x in df[ring_col] if x is not None and hasattr(x, '__len__')]
+                    avg_size = sum(sizes) / len(sizes) if sizes else 0
+                    status = "OK" if pct_empty < 20 else "WARN" if pct_empty < 50 else "BAD"
+                    print(f"      [{status}] {ring_col}: {pct_empty:.1f}% empty, avg size={avg_size:.1f}")
+
+            # Check receiver/reference embeddings
+            print("    Neighborhood embedding quality:")
+            check_embedding_quality(df, "receiver_z", 40)
+            check_embedding_quality(df, "hlca_z", 30)
+            check_embedding_quality(df, "luca_z", 10)
 
     check_file(splits_path, "split_manifest.json")
 
