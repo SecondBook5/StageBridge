@@ -160,6 +160,17 @@ class NicheTokenizer(nn.Module):
                 pathway_token,
                 stats_token,
             ], dim=1)  # [B, 8, hidden_dim]
+
+            # Context tokens WITHOUT receiver for SSL reconstruction
+            context_only_tokens = torch.stack([
+                ring_tokens[0],
+                ring_tokens[1],
+                ring_tokens[2],
+                ring_tokens[3],
+                fused_ref_token,
+                pathway_token,
+                stats_token,
+            ], dim=1)  # [B, 7, hidden_dim]
         else:
             # Standard 9-token sequence with separate HLCA/LuCA projections
             hlca_token = self.hlca_proj(hlca)  # 30d -> hidden_dim
@@ -176,8 +187,22 @@ class NicheTokenizer(nn.Module):
                 stats_token,
             ], dim=1)  # [B, 9, hidden_dim]
 
-        # Reconstruction: project receiver_token back to input_dim for SSL
-        receiver_reconstruction = self.reconstruction_head(receiver_token)
+            # Context tokens WITHOUT receiver for SSL reconstruction
+            context_only_tokens = torch.stack([
+                ring_tokens[0],
+                ring_tokens[1],
+                ring_tokens[2],
+                ring_tokens[3],
+                hlca_token,
+                luca_token,
+                pathway_token,
+                stats_token,
+            ], dim=1)  # [B, 8, hidden_dim]
+
+        # SSL Reconstruction: predict receiver from CONTEXT ONLY (no receiver leakage)
+        # Pool context tokens and project to input space
+        context_pooled = context_only_tokens.mean(dim=1)  # [B, hidden_dim]
+        receiver_reconstruction = self.reconstruction_head(context_pooled)
 
         return tokens, receiver_reconstruction, ring_attention
 
