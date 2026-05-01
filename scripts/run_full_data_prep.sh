@@ -447,7 +447,7 @@ try:
         print('  Ranking TFs by progression...')
         tf_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
         tf_score.obs['stage_num'] = adata.obs['stage_num'].values
-        tf_prog = dc.tl.rankby_order(adata=tf_score, order='stage_num')
+        tf_prog = dc.tl.rankby_order(adata=tf_score, order='stage_num', stat='dcor')
         tf_prog.to_parquet(out / 'tf_progression_correlation.parquet')
         print(f'    Top increasing: {tf_prog.head(5)["name"].tolist()}')
         print(f'    Top decreasing: {tf_prog.tail(5)["name"].tolist()}')
@@ -457,7 +457,7 @@ try:
         dc.mt.ulm(data=adata, net=progeny)
         pw_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
         pw_score.obs['stage_num'] = adata.obs['stage_num'].values
-        pw_prog = dc.tl.rankby_order(adata=pw_score, order='stage_num')
+        pw_prog = dc.tl.rankby_order(adata=pw_score, order='stage_num', stat='dcor')
         pw_prog.to_parquet(out / 'pathway_progression_correlation.parquet')
 
         # Hallmarks ranked by progression
@@ -465,7 +465,7 @@ try:
         dc.mt.ulm(data=adata, net=hallmark)
         hm_score = dc.pp.get_obsm(adata=adata, key='score_ulm')
         hm_score.obs['stage_num'] = adata.obs['stage_num'].values
-        hm_prog = dc.tl.rankby_order(adata=hm_score, order='stage_num')
+        hm_prog = dc.tl.rankby_order(adata=hm_score, order='stage_num', stat='dcor')
         hm_prog.to_parquet(out / 'hallmark_progression_correlation.parquet')
 
         # Stage-specific markers (rankby_group)
