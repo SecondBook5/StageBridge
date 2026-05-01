@@ -113,7 +113,7 @@ class StageBridgeConfig:
 
     # Biological conditioning (stats token features)
     use_stats_conditioning: bool = True
-    stats_dim: int = 7  # STATS_TOKEN_DIM from contracts
+    stats_dim: int = 5  # caf_fraction, immune_fraction, diversity, S_score, G2M_score
 
     # Learned ring pooling (individual cells per ring with ISAB+PMA)
     use_learned_ring_pooling: bool = True

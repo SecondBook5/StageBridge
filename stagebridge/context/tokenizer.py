@@ -51,7 +51,7 @@ class NicheTokenizer(nn.Module):
         num_heads: int = 4,
         num_inducing: int = 4,
         dropout: float = 0.1,
-        stats_dim: int = 7,
+        stats_dim: int = 5,  # caf_fraction, immune_fraction, diversity, S_score, G2M_score
         use_fused_reference: bool = False,
         fused_ref_dim: int | None = None,
     ) -> None:
