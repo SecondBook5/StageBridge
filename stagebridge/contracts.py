@@ -428,7 +428,7 @@ class ContractValidator:
 
         wes_present = [c for c in WES_COLS if c in cells.columns]
         if 0 < len(wes_present) < WES_DIM:
-            self._error("cells", f"Partial WES columns: {len(wes_present)}/{WES_DIM}")
+            self._warn("cells", f"Partial WES columns: {len(wes_present)}/{WES_DIM} (missing columns will be zero-filled)")
 
         for col in ["cell_id", "donor_id", "stage"]:
             if col in cells.columns and cells[col].isna().any():
