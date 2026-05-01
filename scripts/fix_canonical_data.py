@@ -27,11 +27,15 @@ CANONICAL = DATA / "canonical"
 
 # Stage mapping (from contracts.py)
 STAGE_5_TO_3 = {
+    # 5-class to 3-class
     "Normal": "Normal",
     "AAH": "Preinvasive",
     "AIS": "Preinvasive",
     "MIA": "Preinvasive",
     "LUAD": "Invasive",
+    # Pass through if already 3-class
+    "Preinvasive": "Preinvasive",
+    "Invasive": "Invasive",
 }
 
 STAGE_3_TO_IDX = {

@@ -626,3 +626,182 @@ Loss:           L = ||v_θ(x_t, t, c) - (x₁ - x₀)||²
 **Poster:** Sections 1, 4 (condensed to 3-4 panels), 6 (key findings), 7 (clinical)
 
 **Conference Talk (~15 min):** Slides 1, 3, 5, 8, 9, 15, 21, 24, 26, 30, 34, 37
+
+---
+
+## Key Findings Summary
+
+**Source:** `/home/booka/projects/StageBridge_V1/docs/paper/results_draft.md`
+
+These are the novel findings from StageBridge - what's yours, not what you inherited from Peng/Kadara.
+
+### 1. Niche Conditioning Significantly Improves Transition Modeling
+
+| Model | Wasserstein Distance | Effect Size |
+|-------|---------------------|-------------|
+| Full StageBridge | 0.45 | - |
+| No-niche ablation | 0.62 | d = 1.2, p < 0.001 |
+| Pooled niche | 0.52 | d = 0.6, p < 0.01 |
+
+**Interpretation:** Local microenvironment structure is critical for accurate cell-state transition modeling. This is your central hypothesis confirmed.
+
+### 2. AAH-to-AIS Is the Critical Transition
+
+- Highest optimal transport cost: W = 0.42
+- Largest transcriptional reorganization in the progression sequence
+- Clinically consistent: AIS marks the transition from hyperplasia to true neoplasia
+
+**Interpretation:** This identifies the key intervention window - the AAH-to-AIS transition is where the most significant cell state changes occur.
+
+### 3. LUAD Progression Is Irreversible (Non-Equilibrium)
+
+**Method:** Helmholtz decomposition of the learned velocity field into gradient (conservative) and curl (rotational/irreversible) components.
+
+**Finding:** 
+- Mean flux ratio = 0.67 (significant curl component)
+- This indicates LUAD progression is a **driven, non-equilibrium process**
+- NOT passive diffusion along a potential landscape
+
+**Key insight:** Irreversibility was highest in the **transition zones between stages** - precisely where cells are making fate decisions - and lowest within stage clusters where cells have committed to a particular state.
+
+**Why this matters:**
+- Supports biological interpretation that progression involves active, directional state changes
+- Rules out equilibrium/reversible models
+- Implies therapeutic intervention must overcome an active driving force, not just nudge cells off a shallow gradient
+
+### 4. Attention Patterns Recover Known Biology
+
+For alveolar progenitor cells (AT2/KAC-like) in preneoplastic stages (AAH, AIS):
+
+| Neighbor Type | Mean Attention Weight |
+|---------------|----------------------|
+| Macrophages | 0.23 |
+| Other immune | 0.15 |
+| Fibroblasts | 0.19 |
+| Spatial ring 1 (0-50 μm) | 0.31 |
+
+**Stage-specific patterns:**
+- Normal tissue: AT2 cells show uniform attention across neighbors
+- Invasive LUAD: attention shifts toward immune-excluded patterns
+- Matches known biology of immunoediting during cancer progression
+
+### 5. Dual-Reference Geometry Outperforms Single Reference
+
+| Reference | Effect Size |
+|-----------|-------------|
+| HLCA-only | d = 0.52 |
+| LuCA-only | d = 0.48 |
+| Dual (HLCA + LuCA) | d = 0.65, p < 0.01 |
+
+**Interpretation:** Dual references provide both a normal anchor (HLCA) and disease branching structure (LuCA), enabling more biologically interpretable trajectories.
+
+### 6. Flow Dynamics Reveal Trajectory Heterogeneity
+
+- Dominant flow follows canonical Normal → AAH → AIS → MIA → LUAD progression
+- Secondary streams suggest alternative paths and potential regression trajectories
+- Consistent with clinical observation: not all precursor lesions progress to invasive cancer
+
+### 7. Uncertainty Quantification Is Well-Calibrated
+
+- Expected Calibration Error = 0.08
+- 90% prediction intervals: 0.89 actual coverage vs 0.90 nominal
+- Wrong-stage pairs: 2.3x higher uncertainty
+- Shuffled neighborhoods: 1.8x higher uncertainty
+
+**Why this matters for clinical translation:** Overconfident predictions could mislead intervention decisions. Calibrated uncertainty is essential.
+
+### 8. Results Robust Across Spatial Backends
+
+All deep learning backends (Tangram, DestVI, Cell2location) yielded:
+- Qualitatively similar transition dynamics (r > 0.78)
+- Consistent niche conditioning effect (d = 1.1-1.3)
+
+**Interpretation:** Central claim is robust to deconvolution method choice.
+
+---
+
+## The Novel Claim (Thesis Statement)
+
+**What Peng/Kadara showed:** IL1B-high macrophage niches are enriched in precursor lesions and associated with progression.
+
+**What StageBridge adds:**
+
+1. **Niche conditioning is necessary** - removing it degrades transition modeling by 38%
+2. **Progression is non-equilibrium** - Helmholtz decomposition shows irreversible dynamics (flux ratio 0.67)
+3. **Irreversibility peaks at transition zones** - cells making fate decisions show the highest non-equilibrium signal
+4. **AAH-to-AIS is the critical window** - highest transport cost identifies the key intervention point
+
+---
+
+## Key Biological Discoveries
+
+These are biological findings - what the model revealed about LUAD biology.
+
+### 9. AT2 Cells in Altered Stroma Have 3x Higher Invasion Transition Probability
+
+**Finding:** Alveolar type 2 cells surrounded by altered stroma (CAF-enriched, inflammatory) show 3-fold higher probability of transitioning toward invasive states compared to AT2 cells in normal stroma.
+
+**Why it matters:** This quantifies the niche-gating hypothesis. It's not just that niches are associated with progression - we can measure the effect size.
+
+### 10. CAF and M2 Macrophages Have Highest Influence Weights
+
+**Finding:** Cancer-associated fibroblasts (CAFs) and M2-polarized macrophages consistently show the highest attention weights when modeling transitions of preneoplastic epithelial cells.
+
+**Interpretation:** 
+- CAF-mediated EMT (epithelial-mesenchymal transition) is a known progression mechanism
+- M2 macrophages are immunosuppressive, enabling immune evasion
+- The model independently recovers these known biological relationships
+
+### 11. The Model Learns IL1B Pathway from Neighborhood Alone
+
+**Finding:** IL1B reconstruction loss decreased 51% (0.284 → 0.139, p < 0.001) even though IL1B was not an input - only a supervised target.
+
+**Why this is remarkable:** The model infers IL1B pathway activity purely from neighborhood composition. This means:
+- Neighborhood structure is predictive of inflammatory signaling
+- The IL1B-macrophage niche has a learnable spatial signature
+
+### 12. The Model Identifies KAC/Alveolar Progenitor States
+
+**Finding:** KAC signature reconstruction loss decreased 54% (0.282 → 0.130, p < 0.001).
+
+**Why it matters:** KRT8+ alveolar intermediate cells (KACs) are the critical bifurcation point - they can either repair (→ AT1) or progress (→ tumor). The model learns to recognize this intermediate state from niche context.
+
+### 13. Stage-Specific Attention Shifts Mirror Immunoediting
+
+**Finding:**
+- Normal tissue: AT2 cells show uniform attention across neighbors
+- Preneoplastic (AAH, AIS): Attention peaks to macrophages (0.23) and fibroblasts (0.19)
+- Invasive LUAD: Attention shifts toward immune-excluded patterns
+
+**Interpretation:** This mirrors the known immunoediting trajectory - early lesions are immune-engaged, late lesions are immune-excluded. The model learns this without being told.
+
+### 14. Trajectory Heterogeneity: Not All Precursors Progress
+
+**Finding:** While the dominant flow follows Normal → AAH → AIS → MIA → LUAD, secondary streams in the velocity field suggest:
+- Alternative progression paths
+- Potential regression trajectories
+
+**Clinical relevance:** Consistent with clinical observation that not all precursor lesions progress. Some AAH lesions remain stable for years. The model captures this heterogeneity.
+
+---
+
+## The Full Novel Contribution
+
+**Method contributions:**
+1. Receiver-centered niche encoding (9-token architecture)
+2. Dual-reference geometry (HLCA + LuCA)
+3. Niche-conditioned neural velocity field (cross-attention drift)
+4. Helmholtz decomposition for irreversibility analysis
+
+**Biological findings:**
+1. Niche conditioning is necessary (38% degradation without it)
+2. AAH-to-AIS is the critical transition window (highest transport cost)
+3. Progression is non-equilibrium (flux ratio 0.67)
+4. Irreversibility peaks at transition zones
+5. AT2 cells in altered stroma have 3x higher invasion probability
+6. CAF and M2 macrophages dominate influence weights
+7. IL1B pathway is learnable from neighborhood alone
+8. Stage-specific attention mirrors immunoediting
+
+**One-sentence summary:**
+> Niche-conditioned neural flow matching reveals that LUAD progression is a driven, non-equilibrium process with irreversibility peaking at stage transitions - learnable from spatial context alone.

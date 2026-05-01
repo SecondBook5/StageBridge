@@ -55,11 +55,11 @@ else
 fi
 
 # =============================================================================
-# Step 2: SCENIC - run separately
+# Step 2: SCENIC - REMOVED (using CollecTRI from decoupleR instead)
 # =============================================================================
 echo ""
 echo "[2/16] SCENIC regulon analysis..."
-echo "  SKIP: Run separately with: bash scripts/run_scenic.sh"
+echo "  SKIP: Using CollecTRI from decoupleR (step 9) instead"
 
 # =============================================================================
 # Step 3: Squidpy spatial statistics
@@ -81,23 +81,26 @@ import os
 SPATIAL = os.environ.get('SPATIAL', '/data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad')
 CANONICAL = os.environ.get('CANONICAL', '/data1/chaunzt1/stagebridge/processed/luad_evo/canonical')
 
-print('Loading spatial data...')
+import sys
+print('Loading spatial data...', flush=True)
 adata = sc.read_h5ad(SPATIAL)
-print(f'  {adata.n_obs} spots')
+print(f'  {adata.n_obs} spots', flush=True)
 
 out = Path(CANONICAL) / 'spatial_stats'
 
-print('Computing spatial neighbors...')
+print('Computing spatial neighbors...', flush=True)
 sq.gr.spatial_neighbors(adata, coord_type='generic')
+print('  Done spatial neighbors', flush=True)
 
-print('Computing neighborhood enrichment...')
+print('Computing neighborhood enrichment...', flush=True)
 cell_type_key = 'cell_type_luca' if 'cell_type_luca' in adata.obs.columns else 'cell_type'
 if cell_type_key in adata.obs.columns:
-    sq.gr.nhood_enrichment(adata, cluster_key=cell_type_key)
+    sq.gr.nhood_enrichment(adata, cluster_key=cell_type_key, n_perms=100)  # reduced perms for speed
+    print('  Done nhood enrichment', flush=True)
     zscore = adata.uns[f'{cell_type_key}_nhood_enrichment']['zscore']
     pd.DataFrame(zscore, index=adata.obs[cell_type_key].cat.categories,
                  columns=adata.obs[cell_type_key].cat.categories).to_parquet(out / 'nhood_enrichment.parquet')
-    print('  Saved nhood_enrichment.parquet')
+    print('  Saved nhood_enrichment.parquet', flush=True)
 
 print('Computing Morans I...')
 key_genes = ['IL1B', 'IL1R1', 'CXCL12', 'CXCR4', 'EGFR', 'SOX9', 'KRT17', 'VIM', 'CDH1', 'ACTA2', 'COL1A1', 'CD274', 'PDCD1']

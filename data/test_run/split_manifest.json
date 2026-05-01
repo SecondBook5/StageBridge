@@ -1,0 +1,47 @@
+{
+  "n_folds": 3,
+  "folds": [
+    {
+      "fold": 0,
+      "train_donors": [
+        "donor_0",
+        "donor_1",
+        "donor_2"
+      ],
+      "val_donors": [
+        "donor_3"
+      ],
+      "test_donors": [
+        "donor_4"
+      ]
+    },
+    {
+      "fold": 1,
+      "train_donors": [
+        "donor_1",
+        "donor_2",
+        "donor_3"
+      ],
+      "val_donors": [
+        "donor_4"
+      ],
+      "test_donors": [
+        "donor_0"
+      ]
+    },
+    {
+      "fold": 2,
+      "train_donors": [
+        "donor_2",
+        "donor_3",
+        "donor_4"
+      ],
+      "val_donors": [
+        "donor_0"
+      ],
+      "test_donors": [
+        "donor_1"
+      ]
+    }
+  ]
+}
