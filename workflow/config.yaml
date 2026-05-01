@@ -112,6 +112,7 @@ trainer:
 hpo:
   n_trials: 30           # Number of Optuna trials
   n_epochs_per_trial: 10 # Training epochs per trial
+  time: "12:00:00"       # SLURM time limit
 
 # =============================================================================
 # Baselines

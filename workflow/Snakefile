@@ -304,7 +304,7 @@ rule hpo:
         batch_size=config["trainer"]["batch_size"],
     resources:
         mem_mb=256000,
-        runtime=480,  # 8 hours
+        runtime=720,  # 12 hours
         slurm_partition="gpu",
         gpu=1,
     shell:
