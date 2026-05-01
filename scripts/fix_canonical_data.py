@@ -229,26 +229,48 @@ def rebuild_neighborhoods(cells: pd.DataFrame, nhood_path: Path, dry_run: bool =
     nhood_df = pd.DataFrame(all_neighborhoods)
 
     # Build stats_z from conditioning features (5 dims)
-    # NOTE: caf_fraction, immune_fraction, diversity need to be computed from cell_type
-    # S_score and G2M_score come from transfer_cols
+    # stats_z = [caf_fraction, immune_fraction, diversity, S_score, G2M_score]
     print("\n    Building stats_z...")
 
-    # Check if cell_type exists for computing fractions
-    has_cell_type = 'cell_type' in nhood_df.columns and nhood_df['cell_type'].notna().any()
-    if has_cell_type:
-        print("    Computing caf_fraction, immune_fraction, diversity from cell_type...")
-        # Define cell type categories (adjust based on your atlas)
-        caf_types = ['CAF', 'Fibroblast', 'Myofibroblast']
-        immune_types = ['Macrophage', 'T cell', 'B cell', 'NK', 'Mast', 'Dendritic', 'Monocyte', 'Neutrophil']
+    # Try to load fractions from DestVI output (gammas summed by cell type category)
+    destvi_luca_path = DATA.parent / "stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet"
+    if not destvi_luca_path.exists():
+        destvi_luca_path = Path("/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet")
 
-        # For each neighborhood, we'd need ring cell types - but we only have embeddings
-        # So we'll set these to 0 for now and compute them properly in prepare_data
-        print("    WARNING: cell_type fractions require ring cell types, setting to 0")
-        nhood_df['caf_fraction'] = 0.0
-        nhood_df['immune_fraction'] = 0.0
-        nhood_df['diversity'] = 0.0
+    if destvi_luca_path.exists():
+        print(f"    Loading DestVI gammas from {destvi_luca_path}...")
+        from scipy.stats import entropy
+        destvi = pd.read_parquet(destvi_luca_path)
+
+        # Cell type columns (all columns except 'sample')
+        gamma_cols = [c for c in destvi.columns if c not in ['sample']]
+        print(f"    Found {len(gamma_cols)} cell type columns")
+
+        # Define cell type categories based on LuCA atlas
+        CAF_TYPES = {'CAF', 'Fibroblast', 'Cancer-associated fibroblast', 'Myofibroblast'}
+        IMMUNE_TYPES = {'Macrophage', 'T cell', 'CD8+ T cell', 'CD4+ T cell', 'B cell', 'NK cell',
+                        'Mast cell', 'Dendritic cell', 'Monocyte', 'Neutrophil', 'Plasma cell',
+                        'Treg', 'macrophage', 'T cell CD8+', 'T cell CD4+'}
+
+        caf_cols = [c for c in gamma_cols if any(t.lower() in c.lower() for t in CAF_TYPES)]
+        immune_cols = [c for c in gamma_cols if any(t.lower() in c.lower() for t in IMMUNE_TYPES)]
+        print(f"    CAF cols: {caf_cols}")
+        print(f"    Immune cols: {immune_cols}")
+
+        destvi['caf_fraction'] = destvi[caf_cols].sum(axis=1) if caf_cols else 0.0
+        destvi['immune_fraction'] = destvi[immune_cols].sum(axis=1) if immune_cols else 0.0
+        destvi['diversity'] = entropy(destvi[gamma_cols].values + 1e-10, axis=1)
+
+        # Map to neighborhoods by cell_id (strip 'spatial_' prefix if present)
+        nhood_cell_ids = nhood_df['cell_id'].str.replace('^spatial_', '', regex=True)
+        nhood_df['caf_fraction'] = nhood_cell_ids.map(destvi['caf_fraction']).fillna(0.0)
+        nhood_df['immune_fraction'] = nhood_cell_ids.map(destvi['immune_fraction']).fillna(0.0)
+        nhood_df['diversity'] = nhood_cell_ids.map(destvi['diversity']).fillna(0.0)
+        print(f"    CAF fraction: {nhood_df['caf_fraction'].mean():.3f} (mean)")
+        print(f"    Immune fraction: {nhood_df['immune_fraction'].mean():.3f} (mean)")
+        print(f"    Diversity: {nhood_df['diversity'].mean():.3f} (mean)")
     else:
-        print("    No cell_type column, setting fractions to 0")
+        print(f"    WARNING: DestVI not found at {destvi_luca_path}, setting fractions to 0")
         nhood_df['caf_fraction'] = 0.0
         nhood_df['immune_fraction'] = 0.0
         nhood_df['diversity'] = 0.0
