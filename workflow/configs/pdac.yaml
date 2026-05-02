@@ -1,0 +1,327 @@
+# =============================================================================
+# StageBridge PDAC (Pancreatic Ductal Adenocarcinoma) Configuration
+# =============================================================================
+# Example configuration for applying StageBridge to pancreatic cancer.
+# PanIN = Pancreatic Intraepithelial Neoplasia (precursor lesions)
+#
+# To use this config:
+#   1. Set environment variable: export STAGEBRIDGE_CANCER_TYPE=pdac
+#   2. Or programmatically: from stagebridge.contracts import set_cancer_type; set_cancer_type("pdac")
+#   3. Or override in workflow: snakemake --config cancer_type=pdac
+#
+# This configuration is an EXAMPLE - adjust paths and references for your data.
+
+# =============================================================================
+# Cancer Type Definition
+# =============================================================================
+name: pdac
+description: "Pancreatic ductal adenocarcinoma (Normal -> PanIN1-3 -> PDAC)"
+
+# =============================================================================
+# Stage Definitions
+# =============================================================================
+# PDAC progression: Normal pancreatic tissue -> PanIN grades -> invasive PDAC
+# Note: IPMN (Intraductal Papillary Mucinous Neoplasm) is another precursor not
+# included here but could be added as a parallel pathway.
+
+stages:
+  # Full clinical staging
+  full:
+    - Normal
+    - PanIN1
+    - PanIN2
+    - PanIN3
+    - PDAC
+
+  # Mapping to 3-stage system (required)
+  mapping_to_3:
+    Normal: Normal
+    PanIN1: Preinvasive
+    PanIN2: Preinvasive
+    PanIN3: Preinvasive
+    PDAC: Invasive
+
+  # Optional 4-stage system (low-grade vs high-grade dysplasia)
+  stages_4:
+    - Normal
+    - LowGrade
+    - HighGrade
+    - Invasive
+
+  mapping_to_4:
+    Normal: Normal
+    PanIN1: LowGrade
+    PanIN2: LowGrade
+    PanIN3: HighGrade
+    PDAC: Invasive
+
+  # Stage colors for visualization
+  colors:
+    Normal: "#228B22"       # Forest green
+    PanIN1: "#90EE90"       # Light green
+    PanIN2: "#FFD700"       # Gold
+    PanIN3: "#FFA500"       # Orange
+    PDAC: "#8B0000"         # Dark red
+    Preinvasive: "#4169E1"  # Royal blue
+    Invasive: "#8B0000"     # Dark red
+    LowGrade: "#90EE90"
+    HighGrade: "#FFA500"
+
+# =============================================================================
+# Reference Atlases
+# =============================================================================
+# PDAC does not have canonical HLCA/LuCA equivalents yet.
+# Options:
+#   1. Use no reference (reference_mode: none)
+#   2. Use a single pancreas atlas if available
+#   3. Create custom PDAC atlas from published datasets
+#
+# When pancreatic atlases become available, configure them here:
+
+reference_mode: none  # Options: dual, single, none
+
+# Uncomment when references become available:
+# references:
+#   hpca:  # Hypothetical Human Pancreas Cell Atlas
+#     description: "Human Pancreas Cell Atlas - healthy reference"
+#     latent_dim: 30
+#     latent_key: "X_scanvi_emb"
+#     # model_dir: "/path/to/hpca_model"
+#     # reference_h5ad: "/path/to/hpca_reference.h5ad"
+#
+#   pdac_atlas:  # PDAC-specific atlas
+#     description: "PDAC tumor atlas"
+#     latent_dim: 20
+#     latent_key: "X_scanvi_emb"
+#
+# primary_reference: hpca
+# secondary_reference: pdac_atlas
+
+# =============================================================================
+# Cell Type Markers
+# =============================================================================
+# Key markers for pancreatic cell types relevant to PDAC progression.
+
+cell_markers:
+  # Progenitor/stem markers - acinar cells, ductal cells, ADM intermediates
+  progenitor:
+    - SOX9        # Ductal/progenitor TF, upregulated in ADM
+    - PDX1        # Pancreatic development TF
+    - NKX6-1      # Pancreatic progenitor
+    - KRT19       # Ductal marker
+    - MUC1        # Ductal/luminal marker
+    - PTF1A       # Acinar TF (downregulated in ADM)
+    - RBPJL       # Acinar TF
+    - CPA1        # Acinar enzyme
+
+  # Malignant cell markers
+  malignant:
+    - EPCAM       # Epithelial marker
+    - KRT7        # Ductal epithelial
+    - KRT19       # Ductal/PDAC
+    - MUC5AC      # PanIN/PDAC mucin
+    - MUC1        # Ductal mucin
+    - CEACAM5     # CEA
+    - CEACAM6     # CEA family
+    - S100A4      # Metastasis marker
+    - S100P       # PDAC marker
+
+  # Stromal markers - PDAC has dense desmoplastic stroma
+  stromal:
+    - ACTA2       # myCAF (alpha-SMA)
+    - COL1A1      # Collagen
+    - COL3A1      # Collagen
+    - FAP         # Fibroblast activation protein
+    - IL6         # iCAF
+    - CXCL12      # iCAF
+    - PDGFRA      # Fibroblast
+    - HAS1        # Hyaluronan synthase
+    - HAS2        # Hyaluronan synthase
+
+  # Immune markers - PDAC TME is immunosuppressive
+  immune:
+    - CD3D        # T cells
+    - CD3E
+    - CD3G
+    - CD68        # Macrophages
+    - CD163       # M2 macrophages (TAM)
+    - CD19        # B cells
+    - MS4A1       # CD20, B cells
+    - ARG1        # M2/MDSC
+    - CD206       # M2 macrophages
+
+  # Stemness markers
+  stemness:
+    - SOX9
+    - NANOG
+    - POU5F1      # OCT4
+    - ALDH1A1     # Aldehyde dehydrogenase
+    - CD44
+    - CD133       # PROM1
+
+  # Senescence markers
+  senescence:
+    - CDKN1A      # p21
+    - CDKN2A      # p16 (frequently deleted in PDAC)
+    - TP53        # p53 (frequently mutated in PDAC)
+    - RB1
+    - SERPINE1
+
+  # EMT markers (important for PDAC metastasis)
+  emt_mesenchymal:
+    - VIM
+    - CDH2
+    - SNAI1
+    - ZEB1
+    - ZEB2
+    - TWIST1
+    - FN1
+    - MMP2
+    - MMP9
+
+  emt_epithelial:
+    - CDH1        # E-cadherin
+    - EPCAM
+    - KRT8
+    - KRT19
+    - CLDN1
+    - CLDN4
+
+# =============================================================================
+# Known Biological Mechanisms
+# =============================================================================
+# Literature-supported biology to validate model recovers expected patterns.
+
+known_mechanisms:
+  - name: KRAS_activation
+    type: gene_program
+    expected_stage: Preinvasive
+    markers: [KRAS, DUSP6, ETV4, ETV5]
+    literature_source: "PDAC driver mutation literature"
+    description: "KRAS-driven MAPK pathway activation in PanIN"
+    priority: 1
+
+  - name: acinar_ductal_metaplasia
+    type: cell_state
+    expected_stage: Preinvasive
+    markers: [SOX9, KRT19, MUC1, PTF1A]
+    literature_source: "ADM literature"
+    description: "Acinar-to-ductal metaplasia in early PanIN"
+    priority: 1
+
+  - name: desmoplastic_stroma
+    type: niche_composition
+    expected_stage: Invasive
+    markers: [ACTA2, COL1A1, FAP, HAS2]
+    literature_source: "PDAC stroma literature"
+    description: "Dense desmoplastic stroma in PDAC"
+    priority: 1
+
+  - name: immunosuppressive_TAM
+    type: niche_composition
+    expected_stage: Invasive
+    markers: [CD163, ARG1, CD206, IL10]
+    literature_source: "PDAC TME literature"
+    description: "M2-polarized TAM accumulation"
+    priority: 2
+
+  - name: TGFb_signaling
+    type: ligand_receptor
+    expected_stage: Invasive
+    markers: [TGFB1, TGFBR1, TGFBR2, SMAD4]
+    literature_source: "PDAC signaling literature"
+    description: "TGFb-driven EMT and stromal activation (SMAD4 loss is late event)"
+    priority: 2
+
+  - name: neural_invasion
+    type: gene_program
+    expected_stage: Invasive
+    markers: [NTRK1, NGF, GDNF, NCAM1]
+    literature_source: "PDAC neural invasion literature"
+    description: "Perineural invasion signature"
+    priority: 3
+
+  - name: hypoxia_response
+    type: gene_program
+    expected_stage: Invasive
+    markers: [HIF1A, VEGFA, CA9, GLUT1]
+    literature_source: "Tumor hypoxia literature"
+    description: "Hypoxia response in dense desmoplastic stroma"
+    priority: 3
+
+# =============================================================================
+# Gene Signatures
+# =============================================================================
+# Custom gene signatures for PDAC (beyond default EMT, senescence, etc.)
+
+gene_signatures:
+  pdac_classical:
+    - GATA6
+    - HNF1A
+    - HNF4A
+    - FOXA2
+    - FOXA3
+  pdac_basal:
+    - KRT5
+    - KRT6A
+    - KRT14
+    - S100A2
+    - TP63
+  adm_signature:
+    - SOX9
+    - KRT19
+    - MUC1
+    - HES1
+    - HNF1B
+  kras_downstream:
+    - DUSP6
+    - ETV4
+    - ETV5
+    - SPRY2
+    - SPRY4
+
+# =============================================================================
+# Paths (Override for your environment)
+# =============================================================================
+# These are example paths - set them appropriately for your setup.
+
+paths:
+  data_root: "/path/to/pdac/data"
+  data_dir: "/path/to/pdac/processed/canonical"
+  output_dir: "/path/to/pdac/outputs"
+  results_dir: "/path/to/pdac/results"
+  figures_dir: "/path/to/pdac/figures"
+
+# =============================================================================
+# Model Settings (Same as LUAD, adjust as needed)
+# =============================================================================
+model:
+  # Input dimension depends on reference mode
+  # With no references: 0 (use gene expression directly or pretrained embeddings)
+  # With single reference: reference latent_dim
+  # With dual references: sum of latent_dims
+  input_dim: 40  # Placeholder - adjust based on your embedding strategy
+
+  hidden_dim: 128
+  num_heads: 4
+  num_encoder_layers: 2
+  use_learned_ring_pooling: true
+  use_context_refiner: true
+
+  # Reference fusion (disabled for PDAC without references)
+  use_gw_fusion: false
+
+  # Evolution branch (enable if WES data available)
+  use_evolution_branch: false
+
+# =============================================================================
+# Training Settings
+# =============================================================================
+trainer:
+  ssl_epochs: 50
+  transition_epochs: 100
+  learning_rate: 1e-4
+  weight_decay: 1e-5
+  batch_size: 64
+  early_stopping_enabled: true
+  early_stopping_patience: 20
