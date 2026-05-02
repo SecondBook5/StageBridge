@@ -54,7 +54,7 @@ class AuxiliaryHead(nn.Module, ABC):
         Returns:
             [B, output_dim] predictions
         """
-        pass
+        raise NotImplementedError
 
 
 class PathwayHead(AuxiliaryHead):
