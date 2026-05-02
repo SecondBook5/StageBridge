@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Sequence
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
+from tqdm.auto import tqdm
 
 from stagebridge.contracts import (
     LATENT_DIM,
@@ -37,9 +38,12 @@ from stagebridge.contracts import (
     STAGE_TO_IDX,
     MAX_CELLS_PER_RING,
 )
+from stagebridge.settings import get_logger, settings
 
 if TYPE_CHECKING:
     import anndata as ad
+
+logger = get_logger(__name__)
 
 
 def prepare_neighborhoods(
@@ -97,18 +101,31 @@ def prepare_neighborhoods(
     if copy:
         adata = adata.copy()
 
-    # Validate inputs
+    # Validate inputs with actionable error messages
     if spatial_key not in adata.obsm:
-        raise ValueError(f"Spatial coordinates '{spatial_key}' not found in obsm")
+        raise ValueError(
+            f"Spatial coordinates '{spatial_key}' not found in adata.obsm.\n"
+            f"Available keys: {list(adata.obsm.keys())}\n"
+            f"Hint: Use spatial_key parameter to specify the correct key."
+        )
     if embedding_key not in adata.obsm:
-        raise ValueError(f"Embeddings '{embedding_key}' not found in obsm")
+        raise ValueError(
+            f"Embeddings '{embedding_key}' not found in adata.obsm.\n"
+            f"Available keys: {list(adata.obsm.keys())}\n"
+            f"Hint: Run scVI or another embedding method first."
+        )
 
     coords = adata.obsm[spatial_key]
     if coords.shape[1] < 2:
-        raise ValueError(f"Spatial coordinates must have at least 2 dimensions")
+        raise ValueError(
+            f"Spatial coordinates must have at least 2 dimensions, got {coords.shape[1]}."
+        )
 
     embeddings = adata.obsm[embedding_key]
     n_cells = adata.n_obs
+
+    logger.info(f"Preparing neighborhoods for {n_cells} cells")
+    logger.debug(f"Ring radii: {ring_radii}, max_cells_per_ring: {max_cells_per_ring}")
 
     # Build KD-tree for efficient neighbor queries
     tree = scipy.spatial.cKDTree(coords[:, :2])
@@ -118,8 +135,10 @@ def prepare_neighborhoods(
     luca_embeddings = None
     if hlca_key and hlca_key in adata.obsm:
         hlca_embeddings = adata.obsm[hlca_key]
+        logger.debug(f"Using HLCA embeddings from '{hlca_key}'")
     if luca_key and luca_key in adata.obsm:
         luca_embeddings = adata.obsm[luca_key]
+        logger.debug(f"Using LuCA embeddings from '{luca_key}'")
 
     # Prepare rings with boundaries
     ring_boundaries = [0] + list(ring_radii)
@@ -128,7 +147,11 @@ def prepare_neighborhoods(
     # Build neighborhoods
     neighborhoods = []
 
-    for i in range(n_cells):
+    cell_iter = range(n_cells)
+    if settings.verbosity >= 2:
+        cell_iter = tqdm(cell_iter, desc="Building neighborhoods")
+
+    for i in cell_iter:
         cell_id = adata.obs.index[i]
         coord = coords[i, :2]
         receiver_emb = embeddings[i]
@@ -206,9 +229,8 @@ def prepare_neighborhoods(
     neighborhoods_df = pd.DataFrame(neighborhoods)
     adata.uns["X_neighborhoods"] = neighborhoods_df
 
-    print(f"Prepared {len(neighborhoods_df)} neighborhoods")
-    print(f"  Ring radii: {ring_radii}")
-    print(f"  Max cells per ring: {max_cells_per_ring}")
+    logger.info(f"Prepared {len(neighborhoods_df)} neighborhoods")
+    logger.debug(f"Ring radii: {ring_radii}, max_cells_per_ring: {max_cells_per_ring}")
 
     if copy:
         return adata

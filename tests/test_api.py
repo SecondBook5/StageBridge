@@ -47,6 +47,25 @@ class TestAPIImports:
         assert sb.HLCA_DIM == 30
         assert sb.LUCA_DIM == 10
 
+    def test_settings(self):
+        assert hasattr(sb, "settings")
+        assert hasattr(sb.settings, "verbosity")
+        assert hasattr(sb.settings, "device")
+        assert hasattr(sb.settings, "n_jobs")
+        assert hasattr(sb.settings, "cache_dir")
+        assert hasattr(sb.settings, "figure_dir")
+
+    def test_settings_modifiable(self):
+        original = sb.settings.verbosity
+        sb.settings.verbosity = 0
+        assert sb.settings.verbosity == 0
+        sb.settings.verbosity = original
+
+    def test_settings_reset(self):
+        sb.settings.verbosity = 0
+        sb.settings.reset()
+        assert sb.settings.verbosity == 2  # default
+
 
 class TestStageBridgeAPI:
     """Test StageBridge API functionality."""

@@ -26,8 +26,9 @@ DATA_DIR="${DATA_DIR:-/data1/chaunzt1/stagebridge/processed/luad_evo/canonical}"
 OUTPUT_DIR="${OUTPUT_DIR:-/data1/chaunzt1/stagebridge/outputs/ablation_gw}"
 
 # Activate environment
-source ~/.bashrc
-conda activate stagebridge
+module load miniforge3
+eval "$(conda shell.bash hook)"
+conda activate /scratch/chaunzt1/envs/stagebridge_env
 
 # Create output dir
 mkdir -p "$OUTPUT_DIR"

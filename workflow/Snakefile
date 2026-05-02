@@ -33,6 +33,9 @@ from pathlib import Path
 # Load config
 configfile: "workflow/config.yaml"
 
+# Shell prefix: activate conda environment for all rules
+shell.prefix("module load miniforge3 && eval \"$(conda shell.bash hook)\" && conda activate /scratch/chaunzt1/envs/stagebridge_env && ")
+
 # =============================================================================
 # PATH CONFIGURATION
 # =============================================================================
@@ -54,6 +57,10 @@ SEED = config["experiment"]["seed"]
 FOLDS = list(range(N_FOLDS))
 SEEDS = list(range(N_SEEDS))
 BASELINES = config.get("baselines", ["pooling", "deepsets", "set_transformer", "graphsage"])
+
+# External competing methods (OT-based, trajectory methods)
+# These use external packages and have different training loops
+EXTERNAL_METHODS = config.get("external_methods", ["moscot", "cellrank", "commot"])
 ABLATIONS = config.get("ablations", [
     "full",
     "no_niche",
@@ -403,10 +410,22 @@ rule train_baseline:
 # =============================================================================
 
 rule run_ablation:
-    """Run an ablation experiment."""
+    """Run an ablation experiment.
+
+    Depends on train_full completing first so we can compare against the full model.
+    Uses the same HPO params as train_full for fair comparison.
+    Each fold's ablations wait only for that fold's full model.
+
+    For frozen_encoder ablation, passes the pretrained checkpoint path.
+    """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        hpo_params=f"{OUTPUT_DIR}/hpo/best_params.json",
+        # Wait for this fold's full model to complete before running ablation
+        full_model=f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json",
+        # Checkpoint needed for frozen_encoder ablation
+        full_checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/checkpoints/best_checkpoint.pt",
     output:
         result=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/ablation_{{ablation}}.json",
         checkpoint=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/checkpoints/best_checkpoint.pt",
@@ -414,6 +433,8 @@ rule run_ablation:
         ablation=lambda w: w.ablation,
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}",
+        # Pass checkpoint arg only for frozen_encoder
+        checkpoint_arg=lambda w: f"--pretrained-checkpoint {OUTPUT_DIR}/full/fold_{w.fold}/checkpoints/best_checkpoint.pt" if w.ablation == "frozen_encoder" else "",
     resources:
         mem_mb=256000,
         runtime=1440,  # 24 hours
@@ -426,7 +447,8 @@ rule run_ablation:
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
             --fold-idx {params.fold} \
-            --seed {SEED}
+            --seed {SEED} \
+            {params.checkpoint_arg}
         """
 
 
