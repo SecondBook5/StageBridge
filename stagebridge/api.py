@@ -515,9 +515,8 @@ class StageBridgeAPI:
 
     def _prepare_from_neighborhoods(self, neighborhoods: pd.DataFrame) -> dict[str, Any]:
         """Prepare batch data from neighborhoods DataFrame."""
+        from stagebridge.contracts import MAX_CELLS_PER_RING
 
-        # Create temporary dataset to reuse parsing logic
-        # This is a bit hacky but ensures consistency
         n = len(neighborhoods)
 
         # Check format
@@ -539,7 +538,8 @@ class StageBridgeAPI:
         stats_list = []
         cell_ids = []
 
-        max_cells = 50  # Standard max cells per ring
+        # Use config's max_cells_per_ring if available, else default
+        max_cells = getattr(self._config, "max_cells_per_ring", MAX_CELLS_PER_RING)
 
         for idx in range(n):
             row = neighborhoods.iloc[idx]
