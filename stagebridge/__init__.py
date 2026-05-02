@@ -27,6 +27,7 @@ Quick Start:
 See documentation for more details.
 """
 
+from stagebridge.settings import settings, setup_logging
 from stagebridge.contracts import (
     STAGES_3,
     STAGES_4,
@@ -96,6 +97,9 @@ class StageBridge(StageBridgeAPI):
 
 
 __all__ = [
+    # Settings (configure behavior)
+    "settings",
+    "setup_logging",
     # High-level API (recommended)
     "StageBridge",
     "StageBridgeConfig",

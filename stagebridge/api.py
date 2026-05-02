@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 import torch
+from tqdm.auto import tqdm
 
 from stagebridge.contracts import (
     STAGE_TO_IDX,
@@ -41,9 +42,12 @@ from stagebridge.contracts import (
 )
 from stagebridge.models.stagebridge import StageBridge as _StageBridgeModel
 from stagebridge.models.stagebridge import StageBridgeConfig
+from stagebridge.settings import get_logger, settings
 
 if TYPE_CHECKING:
     import anndata as ad
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -163,42 +167,79 @@ class StageBridgeAPI:
     ) -> "StageBridgeAPI":
         """Load a pretrained StageBridge model.
 
-        Args:
-            checkpoint_path: Path to checkpoint file (.pt)
-            device: Device to load model on ("auto", "cuda", "cpu")
-            map_location: Optional device to map checkpoint to
+        Parameters
+        ----------
+        checkpoint_path
+            Path to checkpoint file (.pt) or model name from registry
+        device
+            Device to load model on ("auto", "cuda", "cpu").
+            If "auto", uses CUDA if available.
+        map_location
+            Optional device to map checkpoint tensors to
 
-        Returns:
-            StageBridgeAPI instance
+        Returns
+        -------
+        StageBridgeAPI
+            Loaded model ready for inference
 
-        Example:
-            model = StageBridgeAPI.from_pretrained("runs/exp1/checkpoints/best.pt")
+        Raises
+        ------
+        FileNotFoundError
+            If checkpoint_path does not exist
+        KeyError
+            If checkpoint is missing required keys
+
+        Examples
+        --------
+        >>> import stagebridge as sb
+        >>> model = sb.StageBridge.from_pretrained("runs/exp1/checkpoints/best.pt")
+        >>> model = sb.StageBridge.from_pretrained("checkpoint.pt", device="cpu")
         """
         checkpoint_path = Path(checkpoint_path)
         if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+            raise FileNotFoundError(
+                f"Checkpoint not found: {checkpoint_path}\n"
+                f"Please provide a valid path to a .pt checkpoint file."
+            )
 
         # Determine device
         if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = settings.device
         if map_location is None:
             map_location = device
+
+        logger.info(f"Loading model from {checkpoint_path}")
 
         # Load checkpoint
         checkpoint = torch.load(checkpoint_path, map_location=map_location, weights_only=False)
 
+        # Validate checkpoint has required keys
+        required_keys = ["model_state_dict"]
+        missing_keys = [k for k in required_keys if k not in checkpoint]
+        if missing_keys:
+            raise KeyError(
+                f"Checkpoint missing required keys: {missing_keys}. "
+                f"Available keys: {list(checkpoint.keys())}"
+            )
+
         # Extract config
-        config_dict = checkpoint.get("config", {}).get("model_config", {})
+        config_data = checkpoint.get("config", {})
+        if isinstance(config_data, dict) and "model_config" in config_data:
+            config_dict = config_data["model_config"]
+        elif isinstance(config_data, dict):
+            config_dict = config_data
+        else:
+            config_dict = {}
+            logger.warning("No config found in checkpoint, using defaults")
+
         config = StageBridgeConfig(**config_dict)
 
         # Create and load model
         model = _StageBridgeModel(config)
         model.load_state_dict(checkpoint["model_state_dict"])
 
-        print(f"Loaded StageBridge model from {checkpoint_path}")
-        print(f"  Hidden dim: {config.hidden_dim}")
-        print(f"  Num stages: {config.num_stages}")
-        print(f"  GW fusion: {config.use_gw_fusion}")
+        logger.info(f"Model loaded: hidden_dim={config.hidden_dim}, "
+                   f"num_heads={config.num_heads}, device={device}")
 
         return cls(model, config, device)
 
@@ -288,7 +329,14 @@ class StageBridgeAPI:
         all_attention = []
 
         n_samples = len(data["receiver"])
-        for start in range(0, n_samples, batch_size):
+        n_batches = (n_samples + batch_size - 1) // batch_size
+        logger.info(f"Predicting {source_stage} -> {target_stage} for {n_samples} cells")
+
+        batch_iter = range(0, n_samples, batch_size)
+        if settings.verbosity >= 2:
+            batch_iter = tqdm(batch_iter, desc="Predicting", total=n_batches)
+
+        for start in batch_iter:
             end = min(start + batch_size, n_samples)
 
             # Slice regular tensors
@@ -410,7 +458,14 @@ class StageBridgeAPI:
         all_prototypes = []
 
         n_samples = len(data["receiver"])
-        for start in range(0, n_samples, batch_size):
+        n_batches = (n_samples + batch_size - 1) // batch_size
+        logger.info(f"Computing niche embeddings for {n_samples} cells")
+
+        batch_iter = range(0, n_samples, batch_size)
+        if settings.verbosity >= 2:
+            batch_iter = tqdm(batch_iter, desc="Embedding", total=n_batches)
+
+        for start in batch_iter:
             end = min(start + batch_size, n_samples)
 
             # Slice regular tensors

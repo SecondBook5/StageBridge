@@ -34,9 +34,11 @@ import argparse
 try:
     import ot
     HAS_OT = True
-except ImportError:
+except (ImportError, AttributeError) as e:
+    # AttributeError catches JAX/numpy version conflicts
     HAS_OT = False
-    print("WARNING: POT not installed. pip install POT")
+    ot = None
+    # Don't print during import - only warn when actually needed
 
 try:
     import umap
