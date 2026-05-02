@@ -718,6 +718,225 @@ def stage_centroids(
     return fig
 
 
+def uncertainty(
+    embeddings: np.ndarray,
+    uncertainty_values: np.ndarray,
+    stages: np.ndarray | None = None,
+    method: Literal["umap", "pca", "phate", "tsne"] = "umap",
+    cmap: str = "magma",
+    percentile_cap: float = 95,
+    point_size: int = 15,
+    alpha: float = 0.8,
+    title: str | None = None,
+    figsize: tuple[float, float] = (10, 8),
+    save_path: str | Path | None = None,
+    show: bool = True,
+    colorbar_label: str = "Uncertainty",
+    **embedding_kwargs,
+) -> Figure:
+    """Plot embedding colored by prediction uncertainty.
+
+    High uncertainty cells are typically in transitional states or heterogeneous
+    niches where the model is less confident about the predicted trajectory.
+
+    Args:
+        embeddings: Cell embeddings [N, D]
+        uncertainty_values: Per-cell uncertainty values [N]
+        stages: Optional stage labels for panel comparison
+        method: Embedding method (umap, pca, phate, tsne)
+        cmap: Colormap for uncertainty
+        percentile_cap: Cap values at this percentile for better visualization
+        point_size: Size of scatter points
+        alpha: Point transparency
+        title: Plot title
+        figsize: Figure size
+        save_path: Path to save figure
+        show: Whether to display
+        colorbar_label: Label for colorbar
+        **embedding_kwargs: Passed to embedding method
+
+    Returns:
+        Figure
+
+    Example:
+        output = model.predict_with_uncertainty(neighborhoods)
+        sb.pl.uncertainty(
+            embeddings,
+            output.uncertainty_scalar,
+            stages=adata.obs["stage"]
+        )
+    """
+    _setup_style()
+
+    # Compute 2D embedding
+    coords = _compute_2d_embedding(embeddings, method=method, **embedding_kwargs)
+
+    # Cap extreme values for visualization
+    cap_value = np.percentile(uncertainty_values, percentile_cap)
+    uncertainty_capped = np.clip(uncertainty_values, 0, cap_value)
+
+    if stages is None:
+        # Single panel
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+        scatter = ax.scatter(
+            coords[:, 0],
+            coords[:, 1],
+            c=uncertainty_capped,
+            cmap=cmap,
+            s=point_size,
+            alpha=alpha,
+            rasterized=True,
+        )
+        plt.colorbar(scatter, ax=ax, label=colorbar_label, shrink=0.8)
+
+        ax.set_xlabel("Embedding 1")
+        ax.set_ylabel("Embedding 2")
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        if title:
+            ax.set_title(title, fontweight="bold")
+        else:
+            ax.set_title("Prediction Uncertainty", fontweight="bold")
+
+    else:
+        # Two panels: stages + uncertainty
+        fig, axes = plt.subplots(1, 2, figsize=(figsize[0] * 1.8, figsize[1]))
+
+        # Panel 1: Stages
+        stages = np.array(stages)
+        unique_stages = np.unique(stages)
+
+        for stage in unique_stages:
+            mask = stages == stage
+            color = STAGE_COLORS.get(stage, "#999999")
+            axes[0].scatter(
+                coords[mask, 0],
+                coords[mask, 1],
+                c=color,
+                s=point_size,
+                alpha=alpha,
+                label=stage,
+                rasterized=True,
+            )
+        axes[0].legend(loc="best")
+        axes[0].set_xlabel("Embedding 1")
+        axes[0].set_ylabel("Embedding 2")
+        axes[0].set_xticks([])
+        axes[0].set_yticks([])
+        axes[0].set_title("Disease Stage", fontweight="bold")
+
+        # Panel 2: Uncertainty
+        scatter = axes[1].scatter(
+            coords[:, 0],
+            coords[:, 1],
+            c=uncertainty_capped,
+            cmap=cmap,
+            s=point_size,
+            alpha=alpha,
+            rasterized=True,
+        )
+        plt.colorbar(scatter, ax=axes[1], label=colorbar_label, shrink=0.8)
+        axes[1].set_xlabel("Embedding 1")
+        axes[1].set_ylabel("Embedding 2")
+        axes[1].set_xticks([])
+        axes[1].set_yticks([])
+
+        if title:
+            axes[1].set_title(title, fontweight="bold")
+        else:
+            axes[1].set_title("Prediction Uncertainty", fontweight="bold")
+
+    plt.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    if show:
+        plt.show()
+
+    return fig
+
+
+def uncertainty_by_stage(
+    uncertainty_values: np.ndarray,
+    stages: np.ndarray,
+    stage_colors: dict[str, str] | None = None,
+    stage_order: list[str] | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (8, 6),
+    save_path: str | Path | None = None,
+    show: bool = True,
+) -> Figure:
+    """Plot uncertainty distribution by disease stage.
+
+    Useful for showing that transitional stages (e.g., Preinvasive) have
+    higher uncertainty than stable stages (Normal, Invasive).
+
+    Args:
+        uncertainty_values: Per-cell uncertainty values [N]
+        stages: Stage labels [N]
+        stage_colors: Custom stage colors
+        stage_order: Order of stages on x-axis
+        title: Plot title
+        figsize: Figure size
+        save_path: Path to save figure
+        show: Whether to display
+
+    Returns:
+        Figure
+    """
+    _setup_style()
+
+    stages = np.array(stages)
+    if stage_colors is None:
+        stage_colors = STAGE_COLORS
+
+    if stage_order is None:
+        stage_order = ["Normal", "Preinvasive", "Invasive"]
+        stage_order = [s for s in stage_order if s in np.unique(stages)]
+
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+    box_data = []
+    positions = []
+    colors = []
+
+    for i, stage in enumerate(stage_order):
+        mask = stages == stage
+        if mask.sum() > 0:
+            box_data.append(uncertainty_values[mask])
+            positions.append(i)
+            colors.append(stage_colors.get(stage, "#999999"))
+
+    bp = ax.boxplot(box_data, positions=positions, patch_artist=True, widths=0.6)
+
+    for patch, color in zip(bp["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(stage_order)
+    ax.set_ylabel("Prediction Uncertainty")
+    ax.set_xlabel("Disease Stage")
+
+    if title:
+        ax.set_title(title, fontweight="bold")
+    else:
+        ax.set_title("Uncertainty by Stage", fontweight="bold")
+
+    plt.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    if show:
+        plt.show()
+
+    return fig
+
+
 def _compute_2d_embedding(
     data: np.ndarray,
     method: str = "umap",
@@ -784,6 +1003,8 @@ class PlottingNamespace:
     niche_attention = staticmethod(niche_attention)
     trajectory = staticmethod(trajectory)
     stage_centroids = staticmethod(stage_centroids)
+    uncertainty = staticmethod(uncertainty)
+    uncertainty_by_stage = staticmethod(uncertainty_by_stage)
 
 
 pl = PlottingNamespace()
