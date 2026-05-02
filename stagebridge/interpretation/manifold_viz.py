@@ -840,8 +840,6 @@ def _compute_velocity_field(
     n_cells = len(embedding)
     velocities = np.zeros((n_cells, 2))
 
-    stage_to_idx = {s: i for i, s in enumerate(stage_order)}
-
     for i, stage in enumerate(stage_order[:-1]):
         next_stage = stage_order[i + 1]
 

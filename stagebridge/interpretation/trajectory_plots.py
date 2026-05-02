@@ -298,8 +298,6 @@ def plot_single_cell_trajectories(
     fig, axes = plt.subplots(1, 2, figsize=(figsize[0] * 2, figsize[1]))
 
     for ax_idx, (ax, title) in enumerate(zip(axes, ['Gene Expression Manifold', 'Latent Manifold'])):
-        colormap = plt.cm.get_cmap(cmap)
-
         for stage, color in stage_colors.items():
             mask = stage_labels == stage
             ax.scatter(

@@ -112,7 +112,7 @@ def generate_ablations(results_dir: Path, output: Path) -> None:
     deltas = [0, 0.15, 0.08, 0.05, 0.12, 0.10, 0.03, 0.07]
 
     colors = ['#2ecc71'] + ['#e74c3c'] * 7
-    bars = ax.barh(ablations, deltas, color=colors)
+    ax.barh(ablations, deltas, color=colors)
 
     ax.set_xlabel('Delta Loss vs Full Model')
     ax.set_title('Ablation Study: Component Contributions')
@@ -325,7 +325,6 @@ def generate_trajectories(
     t = np.linspace(0, 10, 100)
     normal = 0.8 * np.exp(-t / 3)
     preinv = 0.5 * (1 - np.exp(-t / 2)) * np.exp(-t / 5)
-    invasive = 1 - normal - preinv
     ax.fill_between(t, 0, normal, alpha=0.7, label='Normal', color='#3498db')
     ax.fill_between(t, normal, normal + preinv, alpha=0.7, label='Preinvasive', color='#f39c12')
     ax.fill_between(t, normal + preinv, 1, alpha=0.7, label='Invasive', color='#e74c3c')

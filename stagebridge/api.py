@@ -290,17 +290,36 @@ class StageBridgeAPI:
         n_samples = len(data["receiver"])
         for start in range(0, n_samples, batch_size):
             end = min(start + batch_size, n_samples)
-            batch_data = {k: v[start:end] for k, v in data.items() if v is not None}
+
+            # Slice regular tensors
+            batch_receiver = data["receiver"][start:end].to(self._device)
+            batch_hlca = data["hlca"][start:end].to(self._device)
+            batch_luca = data["luca"][start:end].to(self._device)
+
+            # Slice ring_cells and ring_masks (these are lists of tensors)
+            batch_ring_cells = [rc[start:end].to(self._device) for rc in data["ring_cells"]]
+            batch_ring_masks = [rm[start:end].to(self._device) for rm in data["ring_masks"]]
+
+            # Optional tensors
+            batch_pathway = None
+            if data.get("pathway") is not None:
+                batch_pathway = data["pathway"][start:end].to(self._device)
+            else:
+                batch_pathway = torch.zeros(end - start, LATENT_DIM, device=self._device)
+
+            batch_stats = None
+            if data.get("stats") is not None:
+                batch_stats = data["stats"][start:end].to(self._device)
 
             # Encode niche
             niche_output = self._model.encode_niche(
-                receiver=batch_data["receiver"].to(self._device),
-                ring_cells=[rc.to(self._device) for rc in batch_data["ring_cells"]],
-                ring_masks=[rm.to(self._device) for rm in batch_data["ring_masks"]],
-                hlca=batch_data["hlca"].to(self._device),
-                luca=batch_data["luca"].to(self._device),
-                pathway=batch_data.get("pathway", torch.zeros(end - start, LATENT_DIM)).to(self._device),
-                stats=batch_data.get("stats"),
+                receiver=batch_receiver,
+                ring_cells=batch_ring_cells,
+                ring_masks=batch_ring_masks,
+                hlca=batch_hlca,
+                luca=batch_luca,
+                pathway=batch_pathway,
+                stats=batch_stats,
             )
 
             context = niche_output.context
@@ -313,7 +332,7 @@ class StageBridgeAPI:
 
             if return_trajectories:
                 trajectory = self._model.sample_trajectory(
-                    x0=batch_data["receiver"].to(self._device),
+                    x0=batch_receiver,
                     context=context,
                     stage_pair_id=stage_pair_id,
                     num_steps=num_integration_steps,
@@ -323,7 +342,7 @@ class StageBridgeAPI:
                 predicted = trajectory[:, -1]
             else:
                 predicted = self._model.integrate_euler(
-                    x0=batch_data["receiver"].to(self._device),
+                    x0=batch_receiver,
                     context=context,
                     stage_pair_id=stage_pair_id,
                     num_steps=num_integration_steps,
@@ -393,16 +412,35 @@ class StageBridgeAPI:
         n_samples = len(data["receiver"])
         for start in range(0, n_samples, batch_size):
             end = min(start + batch_size, n_samples)
-            batch_data = {k: v[start:end] for k, v in data.items() if v is not None}
+
+            # Slice regular tensors
+            batch_receiver = data["receiver"][start:end].to(self._device)
+            batch_hlca = data["hlca"][start:end].to(self._device)
+            batch_luca = data["luca"][start:end].to(self._device)
+
+            # Slice ring_cells and ring_masks (these are lists of tensors)
+            batch_ring_cells = [rc[start:end].to(self._device) for rc in data["ring_cells"]]
+            batch_ring_masks = [rm[start:end].to(self._device) for rm in data["ring_masks"]]
+
+            # Optional tensors
+            batch_pathway = None
+            if data.get("pathway") is not None:
+                batch_pathway = data["pathway"][start:end].to(self._device)
+            else:
+                batch_pathway = torch.zeros(end - start, LATENT_DIM, device=self._device)
+
+            batch_stats = None
+            if data.get("stats") is not None:
+                batch_stats = data["stats"][start:end].to(self._device)
 
             niche_output = self._model.encode_niche(
-                receiver=batch_data["receiver"].to(self._device),
-                ring_cells=[rc.to(self._device) for rc in batch_data["ring_cells"]],
-                ring_masks=[rm.to(self._device) for rm in batch_data["ring_masks"]],
-                hlca=batch_data["hlca"].to(self._device),
-                luca=batch_data["luca"].to(self._device),
-                pathway=batch_data.get("pathway", torch.zeros(end - start, LATENT_DIM)).to(self._device),
-                stats=batch_data.get("stats"),
+                receiver=batch_receiver,
+                ring_cells=batch_ring_cells,
+                ring_masks=batch_ring_masks,
+                hlca=batch_hlca,
+                luca=batch_luca,
+                pathway=batch_pathway,
+                stats=batch_stats,
             )
 
             all_embeddings.append(niche_output.context.cpu())
