@@ -53,20 +53,38 @@ def run_inference(
     else:
         config = StageBridgeConfig()
 
-    model = StageBridge(config).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-
+    # Load data first to detect evolution_dim
     print(f"Loading test data from fold {fold_idx}...")
     _, _, test_loader = create_dataloaders(data_dir, fold_idx=fold_idx, batch_size=64)
 
     if test_loader is None:
         raise RuntimeError(f"No test data found for fold {fold_idx}")
 
+    # Detect evolution_dim from data and validate against checkpoint config
+    sample_batch = next(iter(test_loader))
+    if sample_batch.evolution_features is not None:
+        data_evolution_dim = sample_batch.evolution_features.shape[-1]
+        if config.use_evolution_branch and config.evolution_dim != data_evolution_dim:
+            print(
+                f"WARNING: Checkpoint has evolution_dim={config.evolution_dim} but data has "
+                f"evolution_dim={data_evolution_dim}. This may cause dimension mismatches."
+            )
+            # Update config to match data - this will help detect errors early
+            # If checkpoint weights don't match, load_state_dict will fail with clear error
+            config = StageBridgeConfig(
+                **{k: v for k, v in config.__dict__.items() if k != 'evolution_dim'},
+                evolution_dim=data_evolution_dim,
+            )
+
+    model = StageBridge(config).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+
     print(f"Running inference on {len(test_loader.dataset)} test samples...")
 
     predictions = []
     embeddings = []
+    attention_weights = []
 
     with torch.no_grad():
         for batch in test_loader:
@@ -105,6 +123,9 @@ def run_inference(
             if save_embeddings:
                 embeddings.append(niche_output.context.cpu().numpy())
 
+            if save_attention and niche_output.attention_weights is not None:
+                attention_weights.append(niche_output.attention_weights.cpu().numpy())
+
     # Save predictions
     pred_df = pd.concat(predictions, ignore_index=True)
     pred_df.to_parquet(output_dir / "predictions.parquet")
@@ -112,8 +133,20 @@ def run_inference(
 
     if save_embeddings and embeddings:
         emb_arr = np.concatenate(embeddings, axis=0)
-        np.save(output_dir / "embeddings.npy", emb_arr)
-        print(f"Saved embeddings: {emb_arr.shape}")
+        # Save as parquet for consistency with Snakefile expectations
+        emb_df = pd.DataFrame(emb_arr, columns=[f"emb_{i}" for i in range(emb_arr.shape[1])])
+        emb_df.to_parquet(output_dir / "embeddings.parquet")
+        print(f"Saved embeddings: {emb_arr.shape} -> {output_dir / 'embeddings.parquet'}")
+
+    if save_attention:
+        if attention_weights:
+            attn_arr = np.concatenate(attention_weights, axis=0)
+            np.savez(output_dir / "attention_weights.npz", attention=attn_arr)
+            print(f"Saved attention: {attn_arr.shape} -> {output_dir / 'attention_weights.npz'}")
+        else:
+            # Create empty attention file to satisfy Snakefile output requirement
+            np.savez(output_dir / "attention_weights.npz", attention=np.array([]))
+            print("Warning: No attention weights available, saved empty file")
 
 
 def main():
