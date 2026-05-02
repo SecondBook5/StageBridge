@@ -85,11 +85,9 @@ def discover_ablation_sensitivity(
     import torch
 
     discoveries = []
-
     carrier_mask = germline_carrier.astype(bool)
-    noncarrier_mask = ~carrier_mask
 
-    # Get baseline predictions
+    # Convert to tensors for model forward
     receiver_t = torch.tensor(receiver_embeddings, dtype=torch.float32)
     neighbor_t = torch.tensor(neighbor_embeddings, dtype=torch.float32)
 
@@ -100,19 +98,32 @@ def discover_ablation_sensitivity(
         ntype_mask = neighbor_types == ntype
         neighbor_ablated = neighbor_embeddings.copy()
         neighbor_ablated[ntype_mask] = 0.0
-
         neighbor_ablated_t = torch.tensor(neighbor_ablated, dtype=torch.float32)
 
-        # Measure prediction change for carriers
+        # Measure prediction change
         with torch.no_grad():
-            # This is pseudocode - actual implementation depends on model API
-            # baseline_pred = model_forward(receiver_t, neighbor_t)
-            # ablated_pred = model_forward(receiver_t, neighbor_ablated_t)
-            # pred_change = (baseline_pred - ablated_pred).abs().mean(dim=-1)
-            pass
+            baseline_pred = model_forward(receiver_t, neighbor_t)
+            ablated_pred = model_forward(receiver_t, neighbor_ablated_t)
+            pred_change = (baseline_pred - ablated_pred).abs().mean(dim=-1)
 
-        # For now, use attention as proxy for ablation sensitivity
-        # (actual ablation requires model in inference mode)
+            # Compare effect in carriers vs non-carriers
+            carrier_effect = float(pred_change[carrier_mask].mean())
+            noncarrier_effect = float(pred_change[~carrier_mask].mean())
+
+            if noncarrier_effect > 0 and carrier_effect / noncarrier_effect > 1.5:
+                discoveries.append(GermlineCausalDiscovery(
+                    germline_gene=germline_gene,
+                    discovery_type="ablation_sensitivity",
+                    causal_statement=(
+                        f"Ablating {ntype} neighbors changes progression prediction "
+                        f"{carrier_effect / noncarrier_effect:.1f}x more in {germline_gene} carriers"
+                    ),
+                    effect_magnitude=carrier_effect,
+                    comparison_to_noncarrier=carrier_effect / noncarrier_effect,
+                    stage_context=f"stage_{stage_pair[0]}_{stage_pair[1]}",
+                    evidence_type="ablation",
+                    n_cells_tested=int(carrier_mask.sum()),
+                ))
 
     return discoveries
 
