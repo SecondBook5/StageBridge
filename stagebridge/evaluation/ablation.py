@@ -68,8 +68,19 @@ def run_ablation(
         data_dir, fold_idx=fold_idx, batch_size=64
     )
 
+    # Detect evolution_dim from data
+    sample_batch = next(iter(train_loader))
+    evolution_dim = sample_batch.evolution_features.shape[-1] if sample_batch.evolution_features is not None else 0
+    print(f"Detected evolution_dim={evolution_dim} from data")
+
     # Create model with ablation config
-    ablation_kwargs = ABLATION_CONFIGS[ablation]
+    ablation_kwargs = ABLATION_CONFIGS[ablation].copy()
+    # Override evolution_dim with detected value if evolution branch is used
+    if ablation_kwargs.get("use_evolution_branch", True) and evolution_dim > 0:
+        ablation_kwargs["evolution_dim"] = evolution_dim
+        ablation_kwargs["use_evolution_branch"] = True
+    elif evolution_dim == 0:
+        ablation_kwargs["use_evolution_branch"] = False
     config = StageBridgeConfig(**ablation_kwargs)
     model = StageBridge(config).to(device)
 
