@@ -12,20 +12,18 @@ This measures the contribution of each token type to receiver reconstruction.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-import numpy as np
 import pandas as pd
 import torch
 from scipy.stats import mannwhitneyu
 from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 
-from stagebridge.contracts import TOKEN_NAMES, N_TOKENS
+from stagebridge.contracts import TOKEN_NAMES
 
 if TYPE_CHECKING:
     from stagebridge.models import StageBridge
-    from stagebridge.loaders.dataset import NicheBatch
 
 
 @dataclass

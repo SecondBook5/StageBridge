@@ -20,7 +20,6 @@ from omegaconf import DictConfig, OmegaConf
 
 from stagebridge.contracts import (
     TrainingOutputContract,
-    assert_contract,
     validate_contract,
 )
 from stagebridge.loaders import create_dataloaders

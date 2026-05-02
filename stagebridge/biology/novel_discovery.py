@@ -9,14 +9,14 @@ These require experimental validation before publication claims.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Sequence
 
 import numpy as np
 import pandas as pd
 
-from stagebridge.biology.lr_scoring import LRPair, LR_PAIRS_DATABASE
+from stagebridge.biology.lr_scoring import LR_PAIRS_DATABASE
 from stagebridge.biology.known_biology import KNOWN_MECHANISMS
 
 

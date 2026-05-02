@@ -6,13 +6,12 @@ Combines HLCA (30d) and LuCA (10d) embeddings into fused representations.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
 
 import numpy as np
 import torch
 from torch import Tensor, nn
 
-from stagebridge.contracts import HLCA_DIM, LUCA_DIM, LATENT_DIM
+from stagebridge.contracts import HLCA_DIM, LUCA_DIM
 
 
 class FusionMethod(str, Enum):

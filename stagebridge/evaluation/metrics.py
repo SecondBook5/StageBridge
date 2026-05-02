@@ -13,7 +13,6 @@ from typing import Literal
 
 import numpy as np
 from scipy.spatial.distance import cdist
-from scipy.stats import wasserstein_distance
 from sklearn.neighbors import KNeighborsClassifier
 
 from stagebridge.contracts import LATENT_DIM

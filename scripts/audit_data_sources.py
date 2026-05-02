@@ -4,7 +4,6 @@
 Reports what exists and what's missing vs. contract requirements.
 """
 
-import sys
 from pathlib import Path
 
 import pandas as pd

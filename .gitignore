@@ -108,3 +108,27 @@ Thumbs.db
 *.tmp
 *.temp
 .remember/
+
+# Ruff cache
+.ruff_cache/
+
+# mypy cache
+.mypy_cache/
+
+# pytest cache (already covered but explicit)
+.pytest_cache/
+
+# Editor backup files
+*~
+\#*\#
+.\#*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini

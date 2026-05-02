@@ -10,13 +10,11 @@ Publication-quality figures adapted from AMICI for:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 import numpy as np
-import pandas as pd
 import seaborn as sns
 
 if TYPE_CHECKING:

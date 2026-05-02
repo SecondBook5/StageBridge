@@ -14,13 +14,13 @@ spatial neighbors. The receiver is the query, neighbors are keys/values.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
 
 from stagebridge.context.encoder import ReceiverNicheOutput
-from stagebridge.context.layers import SAB, ISAB, PMA, SinusoidalTimeEmbedding, FeedForwardBlock
+from stagebridge.context.layers import SAB, ISAB, PMA, SinusoidalTimeEmbedding
 from stagebridge.context.tokenizer import NicheTokenizer
 from stagebridge.context.aggregation import HierarchicalAggregator, SampleLevelHeads, PrototypeBottleneck
 from stagebridge.context.evolution import EvolutionBranch

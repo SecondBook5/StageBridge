@@ -12,10 +12,9 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-import numpy as np
 import pandas as pd
 
-from stagebridge.genomics.schemas import ClonalityEstimate, ClonalityLabel
+from stagebridge.genomics.schemas import ClonalityLabel
 
 logger = logging.getLogger(__name__)
 

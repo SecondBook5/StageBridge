@@ -19,7 +19,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 from stagebridge.baselines import get_baseline
-from stagebridge.contracts import BaselineOutputContract, assert_contract, validate_contract
+from stagebridge.contracts import BaselineOutputContract, validate_contract
 from stagebridge.loaders import create_dataloaders
 from stagebridge.training import TrainerConfig
 
