@@ -25,7 +25,6 @@ from typing import Literal
 
 import torch
 from torch import Tensor, nn
-import torch.nn.functional as F
 
 
 @dataclass

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 if TYPE_CHECKING:
-    import anndata as ad
+    pass
 
 
 # Canonical pathway gene sets

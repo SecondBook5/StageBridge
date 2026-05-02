@@ -22,12 +22,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
-import torch
 
 from stagebridge.biology.lr_scoring import (
     compute_attention_weighted_lr_scores,
@@ -37,7 +34,6 @@ from stagebridge.biology.lr_scoring import (
 from stagebridge.biology.known_biology import (
     validate_known_mechanisms,
     compute_mechanism_recovery_score,
-    KNOWN_MECHANISMS,
 )
 from stagebridge.biology.novel_discovery import (
     generate_novel_hypotheses,

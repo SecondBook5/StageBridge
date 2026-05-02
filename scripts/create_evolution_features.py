@@ -17,7 +17,6 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
-import numpy as np
 
 
 def create_evolution_features(

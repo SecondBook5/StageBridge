@@ -17,7 +17,7 @@ import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-from stagebridge.contracts import AblationOutputContract, assert_contract, validate_contract
+from stagebridge.contracts import AblationOutputContract, validate_contract
 from stagebridge.loaders import create_dataloaders
 from stagebridge.models import StageBridge, StageBridgeConfig
 from stagebridge.training import StageBridgeTrainer, TrainerConfig

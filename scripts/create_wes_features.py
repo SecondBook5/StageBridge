@@ -16,7 +16,6 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
-import numpy as np
 
 
 # OncoKB levels for lung cancer driver mutations

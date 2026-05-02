@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from stagebridge.transition.losses import build_sinkhorn_coupling, pairwise_squared_euclidean
+from stagebridge.transition.losses import pairwise_squared_euclidean
 
 
 def build_cost_matrix(

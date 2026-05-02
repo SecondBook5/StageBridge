@@ -21,7 +21,6 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from stagebridge.genomics.schemas import TransitionGenomicEnrichment
 
 logger = logging.getLogger(__name__)
 

@@ -15,20 +15,15 @@ from typing import TYPE_CHECKING, Literal
 
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 import numpy as np
-import pandas as pd
 import seaborn as sns
 from matplotlib.animation import FuncAnimation
-from matplotlib.colors import LinearSegmentedColormap
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
-from sklearn.decomposition import PCA
 
 if TYPE_CHECKING:
     from stagebridge.interpretation.dynamics import (
         FateProbability,
         DynamicDriverResult,
-        TrajectoryAnalysis,
     )
 
 

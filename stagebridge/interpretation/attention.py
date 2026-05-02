@@ -11,14 +11,14 @@ Key differences from AMICI:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
 
-from stagebridge.contracts import TOKEN_NAMES, STAGES, IDX_TO_STAGE
+from stagebridge.contracts import TOKEN_NAMES, IDX_TO_STAGE
 
 if TYPE_CHECKING:
     from stagebridge.models import StageBridge

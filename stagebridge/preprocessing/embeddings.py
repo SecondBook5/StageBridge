@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
-import numpy as np
 
 if TYPE_CHECKING:
     import anndata as ad

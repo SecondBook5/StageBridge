@@ -14,14 +14,12 @@ from datetime import datetime
 from pathlib import Path
 
 import hydra
-import numpy as np
 import pandas as pd
 import torch
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
 from stagebridge.contracts import (
-    LATENT_DIM,
     InferenceOutputContract,
     assert_contract,
     validate_contract,

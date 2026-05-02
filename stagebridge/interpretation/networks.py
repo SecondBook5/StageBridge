@@ -20,15 +20,12 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import torch
 from scipy.stats import spearmanr, pearsonr
 from statsmodels.stats.multitest import multipletests
-from tqdm import tqdm
 
 from stagebridge.contracts import IDX_TO_STAGE
 
 if TYPE_CHECKING:
-    from stagebridge.models import StageBridge
     import networkx as nx
 
 

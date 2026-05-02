@@ -25,7 +25,6 @@ from dataclasses import dataclass
 from typing import Sequence, Callable
 
 import numpy as np
-import pandas as pd
 
 
 @dataclass

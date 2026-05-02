@@ -17,10 +17,8 @@ warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from matplotlib.patches import Patch
 import seaborn as sns
-from scipy.cluster.hierarchy import linkage, dendrogram, leaves_list
+from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform
 
 # Publication style settings

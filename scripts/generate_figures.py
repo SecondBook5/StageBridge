@@ -32,15 +32,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Optional, Tuple
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.gridspec import GridSpec
-from matplotlib.collections import LineCollection
 import numpy as np
 import pandas as pd
-from scipy.integrate import odeint
 from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter
 
@@ -744,7 +741,6 @@ def fig_trajectories(
         # Simple exponential model
         y_normal = 0.6 * np.exp(-0.3 * t)
         y_pre = 0.3 * (1 - np.exp(-0.5 * t)) * np.exp(-0.2 * t)
-        y_inv = 1 - y_normal - y_pre
 
         ax2.fill_between(t, 0, y_normal, alpha=0.7, color=STAGE_COLORS.get('Normal', 'blue'), label='Normal')
         ax2.fill_between(t, y_normal, y_normal + y_pre, alpha=0.7, color=STAGE_COLORS.get('Preinvasive', 'green'), label='Preinvasive')
@@ -907,7 +903,7 @@ def fig_spatial_attention(
         rings = ['Ring 1\n(0-50um)', 'Ring 2\n(50-100um)', 'Ring 3\n(100-150um)', 'Ring 4\n(150-200um)']
         colors = plt.cm.Blues(np.linspace(0.3, 0.8, 4))
 
-        bars = ax2.bar(range(4), receiver_to_spatial, color=colors, edgecolor='black', lw=1.5)
+        ax2.bar(range(4), receiver_to_spatial, color=colors, edgecolor='black', lw=1.5)
         ax2.set_xticks(range(4))
         ax2.set_xticklabels(rings, fontsize=8)
         ax2.set_ylabel('Attention weight')

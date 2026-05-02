@@ -21,13 +21,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 import numpy as np
-import pandas as pd
-from matplotlib.collections import LineCollection
-from matplotlib.colors import Normalize
 from scipy.interpolate import splprep, splev
-from scipy.spatial.distance import cdist
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
