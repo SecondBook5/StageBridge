@@ -1019,6 +1019,17 @@ def train_stagebridge(
         num_workers=4,
     )
 
+    # Detect evolution_dim from data (may differ from contracts.EVOLUTION_DIM)
+    sample_batch = next(iter(train_loader))
+    if sample_batch.evolution_features is not None and model_config.use_evolution_branch:
+        detected_dim = sample_batch.evolution_features.shape[-1]
+        if detected_dim != model_config.evolution_dim:
+            print(f"Detected evolution_dim={detected_dim} from data (config had {model_config.evolution_dim})")
+            model_config = StageBridgeConfig(
+                **{k: v for k, v in model_config.__dict__.items() if k != 'evolution_dim'},
+                evolution_dim=detected_dim,
+            )
+
     model = StageBridge(model_config)
 
     trainer = StageBridgeTrainer(
@@ -1066,6 +1077,14 @@ if __name__ == "__main__":
             hpo = json.load(f)
         print(f"Loaded HPO params: {hpo}")
 
+    # Detect evolution_dim from data before creating config
+    from stagebridge.loaders import create_dataloaders as _create_dl
+    _train_loader, _, _ = _create_dl(args.data_dir, fold_idx=args.fold_idx, batch_size=64, num_workers=0)
+    _sample = next(iter(_train_loader))
+    evolution_dim = _sample.evolution_features.shape[-1] if _sample.evolution_features is not None else 0
+    print(f"Detected evolution_dim={evolution_dim} from data")
+    del _train_loader, _sample, _create_dl
+
     # Model config from HPO or CLI
     model_config = StageBridgeConfig(
         hidden_dim=hpo.get("hidden_dim", 128),
@@ -1078,7 +1097,8 @@ if __name__ == "__main__":
         use_learned_ring_pooling=True,
         use_context_refiner=True,
         use_cross_attn_drift=True,
-        use_evolution_branch=True,  # WES + clonal conditioning
+        use_evolution_branch=evolution_dim > 0,
+        evolution_dim=evolution_dim,
     )
 
     trainer_config = TrainerConfig(
