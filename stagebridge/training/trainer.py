@@ -8,17 +8,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import torch
 import torch.nn.functional as F
-from torch import Tensor, nn
+from torch import Tensor
 from torch.amp import GradScaler
 from contextlib import nullcontext
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from stagebridge.contracts import N_STAGES, STAGE_TO_IDX
 from stagebridge.loaders.dataset import NicheBatch
 from stagebridge.models.stagebridge import StageBridge, StageBridgeConfig
 from stagebridge.training.checkpoint import CheckpointManager
@@ -887,12 +886,22 @@ class StageBridgeTrainer:
         return (stages[src_idx], stages[src_idx + 1])
 
     def _sample_targets(self, batch: NicheBatch, target_stage: int) -> Tensor:
-        """Sample target states for flow matching.
+        """Sample target states for flow matching from target stage population.
 
-        For now, uses receivers from the same batch (self-supervision).
-        In full training, would sample from target stage population.
+        Properly samples from cells at the target stage rather than adding noise
+        to source cells. This is essential for learning meaningful transitions.
         """
-        return batch.receiver + 0.1 * torch.randn_like(batch.receiver)
+        target_mask = batch.stage_idx == target_stage
+        n_targets = target_mask.sum().item()
+
+        if n_targets > 0:
+            target_receivers = batch.receiver[target_mask]
+            sample_idx = torch.randint(
+                n_targets, (batch.receiver.shape[0],), device=batch.receiver.device
+            )
+            return target_receivers[sample_idx]
+        else:
+            return batch.receiver + 0.1 * torch.randn_like(batch.receiver)
 
     def _load_checkpoint(self, path: Path | str):
         """Load checkpoint and resume training."""
