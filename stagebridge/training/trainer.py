@@ -165,6 +165,54 @@ class StageBridgeTrainer:
         self._transition_gradient_verified = False
         self._current_phase = "ssl"
 
+    def _print_training_info(
+        self,
+        train_loader: DataLoader,
+        val_loader: DataLoader | None,
+    ) -> None:
+        """Print training configuration at startup."""
+        print(f"\n{'=' * 60}")
+        print("StageBridge Training")
+        print(f"{'=' * 60}")
+
+        # Device info
+        print(f"\nDevice: {self.device}")
+        if self.device.type == "cuda":
+            print(f"  GPU: {torch.cuda.get_device_name(self.device)}")
+            print(f"  Memory: {torch.cuda.get_device_properties(self.device).total_memory / 1e9:.1f} GB")
+
+        # Data info
+        print(f"\nData:")
+        print(f"  Train batches: {len(train_loader)}")
+        print(f"  Train samples: {len(train_loader.dataset)}")
+        if val_loader:
+            print(f"  Val batches: {len(val_loader)}")
+            print(f"  Val samples: {len(val_loader.dataset)}")
+        print(f"  Batch size: {train_loader.batch_size}")
+
+        # Model info
+        n_params = sum(p.numel() for p in self.model.parameters())
+        n_trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        print(f"\nModel:")
+        print(f"  Total parameters: {n_params:,}")
+        print(f"  Trainable parameters: {n_trainable:,}")
+        print(f"  Hidden dim: {self.model.config.hidden_dim}")
+        print(f"  Num heads: {self.model.config.num_heads}")
+        print(f"  GW fusion: {self.model.config.use_gw_fusion}")
+
+        # Training config
+        print(f"\nTraining:")
+        print(f"  SSL epochs: {self.config.ssl_epochs}")
+        print(f"  Transition epochs: {self.config.transition_epochs}")
+        print(f"  Learning rate: {self.config.learning_rate:.2e}")
+        print(f"  Weight decay: {self.config.weight_decay:.2e}")
+        print(f"  Mixed precision: {self.config.mixed_precision}")
+        print(f"  Gradient clip: {self.config.gradient_clip}")
+
+        # Output
+        print(f"\nOutput: {self.run_dir}")
+        print(f"{'=' * 60}\n")
+
     def train(
         self,
         train_loader: DataLoader,
@@ -183,6 +231,10 @@ class StageBridgeTrainer:
         """
         if resume_from:
             self._load_checkpoint(resume_from)
+
+        # Print training configuration
+        if is_main_process():
+            self._print_training_info(train_loader, val_loader)
 
         summary = {"ssl": {}, "transition": {}}
 
