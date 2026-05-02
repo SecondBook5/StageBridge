@@ -99,7 +99,6 @@ class AblationModule:
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not progress_bar, desc="Ablation"):
                 batch = batch.to(device)
-                B = len(batch)
 
                 baseline_output = model.niche_encoder(
                     receiver=batch.receiver,

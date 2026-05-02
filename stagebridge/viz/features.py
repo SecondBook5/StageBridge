@@ -213,7 +213,6 @@ def plot_umap_features(
         if df[feat].dtype == "object" or feat.startswith("cell_type"):
             unique_vals = df[feat].dropna().unique()
             color_map = {v: CELLTYPE_COLORS.get(v, f"C{i}") for i, v in enumerate(unique_vals)}
-            colors = df[feat].map(color_map)
 
             for val in unique_vals[:15]:  # Limit legend
                 mask = df[feat] == val

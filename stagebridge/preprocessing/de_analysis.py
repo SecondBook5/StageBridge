@@ -33,7 +33,6 @@ def run_de_stage_vs_rest(
     import scanpy as sc
 
     stage_mask = adata.obs["stage"] == stage
-    n_stage = stage_mask.sum()
 
     rest_mask = ~stage_mask
     n_rest = min(rest_mask.sum(), max_rest_cells)

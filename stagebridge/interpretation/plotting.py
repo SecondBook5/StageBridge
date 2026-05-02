@@ -307,7 +307,7 @@ def plot_ablation_importance(
 
     fig, ax = plt.subplots(figsize=figsize)
 
-    bars = ax.barh(df["token"], df["relative_importance"], color=color)
+    ax.barh(df["token"], df["relative_importance"], color=color)
 
     for i, (idx, row) in enumerate(df.iterrows()):
         if row.get("p_adj", 1) < 0.05:
