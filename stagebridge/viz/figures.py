@@ -24,13 +24,9 @@ warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
-from matplotlib.collections import LineCollection
 import seaborn as sns
 from pathlib import Path
 from sklearn.decomposition import PCA
-from sklearn.neighbors import NearestNeighbors
-from scipy import stats
 from scipy.ndimage import gaussian_filter
 from scipy.spatial.distance import cdist
 import argparse
@@ -106,8 +102,12 @@ CELL_TYPE_COLORS = {
 
 
 def load_data(data_dir: Path):
-    """Load cells data and detect stage vocabulary."""
-    global STAGE_ORDER
+    """Load cells data and detect stage vocabulary.
+
+    Sets module-level STAGE_ORDER based on detected stages in data.
+    This is intentional one-time initialization, not repeated mutation.
+    """
+    global STAGE_ORDER  # noqa: PLW0603 - intentional module initialization
     cells = pd.read_parquet(data_dir / "cells.parquet")
     unique_stages = set(cells["stage"].dropna().unique())
     if unique_stages <= set(STAGE_ORDER_3):
@@ -233,7 +233,9 @@ def compute_ot_velocity(source_coords, target_coords, n_samples=2000, reg=0.1):
 
     try:
         T = ot.sinkhorn(a, b, M, reg=reg, numItermax=1000)
-    except:
+    except (ValueError, RuntimeError, FloatingPointError) as e:
+        import warnings
+        warnings.warn(f"OT computation failed: {e}")
         return None, None, None
 
     target_barycenters = T @ tgt / (T.sum(axis=1, keepdims=True) + 1e-10)
