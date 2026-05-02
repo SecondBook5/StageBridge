@@ -63,6 +63,8 @@ class PredictionOutput:
         cell_ids: Cell identifiers
         source_stage: Source stage name
         target_stage: Target stage name
+        uncertainty: Per-cell uncertainty from MC dropout [N, D] (std across samples)
+        uncertainty_scalar: Per-cell scalar uncertainty [N] (mean std across dimensions)
     """
 
     predicted_embeddings: np.ndarray
@@ -73,6 +75,8 @@ class PredictionOutput:
     cell_ids: list[str] | None = None
     source_stage: str | None = None
     target_stage: str | None = None
+    uncertainty: np.ndarray | None = None
+    uncertainty_scalar: np.ndarray | None = None
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert predictions to DataFrame."""
@@ -427,6 +431,181 @@ class StageBridgeAPI:
             cell_ids=cell_ids,
             source_stage=source_stage,
             target_stage=target_stage,
+        )
+
+    def predict_with_uncertainty(
+        self,
+        adata: "ad.AnnData | None" = None,
+        neighborhoods: pd.DataFrame | None = None,
+        source_stage: str | int = "Normal",
+        target_stage: str | int = "Invasive",
+        num_integration_steps: int = 8,
+        batch_size: int = 256,
+        n_samples: int = 20,
+    ) -> PredictionOutput:
+        """Run inference with Monte Carlo dropout for uncertainty estimation.
+
+        Enables dropout at inference time and runs multiple forward passes to
+        estimate prediction uncertainty. Cells with high uncertainty are typically
+        in transitional states or heterogeneous niches.
+
+        Parameters
+        ----------
+        adata
+            AnnData with obsm["X_stagebridge"] embeddings
+        neighborhoods
+            Alternatively, provide neighborhoods DataFrame directly
+        source_stage
+            Source disease stage (name or index)
+        target_stage
+            Target disease stage (name or index)
+        num_integration_steps
+            Number of Euler steps for integration
+        batch_size
+            Batch size for inference
+        n_samples
+            Number of MC dropout samples (default 20)
+
+        Returns
+        -------
+        PredictionOutput
+            Predictions with uncertainty estimates. The `uncertainty` field
+            contains per-dimension std, `uncertainty_scalar` is the mean std.
+
+        Examples
+        --------
+        >>> output = model.predict_with_uncertainty(adata, n_samples=30)
+        >>> adata.obs["uncertainty"] = output.uncertainty_scalar
+        >>> # High uncertainty cells are in transitional states
+        >>> transitional = adata.obs["uncertainty"] > np.percentile(output.uncertainty_scalar, 90)
+        """
+        if adata is None and neighborhoods is None:
+            raise ValueError("Must provide either adata or neighborhoods")
+
+        # Convert stage names to indices
+        if isinstance(source_stage, str):
+            source_idx = STAGE_TO_IDX.get(source_stage)
+            if source_idx is None:
+                raise ValueError(f"Unknown stage: {source_stage}. Valid: {list(STAGE_TO_IDX.keys())}")
+        else:
+            source_idx = source_stage
+            source_stage = IDX_TO_STAGE.get(source_idx, str(source_idx))
+
+        if isinstance(target_stage, str):
+            target_idx = STAGE_TO_IDX.get(target_stage)
+            if target_idx is None:
+                raise ValueError(f"Unknown stage: {target_stage}. Valid: {list(STAGE_TO_IDX.keys())}")
+        else:
+            target_idx = target_stage
+            target_stage = IDX_TO_STAGE.get(target_idx, str(target_idx))
+
+        # Prepare data
+        if neighborhoods is not None:
+            data = self._prepare_from_neighborhoods(neighborhoods)
+        else:
+            data = self._prepare_from_adata(adata)
+
+        n_cells = len(data["receiver"])
+        logger.info(f"MC dropout prediction: {n_samples} samples for {n_cells} cells")
+
+        # Collect predictions from multiple forward passes with dropout enabled
+        all_predictions = []
+
+        sample_iter = range(n_samples)
+        if settings.verbosity >= 2:
+            sample_iter = tqdm(sample_iter, desc="MC samples")
+
+        for _ in sample_iter:
+            # Enable dropout by setting model to train mode
+            self._model.train()
+
+            sample_predictions = []
+
+            with torch.no_grad():
+                for start in range(0, n_cells, batch_size):
+                    end = min(start + batch_size, n_cells)
+
+                    # Prepare batch
+                    batch_receiver = data["receiver"][start:end].to(self._device)
+                    batch_hlca = data["hlca"][start:end].to(self._device)
+                    batch_luca = data["luca"][start:end].to(self._device)
+                    batch_ring_cells = [rc[start:end].to(self._device) for rc in data["ring_cells"]]
+                    batch_ring_masks = [rm[start:end].to(self._device) for rm in data["ring_masks"]]
+
+                    # Encode niche context
+                    niche_output = self._model.encode_niche(
+                        receiver=batch_receiver,
+                        ring_cells=batch_ring_cells,
+                        ring_masks=batch_ring_masks,
+                        hlca=batch_hlca,
+                        luca=batch_luca,
+                    )
+                    context = niche_output.context
+                    context_tokens = niche_output.context_tokens
+
+                    # Compute stage transition
+                    stage_pair_id = self._model.encode_stage_pair_tensor(
+                        source_idx, target_idx, end - start, self._device
+                    )
+
+                    predicted = self._model.integrate_euler(
+                        x0=batch_receiver,
+                        context=context,
+                        stage_pair_id=stage_pair_id,
+                        num_steps=num_integration_steps,
+                        context_tokens=context_tokens,
+                    )
+
+                    sample_predictions.append(predicted.cpu())
+
+            all_predictions.append(torch.cat(sample_predictions, dim=0))
+
+        # Set model back to eval mode
+        self._model.eval()
+
+        # Stack predictions: [n_samples, n_cells, dim]
+        predictions_stack = torch.stack(all_predictions, dim=0)
+
+        # Compute mean and std across samples
+        mean_predictions = predictions_stack.mean(dim=0).numpy()
+        std_predictions = predictions_stack.std(dim=0).numpy()
+        uncertainty_scalar = std_predictions.mean(axis=1)  # Mean std across dimensions
+
+        # Get deterministic context embeddings (single pass in eval mode)
+        with torch.no_grad():
+            all_context = []
+            for start in range(0, n_cells, batch_size):
+                end = min(start + batch_size, n_cells)
+                batch_receiver = data["receiver"][start:end].to(self._device)
+                batch_hlca = data["hlca"][start:end].to(self._device)
+                batch_luca = data["luca"][start:end].to(self._device)
+                batch_ring_cells = [rc[start:end].to(self._device) for rc in data["ring_cells"]]
+                batch_ring_masks = [rm[start:end].to(self._device) for rm in data["ring_masks"]]
+
+                niche_output = self._model.encode_niche(
+                    receiver=batch_receiver,
+                    ring_cells=batch_ring_cells,
+                    ring_masks=batch_ring_masks,
+                    hlca=batch_hlca,
+                    luca=batch_luca,
+                )
+                all_context.append(niche_output.context.cpu())
+
+        context_embeddings = torch.cat(all_context, dim=0).numpy()
+        source_embeddings = data["receiver"].numpy()
+        cell_ids = data.get("cell_ids")
+
+        logger.info(f"Uncertainty range: [{uncertainty_scalar.min():.4f}, {uncertainty_scalar.max():.4f}]")
+
+        return PredictionOutput(
+            predicted_embeddings=mean_predictions,
+            source_embeddings=source_embeddings,
+            context_embeddings=context_embeddings,
+            cell_ids=cell_ids,
+            source_stage=source_stage,
+            target_stage=target_stage,
+            uncertainty=std_predictions,
+            uncertainty_scalar=uncertainty_scalar,
         )
 
     @torch.no_grad()
