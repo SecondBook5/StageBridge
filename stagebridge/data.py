@@ -212,7 +212,7 @@ def prepare_neighborhoods(
 
     if copy:
         return adata
-    return None
+    return neighborhoods_df
 
 
 def prepare_neighborhoods_from_graph(

@@ -120,21 +120,54 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-### Demo with Synthetic Data
+### Python API (Recommended)
 
-```bash
-python run.py demo --epochs 5
+```python
+import stagebridge as sb
+
+# Load pretrained model
+model = sb.StageBridge.from_pretrained("checkpoint.pt")
+
+# Prepare neighborhoods from AnnData
+sb.prepare_neighborhoods(adata, ring_radii=[50, 100, 150, 200])
+
+# Get niche-aware embeddings
+embeddings = model.embed_niches(adata.uns["X_neighborhoods"])
+
+# Predict cell state transitions
+predictions = model.predict(
+    neighborhoods=adata.uns["X_neighborhoods"],
+    source_stage="Normal",
+    target_stage="Invasive",
+)
+
+# Visualize
+sb.pl.embedding(embeddings.embeddings, stages=adata.obs["stage"])
+sb.pl.flow_field(predictions.source_embeddings, 
+                 predictions.predicted_embeddings - predictions.source_embeddings)
 ```
 
-### Train on Real Data
+### Tutorials
+
+See the [notebooks/](notebooks/) directory for detailed tutorials:
+
+| Notebook | Description |
+|----------|-------------|
+| [01_quickstart.ipynb](notebooks/01_quickstart.ipynb) | Load model, run inference, visualize |
+| [02_training.ipynb](notebooks/02_training.ipynb) | Train your own model |
+
+### Command Line
 
 ```bash
-# Using Snakemake (recommended for HPC)
+# Demo with synthetic data
+python run.py demo --epochs 5
+
+# Train on real data (HPC with Snakemake)
 snakemake --profile workflow/slurm --jobs 20
 
 # Or directly
 python -m stagebridge.training.train \
-    --data-dir /data1/chaunzt1/stagebridge/processed/luad_evo/canonical \
+    --data-dir /path/to/data \
     --output-dir outputs/fold_0 \
     --fold 0
 ```
