@@ -164,8 +164,6 @@ def compute_attention_weighted_lr_scores(
 
         raw_score = float(np.sqrt(lig_expr.mean() * rec_expr.mean()))
 
-        mean_attention = float(attention_weights.mean())
-
         lig_attention = attention_weights[lig_mask].mean() if lig_mask.any() else 0.0
         rec_attention = attention_weights[rec_mask].mean() if rec_mask.any() else 0.0
         attention_weight = float((lig_attention + rec_attention) / 2)

@@ -141,8 +141,9 @@ def generate_novel_hypotheses(
 
     high_attn_expr = expression_matrix[high_attn_mask]
     high_attn_stages = np.array(stages)[high_attn_mask]
-    high_attn_celltypes = np.array(cell_types)[high_attn_mask]
     high_attn_scores = attention_weights[high_attn_mask].mean(axis=1)
+    # Note: high_attn_celltypes reserved for future stage-celltype analysis
+    _ = np.array(cell_types)[high_attn_mask]
 
     gene_attention_scores = {}
     for i, gene in enumerate(gene_names):
