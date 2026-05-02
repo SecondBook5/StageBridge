@@ -43,6 +43,7 @@ def run_hpo(
     device: torch.device | None = None,
     n_jobs: int = 1,
     storage: str | None = None,
+    study_name: str | None = None,
 ) -> tuple:
     """Run Optuna HPO for StageBridge.
 
@@ -228,7 +229,8 @@ def run_hpo(
         return val_loss / max(n_val, 1) if n_val > 0 else epoch_loss / n_batches
 
     # Create study
-    study_name = f"stagebridge_hpo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if study_name is None:
+        study_name = f"stagebridge_hpo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     if storage:
         study = optuna.create_study(
             study_name=study_name,
@@ -262,6 +264,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--n-jobs", type=int, default=1, help="Parallel trials")
     parser.add_argument("--storage", type=str, default=None, help="Optuna storage URL")
+    parser.add_argument("--study-name", type=str, default=None, help="Study name (for resuming)")
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -287,6 +290,7 @@ def main():
         device=device,
         n_jobs=args.n_jobs,
         storage=args.storage,
+        study_name=args.study_name,
     )
 
     # Save results

@@ -316,7 +316,8 @@ rule hpo:
             --n-epochs {params.n_epochs} \
             --batch-size {params.batch_size} \
             --seed {SEED} \
-            --storage sqlite:///{params.hpo_dir}/optuna.db
+            --storage sqlite:///{params.hpo_dir}/optuna.db \
+            --study-name stagebridge_hpo
         """
 
 
