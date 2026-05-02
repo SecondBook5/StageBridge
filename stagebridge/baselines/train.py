@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -24,7 +23,34 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from stagebridge.baselines import get_baseline
 from stagebridge.loaders import create_dataloaders
-from stagebridge.transition import flow_matching_loss
+from stagebridge.contracts import N_STAGES
+
+
+def _convert_rings_to_neighbors(
+    ring_cells: list[torch.Tensor],
+    ring_masks: list[torch.Tensor],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Convert ring-based format to flat neighbors format for baselines.
+
+    Baselines expect:
+        neighbors: [B, K, D] - flat tensor of all neighbors
+        neighbor_mask: [B, K] - boolean mask
+
+    NicheBatch provides:
+        ring_cells: List of 4 tensors, each [B, max_cells_per_ring, D]
+        ring_masks: List of 4 tensors, each [B, max_cells_per_ring] boolean
+
+    Args:
+        ring_cells: List of 4 tensors of ring cell embeddings
+        ring_masks: List of 4 tensors of validity masks
+
+    Returns:
+        (neighbors, neighbor_mask) in flat format
+    """
+    # Concatenate all rings along the sequence dimension
+    neighbors = torch.cat(ring_cells, dim=1)  # [B, 4*max_cells, D]
+    neighbor_mask = torch.cat(ring_masks, dim=1)  # [B, 4*max_cells]
+    return neighbors, neighbor_mask
 
 
 def train_baseline(
@@ -63,6 +89,9 @@ def train_baseline(
     best_val_loss = float("inf")
     history = {"train_loss": [], "val_loss": []}
 
+    # Stage pair for flow matching (use 0->1 as default)
+    default_stage_pair = 0 * N_STAGES + 1  # Normal -> Preinvasive
+
     for epoch in range(epochs):
         # Training
         model.train()
@@ -71,12 +100,17 @@ def train_baseline(
             batch = batch.to(device)
             optimizer.zero_grad()
 
+            # Convert ring format to flat neighbors format for baselines
+            neighbors, neighbor_mask = _convert_rings_to_neighbors(
+                batch.ring_cells, batch.ring_masks
+            )
+
             # Get context from baseline model
             if hasattr(model, "encode_context"):
                 context = model.encode_context(
-                    receiver_z=batch.receiver,
-                    ring_cells=batch.ring_cells,
-                    ring_masks=batch.ring_masks,
+                    receiver=batch.receiver,
+                    neighbors=neighbors,
+                    neighbor_mask=neighbor_mask,
                 )
             else:
                 context = batch.receiver
@@ -86,8 +120,16 @@ def train_baseline(
             noise = torch.randn_like(batch.receiver)
             x_t = (1 - t) * noise + t * batch.receiver
 
+            # Create stage_pair_id tensor
+            stage_pair_id = torch.full(
+                (batch.receiver.shape[0],), default_stage_pair,
+                dtype=torch.long, device=device
+            )
+
             if hasattr(model, "forward_vector_field"):
-                v_pred = model.forward_vector_field(x_t, t.squeeze(-1), context)
+                v_pred = model.forward_vector_field(
+                    x_t, t.squeeze(-1), context, stage_pair_id
+                )
             else:
                 v_pred = model(x_t, t.squeeze(-1), context)
 
@@ -109,11 +151,17 @@ def train_baseline(
         with torch.no_grad():
             for batch in val_loader:
                 batch = batch.to(device)
+
+                # Convert ring format to flat neighbors format
+                neighbors, neighbor_mask = _convert_rings_to_neighbors(
+                    batch.ring_cells, batch.ring_masks
+                )
+
                 if hasattr(model, "encode_context"):
                     context = model.encode_context(
-                        receiver_z=batch.receiver,
-                        ring_cells=batch.ring_cells,
-                        ring_masks=batch.ring_masks,
+                        receiver=batch.receiver,
+                        neighbors=neighbors,
+                        neighbor_mask=neighbor_mask,
                     )
                 else:
                     context = batch.receiver
@@ -122,8 +170,16 @@ def train_baseline(
                 noise = torch.randn_like(batch.receiver)
                 x_t = (1 - t) * noise + t * batch.receiver
 
+                # Create stage_pair_id tensor
+                stage_pair_id = torch.full(
+                    (batch.receiver.shape[0],), default_stage_pair,
+                    dtype=torch.long, device=device
+                )
+
                 if hasattr(model, "forward_vector_field"):
-                    v_pred = model.forward_vector_field(x_t, t.squeeze(-1), context)
+                    v_pred = model.forward_vector_field(
+                        x_t, t.squeeze(-1), context, stage_pair_id
+                    )
                 else:
                     v_pred = model(x_t, t.squeeze(-1), context)
 
