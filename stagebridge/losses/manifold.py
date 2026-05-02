@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 if TYPE_CHECKING:
     pass
@@ -244,6 +243,10 @@ class ConstantVelocityLinearLoss(nn.Module):
         t_end = unique_stages[end_idx].float()
         time_span = t_end - t_start
 
+        # Guard against division by zero
+        if time_span.abs() < 1e-8:
+            return torch.tensor(0.0, device=x_input.device, requires_grad=True)
+
         mmd_values = []
 
         for stage_i in range(n_stages):
@@ -321,6 +324,10 @@ class VelocityConsistencyLoss(nn.Module):
                 t_i = unique_stages[i].float()
                 t_j = unique_stages[j].float()
                 time_diff = t_j - t_i
+
+                # Guard against division by zero (shouldn't happen with unique stages, but be safe)
+                if time_diff.abs() < 1e-8:
+                    continue
 
                 velocity = (z_centroids[j] - z_centroids[i]) / time_diff
                 velocity_vectors.append(velocity)
