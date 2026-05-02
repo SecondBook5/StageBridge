@@ -209,6 +209,7 @@ class TestGradientFlowContracts:
             "pma",
             "rpe",
             "stats_conditioner",
+            "ssl_pooler",  # SSL pooler not used in transition forward pass
         ]
         missing = self._get_params_without_grad(model)
         unexpected = [n for n in missing if not any(ex in n for ex in expected_exclusions)]
