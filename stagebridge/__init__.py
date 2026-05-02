@@ -43,9 +43,6 @@ from stagebridge.contracts import (
 )
 from stagebridge.models import StageBridgeConfig, StageBridgeOutput
 
-# Low-level model (for advanced users)
-from stagebridge.models import StageBridge as _StageBridgeModel
-
 # High-level API (recommended for most users)
 from stagebridge.api import (
     StageBridgeAPI,

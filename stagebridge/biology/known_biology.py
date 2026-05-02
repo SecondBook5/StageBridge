@@ -136,6 +136,23 @@ KNOWN_MECHANISMS: tuple[KnownMechanism, ...] = (
 )
 
 
+def get_mechanisms_for_cancer(cancer_type: str | None = None) -> tuple[KnownMechanism, ...]:
+    """Get known mechanisms for a specific cancer type.
+
+    Args:
+        cancer_type: Cancer type (default: uses current default from config)
+
+    Returns:
+        Tuple of KnownMechanism objects
+    """
+    if cancer_type is None or cancer_type == "luad":
+        return KNOWN_MECHANISMS
+
+    from stagebridge.config import get_known_mechanisms
+    config_mechs = get_known_mechanisms(cancer_type)
+    return tuple(KnownMechanism.from_config(m) for m in config_mechs)
+
+
 def validate_known_mechanisms(
     attention_by_stage: dict[str, np.ndarray],
     expression_by_stage: dict[str, np.ndarray],
@@ -143,6 +160,7 @@ def validate_known_mechanisms(
     mechanisms: Sequence[KnownMechanism] | None = None,
     attention_threshold: float = 0.1,
     expression_threshold: float = 0.5,
+    cancer_type: str | None = None,
 ) -> list[ValidationResult]:
     """Validate whether model recovers known biological mechanisms.
 
@@ -150,15 +168,16 @@ def validate_known_mechanisms(
         attention_by_stage: Stage -> attention weights array
         expression_by_stage: Stage -> expression matrix
         gene_names: Gene names
-        mechanisms: Mechanisms to validate (default: all)
+        mechanisms: Mechanisms to validate (default: cancer type-specific)
         attention_threshold: Threshold for "high attention"
         expression_threshold: Threshold for "expressed"
+        cancer_type: Cancer type for default mechanisms (default: "luad")
 
     Returns:
         List of ValidationResult for each mechanism
     """
     if mechanisms is None:
-        mechanisms = KNOWN_MECHANISMS
+        mechanisms = get_mechanisms_for_cancer(cancer_type)
 
     gene_to_idx = {g: i for i, g in enumerate(gene_names)}
     results = []

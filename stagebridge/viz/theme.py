@@ -3,8 +3,9 @@
 Provides consistent styling for all plots:
 - Pure white backgrounds for publication
 - 300 DPI output
-- Colorblind-friendly stage palette (LungPCA paper colors)
+- Colorblind-friendly stage palette
 - Top/right spines removed
+- Cancer type-aware color schemes
 """
 
 from __future__ import annotations
@@ -15,7 +16,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 
-# Stage colors - deep, rich hues
+# Default stage colors for LUAD (backward compatibility)
+# For other cancer types, use get_stage_colors_for_cancer()
 STAGE_COLORS = {
     "Normal": "#228B22",      # Forest green
     "AAH": "#50C878",         # Emerald
@@ -26,6 +28,24 @@ STAGE_COLORS = {
     "Invasive": "#8B0000",    # Dark red / brick
     "Unknown": "#696969",     # Dim gray
 }
+
+
+def get_stage_colors_for_cancer(cancer_type: str | None = None) -> dict[str, str]:
+    """Get stage colors for a cancer type.
+
+    Args:
+        cancer_type: Cancer type (default: uses current default from config)
+
+    Returns:
+        Dict mapping stage name to hex color
+    """
+    if cancer_type is None or cancer_type == "luad":
+        return STAGE_COLORS.copy()
+
+    from stagebridge.config import get_stage_colors
+    colors = get_stage_colors(cancer_type)
+    colors.setdefault("Unknown", "#696969")
+    return colors
 
 # Cell type colors - deep, rich palette
 CELLTYPE_COLORS = {
