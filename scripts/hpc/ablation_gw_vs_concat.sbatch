@@ -3,10 +3,10 @@
 #SBATCH --output=logs/ablation_gw_%j.out
 #SBATCH --error=logs/ablation_gw_%j.err
 #SBATCH --time=8:00:00
-#SBATCH --partition=a100
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+#SBATCH --mem=256G
 
 # GW vs Concat ablation - controlled comparison
 # Runs both arms sequentially on same GPU for fair comparison
