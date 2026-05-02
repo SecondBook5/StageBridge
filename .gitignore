@@ -72,7 +72,8 @@ venv.bak/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
+# Keep tutorial notebooks in notebooks/ directory
+# *.ipynb
 
 # Data files (large, should not be committed)
 data/raw/
