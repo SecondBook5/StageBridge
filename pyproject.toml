@@ -1,26 +1,72 @@
 [project]
 name = "stagebridge"
-version = "0.1.0"
-description = "Receiver-centered niche modeling for lung cancer progression"
+version = "1.0.0"
+description = "Receiver-centered niche modeling for cell state transitions in spatial transcriptomics"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
+authors = [
+    {name = "AJ Book", email = "book@example.com"},
+]
+keywords = [
+    "single-cell",
+    "spatial-transcriptomics",
+    "cancer",
+    "deep-learning",
+    "flow-matching",
+    "optimal-transport",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
 dependencies = [
     "torch>=2.0",
-    "numpy",
-    "pandas",
-    "scanpy",
-    "anndata",
-    "scipy",
-    "scikit-learn",
-    "tqdm",
+    "numpy>=1.21",
+    "pandas>=1.5",
+    "scipy>=1.9",
+    "scikit-learn>=1.0",
+    "anndata>=0.8",
+    "scanpy>=1.9",
+    "tqdm>=4.60",
+    "POT>=0.9",  # Optimal transport
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
-    "ruff",
-    "mypy",
+    "ruff>=0.1",
+    "mypy>=1.0",
 ]
+training = [
+    "optuna>=3.0",
+    "tensorboard>=2.10",
+]
+viz = [
+    "matplotlib>=3.5",
+    "seaborn>=0.12",
+    "umap-learn>=0.5",
+    "phate>=1.0",
+]
+all = [
+    "stagebridge[dev,training,viz]",
+]
+
+[project.urls]
+Homepage = "https://github.com/SecondBook5/StageBridge"
+Documentation = "https://github.com/SecondBook5/StageBridge#readme"
+Repository = "https://github.com/SecondBook5/StageBridge"
+Issues = "https://github.com/SecondBook5/StageBridge/issues"
+
+[project.scripts]
+stagebridge = "stagebridge.cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]
