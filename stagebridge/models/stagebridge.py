@@ -229,17 +229,20 @@ class HierarchicalSetTransformer(nn.Module):
         tokens: Tensor,
         mask: Tensor | None = None,
         coords: Tensor | None = None,
-    ) -> tuple[Tensor, Tensor]:
+        return_entropy: bool = False,
+    ) -> tuple[Tensor, Tensor] | tuple[Tensor, Tensor, Tensor]:
         """Encode tokens via hierarchical set transformer.
 
         Args:
             tokens: [B, N, D] context tokens
             mask: [B, N] attention mask
             coords: [B, N, 2] spatial coordinates (for RPE)
+            return_entropy: If True, compute and return attention entropy loss
 
         Returns:
             context: [B, D] pooled context vector
             refined_tokens: [B, N, D] refined tokens (for cross-attention drift)
+            entropy_loss: (optional) Scalar entropy loss for regularization
         """
         # ISAB layers (hierarchy via inducing points)
         h = self.isab1(tokens, mask=mask)
@@ -248,11 +251,24 @@ class HierarchicalSetTransformer(nn.Module):
         # SAB for token-token refinement
         h = self.sab(h, mask=mask)
 
-        # PMA for learned pooling
-        context = self.pma(h, mask=mask)  # [B, 1, D]
-        context = context.squeeze(1)  # [B, D]
+        # PMA for learned pooling - get attention weights for entropy
+        if return_entropy:
+            context, pma_attn = self.pma(h, mask=mask, return_attention=True)
+            context = context.squeeze(1)  # [B, D]
 
-        return context, h
+            # Compute attention entropy: -sum(p * log(p + eps))
+            # pma_attn shape: [B, num_heads, num_seeds, N]
+            # Higher entropy = more uniform attention (bad for interpretability)
+            # We want peaked attention, so minimize entropy
+            eps = 1e-8
+            entropy = -torch.sum(pma_attn * torch.log(pma_attn + eps), dim=-1)  # [B, H, S]
+            entropy_loss = entropy.mean()  # Scalar
+
+            return context, h, entropy_loss
+        else:
+            context = self.pma(h, mask=mask)  # [B, 1, D]
+            context = context.squeeze(1)  # [B, D]
+            return context, h
 
 
 # Backward compatibility alias
@@ -498,8 +514,14 @@ class StageBridge(nn.Module):
 
         # tokens: [B, 9, hidden_dim]
         # Pass through hierarchical set transformer: ISAB -> ISAB(rpe) -> SAB -> PMA
+        entropy_loss = None
         if self.context_refiner is not None:
-            context, context_tokens = self.context_refiner(tokens)
+            # Compute entropy loss during training for attention regularization
+            refiner_output = self.context_refiner(tokens, return_entropy=self.training)
+            if self.training and len(refiner_output) == 3:
+                context, context_tokens, entropy_loss = refiner_output
+            else:
+                context, context_tokens = refiner_output[:2]
         else:
             context = tokens.mean(dim=1)
             context_tokens = tokens
@@ -526,7 +548,7 @@ class StageBridge(nn.Module):
             context=context,
             context_tokens=context_tokens,
             attention_weights=None,
-            entropy_loss=None,
+            entropy_loss=entropy_loss,
             value_l1_loss=None,
             empty_attention=None,
             receiver_reconstruction=receiver_reconstruction if return_reconstruction else None,
