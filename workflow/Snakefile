@@ -642,9 +642,12 @@ rule comparison_report:
 # =============================================================================
 
 rule run_inference_for_figures:
-    """Run inference to get embeddings, predictions, attention for figures."""
+    """Run inference to get embeddings, predictions, attention for figures.
+
+    Uses fold 0, seed 0 (first seed) as representative for figures.
+    """
     input:
-        checkpoint=f"{OUTPUT_DIR}/full/fold_0/checkpoints/best_checkpoint.pt",
+        checkpoint=f"{OUTPUT_DIR}/full/fold_0/seed_{SEEDS[0]}/checkpoints/best_checkpoint.pt",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
         embeddings=f"{OUTPUT_DIR}/inference/figure_data/embeddings.parquet",
@@ -703,7 +706,8 @@ rule fig2_training_baselines:
     """Training curves + baseline comparison bar chart."""
     input:
         report=f"{RESULTS_DIR}/comparison_report.json",
-        full_summaries=expand(f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json", fold=FOLDS),
+        full_summaries=expand(f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/training_summary.json",
+                             fold=FOLDS, seed=SEEDS),
     output:
         pdf=f"{FIGURES_DIR}/fig2_training_baselines.pdf",
         png=f"{FIGURES_DIR}/fig2_training_baselines.png",
