@@ -260,9 +260,14 @@ class HierarchicalSetTransformer(nn.Module):
             # pma_attn shape: [B, num_heads, num_seeds, N]
             # Higher entropy = more uniform attention (bad for interpretability)
             # We want peaked attention, so minimize entropy
-            eps = 1e-8
-            entropy = -torch.sum(pma_attn * torch.log(pma_attn + eps), dim=-1)  # [B, H, S]
-            entropy_loss = entropy.mean()  # Scalar
+            eps = 1e-6
+            # Compute in float32 to avoid mixed precision issues
+            pma_attn_f32 = pma_attn.float()
+            # Clamp attention to valid probability range
+            pma_attn_clamped = torch.clamp(pma_attn_f32, min=eps, max=1.0 - eps)
+            # Entropy is always non-negative: -sum(p * log(p)) >= 0
+            entropy = -torch.sum(pma_attn_clamped * torch.log(pma_attn_clamped), dim=-1)  # [B, H, S]
+            entropy_loss = torch.abs(entropy.mean())  # Ensure positive (defensive)
 
             return context, h, entropy_loss
         else:
