@@ -79,6 +79,8 @@ ABLATIONS = config.get("ablations", [
     "gw_project_hlca",
     "gw_project_luca",
     "gw_barycentric",
+    # Prototype bottleneck (interpretable archetypes)
+    "with_prototypes",
 ])
 
 
