@@ -83,18 +83,8 @@ def run_frozen_encoder_ablation(
     print(f"Loading pretrained model from {pretrained_checkpoint}")
     checkpoint = torch.load(pretrained_checkpoint, map_location=device, weights_only=False)
 
-    # Extract config from checkpoint
-    config_data = checkpoint.get("config", {})
-    if isinstance(config_data, dict) and "model_config" in config_data:
-        config_dict = config_data["model_config"]
-    elif isinstance(config_data, dict):
-        config_dict = config_data
-    elif hasattr(config_data, "__dict__"):
-        config_dict = vars(config_data)
-    else:
-        config_dict = {}
-
-    config = StageBridgeConfig(**config_dict)
+    # Extract config, inferring architecture settings from state_dict
+    config = StageBridgeConfig.from_checkpoint(checkpoint)
     model = StageBridge(config).to(device)
 
     # Load pretrained weights
@@ -108,6 +98,7 @@ def run_frozen_encoder_ablation(
         "context_refiner",
         "hierarchical_aggregator",
         "stats_conditioner",
+        "evolution_branch",  # Also freeze evolution branch if present
     ]
 
     frozen_params = 0

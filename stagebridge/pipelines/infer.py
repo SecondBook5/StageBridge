@@ -40,18 +40,8 @@ def run_inference(
     print(f"Loading checkpoint: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
-    # Handle config - could be dict, nested dict, or StageBridgeConfig
-    config_data = checkpoint.get("config", {})
-    if isinstance(config_data, StageBridgeConfig):
-        config = config_data
-    elif isinstance(config_data, dict):
-        # Handle nested config from trainer (has model_config key)
-        if "model_config" in config_data:
-            config = StageBridgeConfig(**config_data["model_config"])
-        else:
-            config = StageBridgeConfig(**config_data)
-    else:
-        config = StageBridgeConfig()
+    # Extract config, inferring architecture settings from state_dict
+    config = StageBridgeConfig.from_checkpoint(checkpoint)
 
     # Load data first to detect evolution_dim
     print(f"Loading test data from fold {fold_idx}...")

@@ -226,17 +226,8 @@ class StageBridgeAPI:
                 f"Available keys: {list(checkpoint.keys())}"
             )
 
-        # Extract config
-        config_data = checkpoint.get("config", {})
-        if isinstance(config_data, dict) and "model_config" in config_data:
-            config_dict = config_data["model_config"]
-        elif isinstance(config_data, dict):
-            config_dict = config_data
-        else:
-            config_dict = {}
-            logger.warning("No config found in checkpoint, using defaults")
-
-        config = StageBridgeConfig(**config_dict)
+        # Extract config, inferring architecture settings from state_dict
+        config = StageBridgeConfig.from_checkpoint(checkpoint)
 
         # Create and load model
         model = _StageBridgeModel(config)

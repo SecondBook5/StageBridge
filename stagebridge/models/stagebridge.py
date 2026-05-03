@@ -140,6 +140,54 @@ class StageBridgeConfig:
         """Number of possible stage transitions."""
         return self.num_stages * self.num_stages
 
+    @classmethod
+    def from_checkpoint(cls, checkpoint: dict) -> "StageBridgeConfig":
+        """Create config from checkpoint, inferring settings from state_dict.
+
+        Handles cases where config was not fully saved or is missing new fields
+        by inspecting the actual model weights to infer architecture settings.
+
+        Args:
+            checkpoint: Dict with 'model_state_dict' and optional 'config'
+
+        Returns:
+            StageBridgeConfig with settings inferred from checkpoint
+        """
+        # Extract base config dict
+        config_data = checkpoint.get("config", {})
+        if isinstance(config_data, dict) and "model_config" in config_data:
+            config_dict = config_data["model_config"].copy()
+        elif isinstance(config_data, dict):
+            config_dict = config_data.copy()
+        else:
+            config_dict = {}
+
+        state_dict = checkpoint["model_state_dict"]
+
+        # Infer evolution branch settings
+        has_evolution_branch = any(k.startswith("evolution_branch.") for k in state_dict)
+        if has_evolution_branch and not config_dict.get("use_evolution_branch"):
+            config_dict["use_evolution_branch"] = True
+            for k, v in state_dict.items():
+                if k == "evolution_branch.proj.0.weight":
+                    config_dict["evolution_dim"] = v.shape[1]
+                    break
+
+        # Infer learned ring pooling vs simple projections
+        has_niche_tokenizer = any(k.startswith("niche_tokenizer.") for k in state_dict)
+        has_simple_proj = any(k.startswith("simple_") for k in state_dict)
+        if has_simple_proj and not has_niche_tokenizer:
+            config_dict["use_learned_ring_pooling"] = False
+        elif has_niche_tokenizer and not has_simple_proj:
+            config_dict["use_learned_ring_pooling"] = True
+
+        # Infer GW fusion
+        has_gw_fusion = any(k.startswith("gw_fusion.") for k in state_dict)
+        if has_gw_fusion and not config_dict.get("use_gw_fusion"):
+            config_dict["use_gw_fusion"] = True
+
+        return cls(**config_dict)
+
 
 @dataclass(slots=True, frozen=True)
 class StageBridgeOutput:
@@ -435,6 +483,12 @@ class StageBridge(nn.Module):
                 use_fused_reference=config.use_gw_fusion,
                 fused_ref_dim=config.gw_output_dim if config.use_gw_fusion else None,
             )
+        else:
+            # Simple projections for fallback mean-pooling tokenization
+            self.simple_token_proj = nn.Linear(config.input_dim, config.hidden_dim)
+            self.simple_hlca_proj = nn.Linear(30, config.hidden_dim)  # HLCA dim
+            self.simple_luca_proj = nn.Linear(10, config.hidden_dim)  # LuCA dim
+            self.simple_stats_proj = nn.Linear(config.stats_dim, config.hidden_dim)
 
     def encode_stage_pair(self, stage_src: int, stage_tgt: int) -> int:
         """Encode a stage transition as a single integer."""
@@ -488,11 +542,6 @@ class StageBridge(nn.Module):
         Returns:
             ReceiverNicheOutput with context and attention weights
         """
-        if self.niche_tokenizer is None:
-            raise RuntimeError(
-                "NicheTokenizer not initialized. Set use_learned_ring_pooling=True"
-            )
-
         # Optional: Gromov-Wasserstein fusion before tokenization
         gw_coupling = None
         gw_cost = None
@@ -505,17 +554,60 @@ class StageBridge(nn.Module):
             else:
                 fused_ref = self.gw_fusion(hlca, luca)
 
-        # NicheTokenizer: raw cells per ring -> 8 or 9-token structure
-        tokens, receiver_reconstruction, ring_attention = self.niche_tokenizer(
-            receiver=receiver,
-            ring_cells=ring_cells,
-            ring_masks=ring_masks,
-            hlca=hlca,
-            luca=luca,
-            pathway=pathway,
-            stats=stats,
-            fused_ref=fused_ref,  # If GW enabled, uses this; otherwise uses hlca/luca
-        )
+        receiver_reconstruction = None
+        ring_attention = None
+
+        if self.niche_tokenizer is not None:
+            # NicheTokenizer: raw cells per ring -> 8 or 9-token structure
+            tokens, receiver_reconstruction, ring_attention = self.niche_tokenizer(
+                receiver=receiver,
+                ring_cells=ring_cells,
+                ring_masks=ring_masks,
+                hlca=hlca,
+                luca=luca,
+                pathway=pathway,
+                stats=stats,
+                fused_ref=fused_ref,  # If GW enabled, uses this; otherwise uses hlca/luca
+            )
+        else:
+            # Fallback: simple mean pooling for each ring (no learned attention)
+            B = receiver.shape[0]
+            token_list = []
+
+            # Receiver token
+            token_list.append(self.simple_token_proj(receiver))
+
+            # Ring tokens via mean pooling
+            for i, (cells, mask) in enumerate(zip(ring_cells, ring_masks)):
+                # cells: [B, max_cells, D], mask: [B, max_cells]
+                if mask is not None:
+                    mask_expanded = mask.unsqueeze(-1).float()  # [B, max_cells, 1]
+                    masked_cells = cells * mask_expanded
+                    cell_sum = masked_cells.sum(dim=1)  # [B, D]
+                    cell_count = mask_expanded.sum(dim=1).clamp(min=1)  # [B, 1]
+                    ring_mean = cell_sum / cell_count  # [B, D]
+                else:
+                    ring_mean = cells.mean(dim=1)
+                token_list.append(self.simple_token_proj(ring_mean))
+
+            # Reference tokens
+            token_list.append(self.simple_hlca_proj(hlca))
+            token_list.append(self.simple_luca_proj(luca))
+
+            # Pathway token (use projection if provided, else zeros)
+            if pathway is not None:
+                token_list.append(self.simple_token_proj(pathway))
+            else:
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
+
+            # Stats token
+            if stats is not None:
+                stats_input = stats[:, :self.config.stats_dim] if stats.shape[-1] > self.config.stats_dim else stats
+                token_list.append(self.simple_stats_proj(stats_input))
+            else:
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
+
+            tokens = torch.stack(token_list, dim=1)  # [B, 9, hidden_dim]
 
         # tokens: [B, 9, hidden_dim]
         # Pass through hierarchical set transformer: ISAB -> ISAB(rpe) -> SAB -> PMA
