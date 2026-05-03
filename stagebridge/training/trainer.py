@@ -39,7 +39,7 @@ class TrainerConfig:
 
     # Directories
     output_dir: Path = field(default_factory=lambda: Path("runs/stagebridge"))
-    run_name: str = "default"
+    run_name: str = ""  # Empty = save directly to output_dir (no subdirectory)
 
     # Two-stage training
     ssl_epochs: int = 50
@@ -141,7 +141,11 @@ class StageBridgeTrainer:
 
         self.model.to(self.device)
 
-        run_dir = config.output_dir / config.run_name
+        # If run_name is empty or ".", use output_dir directly
+        if config.run_name and config.run_name != ".":
+            run_dir = config.output_dir / config.run_name
+        else:
+            run_dir = config.output_dir
         run_dir.mkdir(parents=True, exist_ok=True)
         self.run_dir = run_dir
 
