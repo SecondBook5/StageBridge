@@ -208,12 +208,15 @@ def run_cellrank(
     g.compute_schur(n_components=20)
     g.compute_macrostates(n_states=n_states, cluster_key="stage")
 
+    # Predict terminal states (required before fate probabilities in CellRank 2.x)
+    g.predict_terminal_states()
+
     # Get transition matrix
     T = ctk.transition_matrix
 
-    # Compute absorption probabilities to terminal states
-    g.compute_absorption_probabilities()
-    abs_probs = g.absorption_probabilities
+    # Compute fate probabilities (renamed from absorption_probabilities in CellRank 2.x)
+    g.compute_fate_probabilities()
+    fate_probs = g.fate_probabilities
 
     # Metrics
     metrics = {
@@ -226,9 +229,9 @@ def run_cellrank(
     # Save results
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save absorption probabilities
-    if abs_probs is not None:
-        np.save(output_dir / "absorption_probabilities.npy", abs_probs.values)
+    # Save fate probabilities
+    if fate_probs is not None:
+        np.save(output_dir / "fate_probabilities.npy", fate_probs.values)
 
     # Save transition matrix (sparse)
     from scipy import sparse
@@ -326,18 +329,37 @@ def run_commot(
     sc.pp.normalize_total(adata)
     sc.pp.log1p(adata)
 
+    # Get ligand-receptor database (COMMOT requires explicit df_ligrec)
+    df_ligrec = ct.pp.ligand_receptor_database(
+        database=database,
+        species="human",
+        signaling_type="Secreted Signaling",
+    )
+
+    # Filter to expressed genes
+    df_ligrec = ct.pp.filter_lr_database(
+        df_ligrec=df_ligrec,
+        adata=adata,
+        heteromeric=True,
+        min_cell_pct=0.05,
+    )
+
     # Run COMMOT
     ct.tl.spatial_communication(
         adata,
-        database_name=database,
+        database_name=database.lower(),  # lowercase for output keys
+        df_ligrec=df_ligrec,
         dis_thr=500,  # Distance threshold in spatial units
         heteromeric=True,
+        pathway_sum=True,
     )
 
-    # Extract communication scores
-    if "commot-cellchat-sum-sender" in adata.obsm:
-        sender_scores = adata.obsm["commot-cellchat-sum-sender"]
-        receiver_scores = adata.obsm["commot-cellchat-sum-receiver"]
+    # Extract communication scores (key format: commot-{database_name}-sum-sender)
+    sender_key = f"commot-{database.lower()}-sum-sender"
+    receiver_key = f"commot-{database.lower()}-sum-receiver"
+    if sender_key in adata.obsm:
+        sender_scores = adata.obsm[sender_key]
+        receiver_scores = adata.obsm[receiver_key]
     else:
         sender_scores = None
         receiver_scores = None
