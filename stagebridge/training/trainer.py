@@ -239,7 +239,9 @@ class StageBridgeTrainer:
         summary = {"ssl": {}, "transition": {}}
 
         # STAGE 1: SSL Pretraining
-        if self.config.ssl_epochs > 0:
+        # Skip if resuming from transition phase (current_epoch >= ssl_epochs)
+        ssl_already_complete = self.current_epoch >= self.config.ssl_epochs
+        if self.config.ssl_epochs > 0 and not ssl_already_complete:
             if is_main_process():
                 print(f"\n{'=' * 60}")
                 print(f"STAGE 1: SSL Pretraining ({self.config.ssl_epochs} epochs)")
@@ -251,6 +253,8 @@ class StageBridgeTrainer:
 
             # Save SSL checkpoint
             self._save_ssl_checkpoint()
+        elif ssl_already_complete and is_main_process():
+            print(f"\nSkipping SSL (already complete, resuming from epoch {self.current_epoch})")
 
         # STAGE 2: Transition Model
         if self.config.transition_epochs > 0:
@@ -293,6 +297,9 @@ class StageBridgeTrainer:
         self._current_phase = "ssl"
         self._gradient_flow_verified = False
 
+        # Support resuming: skip already-completed SSL epochs
+        start_epoch = self.current_epoch if self.current_epoch < self.config.ssl_epochs else 0
+
         self.scheduler = create_lr_scheduler(
             self.optimizer,
             self.config.ssl_epochs,
@@ -300,10 +307,17 @@ class StageBridgeTrainer:
             min_lr=self.config.min_lr,
         )
 
+        # Fast-forward scheduler to resume position
+        if start_epoch > 0:
+            for _ in range(start_epoch):
+                self.scheduler.step()
+            if is_main_process():
+                print(f"Resuming SSL from epoch {start_epoch}")
+
         best_val_loss = float("inf")
         epochs_without_improvement = 0
 
-        for epoch in range(self.config.ssl_epochs):
+        for epoch in range(start_epoch, self.config.ssl_epochs):
             self.current_epoch = epoch
 
             train_metrics = self._train_epoch_ssl(train_loader, epoch)
@@ -361,6 +375,13 @@ class StageBridgeTrainer:
         self._current_phase = "transition"
         self._transition_gradient_verified = False
 
+        # Support resuming: skip already-completed transition epochs
+        # current_epoch is global (includes SSL epochs), so subtract ssl_epochs to get transition epoch
+        if self.current_epoch >= self.config.ssl_epochs:
+            start_epoch = self.current_epoch - self.config.ssl_epochs
+        else:
+            start_epoch = 0
+
         self.scheduler = create_lr_scheduler(
             self.optimizer,
             self.config.transition_epochs,
@@ -368,10 +389,17 @@ class StageBridgeTrainer:
             min_lr=self.config.min_lr,
         )
 
+        # Fast-forward scheduler to resume position
+        if start_epoch > 0:
+            for _ in range(start_epoch):
+                self.scheduler.step()
+            if is_main_process():
+                print(f"Resuming transition from epoch {start_epoch}")
+
         best_val_loss = float("inf")
         epochs_without_improvement = 0
 
-        for epoch in range(self.config.transition_epochs):
+        for epoch in range(start_epoch, self.config.transition_epochs):
             global_epoch = self.config.ssl_epochs + epoch
             self.current_epoch = global_epoch
 
