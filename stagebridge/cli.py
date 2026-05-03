@@ -127,7 +127,7 @@ def main():
     p_train = subparsers.add_parser("train", help="Train model")
     p_train.add_argument("--data-dir", required=True, help="Data directory")
     p_train.add_argument("--output-dir", required=True, help="Output directory")
-    p_train.add_argument("--run-name", default="default")
+    p_train.add_argument("--run-name", default="")
     p_train.add_argument("--fold", type=int, default=0)
     p_train.add_argument("--batch-size", type=int, default=64)
     p_train.add_argument("--hidden-dim", type=int, default=256)
