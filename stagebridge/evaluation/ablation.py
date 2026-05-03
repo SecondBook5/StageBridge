@@ -47,6 +47,13 @@ ABLATION_CONFIGS = {
     "gw_project_hlca": {"use_gw_fusion": True, "gw_mode": "project_to_hlca"},
     "gw_project_luca": {"use_gw_fusion": True, "gw_mode": "project_to_luca"},
     "gw_barycentric": {"use_gw_fusion": True, "gw_mode": "barycentric"},
+    # Prototype bottleneck ablations (interpretable archetypes)
+    "with_prototypes": {
+        "use_niche_prototypes": True,        # Neighborhood archetypes (IL1B-high, fibrotic, etc.)
+        "num_niche_prototypes": 16,
+        "hierarchical_use_prototypes": True,  # Patient archetypes (progressor vs indolent)
+        "hierarchical_num_prototypes": 8,
+    },
 }
 
 
