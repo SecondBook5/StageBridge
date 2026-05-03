@@ -117,6 +117,9 @@ rule all:
         # All ablations on all folds x seeds
         expand(f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/ablation_{{ablation}}.json",
                ablation=ABLATIONS, fold=FOLDS, seed=SEEDS),
+        # External methods (moscot, cellrank, commot) - per fold only (no seeds, they're deterministic)
+        expand(f"{OUTPUT_DIR}/external/{{method}}/fold_{{fold}}/{{method}}_results.json",
+               method=EXTERNAL_METHODS, fold=FOLDS),
         # Evaluation aggregated across seeds (per fold)
         expand(f"{OUTPUT_DIR}/evaluation/full/fold_{{fold}}/evaluation.json", fold=FOLDS),
         # Final comparison report
@@ -460,6 +463,44 @@ rule run_ablation:
             --seed {params.seed} \
             --hpo-params {input.hpo_params} \
             {params.checkpoint_arg}
+        """
+
+
+# =============================================================================
+# EXTERNAL BASELINES (moscot, cellrank, commot)
+# =============================================================================
+
+rule run_external_method:
+    """Run external trajectory inference methods for comparison.
+
+    These methods (moscot, cellrank, commot) use different paradigms:
+    - moscot: OT-based interpolation (no learned dynamics)
+    - cellrank: Transition probability from RNA velocity/pseudotime
+    - commot: OT-based cell-cell communication
+
+    Unlike StageBridge, they don't condition on spatial niche.
+    """
+    input:
+        validated=f"{OUTPUT_DIR}/.data_validated",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        result=f"{OUTPUT_DIR}/external/{{method}}/fold_{{fold}}/{{method}}_results.json",
+    params:
+        method=lambda w: w.method,
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/external/{w.method}/fold_{w.fold}",
+    resources:
+        mem_mb=128000,
+        runtime=360,  # 6 hours
+        slurm_partition="gpu",
+        gpu=1,
+    shell:
+        """
+        python -m stagebridge.baselines.external \
+            --method {params.method} \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold}
         """
 
 
