@@ -32,13 +32,15 @@ from stagebridge.training import StageBridgeTrainer, TrainerConfig
 ABLATION_CONFIGS = {
     # Full model: GW fusion enabled (the complete StageBridge architecture)
     "full": {"use_gw_fusion": True, "gw_mode": "barycentric"},
-    "no_niche": {"max_neighbors": 0},
+    # Niche ablation: receiver only, no spatial context
+    "no_niche": {"use_niche_context": False},
     "no_distance": {"refiner_use_spatial_rpe": False},
     "no_gate": {"use_cross_attn_drift": False},  # Falls back to MLP drift
-    "random_niche": {},  # Handled at data level, not config
-    "hlca_only": {"use_gw_fusion": False},  # Must disable GW (needs both refs)
-    "luca_only": {"use_gw_fusion": False},  # Must disable GW (needs both refs)
-    "no_token_types": {},  # Would need model change
+    "random_niche": {},  # Handled at data level, not config - TODO: implement
+    # Reference ablations: use only one atlas reference
+    "hlca_only": {"use_gw_fusion": False, "use_luca_reference": False},
+    "luca_only": {"use_gw_fusion": False, "use_hlca_reference": False},
+    "no_token_types": {},  # Would need model change - TODO: implement
     "frozen_encoder": {},  # Special handling: loads pretrained encoder, freezes it
     "no_ring_pooling": {"use_learned_ring_pooling": False},
     "no_context_refiner": {"use_context_refiner": False},
