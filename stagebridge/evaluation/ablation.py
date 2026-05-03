@@ -165,6 +165,7 @@ def run_ablation(
     ssl_epochs: int = 50,
     transition_epochs: int = 100,
     pretrained_checkpoint: Path | None = None,
+    hpo_params_path: Path | None = None,
 ) -> tuple[dict, StageBridge, any]:
     """Run a single ablation experiment.
 
@@ -177,6 +178,7 @@ def run_ablation(
         ssl_epochs: Number of SSL pretraining epochs
         transition_epochs: Number of transition training epochs
         pretrained_checkpoint: Path to pretrained checkpoint (required for frozen_encoder)
+        hpo_params_path: Path to HPO best_params.json for controlled comparison
     """
     torch.manual_seed(seed)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -185,6 +187,13 @@ def run_ablation(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Running ablation '{ablation}' on {device}, fold {fold_idx}")
+
+    # Load HPO params if provided (for fair comparison)
+    hpo_params = {}
+    if hpo_params_path is not None and hpo_params_path.exists():
+        with open(hpo_params_path) as f:
+            hpo_params = json.load(f)
+        print(f"Loaded HPO params: {hpo_params}")
 
     if ablation not in ABLATION_CONFIGS:
         raise ValueError(f"Unknown ablation: {ablation}. Available: {list(ABLATION_CONFIGS)}")
@@ -218,28 +227,56 @@ def run_ablation(
             device=device,
         )
 
-    # Create model with ablation config
+    # Build model config: HPO params first, then ablation overrides
+    # This ensures ablation-specific settings (like use_gw_fusion) take precedence
+    model_kwargs = {}
+
+    # Apply HPO params (architecture)
+    if "hidden_dim" in hpo_params:
+        model_kwargs["hidden_dim"] = hpo_params["hidden_dim"]
+    if "num_heads" in hpo_params:
+        model_kwargs["num_heads"] = hpo_params["num_heads"]
+    if "dropout" in hpo_params:
+        model_kwargs["dropout"] = hpo_params["dropout"]
+    # Note: use_gw_fusion from HPO is ignored - ablation controls this
+
+    # Apply ablation config (overrides HPO where specified)
     ablation_kwargs = ABLATION_CONFIGS[ablation].copy()
+    model_kwargs.update(ablation_kwargs)
+
     # Override evolution_dim with detected value if evolution branch is used
-    if ablation_kwargs.get("use_evolution_branch", True) and evolution_dim > 0:
-        ablation_kwargs["evolution_dim"] = evolution_dim
-        ablation_kwargs["use_evolution_branch"] = True
+    if model_kwargs.get("use_evolution_branch", True) and evolution_dim > 0:
+        model_kwargs["evolution_dim"] = evolution_dim
+        model_kwargs["use_evolution_branch"] = True
     elif evolution_dim == 0:
-        ablation_kwargs["use_evolution_branch"] = False
-    config = StageBridgeConfig(**ablation_kwargs)
+        model_kwargs["use_evolution_branch"] = False
+
+    config = StageBridgeConfig(**model_kwargs)
     model = StageBridge(config).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model parameters: {n_params:,}")
-    print(f"Ablation config: {ablation_kwargs}")
+    print(f"Model config: {model_kwargs}")
+    if hpo_params:
+        print(f"HPO params applied: hidden_dim={config.hidden_dim}, num_heads={config.num_heads}, dropout={config.dropout}")
 
-    # Train
-    trainer_config = TrainerConfig(
-        output_dir=output_dir,
-        run_name=f"ablation_{ablation}",
-        ssl_epochs=ssl_epochs,
-        transition_epochs=transition_epochs,
-    )
+    # Build trainer config with HPO params
+    trainer_kwargs = {
+        "output_dir": output_dir,
+        "run_name": f"ablation_{ablation}",
+        "ssl_epochs": ssl_epochs,
+        "transition_epochs": transition_epochs,
+    }
+    if "lr" in hpo_params:
+        trainer_kwargs["lr"] = hpo_params["lr"]
+    if "ssl_weight" in hpo_params:
+        trainer_kwargs["ssl_weight"] = hpo_params["ssl_weight"]
+    if "pathway_weight" in hpo_params:
+        trainer_kwargs["pathway_weight"] = hpo_params["pathway_weight"]
+    if "proliferation_weight" in hpo_params:
+        trainer_kwargs["proliferation_weight"] = hpo_params["proliferation_weight"]
+
+    trainer_config = TrainerConfig(**trainer_kwargs)
     trainer = StageBridgeTrainer(model, trainer_config, device=device)
     metrics = trainer.train(train_loader, val_loader)
 
@@ -253,6 +290,8 @@ def run_ablation(
     result = {
         "ablation": ablation,
         "ablation_config": ablation_kwargs,
+        "model_config": model_kwargs,
+        "hpo_params": hpo_params if hpo_params else None,
         "fold_idx": fold_idx,
         "seed": seed,
         "n_parameters": n_params,
@@ -777,6 +816,12 @@ def main():
         help="Path to pretrained checkpoint (required for frozen_encoder ablation)",
     )
     parser.add_argument(
+        "--hpo-params",
+        type=Path,
+        default=None,
+        help="Path to HPO best_params.json for controlled comparison (uses same lr, hidden_dim, etc.)",
+    )
+    parser.add_argument(
         "--figures",
         action="store_true",
         help="Generate GW fusion figures after training (only for gw_* ablations)",
@@ -792,6 +837,7 @@ def main():
         ssl_epochs=args.ssl_epochs,
         transition_epochs=args.transition_epochs,
         pretrained_checkpoint=args.pretrained_checkpoint,
+        hpo_params_path=args.hpo_params,
     )
 
     # Generate GW figures if requested and applicable
