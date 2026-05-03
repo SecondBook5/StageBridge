@@ -269,8 +269,8 @@ def run_ablation(
     }
     if "lr" in hpo_params:
         trainer_kwargs["learning_rate"] = hpo_params["lr"]
-    if "ssl_weight" in hpo_params:
-        trainer_kwargs["ssl_weight"] = hpo_params["ssl_weight"]
+    # Note: ssl_weight from HPO is not a TrainerConfig field - HPO used it internally
+    # TrainerConfig has ssl_reconstruction_weight, ssl_entropy_weight instead
     if "pathway_weight" in hpo_params:
         trainer_kwargs["pathway_weight"] = hpo_params["pathway_weight"]
     if "proliferation_weight" in hpo_params:
