@@ -1080,6 +1080,7 @@ def train_stagebridge(
     trainer_config: TrainerConfig | None = None,
     fold_idx: int = 0,
     device: str = "cuda",
+    resume_from: Path | str | None = None,
 ) -> dict[str, Any]:
     """Convenience function to train StageBridge.
 
@@ -1090,6 +1091,7 @@ def train_stagebridge(
         trainer_config: Trainer configuration
         fold_idx: Cross-validation fold index
         device: Device to train on
+        resume_from: Optional checkpoint path to resume from
 
     Returns:
         Training summary
@@ -1131,7 +1133,7 @@ def train_stagebridge(
         device=device,
     )
 
-    return trainer.train(train_loader, val_loader)
+    return trainer.train(train_loader, val_loader, resume_from=resume_from)
 
 
 if __name__ == "__main__":
@@ -1158,6 +1160,9 @@ if __name__ == "__main__":
     # HPO params (overrides defaults with optimized values)
     parser.add_argument("--hpo-params", type=Path, default=None,
                         help="Path to best_params.json from HPO (overrides CLI args)")
+    # Resume from checkpoint
+    parser.add_argument("--resume", type=Path, default=None,
+                        help="Path to checkpoint to resume from (or 'auto' to find best)")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -1201,12 +1206,22 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
     )
 
+    # Auto-detect checkpoint to resume from
+    resume_from = args.resume
+    if resume_from is None:
+        # Auto-resume: check for existing best checkpoint
+        best_ckpt = args.output_dir / "checkpoints" / "best_checkpoint.pt"
+        if best_ckpt.exists():
+            resume_from = best_ckpt
+            print(f"Auto-resuming from {resume_from}")
+
     result = train_stagebridge(
         data_dir=args.data_dir,
         output_dir=args.output_dir,
         model_config=model_config,
         trainer_config=trainer_config,
         fold_idx=args.fold_idx,
+        resume_from=resume_from,
     )
 
     with open(args.output_dir / "training_summary.json", "w") as f:
