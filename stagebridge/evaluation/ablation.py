@@ -173,6 +173,7 @@ def run_ablation(
     transition_epochs: int = 100,
     pretrained_checkpoint: Path | None = None,
     hpo_params_path: Path | None = None,
+    resume_from: Path | None = None,
 ) -> tuple[dict, StageBridge, any]:
     """Run a single ablation experiment.
 
@@ -186,6 +187,7 @@ def run_ablation(
         transition_epochs: Number of transition training epochs
         pretrained_checkpoint: Path to pretrained checkpoint (required for frozen_encoder)
         hpo_params_path: Path to HPO best_params.json for controlled comparison
+        resume_from: Path to checkpoint to resume training from
     """
     torch.manual_seed(seed)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -285,7 +287,7 @@ def run_ablation(
 
     trainer_config = TrainerConfig(**trainer_kwargs)
     trainer = StageBridgeTrainer(model, trainer_config, device=device)
-    metrics = trainer.train(train_loader, val_loader)
+    metrics = trainer.train(train_loader, val_loader, resume_from=resume_from)
 
     # Save checkpoint (matches CheckpointManager naming)
     torch.save(
@@ -833,6 +835,12 @@ def main():
         action="store_true",
         help="Generate GW fusion figures after training (only for gw_* ablations)",
     )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Path to checkpoint to resume training from (e.g., output_dir/checkpoints/checkpoint_epoch_30.pt)",
+    )
     args = parser.parse_args()
 
     result, model, train_loader = run_ablation(
@@ -845,6 +853,7 @@ def main():
         transition_epochs=args.transition_epochs,
         pretrained_checkpoint=args.pretrained_checkpoint,
         hpo_params_path=args.hpo_params,
+        resume_from=args.resume,
     )
 
     # Generate GW figures if requested and applicable

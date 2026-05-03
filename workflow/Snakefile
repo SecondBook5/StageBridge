@@ -491,7 +491,7 @@ rule run_external_method:
         run_dir=lambda w: f"{OUTPUT_DIR}/external/{w.method}/fold_{w.fold}",
     resources:
         mem_mb=128000,
-        runtime=360,  # 6 hours
+        runtime=720,  # 12 hours
         slurm_partition="gpu",
         gpu=1,
     shell:
