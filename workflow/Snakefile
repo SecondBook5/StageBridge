@@ -52,10 +52,10 @@ LUCA_DIR = config["paths"]["luca_dir"]
 # Experiment settings
 N_FOLDS = config["experiment"]["n_folds"]
 N_SEEDS = config["experiment"].get("n_seeds", 3)
-SEED = config["experiment"]["seed"]
+BASE_SEED = config["experiment"]["seed"]  # Base seed, actual seeds are BASE_SEED + i
 
 FOLDS = list(range(N_FOLDS))
-SEEDS = list(range(N_SEEDS))
+SEEDS = [BASE_SEED + i for i in range(N_SEEDS)]  # e.g., [42, 43, 44] for 3 seeds
 BASELINES = config.get("baselines", ["pooling", "deepsets", "set_transformer", "graphsage"])
 
 # External competing methods (OT-based, trajectory methods)
@@ -86,14 +86,14 @@ ABLATIONS = config.get("ablations", [
 # HELPER FUNCTIONS
 # =============================================================================
 
-def get_checkpoint_path(model_type, fold, ablation=None, baseline=None):
+def get_checkpoint_path(model_type, fold, seed, ablation=None, baseline=None):
     """Get checkpoint path for a model."""
     if model_type == "full":
-        return f"{OUTPUT_DIR}/full/fold_{fold}/checkpoints/best_checkpoint.pt"
+        return f"{OUTPUT_DIR}/full/fold_{fold}/seed_{seed}/checkpoints/best_checkpoint.pt"
     elif model_type == "baseline":
-        return f"{OUTPUT_DIR}/baselines/{baseline}/fold_{fold}/checkpoints/{baseline}_final.pt"
+        return f"{OUTPUT_DIR}/baselines/{baseline}/fold_{fold}/seed_{seed}/checkpoints/{baseline}_final.pt"
     elif model_type == "ablation":
-        return f"{OUTPUT_DIR}/ablations/{ablation}/fold_{fold}/checkpoints/best_checkpoint.pt"
+        return f"{OUTPUT_DIR}/ablations/{ablation}/fold_{fold}/seed_{seed}/checkpoints/best_checkpoint.pt"
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -106,15 +106,16 @@ rule all:
     input:
         # HPO (run first to get best hyperparameters)
         f"{OUTPUT_DIR}/hpo/best_params.json",
-        # Full model trained on all folds
-        expand(f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json", fold=FOLDS),
-        # All baselines on all folds
-        expand(f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/baseline_{{baseline}}.json",
-               baseline=BASELINES, fold=FOLDS),
-        # All ablations on all folds
-        expand(f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/ablation_{{ablation}}.json",
-               ablation=ABLATIONS, fold=FOLDS),
-        # Evaluation on all folds
+        # Full model trained on all folds x seeds (5 folds x 3 seeds = 15 runs)
+        expand(f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/training_summary.json",
+               fold=FOLDS, seed=SEEDS),
+        # All baselines on all folds x seeds
+        expand(f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/seed_{{seed}}/baseline_{{baseline}}.json",
+               baseline=BASELINES, fold=FOLDS, seed=SEEDS),
+        # All ablations on all folds x seeds
+        expand(f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/ablation_{{ablation}}.json",
+               ablation=ABLATIONS, fold=FOLDS, seed=SEEDS),
+        # Evaluation aggregated across seeds (per fold)
         expand(f"{OUTPUT_DIR}/evaluation/full/fold_{{fold}}/evaluation.json", fold=FOLDS),
         # Final comparison report
         f"{RESULTS_DIR}/comparison_report.json",
@@ -340,17 +341,19 @@ rule train_full:
 
     GW fusion is enabled by default for the full model.
     Uses best hyperparameters from HPO.
+    Runs for each fold x seed combination.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
         hpo_params=f"{OUTPUT_DIR}/hpo/best_params.json",
     output:
-        summary=f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json",
-        checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/checkpoints/best_checkpoint.pt",
+        summary=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/training_summary.json",
+        checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
     params:
         fold=lambda w: w.fold,
-        run_dir=lambda w: f"{OUTPUT_DIR}/full/fold_{w.fold}",
+        seed=lambda w: w.seed,
+        run_dir=lambda w: f"{OUTPUT_DIR}/full/fold_{w.fold}/seed_{w.seed}",
         ssl_epochs=config["trainer"]["ssl_epochs"],
         transition_epochs=config["trainer"]["transition_epochs"],
         batch_size=config["trainer"]["batch_size"],
@@ -365,7 +368,7 @@ rule train_full:
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
             --fold-idx {params.fold} \
-            --seed {SEED} \
+            --seed {params.seed} \
             --ssl-epochs {params.ssl_epochs} \
             --transition-epochs {params.transition_epochs} \
             --batch-size {params.batch_size} \
@@ -378,17 +381,21 @@ rule train_full:
 # =============================================================================
 
 rule train_baseline:
-    """Train a baseline model for comparison."""
+    """Train a baseline model for comparison.
+
+    Runs for each baseline x fold x seed combination.
+    """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        result=f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/baseline_{{baseline}}.json",
-        checkpoint=f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/checkpoints/{{baseline}}_final.pt",
+        result=f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/seed_{{seed}}/baseline_{{baseline}}.json",
+        checkpoint=f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/seed_{{seed}}/checkpoints/{{baseline}}_final.pt",
     params:
         baseline=lambda w: w.baseline,
         fold=lambda w: w.fold,
-        run_dir=lambda w: f"{OUTPUT_DIR}/baselines/{w.baseline}/fold_{w.fold}",
+        seed=lambda w: w.seed,
+        run_dir=lambda w: f"{OUTPUT_DIR}/baselines/{w.baseline}/fold_{w.fold}/seed_{w.seed}",
     resources:
         mem_mb=256000,
         runtime=720,  # 12 hours
@@ -401,7 +408,7 @@ rule train_baseline:
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
             --fold-idx {params.fold} \
-            --seed {SEED}
+            --seed {params.seed}
         """
 
 
@@ -414,7 +421,7 @@ rule run_ablation:
 
     Depends on train_full completing first so we can compare against the full model.
     Uses the same HPO params as train_full for fair comparison.
-    Each fold's ablations wait only for that fold's full model.
+    Each fold x seed ablation waits only for that fold x seed full model.
 
     For frozen_encoder ablation, passes the pretrained checkpoint path.
     """
@@ -422,19 +429,20 @@ rule run_ablation:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
         hpo_params=f"{OUTPUT_DIR}/hpo/best_params.json",
-        # Wait for this fold's full model to complete before running ablation
-        full_model=f"{OUTPUT_DIR}/full/fold_{{fold}}/training_summary.json",
+        # Wait for this fold x seed full model to complete before running ablation
+        full_model=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/training_summary.json",
         # Checkpoint needed for frozen_encoder ablation
-        full_checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/checkpoints/best_checkpoint.pt",
+        full_checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
     output:
-        result=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/ablation_{{ablation}}.json",
-        checkpoint=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/checkpoints/best_checkpoint.pt",
+        result=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/ablation_{{ablation}}.json",
+        checkpoint=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
     params:
         ablation=lambda w: w.ablation,
         fold=lambda w: w.fold,
-        run_dir=lambda w: f"{OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}",
+        seed=lambda w: w.seed,
+        run_dir=lambda w: f"{OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}/seed_{w.seed}",
         # Pass checkpoint arg only for frozen_encoder
-        checkpoint_arg=lambda w: f"--pretrained-checkpoint {OUTPUT_DIR}/full/fold_{w.fold}/checkpoints/best_checkpoint.pt" if w.ablation == "frozen_encoder" else "",
+        checkpoint_arg=lambda w: f"--pretrained-checkpoint {OUTPUT_DIR}/full/fold_{w.fold}/seed_{w.seed}/checkpoints/best_checkpoint.pt" if w.ablation == "frozen_encoder" else "",
     resources:
         mem_mb=256000,
         runtime=1440,  # 24 hours
@@ -447,7 +455,8 @@ rule run_ablation:
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
             --fold-idx {params.fold} \
-            --seed {SEED} \
+            --seed {params.seed} \
+            --hpo-params {input.hpo_params} \
             {params.checkpoint_arg}
         """
 
@@ -457,15 +466,19 @@ rule run_ablation:
 # =============================================================================
 
 rule infer_full:
-    """Run inference with full model."""
+    """Run inference with full model.
+
+    Runs per fold x seed. Predictions are later aggregated for evaluation.
+    """
     input:
-        checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/checkpoints/best_checkpoint.pt",
+        checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        predictions=f"{OUTPUT_DIR}/inference/full/fold_{{fold}}/predictions.parquet",
+        predictions=f"{OUTPUT_DIR}/inference/full/fold_{{fold}}/seed_{{seed}}/predictions.parquet",
     params:
         fold=lambda w: w.fold,
-        run_dir=lambda w: f"{OUTPUT_DIR}/inference/full/fold_{w.fold}",
+        seed=lambda w: w.seed,
+        run_dir=lambda w: f"{OUTPUT_DIR}/inference/full/fold_{w.fold}/seed_{w.seed}",
     resources:
         mem_mb=256000,
         runtime=240,  # 4 hours
@@ -486,15 +499,21 @@ rule infer_full:
 # =============================================================================
 
 rule evaluate_full:
-    """Evaluate full model predictions on held-out test set."""
+    """Evaluate full model predictions on held-out test set.
+
+    Aggregates predictions across seeds for each fold to compute mean +/- std.
+    """
     input:
-        predictions=f"{OUTPUT_DIR}/inference/full/fold_{{fold}}/predictions.parquet",
+        # All seeds for this fold
+        predictions=expand(f"{OUTPUT_DIR}/inference/full/fold_{{fold}}/seed_{{seed}}/predictions.parquet",
+                          seed=SEEDS, allow_missing=True),
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
         evaluation=f"{OUTPUT_DIR}/evaluation/full/fold_{{fold}}/evaluation.json",
     params:
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/evaluation/full/fold_{w.fold}",
+        seeds=SEEDS,
     resources:
         mem_mb=256000,
         runtime=120,  # 2 hours
@@ -506,7 +525,8 @@ rule evaluate_full:
             --predictions {input.predictions} \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
-            --fold-idx {params.fold}
+            --fold-idx {params.fold} \
+            --aggregate-seeds
         """
 
 
@@ -515,18 +535,19 @@ rule evaluate_full:
 # =============================================================================
 
 rule comparison_report:
-    """Generate final comparison report aggregating all results."""
+    """Generate final comparison report aggregating all results across folds and seeds."""
     input:
         full_evals=expand(f"{OUTPUT_DIR}/evaluation/full/fold_{{fold}}/evaluation.json", fold=FOLDS),
-        baseline_results=expand(f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/baseline_{{baseline}}.json",
-                                baseline=BASELINES, fold=FOLDS),
-        ablation_results=expand(f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/ablation_{{ablation}}.json",
-                                ablation=ABLATIONS, fold=FOLDS),
+        baseline_results=expand(f"{OUTPUT_DIR}/baselines/{{baseline}}/fold_{{fold}}/seed_{{seed}}/baseline_{{baseline}}.json",
+                                baseline=BASELINES, fold=FOLDS, seed=SEEDS),
+        ablation_results=expand(f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/ablation_{{ablation}}.json",
+                                ablation=ABLATIONS, fold=FOLDS, seed=SEEDS),
     output:
         report=f"{RESULTS_DIR}/comparison_report.json",
     params:
         output_dir=OUTPUT_DIR,
         results_dir=RESULTS_DIR,
+        seeds=SEEDS,
     resources:
         mem_mb=128000,
         runtime=30,
