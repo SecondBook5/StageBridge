@@ -129,7 +129,7 @@ def run_frozen_encoder_ablation(
     # This ensures we use the exact same training loop as train_full
     trainer_config = TrainerConfig(
         output_dir=output_dir,
-        run_name="ablation_frozen_encoder",
+        run_name="",  # Save directly to output_dir
         ssl_epochs=0,  # Skip SSL - encoder is already trained and frozen
         transition_epochs=transition_epochs,
     )
@@ -272,7 +272,7 @@ def run_ablation(
     # Build trainer config with HPO params
     trainer_kwargs = {
         "output_dir": output_dir,
-        "run_name": f"ablation_{ablation}",
+        "run_name": "",  # Save directly to output_dir
         "ssl_epochs": ssl_epochs,
         "transition_epochs": transition_epochs,
     }
