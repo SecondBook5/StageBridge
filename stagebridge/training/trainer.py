@@ -1208,6 +1208,33 @@ if __name__ == "__main__":
 
     # Auto-detect checkpoint to resume from
     resume_from = args.resume
+
+    # Check if training already completed (final_checkpoint exists = training finished)
+    final_ckpt = args.output_dir / "checkpoints" / "final_checkpoint.pt"
+    if final_ckpt.exists():
+        print(f"Training already complete: {final_ckpt}")
+        # Load checkpoint and extract summary
+        import torch
+        ckpt = torch.load(final_ckpt, map_location="cpu", weights_only=False)
+        metrics = ckpt.get("metrics", {})
+        result = {
+            "ssl": {
+                "best_val_loss": metrics.get("ssl_val_loss") or metrics.get("val_loss"),
+                "final_epoch": ckpt.get("epoch"),
+                "status": "completed"
+            },
+            "transition": {
+                "best_val_loss": metrics.get("val_loss"),
+                "final_epoch": ckpt.get("epoch"),
+                "status": "completed"
+            },
+            "checkpoint_source": "final_checkpoint.pt",
+        }
+        with open(args.output_dir / "training_summary.json", "w") as f:
+            json.dump(result, f, indent=2)
+        print(f"Wrote training_summary.json from final_checkpoint.pt")
+        exit(0)
+
     if resume_from is None:
         # Auto-resume: check for existing best checkpoint
         best_ckpt = args.output_dir / "checkpoints" / "best_checkpoint.pt"
