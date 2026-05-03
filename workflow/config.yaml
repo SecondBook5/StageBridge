@@ -130,13 +130,13 @@ baselines:
 
 ablations:
   - full                 # Full model (control) - GW fusion enabled
-  - no_niche             # Remove niche context entirely
+  - no_niche             # Remove niche context entirely (receiver only)
   - no_distance          # Remove distance-based attention
-  - no_gate              # Remove biological baseline gate
-  - random_niche         # Shuffle niche assignments
-  - hlca_only            # Only HLCA reference (no LuCA, no GW)
-  - luca_only            # Only LuCA reference (no HLCA, no GW)
-  - no_token_types       # Remove token type embeddings
+  - no_gate              # Remove cross-attention drift (use MLP)
+  # - random_niche       # NOT IMPLEMENTED - would shuffle niche assignments
+  - hlca_only            # Only HLCA reference (zero out LuCA token)
+  - luca_only            # Only LuCA reference (zero out HLCA token)
+  # - no_token_types     # NOT IMPLEMENTED - would remove token type embeddings
   - frozen_encoder       # Freeze encoder during transition training
   - no_ring_pooling      # Mean pooling instead of ISAB+PMA
   - no_context_refiner   # Remove HierarchicalSetTransformer

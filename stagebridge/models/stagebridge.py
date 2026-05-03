@@ -135,6 +135,13 @@ class StageBridgeConfig:
     gw_sinkhorn_reg: float = 0.1
     gw_mode: str = "barycentric"  # project_to_hlca, project_to_luca, barycentric
 
+    # Reference ablations (for hlca_only / luca_only experiments)
+    use_hlca_reference: bool = True  # Include HLCA token
+    use_luca_reference: bool = True  # Include LuCA token
+
+    # Niche ablation (for no_niche experiment)
+    use_niche_context: bool = True  # Include ring tokens (False = receiver only)
+
     @property
     def num_edges(self) -> int:
         """Number of possible stage transitions."""
@@ -557,6 +564,21 @@ class StageBridge(nn.Module):
         receiver_reconstruction = None
         ring_attention = None
 
+        # Apply ablation masking to inputs
+        B = receiver.shape[0]
+        device = receiver.device
+
+        # hlca_only / luca_only: zero out unused reference
+        if not self.config.use_hlca_reference:
+            hlca = torch.zeros_like(hlca)
+        if not self.config.use_luca_reference:
+            luca = torch.zeros_like(luca)
+
+        # no_niche: zero out ring cells and masks
+        if not self.config.use_niche_context:
+            ring_cells = [torch.zeros_like(rc) for rc in ring_cells]
+            ring_masks = [torch.zeros_like(rm) for rm in ring_masks]
+
         if self.niche_tokenizer is not None:
             # NicheTokenizer: raw cells per ring -> 8 or 9-token structure
             tokens, receiver_reconstruction, ring_attention = self.niche_tokenizer(
@@ -577,22 +599,34 @@ class StageBridge(nn.Module):
             # Receiver token
             token_list.append(self.simple_token_proj(receiver))
 
-            # Ring tokens via mean pooling
-            for i, (cells, mask) in enumerate(zip(ring_cells, ring_masks)):
-                # cells: [B, max_cells, D], mask: [B, max_cells]
-                if mask is not None:
-                    mask_expanded = mask.unsqueeze(-1).float()  # [B, max_cells, 1]
-                    masked_cells = cells * mask_expanded
-                    cell_sum = masked_cells.sum(dim=1)  # [B, D]
-                    cell_count = mask_expanded.sum(dim=1).clamp(min=1)  # [B, 1]
-                    ring_mean = cell_sum / cell_count  # [B, D]
-                else:
-                    ring_mean = cells.mean(dim=1)
-                token_list.append(self.simple_token_proj(ring_mean))
+            # Ring tokens via mean pooling (skip if no_niche ablation)
+            if self.config.use_niche_context:
+                for i, (cells, mask) in enumerate(zip(ring_cells, ring_masks)):
+                    # cells: [B, max_cells, D], mask: [B, max_cells]
+                    if mask is not None:
+                        mask_expanded = mask.unsqueeze(-1).float()  # [B, max_cells, 1]
+                        masked_cells = cells * mask_expanded
+                        cell_sum = masked_cells.sum(dim=1)  # [B, D]
+                        cell_count = mask_expanded.sum(dim=1).clamp(min=1)  # [B, 1]
+                        ring_mean = cell_sum / cell_count  # [B, D]
+                    else:
+                        ring_mean = cells.mean(dim=1)
+                    token_list.append(self.simple_token_proj(ring_mean))
+            else:
+                # no_niche: add zero ring tokens to maintain sequence length
+                for _ in range(4):
+                    token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
 
-            # Reference tokens
-            token_list.append(self.simple_hlca_proj(hlca))
-            token_list.append(self.simple_luca_proj(luca))
+            # Reference tokens (respect hlca_only / luca_only ablations)
+            if self.config.use_hlca_reference:
+                token_list.append(self.simple_hlca_proj(hlca))
+            else:
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
+
+            if self.config.use_luca_reference:
+                token_list.append(self.simple_luca_proj(luca))
+            else:
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
 
             # Pathway token (use projection if provided, else zeros)
             if pathway is not None:
