@@ -268,7 +268,7 @@ def run_ablation(
         "transition_epochs": transition_epochs,
     }
     if "lr" in hpo_params:
-        trainer_kwargs["lr"] = hpo_params["lr"]
+        trainer_kwargs["learning_rate"] = hpo_params["lr"]
     if "ssl_weight" in hpo_params:
         trainer_kwargs["ssl_weight"] = hpo_params["ssl_weight"]
     if "pathway_weight" in hpo_params:
