@@ -276,8 +276,14 @@ def run_commot(
     fold_idx: int = 0,
     database: str = "CellChat",
     spatial_h5ad_path: Path | None = None,
+    max_cells: int = 50000,  # COMMOT computes full distance matrix - must subsample
 ) -> dict:
-    """Run COMMOT for cell-cell communication analysis."""
+    """Run COMMOT for cell-cell communication analysis.
+
+    Note: COMMOT computes a full NxN distance matrix which can't fit in memory
+    for large datasets. We subsample to max_cells to avoid OOM.
+    With 50K cells, distance matrix is ~20GB (feasible).
+    """
     # Fix NumPy 2.0 compatibility - commot uses deprecated np.Inf
     import numpy as np
     if not hasattr(np, 'Inf'):
@@ -291,7 +297,7 @@ def run_commot(
     import anndata as ad
     import scanpy as sc
 
-    print(f"Running COMMOT (database={database})")
+    print(f"Running COMMOT (database={database}, max_cells={max_cells})")
 
     if spatial_h5ad_path is None:
         spatial_h5ad_path = neighborhoods_path.parent.parent / "spatial_merged.h5ad"
@@ -311,11 +317,41 @@ def run_commot(
 
     print(f"Loading spatial data from {spatial_h5ad_path}")
     adata = ad.read_h5ad(spatial_h5ad_path)
+    print(f"Loaded {adata.n_obs} cells")
 
     df = pd.read_parquet(neighborhoods_path)
     if "stage" not in adata.obs.columns and "cell_id" in df.columns:
         stage_map = df.set_index("cell_id")["stage"].to_dict()
         adata.obs["stage"] = adata.obs.index.map(stage_map)
+
+    # Subsample to avoid OOM - COMMOT computes full NxN distance matrix
+    # 640K x 640K x 8 bytes = 3.3 TB (impossible)
+    needs_subsample = adata.n_obs > max_cells
+    if needs_subsample:
+        print(f"Subsampling from {adata.n_obs} to {max_cells} cells to avoid OOM")
+        rng = np.random.default_rng(42 + fold_idx)
+
+        # Stratified sampling by stage if available
+        if "stage" in adata.obs.columns:
+            keep_idx = []
+            stage_counts = adata.obs["stage"].value_counts()
+            stage_fracs = stage_counts / stage_counts.sum()
+
+            for stage, frac in stage_fracs.items():
+                stage_idx = np.where(adata.obs["stage"] == stage)[0]
+                n_sample = max(1, int(frac * max_cells))
+                n_sample = min(n_sample, len(stage_idx))
+                sampled = rng.choice(stage_idx, n_sample, replace=False)
+                keep_idx.extend(sampled)
+
+            keep_idx = sorted(set(keep_idx))
+            adata = adata[keep_idx].copy()
+        else:
+            # Random subsample
+            idx = rng.choice(adata.n_obs, max_cells, replace=False)
+            adata = adata[idx].copy()
+
+        print(f"After subsampling: {adata.n_obs} cells")
 
     if "spatial" not in adata.obsm:
         if "x" in adata.obs.columns and "y" in adata.obs.columns:
@@ -369,6 +405,9 @@ def run_commot(
         "database": database,
         "n_cells": adata.n_obs,
         "n_genes": adata.n_vars,
+        "n_cells_original": len(df),
+        "max_cells": max_cells,
+        "subsampled": needs_subsample,
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
