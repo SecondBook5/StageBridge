@@ -8,7 +8,7 @@
 #SBATCH --error=/home/booka/StageBridge/logs/full_pipeline_%j.err
 
 # Complete StageBridge data preparation pipeline
-# 1. Transfer LuCA labels (33 cell types)
+# 1. Use pre-computed LuCA labels (luca_cell_type column)
 # 2. Run LIANA with LuCA cell types
 # 3. Full data prep (signatures, DE, activity, trajectories, niches)
 # 4. Generate single-panel figures for each analysis
@@ -77,7 +77,6 @@ import numpy as np
 from pathlib import Path
 
 SNRNA = os.environ['SNRNA']
-LUCA_REF = "/scratch/chaunzt1/stagebridge/references/luca/luca_core_atlas.h5ad"
 CANONICAL = Path(os.environ['CANONICAL'])
 OUTPUT = CANONICAL / "liana_luca"
 LOCAL = Path("/home/booka/StageBridge/data")
@@ -89,87 +88,20 @@ sys.stdout.flush()
 
 adata = sc.read_h5ad(SNRNA)
 print(f"Loaded: {adata.n_obs:,} cells x {adata.n_vars:,} genes")
-print(f"Existing cell type column: {adata.obs['cell_type'].nunique()} types (HLCA)")
+print(f"HLCA cell types: {adata.obs['cell_type'].nunique()} types")
+print(f"LuCA cell types: {adata.obs['luca_cell_type'].nunique()} types (pre-computed)")
+sys.stdout.flush()
+
+# Verify luca_cell_type exists
+if 'luca_cell_type' not in adata.obs.columns:
+    raise ValueError("luca_cell_type column not found! Expected pre-computed labels.")
+
+print("\nLuCA cell type distribution:")
+print(adata.obs['luca_cell_type'].value_counts().head(15))
 sys.stdout.flush()
 
 print("\n" + "=" * 60)
-print("Step 1.2: Transfer LuCA labels via Ridge + k-NN")
-print("=" * 60)
-sys.stdout.flush()
-
-print("Loading LuCA reference atlas...")
-sys.stdout.flush()
-luca_ref = sc.read_h5ad(LUCA_REF)
-print(f"  Reference: {luca_ref.n_obs:,} cells")
-
-latent_key = "X_scANVI" if "X_scANVI" in luca_ref.obsm else "X_scVI"
-ref_latent = luca_ref.obsm[latent_key]
-ref_labels = luca_ref.obs["cell_type"].values
-print(f"  Latent: {latent_key} ({ref_latent.shape[1]}d)")
-print(f"  Cell types: {np.unique(ref_labels).shape[0]}")
-sys.stdout.flush()
-
-print("\nProjecting query cells to reference latent space...")
-sys.stdout.flush()
-from sklearn.neighbors import NearestNeighbors
-from sklearn.linear_model import Ridge
-
-shared_genes = sorted(set(adata.var_names) & set(luca_ref.var_names))
-print(f"  Shared genes: {len(shared_genes)}")
-sys.stdout.flush()
-
-query_expr = adata[:, shared_genes].X
-if hasattr(query_expr, "toarray"):
-    query_expr = query_expr.toarray()
-query_expr = np.log1p(query_expr).astype(np.float32)
-
-ref_expr = luca_ref[:, shared_genes].X
-if hasattr(ref_expr, "toarray"):
-    ref_expr = ref_expr.toarray()
-ref_expr = np.log1p(ref_expr).astype(np.float32)
-
-print("  Learning expression -> latent mapping (subsampled)...")
-sys.stdout.flush()
-n_subsample = min(50000, ref_expr.shape[0])
-subsample_idx = np.random.choice(ref_expr.shape[0], n_subsample, replace=False)
-
-ridge = Ridge(alpha=1.0)
-ridge.fit(ref_expr[subsample_idx], ref_latent[subsample_idx])
-query_latent = ridge.predict(query_expr)
-print(f"  Query latent: {query_latent.shape}")
-sys.stdout.flush()
-
-print("\nFinding 15 nearest neighbors...")
-sys.stdout.flush()
-knn = NearestNeighbors(n_neighbors=15, metric="euclidean", n_jobs=-1)
-knn.fit(ref_latent)
-distances, indices = knn.kneighbors(query_latent)
-
-print("Transferring labels by majority vote...")
-sys.stdout.flush()
-from tqdm import tqdm
-transferred_labels = []
-confidence = []
-for i in tqdm(range(len(query_latent)), desc="Label transfer"):
-    neighbor_labels = ref_labels[indices[i]]
-    unique, counts = np.unique(neighbor_labels, return_counts=True)
-    best = unique[counts.argmax()]
-    transferred_labels.append(best)
-    confidence.append(counts.max() / 15)
-
-adata.obs["cell_type_luca"] = transferred_labels
-adata.obs["cell_type_luca_confidence"] = confidence
-
-print(f"\nTransferred {len(np.unique(transferred_labels))} LuCA cell types:")
-print(pd.Series(transferred_labels).value_counts().head(15))
-sys.stdout.flush()
-
-del luca_ref, ref_latent, ref_labels, query_latent, ref_expr
-import gc
-gc.collect()
-
-print("\n" + "=" * 60)
-print("Step 1.3: Run LIANA with LuCA cell types")
+print("Step 1.2: Run LIANA with LuCA cell types")
 print("=" * 60)
 sys.stdout.flush()
 
@@ -180,7 +112,7 @@ sys.stdout.flush()
 
 li.mt.rank_aggregate(
     adata,
-    groupby="cell_type_luca",
+    groupby="luca_cell_type",
     resource_name="consensus",
     expr_prop=0.1,
     n_perms=100,
@@ -203,14 +135,14 @@ liana_out = OUTPUT / "liana_interactions_luca.parquet"
 liana_results.to_parquet(liana_out)
 print(f"Saved: {liana_out}")
 
-celltypes_out = OUTPUT / "cell_type_luca_mapping.parquet"
-adata.obs[["cell_type", "cell_type_luca", "cell_type_luca_confidence"]].to_parquet(celltypes_out)
+celltypes_out = OUTPUT / "luca_cell_type_mapping.parquet"
+adata.obs[["cell_type", "luca_cell_type"]].to_parquet(celltypes_out)
 print(f"Saved: {celltypes_out}")
 
 import json
 summary = {
     "n_cells": int(adata.n_obs),
-    "n_luca_types": int(adata.obs["cell_type_luca"].nunique()),
+    "n_luca_types": int(adata.obs["luca_cell_type"].nunique()),
     "n_hlca_types": int(adata.obs["cell_type"].nunique()),
     "n_interactions": int(len(liana_results)),
     "n_sources": int(liana_results["source"].nunique()),
@@ -271,14 +203,31 @@ signatures['sasp_score'] = compute_sasp_score(adata)
 
 if 'stage' in adata.obs.columns:
     signatures['stage'] = adata.obs['stage'].values
+if 'luca_cell_type' in adata.obs.columns:
+    signatures['luca_cell_type'] = adata.obs['luca_cell_type'].values
+if 'cell_type' in adata.obs.columns:
+    signatures['cell_type'] = adata.obs['cell_type'].values
 
 signatures.to_parquet(out / 'gene_signatures.parquet')
 print(f'  Saved gene_signatures.parquet')
 
+score_cols = ['emt_score', 'senescence_score', 'sasp_score']
+
 if 'stage' in signatures.columns:
-    summary = signatures.groupby('stage')[['emt_score', 'senescence_score', 'sasp_score']].mean()
+    summary = signatures.groupby('stage')[score_cols].mean()
     summary.to_parquet(out / 'signatures_by_stage.parquet')
     print(f'  Saved signatures_by_stage.parquet')
+
+if 'luca_cell_type' in signatures.columns:
+    summary = signatures.groupby('luca_cell_type')[score_cols].mean()
+    summary.to_parquet(out / 'signatures_by_luca_celltype.parquet')
+    print(f'  Saved signatures_by_luca_celltype.parquet')
+
+    # Stage x cell type crosstab
+    if 'stage' in signatures.columns:
+        crosstab = signatures.groupby(['stage', 'luca_cell_type'])[score_cols].mean()
+        crosstab.to_parquet(out / 'signatures_by_stage_celltype.parquet')
+        print(f'  Saved signatures_by_stage_celltype.parquet')
 
 print('Signatures complete')
 PYTHON_SIG
@@ -331,12 +280,21 @@ dc.mt.ulm(data=adata, net=progeny)
 pw_df = dc.extract(adata)
 pw_df.to_parquet(out / 'pathway_activity_progeny.parquet')
 
-if 'stage' in adata.obs.columns:
-    print('Computing stage summaries...')
-    for name, df in [('tf', tf_df), ('pathway', pw_df)]:
-        df_copy = df.copy()
+print('Computing summaries by stage and cell type...')
+sys.stdout.flush()
+for name, df in [('tf', tf_df), ('pathway', pw_df)]:
+    df_copy = df.copy()
+
+    if 'stage' in adata.obs.columns:
         df_copy['stage'] = adata.obs['stage'].values
-        df_copy.groupby('stage').mean().to_parquet(out / f'{name}_activity_by_stage.parquet')
+        df_copy.groupby('stage').mean(numeric_only=True).to_parquet(out / f'{name}_activity_by_stage.parquet')
+
+    if 'luca_cell_type' in adata.obs.columns:
+        df_copy['luca_cell_type'] = adata.obs['luca_cell_type'].values
+        df_copy.groupby('luca_cell_type').mean(numeric_only=True).to_parquet(out / f'{name}_activity_by_luca_celltype.parquet')
+
+        if 'stage' in adata.obs.columns:
+            df_copy.groupby(['stage', 'luca_cell_type']).mean(numeric_only=True).to_parquet(out / f'{name}_activity_by_stage_celltype.parquet')
 
 print('decoupleR complete')
 PYTHON_ACTIVITY
@@ -441,12 +399,29 @@ if available:
 
     expr_df = pd.DataFrame(X, index=adata.obs.index, columns=available)
 
+    def agg_stats(df, genes):
+        return df[genes].agg(['mean', 'std', lambda x: (x > 0).mean()])
+
     if 'stage' in adata.obs.columns:
         expr_df['stage'] = adata.obs['stage'].values
         summary = expr_df.groupby('stage')[available].agg(['mean', 'std', lambda x: (x > 0).mean()])
         summary.columns = ['_'.join(col).strip() for col in summary.columns.values]
         summary.to_parquet(out / 'key_genes_by_stage.parquet')
         print(f'  Saved key_genes_by_stage.parquet')
+
+    if 'luca_cell_type' in adata.obs.columns:
+        expr_df['luca_cell_type'] = adata.obs['luca_cell_type'].values
+        summary = expr_df.groupby('luca_cell_type')[available].agg(['mean', 'std', lambda x: (x > 0).mean()])
+        summary.columns = ['_'.join(col).strip() for col in summary.columns.values]
+        summary.to_parquet(out / 'key_genes_by_luca_celltype.parquet')
+        print(f'  Saved key_genes_by_luca_celltype.parquet')
+
+        # IL1B pathway by cell type - key for the paper
+        il1_genes = [g for g in ['IL1B', 'IL1R1', 'IL1R2', 'IL1RAP', 'IL1RN'] if g in available]
+        if il1_genes:
+            il1_summary = expr_df.groupby('luca_cell_type')[il1_genes].mean()
+            il1_summary.to_parquet(out / 'il1b_pathway_by_luca_celltype.parquet')
+            print(f'  Saved il1b_pathway_by_luca_celltype.parquet')
 
 print('Key genes complete')
 PYTHON_GENES
@@ -658,8 +633,8 @@ sys.stdout.flush()
 try:
     from stagebridge.viz.theme import CELLTYPE_COLORS
 
-    ct_map = pd.read_parquet(CANONICAL / 'liana_luca' / 'cell_type_luca_mapping.parquet')
-    ct_counts = ct_map['cell_type_luca'].value_counts().head(15)  # Top 15 for readability
+    ct_map = pd.read_parquet(CANONICAL / 'liana_luca' / 'luca_cell_type_mapping.parquet')
+    ct_counts = ct_map['luca_cell_type'].value_counts().head(15)  # Top 15 for readability
 
     fig, ax = plt.subplots(figsize=(9, 7))
 
@@ -688,48 +663,7 @@ try:
 except Exception as e:
     print(f"  Cell type distribution failed: {e}")
 
-# =============================================================================
-# Label Transfer Confidence - clean histogram
-# =============================================================================
-print("\n[QC] Label transfer confidence...")
-sys.stdout.flush()
-
-try:
-    ct_map = pd.read_parquet(CANONICAL / 'liana_luca' / 'cell_type_luca_mapping.parquet')
-    conf = ct_map['cell_type_luca_confidence']
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    n, bins, patches = ax.hist(conf, bins=40, color='#4169E1', edgecolor='white', linewidth=0.8)
-
-    # Color bars by confidence level
-    for i, (patch, left_edge) in enumerate(zip(patches, bins[:-1])):
-        if left_edge >= 0.8:
-            patch.set_facecolor('#228B22')  # Green for high confidence
-        elif left_edge >= 0.6:
-            patch.set_facecolor('#DAA520')  # Gold for medium
-        else:
-            patch.set_facecolor('#CD5C5C')  # Red for low
-
-    ax.axvline(conf.median(), color='#000000', linewidth=2.5, linestyle='--', zorder=10)
-    ax.text(conf.median() + 0.02, ax.get_ylim()[1] * 0.95,
-            f'Median: {conf.median():.2f}', fontsize=11, fontweight='bold', va='top')
-
-    ax.set_xlabel('k-NN Confidence (majority vote fraction)')
-    ax.set_ylabel('Number of Cells')
-    ax.set_title('Label Transfer Quality', pad=12)
-
-    # Add annotation about quality
-    high_conf = (conf >= 0.8).sum() / len(conf) * 100
-    ax.text(0.98, 0.98, f'{high_conf:.0f}% cells with >80% confidence',
-            transform=ax.transAxes, ha='right', va='top', fontsize=10,
-            fontweight='bold', color='#228B22')
-
-    plt.tight_layout()
-    save_figure(fig, FIGURES, 'label_transfer_confidence')
-    plt.close()
-    print("  Saved label_transfer_confidence.png/pdf")
-except Exception as e:
-    print(f"  Confidence histogram failed: {e}")
+# NOTE: Label transfer confidence figure removed - using pre-computed luca_cell_type labels
 
 # =============================================================================
 # IL1B Expression Line Plot - publication quality
