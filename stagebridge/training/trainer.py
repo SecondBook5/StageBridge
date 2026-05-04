@@ -1050,14 +1050,25 @@ class StageBridgeTrainer:
         """
         # Define key modules to check (not all subparameters)
         if phase == "ssl":
-            # SSL only trains reconstruction path
-            modules_to_check = ["niche_tokenizer.token_proj"]
+            # SSL trains reconstruction path
+            # Check niche_tokenizer if it exists, otherwise check simple_reconstruction_head
+            if hasattr(self.model, 'niche_tokenizer') and self.model.niche_tokenizer is not None:
+                modules_to_check = ["niche_tokenizer.token_proj"]
+            else:
+                # no_ring_pooling ablation uses simple_reconstruction_head
+                modules_to_check = ["simple_reconstruction_head"]
         else:  # transition
             # Transition should train drift head
             modules_to_check = ["drift_head"]
 
         # Check that at least one parameter per module has gradients
         for module_name in modules_to_check:
+            # First check if module exists in model
+            module_exists = any(module_name in name for name, _ in self.model.named_parameters())
+            if not module_exists:
+                # Module doesn't exist (ablation removed it) - skip check
+                continue
+
             found_grad = False
             for name, p in self.model.named_parameters():
                 if module_name in name:
