@@ -562,7 +562,7 @@ rule run_commot:
         conda_env="/home/booka/StageBridge/.snakemake/conda/e50bd7ca0d8392d60f1d7039b29f78e1_",
     resources:
         mem_mb=256000,
-        runtime=240,  # 4 hours
+        runtime=480,  # 8 hours - COMMOT is slow on large spatial data
         slurm_partition="gpu",
         gpu=1,
     shell:
