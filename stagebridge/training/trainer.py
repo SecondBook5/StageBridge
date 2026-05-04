@@ -992,8 +992,16 @@ class StageBridgeTrainer:
         checkpoint = CheckpointManager.load(path, self.device)
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        self.current_epoch = checkpoint["epoch"] + 1
+
+        # ssl_pretrained.pt only has model weights, no optimizer state
+        if "optimizer_state_dict" in checkpoint:
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            self.current_epoch = checkpoint["epoch"] + 1
+        else:
+            # SSL checkpoint - start transition from epoch 0
+            if is_main_process():
+                print("No optimizer state in checkpoint (SSL pretrained) - starting transition fresh")
+            self.current_epoch = self.config.ssl_epochs  # Skip SSL, start transition at epoch 0
 
         self.metrics_logger.load()
 
@@ -1238,9 +1246,15 @@ if __name__ == "__main__":
     if resume_from is None:
         # Auto-resume: check for existing best checkpoint
         best_ckpt = args.output_dir / "checkpoints" / "best_checkpoint.pt"
+        ssl_ckpt = args.output_dir / "checkpoints" / "ssl_pretrained.pt"
         if best_ckpt.exists():
             resume_from = best_ckpt
             print(f"Auto-resuming from {resume_from}")
+        elif ssl_ckpt.exists():
+            # SSL completed but transition crashed - resume from SSL checkpoint
+            # Set current_epoch to ssl_epochs-1 so transition starts at epoch 0
+            resume_from = ssl_ckpt
+            print(f"Auto-resuming from SSL checkpoint: {resume_from}")
 
     result = train_stagebridge(
         data_dir=args.data_dir,
