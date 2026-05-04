@@ -39,12 +39,17 @@ def label_snrna(
 ):
     """Label snRNA-seq data with ground truth (uses expression)."""
     import scanpy as sc
+    import sys
 
     print(f"\n{'='*60}")
     print(f"Processing snRNA-seq: {input_path}")
     print(f"{'='*60}")
+    sys.stdout.flush()
 
+    print("Loading h5ad (this may take a while)...")
+    sys.stdout.flush()
     adata = sc.read_h5ad(input_path)
+    print("  ...loaded!")
     print(f"Loaded: {adata.n_obs} cells, {adata.n_vars} genes")
 
     # Check for spatial coordinates

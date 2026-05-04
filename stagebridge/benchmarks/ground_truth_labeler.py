@@ -14,6 +14,7 @@ and spatial coordinates - we just add ground truth labels on top.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
@@ -21,6 +22,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
+from tqdm import tqdm
 
 
 @dataclass
@@ -593,14 +595,16 @@ class GroundTruthLabeler:
 
             print(f"  Senders ({rule.sender_type}+{rule.ligand_gene}): {len(sender_idx)}")
             print(f"  Receivers ({rule.receiver_type}+{rule.receptor_gene}): {len(receiver_idx)}")
+            sys.stdout.flush()
 
             if len(sender_idx) == 0 or len(receiver_idx) == 0:
                 continue
 
             # For each receiver, find nearby senders
-            for recv_i in receiver_idx:
+            sender_set = set(sender_idx)
+            for recv_i in tqdm(receiver_idx, desc=f"  {rule.interaction_name}", file=sys.stdout):
                 nearby = tree.query_ball_point(coords[recv_i], rule.max_distance)
-                nearby_senders = [i for i in nearby if i in sender_idx and i != recv_i]
+                nearby_senders = [i for i in nearby if i in sender_set and i != recv_i]
 
                 if nearby_senders:
                     # Find nearest sender
@@ -709,14 +713,16 @@ class GroundTruthLabeler:
 
             print(f"  Senders ({rule.sender_type}): {len(sender_idx)}")
             print(f"  Receivers ({rule.receiver_type}): {len(receiver_idx)}")
+            sys.stdout.flush()
 
             if len(sender_idx) == 0 or len(receiver_idx) == 0:
                 continue
 
             # For each receiver, find nearby senders
-            for recv_i in receiver_idx:
+            sender_set = set(sender_idx)
+            for recv_i in tqdm(receiver_idx, desc=f"  {rule.interaction_name}", file=sys.stdout):
                 nearby = tree.query_ball_point(coords[recv_i], rule.max_distance)
-                nearby_senders = [i for i in nearby if i in sender_idx and i != recv_i]
+                nearby_senders = [i for i in nearby if i in sender_set and i != recv_i]
 
                 if nearby_senders:
                     distances = np.linalg.norm(
