@@ -84,22 +84,44 @@ print(f"  Latent: {latent_key} ({ref_latent.shape[1]}d)")
 print(f"  Cell types: {np.unique(ref_labels).shape[0]}")
 sys.stdout.flush()
 
-# Project query to reference space via PCA
-print("\nProjecting query cells...")
+# Project query to reference scANVI space via shared genes + PCA
+print("\nProjecting query cells to reference latent space...")
 sys.stdout.flush()
-from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
+from sklearn.cross_decomposition import CCA
 
-X = adata.X
-if hasattr(X, "toarray"):
-    X = X.toarray()
-X = np.log1p(X).astype(np.float32)
+# Find shared genes
+shared_genes = sorted(set(adata.var_names) & set(luca_ref.var_names))
+print(f"  Shared genes: {len(shared_genes)}")
+sys.stdout.flush()
 
-# Use same genes if possible, otherwise PCA on full
-pca = PCA(n_components=ref_latent.shape[1])
-pca.fit(ref_latent)
-query_latent = pca.transform(X)
+# Extract expression for shared genes from both
+query_expr = adata[:, shared_genes].X
+if hasattr(query_expr, "toarray"):
+    query_expr = query_expr.toarray()
+query_expr = np.log1p(query_expr).astype(np.float32)
+
+ref_expr = luca_ref[:, shared_genes].X
+if hasattr(ref_expr, "toarray"):
+    ref_expr = ref_expr.toarray()
+ref_expr = np.log1p(ref_expr).astype(np.float32)
+
+# Learn mapping from expression -> scANVI latent using reference
+# Subsample reference for faster fitting
+print("  Learning expression -> latent mapping (subsampled)...")
+sys.stdout.flush()
+n_subsample = min(50000, ref_expr.shape[0])
+subsample_idx = np.random.choice(ref_expr.shape[0], n_subsample, replace=False)
+ref_expr_sub = ref_expr[subsample_idx]
+ref_latent_sub = ref_latent[subsample_idx]
+
+# Use ridge regression to map expression to latent
+from sklearn.linear_model import Ridge
+ridge = Ridge(alpha=1.0)
+ridge.fit(ref_expr_sub, ref_latent_sub)
+query_latent = ridge.predict(query_expr)
 print(f"  Query latent: {query_latent.shape}")
+print(f"  Reference latent: {ref_latent.shape}")
 sys.stdout.flush()
 
 # k-NN label transfer
