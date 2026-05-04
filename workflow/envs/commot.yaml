@@ -9,6 +9,7 @@ dependencies:
   - pandas
   - anndata
   - scanpy
+  - pyarrow
   - pip
   - pip:
     - commot
