@@ -1,0 +1,58 @@
+name: stagebridge_figures
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+
+  # Core scientific
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+
+  # Visualization
+  - matplotlib>=3.7
+  - seaborn>=0.12
+  - plotly
+
+  # Single-cell
+  - scanpy>=1.9
+  - anndata
+  - leidenalg
+  - igraph
+
+  # Bioinformatics
+  - pyarrow  # parquet support
+
+  # pip packages (not on conda)
+  - pip:
+    # Advanced embeddings
+    - phate>=1.0
+    - umap-learn
+
+    # Gene set enrichment
+    - gseapy>=1.0
+
+    # Network analysis
+    - networkx>=3.0
+    - GraphRicciCurvature>=0.5
+
+    # Communication analysis (if LIANA viz needed)
+    - liana>=0.1
+
+    # Additional viz
+    - adjustText  # non-overlapping labels
+    - scikit-image  # image processing
+
+    # Squidpy for spatial (optional but useful)
+    - squidpy>=1.2
+
+    # RNA velocity (optional)
+    - scvelo>=0.2
+
+    # Trajectory inference
+    - cellrank>=1.5
