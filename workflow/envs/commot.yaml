@@ -1,0 +1,14 @@
+name: commot
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy<2.0
+  - scipy
+  - pandas
+  - anndata
+  - scanpy
+  - pip
+  - pip:
+    - commot
