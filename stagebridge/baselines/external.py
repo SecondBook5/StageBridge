@@ -64,8 +64,13 @@ def run_moscot(
     df = pd.read_parquet(neighborhoods_path)
 
     # Build AnnData from receiver embeddings
-    receiver_cols = [c for c in df.columns if c.startswith("receiver_z_")]
-    X = df[receiver_cols].values
+    # Handle both formats: receiver_z (list/array column) or receiver_z_* (multiple columns)
+    if "receiver_z" in df.columns:
+        # receiver_z is a list/array per row
+        X = np.stack(df["receiver_z"].values).astype(np.float32)
+    else:
+        receiver_cols = [c for c in df.columns if c.startswith("receiver_z_")]
+        X = df[receiver_cols].values.astype(np.float32)
 
     # Stage mapping
     stage_map = {"Normal": 0, "Preinvasive": 1, "Invasive": 2}
@@ -187,11 +192,15 @@ def run_cellrank(
     # Load data
     df = pd.read_parquet(neighborhoods_path)
 
-    # Build AnnData
-    receiver_cols = [c for c in df.columns if c.startswith("receiver_z_")]
-    X = df[receiver_cols].values
+    # Build AnnData from receiver embeddings
+    # Handle both formats: receiver_z (list/array column) or receiver_z_* (multiple columns)
+    if "receiver_z" in df.columns:
+        X = np.stack(df["receiver_z"].values).astype(np.float32)
+    else:
+        receiver_cols = [c for c in df.columns if c.startswith("receiver_z_")]
+        X = df[receiver_cols].values.astype(np.float32)
 
-    adata = ad.AnnData(X=X.astype(np.float32))
+    adata = ad.AnnData(X=X)
     adata.obs["stage"] = df["stage"].values
     adata.obs["cell_id"] = df["cell_id"].values if "cell_id" in df.columns else range(len(df))
 
