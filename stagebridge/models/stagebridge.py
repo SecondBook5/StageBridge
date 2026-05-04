@@ -496,6 +496,8 @@ class StageBridge(nn.Module):
             self.simple_hlca_proj = nn.Linear(30, config.hidden_dim)  # HLCA dim
             self.simple_luca_proj = nn.Linear(10, config.hidden_dim)  # LuCA dim
             self.simple_stats_proj = nn.Linear(config.stats_dim, config.hidden_dim)
+            # Simple reconstruction head for SSL (when NicheTokenizer not used)
+            self.simple_reconstruction_head = nn.Linear(config.hidden_dim, config.input_dim)
 
     def encode_stage_pair(self, stage_src: int, stage_tgt: int) -> int:
         """Encode a stage transition as a single integer."""
@@ -642,6 +644,12 @@ class StageBridge(nn.Module):
                 token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
 
             tokens = torch.stack(token_list, dim=1)  # [B, 9, hidden_dim]
+
+            # SSL reconstruction from context (skip receiver token at index 0)
+            context_tokens = tokens[:, 1:, :]  # [B, 8, hidden_dim]
+            context_pooled = context_tokens.mean(dim=1)  # [B, hidden_dim]
+            receiver_reconstruction = self.simple_reconstruction_head(context_pooled)
+            ring_attention = None
 
         # tokens: [B, 9, hidden_dim]
         # Pass through hierarchical set transformer: ISAB -> ISAB(rpe) -> SAB -> PMA
