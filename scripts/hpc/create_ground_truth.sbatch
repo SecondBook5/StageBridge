@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ground_truth
 #SBATCH --partition=cpu
-#SBATCH --mem=128G
+#SBATCH --mem=256G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=4:00:00
 #SBATCH --output=/home/booka/StageBridge/logs/ground_truth_%j.log
