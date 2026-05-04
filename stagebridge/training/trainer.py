@@ -240,7 +240,10 @@ class StageBridgeTrainer:
         if is_main_process():
             self._print_training_info(train_loader, val_loader)
 
-        summary = {"ssl": {}, "transition": {}}
+        import time
+        training_start_time = time.time()
+
+        summary = {"ssl": {}, "transition": {}, "compute": {}}
 
         # STAGE 1: SSL Pretraining
         # Skip if resuming from transition phase (current_epoch >= ssl_epochs)
@@ -281,6 +284,38 @@ class StageBridgeTrainer:
 
             transition_summary = self._train_transition(train_loader, val_loader)
             summary["transition"] = transition_summary
+
+        # Record compute info
+        training_end_time = time.time()
+        total_runtime_hours = (training_end_time - training_start_time) / 3600
+
+        # Get GPU info if available
+        gpu_name = "unknown"
+        gpu_memory_gb = 0
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            peak_memory_gb = torch.cuda.max_memory_allocated(0) / (1024**3)
+        else:
+            peak_memory_gb = 0
+
+        summary["compute"] = {
+            "total_runtime_hours": round(total_runtime_hours, 2),
+            "gpu_name": gpu_name,
+            "gpu_memory_gb": round(gpu_memory_gb, 1),
+            "peak_memory_gb": round(peak_memory_gb, 2),
+            "n_train_samples": len(train_loader.dataset) if hasattr(train_loader, 'dataset') else 0,
+            "batch_size": train_loader.batch_size if hasattr(train_loader, 'batch_size') else 0,
+        }
+
+        if is_main_process():
+            print(f"\n{'=' * 60}")
+            print("TRAINING COMPLETE")
+            print(f"{'=' * 60}")
+            print(f"Total runtime: {total_runtime_hours:.2f} hours")
+            print(f"GPU: {gpu_name}")
+            print(f"Peak GPU memory: {peak_memory_gb:.2f} GB")
+            print(f"{'=' * 60}\n")
 
         # Save final checkpoint
         self.checkpoint_manager.save_final(
