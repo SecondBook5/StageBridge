@@ -15,6 +15,8 @@ from stagebridge.reference.mapper import (
     MappingResult,
     map_to_hlca,
     map_to_luca,
+    transfer_labels,
+    DEFAULT_PATHS,
 )
 from stagebridge.reference.fusion import (
     FusionMethod,
@@ -45,6 +47,8 @@ __all__ = [
     "MappingResult",
     "map_to_hlca",
     "map_to_luca",
+    "transfer_labels",
+    "DEFAULT_PATHS",
     # Fusion
     "FusionMethod",
     "fuse_embeddings",
