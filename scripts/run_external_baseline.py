@@ -278,6 +278,11 @@ def run_commot(
     spatial_h5ad_path: Path | None = None,
 ) -> dict:
     """Run COMMOT for cell-cell communication analysis."""
+    # Fix NumPy 2.0 compatibility - commot uses deprecated np.Inf
+    import numpy as np
+    if not hasattr(np, 'Inf'):
+        np.Inf = np.inf
+
     try:
         import commot as ct
     except ImportError:
