@@ -256,21 +256,19 @@ def run_commot(
     output_dir: Path,
     fold_idx: int = 0,
     database: str = "CellChat",
+    spatial_h5ad_path: Path | None = None,
 ) -> dict:
     """Run COMMOT for cell-cell communication analysis.
 
     COMMOT uses optimal transport to infer spatial communication patterns.
     This serves as a baseline for StageBridge's attention-based niche modeling.
 
-    Note: COMMOT requires gene expression, not just embeddings. This implementation
-    assumes the neighborhoods file has been augmented with gene expression or
-    we use the embeddings as a proxy.
-
     Args:
-        neighborhoods_path: Path to neighborhoods.parquet
+        neighborhoods_path: Path to neighborhoods.parquet (for cell IDs and stage info)
         output_dir: Output directory
         fold_idx: Cross-validation fold
         database: Ligand-receptor database (CellChat, CellPhoneDB, etc.)
+        spatial_h5ad_path: Path to spatial h5ad with gene expression (required)
 
     Returns:
         Dictionary with metrics and predictions
@@ -288,24 +286,23 @@ def run_commot(
 
     print(f"Running COMMOT (database={database})")
 
-    # Load data
+    # Load neighborhoods for cell IDs and stage mapping
     df = pd.read_parquet(neighborhoods_path)
 
-    # Check for gene expression columns
-    # COMMOT needs actual gene expression, not just embeddings
-    # For now, we'll check if we have it, otherwise skip
-    gene_cols = [c for c in df.columns if not c.startswith(("receiver_", "ring_", "hlca_", "luca_"))]
-    gene_cols = [c for c in gene_cols if c not in ["cell_id", "donor_id", "stage", "x", "y", "sample_id"]]
+    # Load spatial h5ad with gene expression
+    if spatial_h5ad_path is None:
+        # Try default path
+        spatial_h5ad_path = neighborhoods_path.parent.parent / "spatial_merged.h5ad"
 
-    if len(gene_cols) < 100:
-        print("Warning: COMMOT requires gene expression data, not embeddings.")
-        print("Skipping COMMOT analysis. To run, augment neighborhoods with gene expression.")
+    if not spatial_h5ad_path.exists():
+        print(f"Warning: spatial h5ad not found at {spatial_h5ad_path}")
+        print("COMMOT requires gene expression data. Skipping.")
 
         result = {
             "method": "commot",
             "fold_idx": fold_idx,
             "status": "skipped",
-            "reason": "Gene expression data required but not found",
+            "reason": f"spatial h5ad not found at {spatial_h5ad_path}",
             "completed_at": datetime.now().isoformat(),
         }
 
@@ -315,19 +312,41 @@ def run_commot(
 
         return result
 
-    # Build AnnData with gene expression
-    X = df[gene_cols].values
-    adata = ad.AnnData(X=X.astype(np.float32))
-    adata.var_names = gene_cols
-    adata.obs["stage"] = df["stage"].values
+    print(f"Loading spatial data from {spatial_h5ad_path}")
+    adata = ad.read_h5ad(spatial_h5ad_path)
 
-    # Add spatial coordinates if available
-    if "x" in df.columns and "y" in df.columns:
-        adata.obsm["spatial"] = df[["x", "y"]].values
+    # Add stage information from neighborhoods if not present
+    if "stage" not in adata.obs.columns:
+        # Match by cell_id if available
+        if "cell_id" in df.columns and "cell_id" in adata.obs.columns:
+            stage_map = df.set_index("cell_id")["stage"].to_dict()
+            adata.obs["stage"] = adata.obs["cell_id"].map(stage_map)
+        elif "cell_id" in df.columns:
+            stage_map = df.set_index("cell_id")["stage"].to_dict()
+            adata.obs["stage"] = adata.obs.index.map(stage_map)
 
-    # Preprocess
-    sc.pp.normalize_total(adata)
-    sc.pp.log1p(adata)
+    # Ensure spatial coordinates exist
+    if "spatial" not in adata.obsm:
+        if "x" in adata.obs.columns and "y" in adata.obs.columns:
+            adata.obsm["spatial"] = adata.obs[["x", "y"]].values
+        else:
+            print("Warning: No spatial coordinates found in h5ad. Skipping COMMOT.")
+            result = {
+                "method": "commot",
+                "fold_idx": fold_idx,
+                "status": "skipped",
+                "reason": "No spatial coordinates in h5ad",
+                "completed_at": datetime.now().isoformat(),
+            }
+            output_dir.mkdir(parents=True, exist_ok=True)
+            with open(output_dir / "commot_results.json", "w") as f:
+                json.dump(result, f, indent=2)
+            return result
+
+    # Preprocess if not already done
+    if adata.X.max() > 50:  # Likely raw counts
+        sc.pp.normalize_total(adata)
+        sc.pp.log1p(adata)
 
     # Get ligand-receptor database (COMMOT requires explicit df_ligrec)
     df_ligrec = ct.pp.ligand_receptor_database(
@@ -404,6 +423,8 @@ def main():
     parser.add_argument("--data-dir", required=True, type=Path, help="Data directory")
     parser.add_argument("--output-dir", required=True, type=Path, help="Output directory")
     parser.add_argument("--fold-idx", type=int, default=0, help="CV fold index")
+    parser.add_argument("--spatial-h5ad", type=Path, default=None,
+                        help="Path to spatial h5ad with gene expression (for commot)")
     args = parser.parse_args()
 
     neighborhoods_path = args.data_dir / "neighborhoods.parquet"
@@ -413,7 +434,8 @@ def main():
     elif args.method == "cellrank":
         run_cellrank(neighborhoods_path, args.output_dir, args.fold_idx)
     elif args.method == "commot":
-        run_commot(neighborhoods_path, args.output_dir, args.fold_idx)
+        spatial_path = args.spatial_h5ad or Path("/data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad")
+        run_commot(neighborhoods_path, args.output_dir, args.fold_idx, spatial_h5ad_path=spatial_path)
 
 
 if __name__ == "__main__":

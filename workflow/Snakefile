@@ -489,6 +489,7 @@ rule run_external_method:
         method=lambda w: w.method,
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/external/{w.method}/fold_{w.fold}",
+        spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
     resources:
         mem_mb=128000,
         runtime=720,  # 12 hours
@@ -500,7 +501,8 @@ rule run_external_method:
             --method {params.method} \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
-            --fold-idx {params.fold}
+            --fold-idx {params.fold} \
+            --spatial-h5ad {params.spatial_h5ad}
         """
 
 
