@@ -33,10 +33,9 @@ from pathlib import Path
 # Load config
 configfile: "workflow/config.yaml"
 
-# Shell prefix: activate conda environment for rules WITHOUT their own conda directive
-# Rules with `conda:` will manage their own environment
-CONDA_PREFIX = "module load miniforge3 && eval \"$(conda shell.bash hook)\" && conda activate /scratch/chaunzt1/envs/stagebridge_env && "
-shell.prefix(CONDA_PREFIX)
+# Shell prefix: activate conda environment for most rules
+# NOTE: Rules with `conda:` directive must NOT use shell.prefix - they set shell.prefix("")
+shell.prefix("module load miniforge3 && eval \"$(conda shell.bash hook)\" && conda activate /scratch/chaunzt1/envs/stagebridge_env && ")
 
 # =============================================================================
 # PATH CONFIGURATION
@@ -478,18 +477,19 @@ rule run_moscot:
 
     moscot learns transport plans between timepoints using optimal transport.
     Unlike StageBridge, it does NOT learn a velocity field or condition on niche.
+    Uses pre-created snakemake conda env to avoid shell.prefix conflicts.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        script="scripts/run_external_baseline.py",
     output:
         result=f"{OUTPUT_DIR}/external/moscot/fold_{{fold}}/moscot_results.json",
     params:
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/external/moscot/fold_{w.fold}",
         spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
-    conda:
-        "envs/moscot.yaml"
+        conda_env=".snakemake/conda/7f97f8103f26312b70c6cc5f512a62e8_",
     resources:
         mem_mb=128000,
         runtime=720,  # 12 hours
@@ -497,8 +497,8 @@ rule run_moscot:
         gpu=1,
     shell:
         """
-        conda deactivate 2>/dev/null || true
-        python -m stagebridge.baselines.external \
+        source /admin/software/miniforge3/bin/activate {params.conda_env}
+        python {input.script} \
             --method moscot \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
@@ -512,18 +512,19 @@ rule run_cellrank:
 
     CellRank uses CytoTRACE to infer transition probabilities from gene expression.
     Requires snRNA h5ad with gene expression data.
+    Uses pre-created snakemake conda env.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        script="scripts/run_external_baseline.py",
     output:
         result=f"{OUTPUT_DIR}/external/cellrank/fold_{{fold}}/cellrank_results.json",
     params:
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/external/cellrank/fold_{w.fold}",
         spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
-    conda:
-        "envs/cellrank.yaml"
+        conda_env=".snakemake/conda/10fc23470d505b4d77b5fcdb58ef520b_",
     resources:
         mem_mb=128000,
         runtime=720,  # 12 hours
@@ -531,8 +532,8 @@ rule run_cellrank:
         gpu=1,
     shell:
         """
-        conda deactivate 2>/dev/null || true
-        python -m stagebridge.baselines.external \
+        source /admin/software/miniforge3/bin/activate {params.conda_env}
+        python {input.script} \
             --method cellrank \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
@@ -546,18 +547,19 @@ rule run_commot:
 
     COMMOT uses optimal transport to infer spatial communication patterns.
     Requires numpy<2.0.
+    Uses pre-created snakemake conda env.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        script="scripts/run_external_baseline.py",
     output:
         result=f"{OUTPUT_DIR}/external/commot/fold_{{fold}}/commot_results.json",
     params:
         fold=lambda w: w.fold,
         run_dir=lambda w: f"{OUTPUT_DIR}/external/commot/fold_{w.fold}",
         spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
-    conda:
-        "envs/commot.yaml"
+        conda_env=".snakemake/conda/e50bd7ca0d8392d60f1d7039b29f78e1_",
     resources:
         mem_mb=128000,
         runtime=720,  # 12 hours
@@ -565,8 +567,8 @@ rule run_commot:
         gpu=1,
     shell:
         """
-        conda deactivate 2>/dev/null || true
-        python -m stagebridge.baselines.external \
+        source /admin/software/miniforge3/bin/activate {params.conda_env}
+        python {input.script} \
             --method commot \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
