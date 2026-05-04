@@ -177,7 +177,7 @@ def run_cellrank(
     """
     try:
         import cellrank as cr
-        from cellrank.kernels import PseudotimeKernel
+        from cellrank.kernels import CytoTRACEKernel
     except ImportError:
         raise ImportError("cellrank not installed. Run: pip install cellrank")
 
@@ -189,42 +189,53 @@ def run_cellrank(
 
     print(f"Running CellRank (n_states={n_states})")
 
-    # Load data
-    df = pd.read_parquet(neighborhoods_path)
+    # Load h5ad with gene expression (required for CytoTRACE)
+    snrna_h5ad = neighborhoods_path.parent.parent / "snrna_with_celltypes.h5ad"
+    if not snrna_h5ad.exists():
+        # Try config path
+        snrna_h5ad = Path("/data1/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad")
 
-    # Build AnnData from receiver embeddings
-    # Handle both formats: receiver_z (list/array column) or receiver_z_* (multiple columns)
-    if "receiver_z" in df.columns:
-        X = np.stack(df["receiver_z"].values).astype(np.float32)
-    else:
-        receiver_cols = [c for c in df.columns if c.startswith("receiver_z_")]
-        X = df[receiver_cols].values.astype(np.float32)
+    if not snrna_h5ad.exists():
+        raise FileNotFoundError(f"snRNA h5ad not found. CellRank CytoTRACE requires gene expression.")
 
-    adata = ad.AnnData(X=X)
-    adata.obs["stage"] = df["stage"].values
-    adata.obs["cell_id"] = df["cell_id"].values if "cell_id" in df.columns else range(len(df))
+    print(f"Loading snRNA data from {snrna_h5ad}")
+    adata = ad.read_h5ad(snrna_h5ad)
 
-    # Use stage as pseudotime (Normal=0, Preinvasive=1, Invasive=2)
-    stage_map = {"Normal": 0.0, "Preinvasive": 0.5, "Invasive": 1.0}
-    adata.obs["pseudotime"] = df["stage"].map(stage_map).values
+    # Ensure stage column exists
+    if "stage" not in adata.obs.columns:
+        # Try to get from neighborhoods
+        df = pd.read_parquet(neighborhoods_path)
+        if "cell_id" in df.columns:
+            stage_map = df.set_index("cell_id")["stage"].to_dict()
+            adata.obs["stage"] = adata.obs.index.map(stage_map)
 
-    # Compute neighbors
-    sc.pp.neighbors(adata, n_neighbors=30, use_rep="X")
+    # Preprocess if needed
+    if "Ms" not in adata.layers:
+        # CytoTRACE needs moments - compute them
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+        sc.pp.pca(adata)
+        sc.pp.neighbors(adata)
+        # Compute moments for CytoTRACE
+        sc.tl.diffmap(adata)
+        adata.layers["Ms"] = adata.X.copy()  # Use normalized counts as proxy
 
-    # Use PseudotimeKernel with stage as pseudotime (works with embeddings)
-    pk = PseudotimeKernel(adata, time_key="pseudotime")
-    pk.compute_transition_matrix(threshold_scheme="soft")
+    # CytoTRACE kernel (uses gene expression entropy as proxy for differentiation)
+    ctk = CytoTRACEKernel(adata)
+    ctk.compute_cytotrace()
+    ctk.compute_transition_matrix()
 
     # Compute terminal states
-    g = cr.estimators.GPCCA(pk)
-    g.compute_schur(n_components=min(20, X.shape[0] - 1))
+    g = cr.estimators.GPCCA(ctk)
+    g.compute_schur(n_components=20)
     g.compute_macrostates(n_states=n_states, cluster_key="stage")
 
     # Predict terminal states (required before fate probabilities in CellRank 2.x)
     g.predict_terminal_states()
 
     # Get transition matrix
-    T = pk.transition_matrix
+    T = ctk.transition_matrix
 
     # Compute fate probabilities
     g.compute_fate_probabilities()
