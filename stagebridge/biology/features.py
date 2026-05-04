@@ -283,6 +283,7 @@ def compute_biological_features(
     output_path: Path | None = None,
     run_liana_analysis: bool = False,
     cell_type_col: str = "cell_type",
+    transfer_luca_labels: bool = False,
 ) -> pd.DataFrame:
     """Compute all biological features from h5ad.
 
@@ -291,6 +292,8 @@ def compute_biological_features(
         output_path: Optional path to save results
         run_liana_analysis: Whether to run LIANA (slow, ~30 min)
         cell_type_col: Column for cell types (for LIANA)
+        transfer_luca_labels: If True and cell_type_col not found, transfer
+            LuCA labels via k-NN and use "cell_type_luca" for LIANA
 
     Returns:
         DataFrame with cell_id and all computed features
@@ -300,6 +303,19 @@ def compute_biological_features(
     print(f"Loading {h5ad_path}...")
     adata = sc.read_h5ad(h5ad_path)
     print(f"  {adata.n_obs:,} cells x {adata.n_vars:,} genes")
+
+    # Optionally transfer LuCA labels for LIANA
+    if transfer_luca_labels and run_liana_analysis:
+        if cell_type_col not in adata.obs.columns or cell_type_col == "cell_type_luca":
+            try:
+                from stagebridge.reference import transfer_labels
+                print("Transferring LuCA cell type labels (k-NN)...")
+                adata = transfer_labels(adata, reference="luca", use_knn=True, inplace=True)
+                cell_type_col = "cell_type_luca"
+                print(f"  Using {cell_type_col} for LIANA ({adata.obs[cell_type_col].nunique()} types)")
+            except Exception as e:
+                print(f"  Warning: Could not transfer LuCA labels: {e}")
+                print(f"  Falling back to {cell_type_col}")
 
     # Signature scores
     print("Computing signature scores...")
