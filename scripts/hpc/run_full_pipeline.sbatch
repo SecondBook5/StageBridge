@@ -7,11 +7,19 @@
 #SBATCH --output=/home/booka/StageBridge/logs/full_pipeline_%j.log
 #SBATCH --error=/home/booka/StageBridge/logs/full_pipeline_%j.err
 
-# Complete StageBridge data preparation pipeline
+# Complete StageBridge data preparation + figure generation pipeline
 # 1. Use pre-computed LuCA labels (luca_cell_type column)
 # 2. Run LIANA with LuCA cell types
 # 3. Full data prep (signatures, DE, activity, trajectories, niches)
-# 4. Generate single-panel figures for each analysis
+# 4. Generate advanced publication figures (UMAP, PHATE, GSEA, Ricci, etc.)
+#
+# ENVIRONMENT:
+#   Data prep (Parts 1-5): stagebridge_env
+#   Figures (Part 6): stagebridge_figures (has PHATE, GSEA, GraphRicciCurvature)
+#
+# To create figures env:
+#   conda env create -f /home/booka/StageBridge/envs/figures_env.yaml \
+#       -p /scratch/chaunzt1/envs/stagebridge_figures
 
 set -e
 
@@ -25,6 +33,8 @@ echo ""
 
 module load miniforge3
 eval "$(conda shell.bash hook)"
+
+# Use main env for data processing
 conda activate /scratch/chaunzt1/envs/stagebridge_env
 
 cd /home/booka/StageBridge
@@ -601,6 +611,21 @@ fi
 # =============================================================================
 # PART 6: Advanced Single-Cell Visualizations (Scanpy/Squidpy style)
 # =============================================================================
+echo ""
+echo "=============================================="
+echo "Switching to figures environment..."
+echo "=============================================="
+
+# Switch to figures environment (has PHATE, GSEA, GraphRicciCurvature, etc.)
+FIGURES_ENV="/scratch/chaunzt1/envs/stagebridge_figures"
+if [ -d "$FIGURES_ENV" ]; then
+    conda activate "$FIGURES_ENV"
+    echo "  Activated: stagebridge_figures"
+else
+    echo "  WARNING: stagebridge_figures not found, using stagebridge_env"
+    echo "  To create: conda env create -f /home/booka/StageBridge/envs/figures_env.yaml -p $FIGURES_ENV"
+fi
+
 echo ""
 echo "=============================================="
 echo "PART 6A: Advanced SC Visualizations (UMAP, PHATE, etc.)"
