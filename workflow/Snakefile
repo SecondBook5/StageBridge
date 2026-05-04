@@ -469,27 +469,25 @@ rule run_ablation:
 # =============================================================================
 # EXTERNAL BASELINES (moscot, cellrank, commot)
 # =============================================================================
+# Each has its own conda environment to avoid dependency conflicts
 
-rule run_external_method:
-    """Run external trajectory inference methods for comparison.
+rule run_moscot:
+    """Run moscot temporal OT for trajectory inference.
 
-    These methods (moscot, cellrank, commot) use different paradigms:
-    - moscot: OT-based interpolation (no learned dynamics)
-    - cellrank: Transition probability from RNA velocity/pseudotime
-    - commot: OT-based cell-cell communication
-
-    Unlike StageBridge, they don't condition on spatial niche.
+    moscot learns transport plans between timepoints using optimal transport.
+    Unlike StageBridge, it does NOT learn a velocity field or condition on niche.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
     output:
-        result=f"{OUTPUT_DIR}/external/{{method}}/fold_{{fold}}/{{method}}_results.json",
+        result=f"{OUTPUT_DIR}/external/moscot/fold_{{fold}}/moscot_results.json",
     params:
-        method=lambda w: w.method,
         fold=lambda w: w.fold,
-        run_dir=lambda w: f"{OUTPUT_DIR}/external/{w.method}/fold_{w.fold}",
+        run_dir=lambda w: f"{OUTPUT_DIR}/external/moscot/fold_{w.fold}",
         spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
+    conda:
+        "envs/moscot.yaml"
     resources:
         mem_mb=128000,
         runtime=720,  # 12 hours
@@ -498,7 +496,73 @@ rule run_external_method:
     shell:
         """
         python -m stagebridge.baselines.external \
-            --method {params.method} \
+            --method moscot \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold} \
+            --spatial-h5ad {params.spatial_h5ad}
+        """
+
+
+rule run_cellrank:
+    """Run CellRank for trajectory inference.
+
+    CellRank uses CytoTRACE to infer transition probabilities from gene expression.
+    Requires snRNA h5ad with gene expression data.
+    """
+    input:
+        validated=f"{OUTPUT_DIR}/.data_validated",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        result=f"{OUTPUT_DIR}/external/cellrank/fold_{{fold}}/cellrank_results.json",
+    params:
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/external/cellrank/fold_{w.fold}",
+        spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
+    conda:
+        "envs/cellrank.yaml"
+    resources:
+        mem_mb=128000,
+        runtime=720,  # 12 hours
+        slurm_partition="gpu",
+        gpu=1,
+    shell:
+        """
+        python -m stagebridge.baselines.external \
+            --method cellrank \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold} \
+            --spatial-h5ad {params.spatial_h5ad}
+        """
+
+
+rule run_commot:
+    """Run COMMOT for cell-cell communication analysis.
+
+    COMMOT uses optimal transport to infer spatial communication patterns.
+    Requires numpy<2.0.
+    """
+    input:
+        validated=f"{OUTPUT_DIR}/.data_validated",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        result=f"{OUTPUT_DIR}/external/commot/fold_{{fold}}/commot_results.json",
+    params:
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/external/commot/fold_{w.fold}",
+        spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
+    conda:
+        "envs/commot.yaml"
+    resources:
+        mem_mb=128000,
+        runtime=720,  # 12 hours
+        slurm_partition="gpu",
+        gpu=1,
+    shell:
+        """
+        python -m stagebridge.baselines.external \
+            --method commot \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
             --fold-idx {params.fold} \
