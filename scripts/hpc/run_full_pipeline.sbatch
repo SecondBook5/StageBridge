@@ -599,11 +599,804 @@ PYTHON_GENES
 fi
 
 # =============================================================================
-# PART 6: Generate Publication Figures (using stagebridge.viz)
+# PART 6: Advanced Single-Cell Visualizations (Scanpy/Squidpy style)
 # =============================================================================
 echo ""
 echo "=============================================="
-echo "PART 6: Generate Publication Figures"
+echo "PART 6A: Advanced SC Visualizations (UMAP, PHATE, etc.)"
+echo "=============================================="
+
+python << 'PYTHON_ADVANCED_SC'
+import scanpy as sc
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+import seaborn as sns
+from pathlib import Path
+import os
+import sys
+import warnings
+warnings.filterwarnings('ignore')
+
+sc.settings.verbosity = 1
+sc.settings.set_figure_params(dpi=150, facecolor='white', frameon=False)
+
+SNRNA = os.environ['SNRNA']
+CANONICAL = Path(os.environ['CANONICAL'])
+FIGURES = Path("/home/booka/StageBridge/figures/publication")
+ADV = FIGURES / 'advanced'
+ADV.mkdir(exist_ok=True, parents=True)
+
+print("=" * 60)
+print("ADVANCED SINGLE-CELL VISUALIZATIONS")
+print("=" * 60)
+sys.stdout.flush()
+
+# Deep color palette
+STAGE_COLORS = {
+    'Normal': '#228B22', 'AAH': '#4169E1', 'AIS': '#6B3FA0',
+    'MIA': '#DAA520', 'LUAD': '#8B1A1A',
+}
+
+def save_fig(fig, path, name):
+    for fmt in ['png', 'pdf']:
+        fig.savefig(path / f'{name}.{fmt}', dpi=300, bbox_inches='tight',
+                   facecolor='white', edgecolor='none')
+    plt.close(fig)
+
+print("\n[LOAD] Loading snRNA data...")
+sys.stdout.flush()
+adata = sc.read_h5ad(SNRNA)
+print(f"  {adata.n_obs:,} cells x {adata.n_vars:,} genes")
+
+# Add pathway scores to adata.obs
+print("\n[SCORES] Adding pathway scores to adata...")
+sys.stdout.flush()
+try:
+    pw_scores = pd.read_parquet(CANONICAL / 'key_genes' / 'pathway_scores.parquet')
+    score_cols = [c for c in pw_scores.columns if c not in ['stage', 'luca_cell_type']]
+    for col in score_cols:
+        if col in pw_scores.columns:
+            adata.obs[col] = pw_scores[col].values
+    print(f"  Added {len(score_cols)} pathway scores")
+except Exception as e:
+    print(f"  Could not load pathway scores: {e}")
+
+# =============================================================================
+# UMAP - Compute if not present
+# =============================================================================
+print("\n[UMAP] Computing UMAP embedding...")
+sys.stdout.flush()
+
+if 'X_umap' not in adata.obsm:
+    sc.pp.neighbors(adata, n_neighbors=15, n_pcs=30)
+    sc.tl.umap(adata, min_dist=0.3)
+    print("  Computed fresh UMAP")
+else:
+    print("  Using existing UMAP")
+
+# =============================================================================
+# UMAP by Stage - Publication quality
+# =============================================================================
+print("\n[UMAP] Stage distribution...")
+sys.stdout.flush()
+
+try:
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sc.pl.umap(adata, color='stage', palette=STAGE_COLORS, ax=ax, show=False,
+              title='', frameon=False, size=3, alpha=0.7)
+    ax.set_title('UMAP by Disease Stage', fontsize=14, fontweight='bold', pad=10)
+    save_fig(fig, ADV, 'umap_stage')
+    print("  Saved umap_stage.png/pdf")
+except Exception as e:
+    print(f"  UMAP stage failed: {e}")
+
+# =============================================================================
+# UMAP by Cell Type
+# =============================================================================
+print("\n[UMAP] Cell type distribution...")
+sys.stdout.flush()
+
+try:
+    fig, ax = plt.subplots(figsize=(12, 8))
+    sc.pl.umap(adata, color='luca_cell_type', ax=ax, show=False,
+              title='', frameon=False, size=3, alpha=0.7, legend_loc='on data',
+              legend_fontsize=6, legend_fontoutline=2)
+    ax.set_title('UMAP by LuCA Cell Type', fontsize=14, fontweight='bold', pad=10)
+    save_fig(fig, ADV, 'umap_celltype')
+    print("  Saved umap_celltype.png/pdf")
+except Exception as e:
+    print(f"  UMAP celltype failed: {e}")
+
+# =============================================================================
+# UMAP Feature Plots - Key Markers
+# =============================================================================
+print("\n[UMAP] Key marker expression...")
+sys.stdout.flush()
+
+key_genes = ['IL1B', 'IL1R1', 'SFTPC', 'EPCAM', 'VIM', 'ACTA2', 'CD3D', 'CD68', 'PECAM1']
+available_genes = [g for g in key_genes if g in adata.var_names]
+
+for gene in available_genes:
+    try:
+        fig, ax = plt.subplots(figsize=(8, 7))
+        sc.pl.umap(adata, color=gene, ax=ax, show=False, cmap='magma',
+                  title='', frameon=False, size=5, alpha=0.8, vmin=0)
+        ax.set_title(f'{gene} Expression', fontsize=14, fontweight='bold', pad=10)
+        save_fig(fig, ADV, f'umap_{gene.lower()}')
+        print(f"  Saved umap_{gene.lower()}.png/pdf")
+    except Exception as e:
+        print(f"  UMAP {gene} failed: {e}")
+
+# =============================================================================
+# UMAP Pathway Scores
+# =============================================================================
+print("\n[UMAP] Pathway score overlays...")
+sys.stdout.flush()
+
+pathway_scores_to_plot = ['il1b_pathway', 'caf_markers', 'senescence', 'emt_mesenchymal',
+                          'mac_m1', 'mac_m2', 't_exhaustion', 'hypoxia']
+
+for pw in pathway_scores_to_plot:
+    if pw in adata.obs.columns:
+        try:
+            fig, ax = plt.subplots(figsize=(8, 7))
+            sc.pl.umap(adata, color=pw, ax=ax, show=False, cmap='plasma',
+                      title='', frameon=False, size=5, alpha=0.8)
+            ax.set_title(f'{pw.replace("_", " ").title()} Score', fontsize=14, fontweight='bold', pad=10)
+            save_fig(fig, ADV, f'umap_{pw}')
+            print(f"  Saved umap_{pw}.png/pdf")
+        except Exception as e:
+            print(f"  UMAP {pw} failed: {e}")
+
+# =============================================================================
+# PHATE Embedding
+# =============================================================================
+print("\n[PHATE] Computing PHATE embedding...")
+sys.stdout.flush()
+
+try:
+    import phate
+    phate_op = phate.PHATE(n_jobs=-1, random_state=42, verbose=0)
+
+    # Use PCA for speed
+    if 'X_pca' not in adata.obsm:
+        sc.pp.pca(adata, n_comps=50)
+
+    X_phate = phate_op.fit_transform(adata.obsm['X_pca'][:, :30])
+    adata.obsm['X_phate'] = X_phate
+    print("  Computed PHATE embedding")
+
+    # PHATE by stage
+    fig, ax = plt.subplots(figsize=(10, 8))
+    for stage in ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']:
+        mask = adata.obs['stage'] == stage
+        ax.scatter(X_phate[mask, 0], X_phate[mask, 1], s=3, alpha=0.6,
+                  c=STAGE_COLORS[stage], label=stage)
+    ax.set_xlabel('PHATE 1', fontweight='bold')
+    ax.set_ylabel('PHATE 2', fontweight='bold')
+    ax.set_title('PHATE by Disease Stage', fontsize=14, fontweight='bold', pad=10)
+    ax.legend(markerscale=3, frameon=False)
+    ax.set_aspect('equal')
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    save_fig(fig, ADV, 'phate_stage')
+    print("  Saved phate_stage.png/pdf")
+
+    # PHATE colored by pathway scores
+    for pw in ['il1b_pathway', 'senescence', 'emt_mesenchymal']:
+        if pw in adata.obs.columns:
+            fig, ax = plt.subplots(figsize=(9, 7))
+            scatter = ax.scatter(X_phate[:, 0], X_phate[:, 1], s=3, alpha=0.7,
+                               c=adata.obs[pw], cmap='inferno')
+            ax.set_xlabel('PHATE 1', fontweight='bold')
+            ax.set_ylabel('PHATE 2', fontweight='bold')
+            ax.set_title(f'PHATE: {pw.replace("_", " ").title()}', fontsize=14, fontweight='bold', pad=10)
+            plt.colorbar(scatter, ax=ax, shrink=0.6, label='Score')
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+            save_fig(fig, ADV, f'phate_{pw}')
+            print(f"  Saved phate_{pw}.png/pdf")
+
+except ImportError:
+    print("  PHATE not installed, skipping")
+except Exception as e:
+    print(f"  PHATE failed: {e}")
+
+# =============================================================================
+# Diffusion Pseudotime
+# =============================================================================
+print("\n[DPT] Diffusion pseudotime...")
+sys.stdout.flush()
+
+try:
+    sc.tl.diffmap(adata)
+
+    # Find root cell (likely Normal epithelial)
+    normal_mask = (adata.obs['stage'] == 'Normal')
+    if normal_mask.sum() > 0:
+        adata.uns['iroot'] = np.where(normal_mask)[0][0]
+        sc.tl.dpt(adata)
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sc.pl.umap(adata, color='dpt_pseudotime', ax=ax, show=False, cmap='viridis',
+                  title='', frameon=False, size=5, alpha=0.8)
+        ax.set_title('Diffusion Pseudotime', fontsize=14, fontweight='bold', pad=10)
+        save_fig(fig, ADV, 'umap_pseudotime')
+        print("  Saved umap_pseudotime.png/pdf")
+
+        # Pseudotime by stage boxplot
+        fig, ax = plt.subplots(figsize=(10, 6))
+        stage_order = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+        colors = [STAGE_COLORS[s] for s in stage_order]
+        data_to_plot = [adata.obs[adata.obs['stage'] == s]['dpt_pseudotime'].dropna() for s in stage_order]
+        bp = ax.boxplot(data_to_plot, labels=stage_order, patch_artist=True,
+                       medianprops=dict(color='black', linewidth=2))
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+        ax.set_ylabel('Diffusion Pseudotime', fontweight='bold')
+        ax.set_title('Pseudotime Distribution by Stage', fontsize=14, fontweight='bold', pad=10)
+        save_fig(fig, ADV, 'pseudotime_boxplot')
+        print("  Saved pseudotime_boxplot.png/pdf")
+
+except Exception as e:
+    print(f"  DPT failed: {e}")
+
+# =============================================================================
+# Scanpy Dotplot - Marker Genes
+# =============================================================================
+print("\n[DOTPLOT] Cell type marker dotplot...")
+sys.stdout.flush()
+
+try:
+    marker_genes = {
+        'Epithelial': ['EPCAM', 'KRT18', 'CDH1'],
+        'AT2': ['SFTPC', 'SFTPA1'],
+        'AT1': ['AGER', 'HOPX'],
+        'Basal': ['KRT5', 'TP63'],
+        'EMT': ['VIM', 'SNAI1', 'ZEB1'],
+        'CAF': ['ACTA2', 'FAP', 'COL1A1'],
+        'Macrophage': ['CD68', 'CD163', 'IL1B'],
+        'T cell': ['CD3D', 'CD8A', 'CD4'],
+        'Endothelial': ['PECAM1', 'VWF'],
+    }
+
+    available_markers = {}
+    for cat, genes in marker_genes.items():
+        avail = [g for g in genes if g in adata.var_names]
+        if avail:
+            available_markers[cat] = avail
+
+    if available_markers:
+        sc.pl.dotplot(adata, available_markers, groupby='luca_cell_type',
+                     dendrogram=True, standard_scale='var', cmap='Reds',
+                     save='_celltype_markers.png', show=False)
+        print("  Saved dotplot (via scanpy)")
+except Exception as e:
+    print(f"  Dotplot failed: {e}")
+
+# =============================================================================
+# Scanpy Matrixplot - Pathway Heatmap
+# =============================================================================
+print("\n[MATRIXPLOT] Pathway heatmap by cell type...")
+sys.stdout.flush()
+
+try:
+    pathway_cols = [c for c in adata.obs.columns if c in
+                   ['il1b_pathway', 'caf_markers', 'senescence', 'sasp', 'emt_mesenchymal',
+                    'mac_m1', 'mac_m2', 't_exhaustion', 'hypoxia', 'inflammatory']]
+
+    if pathway_cols:
+        # Create a fake gene matrix from pathway scores for matrixplot
+        pathway_df = adata.obs.groupby('luca_cell_type')[pathway_cols].mean()
+
+        fig, ax = plt.subplots(figsize=(12, 10))
+        sns.heatmap(pathway_df, cmap='inferno', ax=ax, annot=True, fmt='.2f',
+                   linewidths=0.5, cbar_kws={'shrink': 0.6, 'label': 'Mean Score'})
+        ax.set_title('Pathway Scores by Cell Type', fontsize=14, fontweight='bold', pad=15)
+        ax.set_xlabel('Pathway', fontweight='bold')
+        ax.set_ylabel('Cell Type', fontweight='bold')
+        plt.xticks(rotation=45, ha='right')
+        save_fig(fig, ADV, 'pathway_celltype_heatmap')
+        print("  Saved pathway_celltype_heatmap.png/pdf")
+
+except Exception as e:
+    print(f"  Matrixplot failed: {e}")
+
+# =============================================================================
+# Stacked Violin Plot
+# =============================================================================
+print("\n[STACKED VIOLIN] Key markers...")
+sys.stdout.flush()
+
+try:
+    genes_for_violin = ['IL1B', 'IL1R1', 'SFTPC', 'VIM', 'ACTA2', 'CD68', 'CD3D']
+    avail_violin = [g for g in genes_for_violin if g in adata.var_names]
+
+    if avail_violin:
+        sc.pl.stacked_violin(adata, avail_violin, groupby='stage',
+                            swap_axes=False, cmap='plasma',
+                            save='_stage_markers.png', show=False)
+        print("  Saved stacked violin (via scanpy)")
+except Exception as e:
+    print(f"  Stacked violin failed: {e}")
+
+# =============================================================================
+# Rank Genes Groups - Stage DEG
+# =============================================================================
+print("\n[DEG] Differential expression by stage...")
+sys.stdout.flush()
+
+try:
+    sc.tl.rank_genes_groups(adata, 'stage', method='wilcoxon', n_genes=50)
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+    sc.pl.rank_genes_groups_dotplot(adata, n_genes=5, ax=ax, show=False,
+                                   cmap='RdBu_r', values_to_plot='logfoldchanges')
+    ax.set_title('Top DEG by Stage', fontsize=14, fontweight='bold')
+    save_fig(fig, ADV, 'deg_stage_dotplot')
+    print("  Saved deg_stage_dotplot.png/pdf")
+
+    sc.pl.rank_genes_groups_heatmap(adata, n_genes=10, cmap='viridis',
+                                   save='_deg_stage.png', show=False)
+    print("  Saved DEG heatmap (via scanpy)")
+
+except Exception as e:
+    print(f"  DEG analysis failed: {e}")
+
+# =============================================================================
+# Partition-based Graph Abstraction (PAGA)
+# =============================================================================
+print("\n[PAGA] Trajectory inference...")
+sys.stdout.flush()
+
+try:
+    sc.tl.paga(adata, groups='stage')
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sc.pl.paga(adata, ax=ax, show=False, color='stage', cmap=None,
+              node_size_scale=2, edge_width_scale=1.5, fontsize=12,
+              frameon=False)
+    ax.set_title('PAGA: Stage Connectivity', fontsize=14, fontweight='bold', pad=10)
+    save_fig(fig, ADV, 'paga_stage')
+    print("  Saved paga_stage.png/pdf")
+
+    # PAGA on UMAP
+    sc.tl.draw_graph(adata, init_pos='paga')
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sc.pl.draw_graph(adata, color='stage', palette=STAGE_COLORS, ax=ax, show=False,
+                    title='', frameon=False, size=3, alpha=0.6)
+    ax.set_title('PAGA-initialized Force-directed Layout', fontsize=14, fontweight='bold', pad=10)
+    save_fig(fig, ADV, 'paga_umap')
+    print("  Saved paga_umap.png/pdf")
+
+except Exception as e:
+    print(f"  PAGA failed: {e}")
+
+# =============================================================================
+# Density plots
+# =============================================================================
+print("\n[DENSITY] Stage density on UMAP...")
+sys.stdout.flush()
+
+try:
+    for stage in ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']:
+        fig, ax = plt.subplots(figsize=(8, 7))
+        sc.pl.embedding_density(adata, basis='umap', groupby='stage', group=stage,
+                               ax=ax, show=False, cmap='magma')
+        ax.set_title(f'{stage} Cell Density', fontsize=14, fontweight='bold', pad=10)
+        save_fig(fig, ADV, f'density_{stage.lower()}')
+        print(f"  Saved density_{stage.lower()}.png/pdf")
+except Exception as e:
+    print(f"  Density plots failed: {e}")
+
+# =============================================================================
+# GSEA - Gene Set Enrichment Analysis
+# =============================================================================
+print("\n[GSEA] Gene set enrichment analysis...")
+sys.stdout.flush()
+
+try:
+    import gseapy as gp
+
+    # Get DEG for GSEA
+    if 'rank_genes_groups' in adata.uns:
+        for stage in ['LUAD', 'MIA', 'AIS']:
+            try:
+                # Get ranked gene list
+                genes_df = sc.get.rank_genes_groups_df(adata, group=stage)
+                genes_df = genes_df.dropna(subset=['scores'])
+                rnk = genes_df.set_index('names')['scores'].sort_values(ascending=False)
+
+                # Run prerank GSEA
+                pre_res = gp.prerank(
+                    rnk=rnk,
+                    gene_sets='KEGG_2021_Human',
+                    processes=4,
+                    permutation_num=100,
+                    seed=42,
+                    no_plot=True,
+                )
+
+                # Plot top enriched pathways
+                res_df = pre_res.res2d
+                res_df['abs_nes'] = res_df['NES'].abs()
+                top_paths = res_df.nlargest(15, 'abs_nes')
+
+                fig, ax = plt.subplots(figsize=(10, 8))
+                colors = ['#8B1A1A' if x > 0 else '#4169E1' for x in top_paths['NES']]
+                bars = ax.barh(range(len(top_paths)), top_paths['NES'], color=colors, alpha=0.85)
+                ax.set_yticks(range(len(top_paths)))
+                ax.set_yticklabels([p[:40] for p in top_paths['Term']], fontsize=9)
+                ax.axvline(x=0, color='gray', linewidth=1)
+                ax.set_xlabel('Normalized Enrichment Score', fontweight='bold')
+                ax.set_title(f'GSEA: {stage} vs Rest (KEGG)', fontsize=14, fontweight='bold', pad=10)
+                ax.invert_yaxis()
+
+                for i, (nes, fdr) in enumerate(zip(top_paths['NES'], top_paths['FDR q-val'])):
+                    ax.text(nes + 0.05 if nes > 0 else nes - 0.05, i,
+                           f'FDR={fdr:.2e}', va='center', fontsize=7,
+                           ha='left' if nes > 0 else 'right')
+
+                save_fig(fig, ADV, f'gsea_{stage.lower()}_kegg')
+                print(f"  Saved gsea_{stage.lower()}_kegg.png/pdf")
+
+            except Exception as e:
+                print(f"  GSEA {stage} failed: {e}")
+
+except ImportError:
+    print("  gseapy not installed, skipping GSEA")
+except Exception as e:
+    print(f"  GSEA failed: {e}")
+
+# =============================================================================
+# GSEA Enrichment Plot (classic running enrichment)
+# =============================================================================
+print("\n[GSEA] Enrichment plots...")
+sys.stdout.flush()
+
+try:
+    import gseapy as gp
+
+    if 'rank_genes_groups' in adata.uns:
+        genes_df = sc.get.rank_genes_groups_df(adata, group='LUAD')
+        rnk = genes_df.set_index('names')['scores'].sort_values(ascending=False)
+
+        # Target specific pathways
+        target_pathways = ['IL-17 signaling pathway', 'TNF signaling pathway',
+                          'NF-kappa B signaling pathway', 'Cell cycle']
+
+        pre_res = gp.prerank(
+            rnk=rnk,
+            gene_sets='KEGG_2021_Human',
+            processes=4,
+            permutation_num=100,
+            seed=42,
+            no_plot=True,
+        )
+
+        for pathway in target_pathways:
+            try:
+                if pathway in pre_res.res2d['Term'].values:
+                    gp.gseaplot(
+                        rank_metric=pre_res.ranking,
+                        term=pathway,
+                        ofname=str(ADV / f'gsea_enrichment_{pathway.replace(" ", "_").replace("-", "_").lower()}.png'),
+                        **pre_res.results[pathway]
+                    )
+                    print(f"  Saved enrichment plot: {pathway}")
+            except:
+                pass
+
+except ImportError:
+    pass
+except Exception as e:
+    print(f"  GSEA enrichment plots failed: {e}")
+
+# =============================================================================
+# Ricci Curvature Network - Cell-Cell Communication
+# =============================================================================
+print("\n[RICCI] Ricci curvature network...")
+sys.stdout.flush()
+
+try:
+    import networkx as nx
+    from GraphRicciCurvature.OllivierRicci import OllivierRicci
+
+    # Load LIANA communication matrix
+    comm_path = CANONICAL / 'communication' / 'communication_matrix_luca.parquet'
+    if comm_path.exists():
+        comm = pd.read_parquet(comm_path)
+
+        # Build graph from communication matrix
+        G = nx.DiGraph()
+        for source in comm.index:
+            for target in comm.columns:
+                weight = comm.loc[source, target]
+                if weight > 0:
+                    G.add_edge(source, target, weight=weight)
+
+        if len(G.edges()) > 0:
+            # Compute Ollivier-Ricci curvature
+            orc = OllivierRicci(G, alpha=0.5, verbose="ERROR")
+            orc.compute_ricci_curvature()
+            G_ricci = orc.G
+
+            # Extract curvature values
+            edge_curvatures = [G_ricci[u][v]['ricciCurvature'] for u, v in G_ricci.edges()]
+
+            # Plot network with curvature coloring
+            fig, ax = plt.subplots(figsize=(14, 12))
+
+            pos = nx.spring_layout(G_ricci, k=2, iterations=50, seed=42)
+
+            # Node sizes by degree
+            node_sizes = [300 + G_ricci.degree(n) * 50 for n in G_ricci.nodes()]
+
+            # Edge colors by curvature
+            edge_colors = [G_ricci[u][v]['ricciCurvature'] for u, v in G_ricci.edges()]
+
+            # Draw network
+            nx.draw_networkx_nodes(G_ricci, pos, ax=ax, node_size=node_sizes,
+                                  node_color='#4169E1', alpha=0.8, edgecolors='white', linewidths=2)
+            edges = nx.draw_networkx_edges(G_ricci, pos, ax=ax, edge_color=edge_colors,
+                                          edge_cmap=plt.cm.RdYlBu_r, width=1.5, alpha=0.7,
+                                          arrows=True, arrowsize=10, connectionstyle='arc3,rad=0.1')
+            nx.draw_networkx_labels(G_ricci, pos, ax=ax, font_size=7, font_weight='bold')
+
+            # Colorbar for curvature
+            sm = plt.cm.ScalarMappable(cmap=plt.cm.RdYlBu_r,
+                                       norm=plt.Normalize(min(edge_curvatures), max(edge_curvatures)))
+            cbar = plt.colorbar(sm, ax=ax, shrink=0.6, pad=0.02)
+            cbar.set_label('Ollivier-Ricci Curvature', fontweight='bold')
+
+            ax.set_title('Cell-Cell Communication Network\n(Edge color = Ricci Curvature)',
+                        fontsize=14, fontweight='bold', pad=15)
+            ax.axis('off')
+
+            save_fig(fig, ADV, 'ricci_communication_network')
+            print("  Saved ricci_communication_network.png/pdf")
+
+            # Curvature distribution
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.hist(edge_curvatures, bins=40, color='#6B3FA0', edgecolor='white', alpha=0.8)
+            ax.axvline(x=0, color='#8B1A1A', linestyle='--', linewidth=2, label='Zero curvature')
+            ax.axvline(x=np.mean(edge_curvatures), color='#DAA520', linestyle='-', linewidth=2,
+                      label=f'Mean: {np.mean(edge_curvatures):.3f}')
+            ax.set_xlabel('Ollivier-Ricci Curvature', fontweight='bold')
+            ax.set_ylabel('Edge Count', fontweight='bold')
+            ax.set_title('Ricci Curvature Distribution', fontsize=14, fontweight='bold', pad=10)
+            ax.legend(frameon=False)
+            save_fig(fig, ADV, 'ricci_curvature_distribution')
+            print("  Saved ricci_curvature_distribution.png/pdf")
+
+except ImportError:
+    print("  GraphRicciCurvature not installed, skipping Ricci analysis")
+except Exception as e:
+    print(f"  Ricci curvature failed: {e}")
+
+# =============================================================================
+# Network Centrality Analysis
+# =============================================================================
+print("\n[NETWORK] Centrality analysis...")
+sys.stdout.flush()
+
+try:
+    import networkx as nx
+
+    comm_path = CANONICAL / 'communication' / 'communication_matrix_luca.parquet'
+    if comm_path.exists():
+        comm = pd.read_parquet(comm_path)
+
+        G = nx.DiGraph()
+        for source in comm.index:
+            for target in comm.columns:
+                weight = comm.loc[source, target]
+                if weight > 10:  # Filter weak connections
+                    G.add_edge(source, target, weight=weight)
+
+        if len(G.nodes()) > 0:
+            # Compute centralities
+            in_deg = dict(G.in_degree(weight='weight'))
+            out_deg = dict(G.out_degree(weight='weight'))
+            pagerank = nx.pagerank(G, weight='weight')
+            betweenness = nx.betweenness_centrality(G, weight='weight')
+
+            centrality_df = pd.DataFrame({
+                'In-degree': in_deg,
+                'Out-degree': out_deg,
+                'PageRank': pagerank,
+                'Betweenness': betweenness,
+            })
+
+            # Plot centrality comparison
+            fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+
+            metrics = ['In-degree', 'Out-degree', 'PageRank', 'Betweenness']
+            cmaps = ['rocket', 'mako', 'viridis', 'plasma']
+
+            for ax, metric, cmap in zip(axes.flatten(), metrics, cmaps):
+                data = centrality_df[metric].nlargest(15)
+                colors = plt.cm.get_cmap(cmap)(np.linspace(0.3, 0.9, len(data)))
+                ax.barh(range(len(data)), data.values, color=colors)
+                ax.set_yticks(range(len(data)))
+                ax.set_yticklabels(data.index, fontsize=9)
+                ax.set_title(f'{metric} Centrality', fontweight='bold')
+                ax.invert_yaxis()
+
+            fig.suptitle('Network Centrality Analysis', fontsize=14, fontweight='bold', y=1.02)
+            plt.tight_layout()
+            save_fig(fig, ADV, 'network_centrality')
+            print("  Saved network_centrality.png/pdf")
+
+except ImportError:
+    print("  networkx not available")
+except Exception as e:
+    print(f"  Centrality analysis failed: {e}")
+
+# =============================================================================
+# Volcano Plots - DEG
+# =============================================================================
+print("\n[VOLCANO] Differential expression volcano plots...")
+sys.stdout.flush()
+
+try:
+    if 'rank_genes_groups' in adata.uns:
+        for stage in ['LUAD', 'MIA']:
+            try:
+                df = sc.get.rank_genes_groups_df(adata, group=stage)
+
+                fig, ax = plt.subplots(figsize=(10, 8))
+
+                # Define significance
+                df['significance'] = 'NS'
+                df.loc[(df['pvals_adj'] < 0.05) & (df['logfoldchanges'] > 0.5), 'significance'] = 'Up'
+                df.loc[(df['pvals_adj'] < 0.05) & (df['logfoldchanges'] < -0.5), 'significance'] = 'Down'
+
+                colors = {'NS': '#CCCCCC', 'Up': '#8B1A1A', 'Down': '#4169E1'}
+
+                for sig, color in colors.items():
+                    mask = df['significance'] == sig
+                    ax.scatter(df.loc[mask, 'logfoldchanges'],
+                              -np.log10(df.loc[mask, 'pvals_adj'] + 1e-300),
+                              c=color, s=10, alpha=0.6, label=sig)
+
+                # Label top genes
+                top_up = df[df['significance'] == 'Up'].nlargest(10, 'logfoldchanges')
+                top_down = df[df['significance'] == 'Down'].nsmallest(10, 'logfoldchanges')
+
+                for _, row in pd.concat([top_up, top_down]).iterrows():
+                    ax.annotate(row['names'], (row['logfoldchanges'], -np.log10(row['pvals_adj'] + 1e-300)),
+                               fontsize=7, alpha=0.8)
+
+                ax.axhline(-np.log10(0.05), color='gray', linestyle='--', alpha=0.5)
+                ax.axvline(0.5, color='gray', linestyle='--', alpha=0.5)
+                ax.axvline(-0.5, color='gray', linestyle='--', alpha=0.5)
+
+                ax.set_xlabel('Log2 Fold Change', fontweight='bold')
+                ax.set_ylabel('-Log10(Adjusted P-value)', fontweight='bold')
+                ax.set_title(f'Volcano Plot: {stage} vs Rest', fontsize=14, fontweight='bold', pad=10)
+                ax.legend(frameon=False)
+
+                save_fig(fig, ADV, f'volcano_{stage.lower()}')
+                print(f"  Saved volcano_{stage.lower()}.png/pdf")
+
+            except Exception as e:
+                print(f"  Volcano {stage} failed: {e}")
+
+except Exception as e:
+    print(f"  Volcano plots failed: {e}")
+
+# =============================================================================
+# MA Plots
+# =============================================================================
+print("\n[MA] MA plots...")
+sys.stdout.flush()
+
+try:
+    if 'rank_genes_groups' in adata.uns:
+        for stage in ['LUAD']:
+            df = sc.get.rank_genes_groups_df(adata, group=stage)
+
+            # Compute mean expression (pseudo-bulk)
+            stage_mask = adata.obs['stage'] == stage
+            mean_expr = np.array(adata[stage_mask].X.mean(axis=0)).flatten()
+            df['mean_expr'] = mean_expr[adata.var_names.get_indexer(df['names'])]
+
+            fig, ax = plt.subplots(figsize=(10, 8))
+
+            sig_mask = df['pvals_adj'] < 0.05
+            ax.scatter(df.loc[~sig_mask, 'mean_expr'], df.loc[~sig_mask, 'logfoldchanges'],
+                      c='#CCCCCC', s=5, alpha=0.5, label='NS')
+            ax.scatter(df.loc[sig_mask, 'mean_expr'], df.loc[sig_mask, 'logfoldchanges'],
+                      c='#8B1A1A', s=10, alpha=0.6, label='Significant')
+
+            ax.axhline(0, color='gray', linestyle='-', alpha=0.5)
+            ax.set_xlabel('Mean Expression', fontweight='bold')
+            ax.set_ylabel('Log2 Fold Change', fontweight='bold')
+            ax.set_title(f'MA Plot: {stage}', fontsize=14, fontweight='bold', pad=10)
+            ax.legend(frameon=False)
+
+            save_fig(fig, ADV, f'ma_plot_{stage.lower()}')
+            print(f"  Saved ma_plot_{stage.lower()}.png/pdf")
+
+except Exception as e:
+    print(f"  MA plots failed: {e}")
+
+# =============================================================================
+# Chord Diagram - Communication
+# =============================================================================
+print("\n[CHORD] Communication chord diagram...")
+sys.stdout.flush()
+
+try:
+    from matplotlib.patches import FancyBboxPatch
+    import matplotlib.patches as mpatches
+
+    comm_path = CANONICAL / 'communication' / 'communication_matrix_luca.parquet'
+    if comm_path.exists():
+        comm = pd.read_parquet(comm_path)
+
+        # Get top communicating pairs
+        top_ct = comm.sum(axis=1).nlargest(10).index.tolist()
+        comm_top = comm.loc[top_ct, top_ct]
+
+        # Circular layout
+        n = len(top_ct)
+        angles = np.linspace(0, 2*np.pi, n, endpoint=False)
+
+        fig, ax = plt.subplots(figsize=(12, 12), subplot_kw={'projection': 'polar'})
+
+        # Draw arcs for connections
+        for i, source in enumerate(top_ct):
+            for j, target in enumerate(top_ct):
+                if i != j:
+                    weight = comm_top.loc[source, target]
+                    if weight > comm_top.values.mean():
+                        alpha = min(weight / comm_top.values.max(), 0.8)
+                        width = 1 + 3 * (weight / comm_top.values.max())
+                        ax.plot([angles[i], angles[j]], [1, 1], alpha=alpha,
+                               linewidth=width, color=plt.cm.plasma(j/n))
+
+        # Draw nodes
+        ax.scatter(angles, [1]*n, s=500, c=[plt.cm.viridis(i/n) for i in range(n)],
+                  zorder=10, edgecolors='white', linewidths=2)
+
+        # Labels
+        for angle, ct in zip(angles, top_ct):
+            rotation = np.degrees(angle)
+            if angle > np.pi/2 and angle < 3*np.pi/2:
+                rotation += 180
+                ha = 'right'
+            else:
+                ha = 'left'
+            ax.text(angle, 1.15, ct[:15], rotation=rotation, ha=ha, va='center',
+                   fontsize=9, fontweight='bold', rotation_mode='anchor')
+
+        ax.set_ylim(0, 1.3)
+        ax.set_yticklabels([])
+        ax.set_xticklabels([])
+        ax.spines['polar'].set_visible(False)
+        ax.set_title('Cell-Cell Communication Network', fontsize=14, fontweight='bold', y=1.05)
+
+        save_fig(fig, ADV, 'chord_communication')
+        print("  Saved chord_communication.png/pdf")
+
+except Exception as e:
+    print(f"  Chord diagram failed: {e}")
+
+print("\n[ADVANCED SC] Complete!")
+print("=" * 60)
+PYTHON_ADVANCED_SC
+
+# =============================================================================
+# PART 6B: Generate Publication Figures
+# =============================================================================
+echo ""
+echo "=============================================="
+echo "PART 6B: Publication Figures"
 echo "=============================================="
 
 python << 'PYTHON_FIGURES'
@@ -624,7 +1417,7 @@ CANONICAL = Path(os.environ['CANONICAL'])
 FIGURES = Path("/home/booka/StageBridge/figures/publication")
 FIGURES.mkdir(exist_ok=True, parents=True)
 
-print("Generating advanced publication figures...")
+print("Generating publication figures...")
 sys.stdout.flush()
 
 # =============================================================================
