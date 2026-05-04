@@ -30,25 +30,38 @@ from stagebridge.models import StageBridge, StageBridgeConfig
 from stagebridge.training import StageBridgeTrainer, TrainerConfig
 
 ABLATION_CONFIGS = {
-    # Full model: GW fusion enabled (the complete StageBridge architecture)
-    "full": {"use_gw_fusion": True, "gw_mode": "barycentric"},
-    # Niche ablation: receiver only, no spatial context
+    # ==========================================================================
+    # Main model uses CONCAT fusion (no GW). Ablations test:
+    # 1. Removing components to validate their contribution
+    # 2. Alternative fusion strategies (GW variants) to see if they beat concat
+    #
+    # REMOVED redundant ablations:
+    # - "full" (was identical to gw_barycentric)
+    # - "no_gw_fusion" (was identical to main model which uses concat)
+    # ==========================================================================
+
+    # Niche ablations: test core novelty (receiver-centered niche context)
     "no_niche": {"use_niche_context": False},
     "no_distance": {"refiner_use_spatial_rpe": False},
     "no_gate": {"use_cross_attn_drift": False},  # Falls back to MLP drift
     "random_niche": {},  # Handled at data level, not config - TODO: implement
-    # Reference ablations: use only one atlas reference
+
+    # Reference ablations: test dual-reference value
     "hlca_only": {"use_gw_fusion": False, "use_luca_reference": False},
     "luca_only": {"use_gw_fusion": False, "use_hlca_reference": False},
+
+    # Architecture ablations
     "no_token_types": {},  # Would need model change - TODO: implement
     "frozen_encoder": {},  # Special handling: loads pretrained encoder, freezes it
     "no_ring_pooling": {"use_learned_ring_pooling": False},
     "no_context_refiner": {"use_context_refiner": False},
-    # GW fusion ablations
-    "no_gw_fusion": {"use_gw_fusion": False},  # Fall back to concat
+
+    # GW fusion ablations: test if OT-based fusion beats concat
+    # Result so far: gw_barycentric (0.00390) LOST to concat (0.00352)
     "gw_project_hlca": {"use_gw_fusion": True, "gw_mode": "project_to_hlca"},
     "gw_project_luca": {"use_gw_fusion": True, "gw_mode": "project_to_luca"},
     "gw_barycentric": {"use_gw_fusion": True, "gw_mode": "barycentric"},
+
     # Prototype bottleneck ablations (interpretable archetypes)
     "with_prototypes": {
         "use_niche_prototypes": True,        # Neighborhood archetypes (IL1B-high, fibrotic, etc.)

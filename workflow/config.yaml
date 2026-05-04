@@ -129,22 +129,33 @@ baselines:
 # =============================================================================
 
 ablations:
-  - full                 # Full model (control) - GW fusion enabled
+  # Main model uses CONCAT (HPO found use_gw_fusion=false is optimal).
+  # These ablations test component contributions by removing them.
+  #
+  # REMOVED redundant ablations (2026-05-04):
+  # - "full" (identical to gw_barycentric)
+  # - "no_gw_fusion" (identical to main model which uses concat)
+
+  # Core novelty: does niche context help?
   - no_niche             # Remove niche context entirely (receiver only)
   - no_distance          # Remove distance-based attention
   - no_gate              # Remove cross-attention drift (use MLP)
   # - random_niche       # NOT IMPLEMENTED - would shuffle niche assignments
+
+  # Dual reference: do we need both HLCA and LuCA?
   - hlca_only            # Only HLCA reference (zero out LuCA token)
   - luca_only            # Only LuCA reference (zero out HLCA token)
+
+  # Architecture components
   # - no_token_types     # NOT IMPLEMENTED - would remove token type embeddings
   - frozen_encoder       # Freeze encoder during transition training
   - no_ring_pooling      # Mean pooling instead of ISAB+PMA
   - no_context_refiner   # Remove HierarchicalSetTransformer
-  # GW fusion ablations (key for understanding atlas alignment)
-  - no_gw_fusion         # Fall back to naive concat (baseline)
+
+  # GW fusion: does OT-based fusion beat concat? (Answer: NO)
   - gw_project_hlca      # Project LuCA into HLCA space
   - gw_project_luca      # Project HLCA into LuCA space
-  - gw_barycentric       # Barycentric interpolation (default)
+  - gw_barycentric       # Barycentric interpolation
 
 # =============================================================================
 # SLURM Resources
