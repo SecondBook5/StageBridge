@@ -30,8 +30,14 @@ def run_moscot(
     epsilon: float = 0.05,
     tau_a: float = 0.95,
     tau_b: float = 0.95,
+    max_cells_per_stage: int = 30000,  # Subsample to avoid OOM
 ) -> dict:
-    """Run moscot temporal OT for trajectory inference."""
+    """Run moscot temporal OT for trajectory inference.
+
+    Note: moscot builds full NxM transport matrices which can't fit in memory
+    for large datasets. We subsample to max_cells_per_stage per stage.
+    With 30K cells/stage, transport matrix is ~900M elements = ~7GB (feasible).
+    """
     try:
         from moscot.problems.time import TemporalProblem
     except ImportError:
@@ -43,6 +49,7 @@ def run_moscot(
     print(f"Running moscot (epsilon={epsilon}, tau_a={tau_a}, tau_b={tau_b})")
 
     df = pd.read_parquet(neighborhoods_path)
+    print(f"Loaded {len(df)} cells")
 
     # Build AnnData from receiver embeddings
     if "receiver_z" in df.columns:
@@ -58,6 +65,65 @@ def run_moscot(
     adata.obs["stage"] = stages
     adata.obs["stage_name"] = df["stage"].values
     adata.obs["cell_id"] = df["cell_id"].values if "cell_id" in df.columns else range(len(df))
+
+    # Subsample to avoid OOM - moscot builds full transport matrices
+    # 331K x 296K = ~1.5TB which is impossible
+    stage_counts = adata.obs["stage"].value_counts()
+    print(f"Stage counts before subsampling: {dict(stage_counts)}")
+
+    needs_subsample = any(count > max_cells_per_stage for count in stage_counts.values)
+    if needs_subsample:
+        print(f"Subsampling to max {max_cells_per_stage} cells per stage to avoid OOM")
+
+        # Stratified sampling: preserve cell type proportions if available
+        cell_type_col = None
+        for col in ["cell_type", "celltype", "cell_type_fine"]:
+            if col in df.columns:
+                cell_type_col = col
+                adata.obs["cell_type"] = df[col].values
+                break
+
+        keep_idx = []
+        rng = np.random.default_rng(42 + fold_idx)
+
+        for stage in stage_counts.index:
+            stage_mask = adata.obs["stage"] == stage
+            stage_idx = np.where(stage_mask)[0]
+
+            if len(stage_idx) <= max_cells_per_stage:
+                keep_idx.extend(stage_idx)
+                continue
+
+            if cell_type_col is not None:
+                # Stratified by cell type
+                stage_adata = adata[stage_mask]
+                ct_counts = stage_adata.obs["cell_type"].value_counts()
+                ct_fracs = ct_counts / ct_counts.sum()
+
+                sampled_idx = []
+                for ct, frac in ct_fracs.items():
+                    ct_stage_idx = np.where(
+                        (adata.obs["stage"] == stage) & (adata.obs["cell_type"] == ct)
+                    )[0]
+                    n_sample = max(1, int(frac * max_cells_per_stage))
+                    n_sample = min(n_sample, len(ct_stage_idx))
+                    sampled = rng.choice(ct_stage_idx, n_sample, replace=False)
+                    sampled_idx.extend(sampled)
+
+                # Trim to exact max if over
+                if len(sampled_idx) > max_cells_per_stage:
+                    sampled_idx = rng.choice(sampled_idx, max_cells_per_stage, replace=False).tolist()
+                keep_idx.extend(sampled_idx)
+            else:
+                # Random subsample
+                sampled = rng.choice(stage_idx, max_cells_per_stage, replace=False)
+                keep_idx.extend(sampled)
+
+        keep_idx = sorted(set(keep_idx))
+        adata = adata[keep_idx].copy()
+        print(f"After stratified subsampling: {len(adata)} cells")
+        stage_counts = adata.obs["stage"].value_counts()
+        print(f"Stage counts after subsampling: {dict(stage_counts)}")
 
     sc.pp.neighbors(adata, n_neighbors=30, use_rep="X")
 
@@ -86,7 +152,10 @@ def run_moscot(
         "epsilon": epsilon,
         "tau_a": tau_a,
         "tau_b": tau_b,
-        "n_cells": len(df),
+        "n_cells_original": len(df),
+        "n_cells_used": len(adata),
+        "max_cells_per_stage": max_cells_per_stage,
+        "subsampled": needs_subsample,
         "n_stages": len(stage_map),
     }
 
