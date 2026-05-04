@@ -10,6 +10,25 @@ The canonical StageBridge model combines:
 
 The key scientific principle: information flows TO the receiver cell from its
 spatial neighbors. The receiver is the query, neighbors are keys/values.
+
+Computational Complexity
+------------------------
+StageBridge processes cells independently with local context:
+
+- **Time**: O(N × K²) where N=cells, K=context tokens (9 fixed)
+  - Each cell: self-attention over 9 tokens = O(K²) = O(81) = O(1)
+  - Total: O(N) linear in cell count
+
+- **Memory**: O(B × K × D) where B=batch, K=tokens, D=hidden_dim
+  - Batched: 64 × 9 × 128 = ~74K parameters per batch
+  - No global pairwise matrices
+
+This contrasts with global optimal transport methods (e.g., moscot):
+- **Time**: O(N² × iterations) for Sinkhorn
+- **Memory**: O(N × M) for full transport matrix
+  - 331K × 296K cells = 98B entries = 392GB at float32
+
+StageBridge scales to millions of cells; OT methods require subsampling.
 """
 
 from __future__ import annotations
