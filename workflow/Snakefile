@@ -497,8 +497,8 @@ rule run_moscot:
         gpu=1,
     shell:
         """
-        source /admin/software/miniforge3/bin/activate {params.conda_env}
-        python {input.script} \
+        conda deactivate 2>/dev/null || true
+        conda run -p {params.conda_env} python {input.script} \
             --method moscot \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
@@ -532,8 +532,8 @@ rule run_cellrank:
         gpu=1,
     shell:
         """
-        source /admin/software/miniforge3/bin/activate {params.conda_env}
-        python {input.script} \
+        conda deactivate 2>/dev/null || true
+        conda run -p {params.conda_env} python {input.script} \
             --method cellrank \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
@@ -567,8 +567,8 @@ rule run_commot:
         gpu=1,
     shell:
         """
-        source /admin/software/miniforge3/bin/activate {params.conda_env}
-        python {input.script} \
+        conda deactivate 2>/dev/null || true
+        conda run -p {params.conda_env} python {input.script} \
             --method commot \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
