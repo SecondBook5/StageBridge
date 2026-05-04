@@ -572,6 +572,7 @@ class StageBridgeTrainer:
 
             self.metrics_logger.log("train_loss", metrics["loss"])
             self.metrics_logger.log("train_loss_reconstruction", metrics["loss_reconstruction"])
+            self.metrics_logger.log("train_loss_entropy", metrics.get("loss_entropy", 0.0))
 
         return {
             "train_loss": epoch_loss / max(n_batches, 1),
@@ -729,6 +730,7 @@ class StageBridgeTrainer:
 
             self.metrics_logger.log("train_loss", metrics["loss"])
             self.metrics_logger.log("train_loss_fm", metrics["loss_fm"])
+            self.metrics_logger.log("train_loss_entropy", metrics.get("loss_entropy", 0.0))
 
         return {
             "train_loss": epoch_loss / max(n_batches, 1),
