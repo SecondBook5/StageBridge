@@ -177,7 +177,7 @@ def run_cellrank(
     """
     try:
         import cellrank as cr
-        from cellrank.kernels import CytoTRACEKernel
+        from cellrank.kernels import PseudotimeKernel
     except ImportError:
         raise ImportError("cellrank not installed. Run: pip install cellrank")
 
@@ -204,26 +204,29 @@ def run_cellrank(
     adata.obs["stage"] = df["stage"].values
     adata.obs["cell_id"] = df["cell_id"].values if "cell_id" in df.columns else range(len(df))
 
+    # Use stage as pseudotime (Normal=0, Preinvasive=1, Invasive=2)
+    stage_map = {"Normal": 0.0, "Preinvasive": 0.5, "Invasive": 1.0}
+    adata.obs["pseudotime"] = df["stage"].map(stage_map).values
+
     # Compute neighbors
     sc.pp.neighbors(adata, n_neighbors=30, use_rep="X")
 
-    # CytoTRACE kernel (uses gene expression entropy as proxy for differentiation)
-    ctk = CytoTRACEKernel(adata)
-    ctk.compute_cytotrace()
-    ctk.compute_transition_matrix()
+    # Use PseudotimeKernel with stage as pseudotime (works with embeddings)
+    pk = PseudotimeKernel(adata, time_key="pseudotime")
+    pk.compute_transition_matrix(threshold_scheme="soft")
 
     # Compute terminal states
-    g = cr.estimators.GPCCA(ctk)
-    g.compute_schur(n_components=20)
+    g = cr.estimators.GPCCA(pk)
+    g.compute_schur(n_components=min(20, X.shape[0] - 1))
     g.compute_macrostates(n_states=n_states, cluster_key="stage")
 
     # Predict terminal states (required before fate probabilities in CellRank 2.x)
     g.predict_terminal_states()
 
     # Get transition matrix
-    T = ctk.transition_matrix
+    T = pk.transition_matrix
 
-    # Compute fate probabilities (renamed from absorption_probabilities in CellRank 2.x)
+    # Compute fate probabilities
     g.compute_fate_probabilities()
     fate_probs = g.fate_probabilities
 
