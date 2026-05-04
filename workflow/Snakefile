@@ -491,8 +491,8 @@ rule run_moscot:
         spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
         conda_env="/home/booka/StageBridge/.snakemake/conda/7f97f8103f26312b70c6cc5f512a62e8_",
     resources:
-        mem_mb=128000,
-        runtime=720,  # 12 hours
+        mem_mb=256000,
+        runtime=240,  # 4 hours
         slurm_partition="gpu",
         gpu=1,
     shell:
@@ -526,8 +526,8 @@ rule run_cellrank:
         spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
         conda_env="/home/booka/StageBridge/.snakemake/conda/10fc23470d505b4d77b5fcdb58ef520b_",
     resources:
-        mem_mb=128000,
-        runtime=720,  # 12 hours
+        mem_mb=256000,
+        runtime=240,  # 4 hours
         slurm_partition="gpu",
         gpu=1,
     shell:
@@ -561,8 +561,8 @@ rule run_commot:
         spatial_h5ad=config["paths"].get("spatial_h5ad", ""),
         conda_env="/home/booka/StageBridge/.snakemake/conda/e50bd7ca0d8392d60f1d7039b29f78e1_",
     resources:
-        mem_mb=128000,
-        runtime=720,  # 12 hours
+        mem_mb=256000,
+        runtime=240,  # 4 hours
         slurm_partition="gpu",
         gpu=1,
     shell:
