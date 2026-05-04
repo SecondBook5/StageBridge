@@ -438,6 +438,7 @@ def prepare_data(
             h5ad_path,
             output_path=output_dir / 'biological_features.parquet',
             run_liana_analysis=run_liana,
+            transfer_luca_labels=run_liana,  # Use LuCA labels for LIANA if running
         )
         print(f'  {len(biological_features):,} cells with EMT/senescence/SASP scores')
 
