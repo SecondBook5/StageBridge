@@ -449,6 +449,55 @@ GENE_SETS = {
 
     # NF-kB signaling
     'nfkb': ['NFKB1', 'NFKB2', 'RELA', 'RELB', 'REL', 'IKBKB', 'IKBKG', 'NFKBIA', 'NFKBIB'],
+
+    # Dendritic cells
+    'dendritic_cells': ['ITGAX', 'CD1C', 'CLEC9A', 'XCR1', 'BATF3', 'IRF8', 'CD83', 'CD86', 'CCR7',
+                        'LAMP3', 'CCL17', 'CCL19', 'CCL22', 'FSCN1', 'CD40', 'HLA-DRA', 'HLA-DRB1'],
+    'cdc1': ['CLEC9A', 'XCR1', 'BATF3', 'IRF8', 'CADM1', 'THBD'],
+    'cdc2': ['CD1C', 'FCER1A', 'CLEC10A', 'CD1E', 'SIRPA'],
+    'pdc': ['LILRA4', 'IL3RA', 'CLEC4C', 'TCF4', 'IRF7', 'GZMB'],
+
+    # Neutrophils
+    'neutrophils': ['FCGR3B', 'CXCR1', 'CXCR2', 'CSF3R', 'S100A8', 'S100A9', 'S100A12',
+                   'CEACAM8', 'MMP8', 'MMP9', 'ELANE', 'MPO', 'CTSG', 'LCN2'],
+    'neutrophil_nets': ['MPO', 'ELANE', 'CTSG', 'PRTN3', 'AZU1', 'PADI4'],
+
+    # B cells and plasma
+    'b_cells': ['CD19', 'CD79A', 'CD79B', 'MS4A1', 'PAX5', 'BANK1', 'CD22', 'CD72'],
+    'plasma_cells': ['JCHAIN', 'MZB1', 'XBP1', 'PRDM1', 'SDC1', 'IGHG1', 'IGHA1'],
+
+    # NK cells
+    'nk_cells': ['NCAM1', 'NKG7', 'GNLY', 'KLRD1', 'KLRB1', 'KLRC1', 'KLRF1', 'NCR1',
+                'NCR3', 'FCGR3A', 'PRF1', 'GZMB', 'GZMH', 'IFNG'],
+
+    # Mast cells
+    'mast_cells': ['KIT', 'TPSAB1', 'TPSB2', 'CPA3', 'MS4A2', 'HDC', 'HPGDS', 'CMA1'],
+
+    # Stromal - Endothelial
+    'endothelial': ['PECAM1', 'CDH5', 'VWF', 'KDR', 'FLT1', 'CLDN5', 'PLVAP', 'ACKR1',
+                   'SELE', 'VCAM1', 'ICAM1', 'NOS3', 'EMCN'],
+    'lymphatic': ['LYVE1', 'PROX1', 'PDPN', 'FLT4', 'CCL21'],
+
+    # Stromal - Pericytes and SMC
+    'pericytes': ['RGS5', 'PDGFRB', 'CSPG4', 'MCAM', 'NOTCH3', 'DES', 'ACTA2'],
+    'smooth_muscle': ['MYH11', 'ACTG2', 'CNN1', 'TAGLN', 'DES', 'ACTA2', 'MYOCD'],
+
+    # Mesothelial
+    'mesothelial': ['MSLN', 'WT1', 'UPK3B', 'KRT19', 'CALB2', 'BNC1'],
+
+    # Tregs specifically
+    'tregs': ['FOXP3', 'IL2RA', 'CTLA4', 'IKZF2', 'TNFRSF18', 'CCR8', 'TIGIT', 'LAYN', 'BATF'],
+
+    # CD8 subtypes
+    'cd8_naive': ['TCF7', 'LEF1', 'CCR7', 'SELL', 'IL7R'],
+    'cd8_effector': ['GZMB', 'PRF1', 'IFNG', 'TBX21', 'NKG7', 'GNLY'],
+    'cd8_memory': ['IL7R', 'EOMES', 'GZMK', 'CCR7'],
+    'cd8_resident': ['ITGAE', 'CD69', 'ZNF683', 'CXCR6'],
+
+    # Monocytes
+    'monocytes': ['CD14', 'FCGR3A', 'VCAN', 'S100A8', 'S100A9', 'FCN1', 'MNDA'],
+    'classical_mono': ['CD14', 'S100A8', 'S100A9', 'S100A12', 'FCN1', 'VCAN'],
+    'nonclassical_mono': ['FCGR3A', 'CDKN1C', 'MTSS1', 'CX3CR1', 'LST1'],
 }
 
 # Flatten all genes for bulk extraction
@@ -605,13 +654,51 @@ plt.rcParams.update({
 })
 
 STAGE_ORDER = ['Normal', 'AAH', 'AIS', 'MIA', 'LUAD']
+
+# Deep, rich color palette
 STAGE_COLORS = {
-    'Normal': '#2E8B57',
-    'AAH': '#4682B4',
-    'AIS': '#9370DB',
-    'MIA': '#FF8C00',
-    'LUAD': '#DC143C',
+    'Normal': '#228B22',   # Forest green
+    'AAH': '#4169E1',      # Royal blue
+    'AIS': '#6B3FA0',      # Deep violet
+    'MIA': '#DAA520',      # Goldenrod
+    'LUAD': '#8B1A1A',     # Brick red / dark crimson
 }
+
+# Additional deep hue palettes for various plots
+DEEP_PALETTE = {
+    'brick_red': '#8B1A1A',
+    'royal_blue': '#4169E1',
+    'navy': '#1B2F5E',
+    'gold': '#DAA520',
+    'emerald': '#046307',
+    'olive': '#556B2F',
+    'violet': '#6B3FA0',
+    'teal': '#115E59',
+    'burgundy': '#722F37',
+    'slate': '#4A5568',
+}
+
+# For sequential data
+DEEP_SEQUENTIAL = ['#F7F7F7', '#FFF3CD', '#DAA520', '#C65D07', '#8B1A1A']
+
+# For diverging data
+DEEP_DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    'deep_diverging', ['#1B2F5E', '#4169E1', '#F7F7F7', '#C65D07', '#8B1A1A']
+)
+
+# For categorical data (10 deep hues)
+DEEP_CATEGORICAL = [
+    '#8B1A1A',  # Brick red
+    '#4169E1',  # Royal blue
+    '#046307',  # Emerald
+    '#DAA520',  # Gold
+    '#6B3FA0',  # Violet
+    '#115E59',  # Teal
+    '#556B2F',  # Olive
+    '#1B2F5E',  # Navy
+    '#722F37',  # Burgundy
+    '#4A5568',  # Slate
+]
 STAGE_PALETTE = [STAGE_COLORS[s] for s in STAGE_ORDER]
 
 def save_figure(fig, path, name, formats=['png', 'pdf']):
@@ -867,7 +954,7 @@ try:
     fig, ax = plt.subplots(figsize=(12, 10))
 
     y_pos = range(len(ct_counts))
-    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(ct_counts)))
+    colors = [DEEP_CATEGORICAL[i % len(DEEP_CATEGORICAL)] for i in range(len(ct_counts))]
 
     ax.hlines(y=y_pos, xmin=0, xmax=ct_counts.values, color=colors, linewidth=3, alpha=0.8)
     ax.scatter(ct_counts.values, y_pos, s=200, c=colors, zorder=3, edgecolors='white', linewidths=2)
@@ -909,8 +996,11 @@ try:
 
     if available:
         gene_colors = {
-            'IL1B': '#E63946', 'IL1R1': '#457B9D', 'IL1R2': '#2A9D8F',
-            'IL1RAP': '#9B59B6', 'IL1RN': '#E67E22'
+            'IL1B': '#8B1A1A',   # Brick red
+            'IL1R1': '#4169E1',  # Royal blue
+            'IL1R2': '#046307',  # Emerald
+            'IL1RAP': '#6B3FA0', # Violet
+            'IL1RN': '#DAA520',  # Gold
         }
 
         fig, ax = plt.subplots(figsize=(12, 7))
@@ -1017,7 +1107,7 @@ try:
         fig, ax = plt.subplots(figsize=(12, 10))
 
         custom_cmap = LinearSegmentedColormap.from_list('il1b',
-            ['#F8F9FA', '#FFF3CD', '#FFB347', '#E63946', '#8B0000'])
+            ['#F7F7F7', '#FFF3CD', '#DAA520', '#C65D07', '#8B1A1A'])
 
         sns.heatmap(il1_ct_sorted, cmap=custom_cmap, ax=ax,
                    linewidths=0.8, linecolor='white',
@@ -1029,8 +1119,8 @@ try:
         ax.set_title('IL1B Pathway Expression by Cell Type', fontsize=14, fontweight='bold', pad=15)
 
         ax.axvline(x=1, color='#333333', linewidth=2, linestyle='-')
-        ax.text(0.5, -0.8, 'Ligand', ha='center', fontsize=10, fontweight='bold', color='#E63946')
-        ax.text(2.5, -0.8, 'Receptors', ha='center', fontsize=10, fontweight='bold', color='#457B9D')
+        ax.text(0.5, -0.8, 'Ligand', ha='center', fontsize=10, fontweight='bold', color='#8B1A1A')
+        ax.text(2.5, -0.8, 'Receptors', ha='center', fontsize=10, fontweight='bold', color='#4169E1')
 
         plt.tight_layout()
         save_figure(fig, FIGURES, 'il1b_celltype_heatmap')
@@ -1057,7 +1147,7 @@ try:
         fig, axes = plt.subplots(1, 2, figsize=(14, 8))
 
         ax1 = axes[0]
-        colors = plt.cm.Reds(np.linspace(0.3, 0.9, len(total_out)))
+        colors = [f'#{int(139 + (200-139)*i/len(total_out)):02x}{int(26 + (80-26)*i/len(total_out)):02x}{int(26 + (80-26)*i/len(total_out)):02x}' for i in range(len(total_out))]  # Brick red gradient
         bars = ax1.barh(range(len(total_out)), total_out.values, color=colors,
                        edgecolor='white', linewidth=1.5)
         ax1.set_yticks(range(len(total_out)))
@@ -1070,7 +1160,7 @@ try:
                     f'{val:,}', va='center', fontsize=9, fontweight='bold')
 
         ax2 = axes[1]
-        colors = plt.cm.Blues(np.linspace(0.3, 0.9, len(total_in)))
+        colors = [f'#{int(27 + (100-27)*i/len(total_in)):02x}{int(47 + (120-47)*i/len(total_in)):02x}{int(94 + (180-94)*i/len(total_in)):02x}' for i in range(len(total_in))]  # Navy gradient
         bars = ax2.barh(range(len(total_in)), total_in.values, color=colors,
                        edgecolor='white', linewidth=1.5)
         ax2.set_yticks(range(len(total_in)))
@@ -1091,103 +1181,7 @@ try:
 except Exception as e:
     print(f"  Communication summary failed: {e}")
 
-# =============================================================================
-# FIGURE 10: Multi-panel Summary Figure
-# =============================================================================
-print("\n[SUMMARY] Multi-panel overview figure...")
-sys.stdout.flush()
-
-try:
-    fig = plt.figure(figsize=(16, 12))
-    gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
-
-    ax1 = fig.add_subplot(gs[0, 0])
-    try:
-        sig_stage = pd.read_parquet(CANONICAL / 'signatures' / 'signatures_by_stage.parquet')
-        sig_stage = sig_stage.reindex(STAGE_ORDER)
-        x = np.arange(len(STAGE_ORDER))
-        width = 0.25
-        ax1.bar(x - width, sig_stage['emt_score'], width, label='EMT', color='#E63946', alpha=0.85)
-        ax1.bar(x, sig_stage['senescence_score'], width, label='Senescence', color='#457B9D', alpha=0.85)
-        ax1.bar(x + width, sig_stage['sasp_score'], width, label='SASP', color='#2A9D8F', alpha=0.85)
-        ax1.set_xticks(x)
-        ax1.set_xticklabels(STAGE_ORDER, fontsize=9)
-        ax1.set_ylabel('Score')
-        ax1.set_title('A. Gene Signatures', fontweight='bold')
-        ax1.legend(fontsize=8)
-    except:
-        ax1.text(0.5, 0.5, 'Data not available', ha='center', va='center', transform=ax1.transAxes)
-
-    ax2 = fig.add_subplot(gs[0, 1])
-    try:
-        pw = pd.read_parquet(CANONICAL / 'activity' / 'pathway_activity_by_stage.parquet')
-        pw = pw.reindex(STAGE_ORDER)
-        pw_top = pw[pw.var().nlargest(6).index]
-        sns.heatmap(pw_top.T, cmap='RdBu_r', center=0, ax=ax2, cbar_kws={'shrink': 0.7},
-                   xticklabels=STAGE_ORDER, yticklabels=True, linewidths=0.5)
-        ax2.set_title('B. Pathway Activity', fontweight='bold')
-    except:
-        ax2.text(0.5, 0.5, 'Data not available', ha='center', va='center', transform=ax2.transAxes)
-
-    ax3 = fig.add_subplot(gs[0, 2])
-    try:
-        genes = pd.read_parquet(CANONICAL / 'key_genes' / 'key_genes_by_stage.parquet')
-        for gene, color in [('IL1B', '#E63946'), ('IL1R1', '#457B9D')]:
-            if f'{gene}_mean' in genes.columns:
-                vals = genes[f'{gene}_mean'].reindex(STAGE_ORDER)
-                ax3.plot(STAGE_ORDER, vals, 'o-', linewidth=2, markersize=8, label=gene, color=color)
-        ax3.set_ylabel('Expression')
-        ax3.set_title('C. IL1B Signaling', fontweight='bold')
-        ax3.legend(fontsize=8)
-        ax3.tick_params(axis='x', rotation=45)
-    except:
-        ax3.text(0.5, 0.5, 'Data not available', ha='center', va='center', transform=ax3.transAxes)
-
-    ax4 = fig.add_subplot(gs[1, 0])
-    try:
-        ct_map = pd.read_parquet(CANONICAL / 'liana_luca' / 'luca_cell_type_mapping.parquet')
-        ct_counts = ct_map['luca_cell_type'].value_counts().head(8)
-        colors = plt.cm.Set2(np.linspace(0, 1, len(ct_counts)))
-        ax4.pie(ct_counts.values, labels=ct_counts.index, colors=colors, autopct='%1.0f%%',
-               pctdistance=0.8, labeldistance=1.15, textprops={'fontsize': 8})
-        ax4.set_title('D. Cell Composition', fontweight='bold')
-    except:
-        ax4.text(0.5, 0.5, 'Data not available', ha='center', va='center', transform=ax4.transAxes)
-
-    ax5 = fig.add_subplot(gs[1, 1])
-    try:
-        tf = pd.read_parquet(CANONICAL / 'activity' / 'tf_activity_by_stage.parquet')
-        tf = tf.reindex(STAGE_ORDER)
-        tf_top = tf[tf.var().nlargest(8).index]
-        sns.heatmap(tf_top.T, cmap='RdBu_r', center=0, ax=ax5, cbar_kws={'shrink': 0.7},
-                   xticklabels=STAGE_ORDER, yticklabels=True, linewidths=0.5)
-        ax5.set_title('E. TF Activity', fontweight='bold')
-    except:
-        ax5.text(0.5, 0.5, 'Data not available', ha='center', va='center', transform=ax5.transAxes)
-
-    ax6 = fig.add_subplot(gs[1, 2])
-    try:
-        comm = pd.read_parquet(CANONICAL / 'communication' / 'communication_matrix_luca.parquet')
-        top_pairs = comm.stack().nlargest(10)
-        pairs = [f'{s[:10]}\n->{t[:10]}' for (s, t) in top_pairs.index]
-        ax6.barh(range(len(top_pairs)), top_pairs.values, color=plt.cm.Purples(0.6))
-        ax6.set_yticks(range(len(top_pairs)))
-        ax6.set_yticklabels(pairs, fontsize=7)
-        ax6.set_xlabel('Interactions')
-        ax6.set_title('F. Top Communication', fontweight='bold')
-        ax6.invert_yaxis()
-    except:
-        ax6.text(0.5, 0.5, 'Data not available', ha='center', va='center', transform=ax6.transAxes)
-
-    fig.suptitle('StageBridge: LUAD Progression Analysis Overview', fontsize=16,
-                fontweight='bold', y=0.98)
-
-    save_figure(fig, FIGURES, 'summary_multipanel')
-    plt.close()
-    print("  Saved summary_multipanel.png/pdf")
-
-except Exception as e:
-    print(f"  Summary figure failed: {e}")
+# Multi-panel figures removed per user preference - individual advanced figures only
 
 # =============================================================================
 # EXPLORATORY DATA ANALYSIS - Full Biological Landscape
@@ -1252,8 +1246,8 @@ try:
         ax1 = axes[0]
         caf_sorted = caf_data.sort_values('caf_markers', ascending=True).tail(20)
         y_pos = range(len(caf_sorted))
-        ax1.barh(y_pos, caf_sorted['caf_icaf'], height=0.4, label='iCAF', color='#3498DB', alpha=0.8)
-        ax1.barh([y + 0.4 for y in y_pos], caf_sorted['caf_mycaf'], height=0.4, label='myCAF', color='#E74C3C', alpha=0.8)
+        ax1.barh(y_pos, caf_sorted['caf_icaf'], height=0.4, label='iCAF', color='#4169E1', alpha=0.9)
+        ax1.barh([y + 0.4 for y in y_pos], caf_sorted['caf_mycaf'], height=0.4, label='myCAF', color='#8B1A1A', alpha=0.9)
         ax1.set_yticks([y + 0.2 for y in y_pos])
         ax1.set_yticklabels(caf_sorted.index, fontsize=9)
         ax1.set_xlabel('Pathway Score', fontweight='bold')
@@ -1262,7 +1256,7 @@ try:
 
         ax2 = axes[1]
         ax2.scatter(caf_data['caf_icaf'], caf_data['caf_mycaf'], s=100, alpha=0.7,
-                   c=caf_data['caf_markers'], cmap='viridis', edgecolors='white', linewidth=1.5)
+                   c=caf_data['caf_markers'], cmap='inferno', edgecolors='white', linewidth=1.5)
         for ct in caf_data.nlargest(10, 'caf_markers').index:
             ax2.annotate(ct[:15], (caf_data.loc[ct, 'caf_icaf'], caf_data.loc[ct, 'caf_mycaf']),
                         fontsize=8, alpha=0.8)
@@ -1271,7 +1265,7 @@ try:
         ax2.set_title('iCAF vs myCAF Polarization', fontweight='bold')
         ax2.axline((0, 0), slope=1, color='gray', linestyle='--', alpha=0.5)
 
-        sm = plt.cm.ScalarMappable(cmap='viridis', norm=plt.Normalize(caf_data['caf_markers'].min(),
+        sm = plt.cm.ScalarMappable(cmap='inferno', norm=plt.Normalize(caf_data['caf_markers'].min(),
                                                                        caf_data['caf_markers'].max()))
         cbar = plt.colorbar(sm, ax=ax2, shrink=0.6)
         cbar.set_label('CAF Marker Score', fontweight='bold')
@@ -1321,7 +1315,7 @@ try:
     ax3 = fig.add_subplot(gs[1, 0])
     if 'senescence' in pw_scores_ct.columns:
         sen_ct = pw_scores_ct['senescence'].nlargest(15)
-        colors = plt.cm.Oranges(np.linspace(0.3, 0.9, len(sen_ct)))
+        colors = plt.cm.plasma(np.linspace(0.2, 0.85, len(sen_ct)))
         ax3.barh(range(len(sen_ct)), sen_ct.values, color=colors)
         ax3.set_yticks(range(len(sen_ct)))
         ax3.set_yticklabels(sen_ct.index, fontsize=9)
@@ -1332,7 +1326,7 @@ try:
     ax4 = fig.add_subplot(gs[1, 1])
     if 'sasp' in pw_scores_ct.columns and 'senescence' in pw_scores_ct.columns:
         ax4.scatter(pw_scores_ct['senescence'], pw_scores_ct['sasp'], s=100, alpha=0.7,
-                   c='#E74C3C', edgecolors='white', linewidth=1.5)
+                   c='#8B1A1A', edgecolors='white', linewidth=1.5)
         for ct in pw_scores_ct.nlargest(8, 'sasp').index:
             ax4.annotate(ct[:20], (pw_scores_ct.loc[ct, 'senescence'], pw_scores_ct.loc[ct, 'sasp']),
                         fontsize=8, alpha=0.8)
@@ -1414,8 +1408,8 @@ try:
     mes_mean = emt_mes.mean(axis=1)
     x = np.arange(len(STAGE_ORDER))
     width = 0.35
-    ax1.bar(x - width/2, epi_mean, width, label='Epithelial', color='#3498DB', alpha=0.85)
-    ax1.bar(x + width/2, mes_mean, width, label='Mesenchymal', color='#E74C3C', alpha=0.85)
+    ax1.bar(x - width/2, epi_mean, width, label='Epithelial', color='#4169E1', alpha=0.9)
+    ax1.bar(x + width/2, mes_mean, width, label='Mesenchymal', color='#8B1A1A', alpha=0.9)
     ax1.set_xticks(x)
     ax1.set_xticklabels(STAGE_ORDER)
     ax1.set_ylabel('Mean Expression', fontweight='bold')
@@ -1424,13 +1418,13 @@ try:
 
     ax2 = axes[1]
     emt_ratio = mes_mean / (epi_mean + 0.01)
-    colors = ['#3498DB' if r < 1 else '#E74C3C' for r in emt_ratio]
+    colors = ['#4169E1' if r < 1 else '#8B1A1A' for r in emt_ratio]
     bars = ax2.bar(STAGE_ORDER, emt_ratio, color=colors, edgecolor='white', linewidth=2)
     ax2.axhline(y=1, color='gray', linestyle='--', linewidth=2)
     ax2.set_ylabel('Mesenchymal/Epithelial Ratio', fontweight='bold')
     ax2.set_title('EMT Ratio by Stage', fontweight='bold')
-    ax2.text(0.5, 1.05, 'Mesenchymal', ha='center', color='#E74C3C', fontweight='bold', transform=ax2.transAxes)
-    ax2.text(0.5, -0.1, 'Epithelial', ha='center', color='#3498DB', fontweight='bold', transform=ax2.transAxes)
+    ax2.text(0.5, 1.05, 'Mesenchymal', ha='center', color='#8B1A1A', fontweight='bold', transform=ax2.transAxes)
+    ax2.text(0.5, -0.1, 'Epithelial', ha='center', color='#4169E1', fontweight='bold', transform=ax2.transAxes)
 
     ax3 = axes[2]
     for gene in emt_mes.columns:
@@ -1477,15 +1471,15 @@ try:
 
         ax2 = axes[1]
         mac_diff = (mac_data['mac_m1'] - mac_data['mac_m2']).sort_values()
-        colors = ['#E74C3C' if v > 0 else '#3498DB' for v in mac_diff]
+        colors = ['#8B1A1A' if v > 0 else '#1B2F5E' for v in mac_diff]
         ax2.barh(range(len(mac_diff)), mac_diff.values, color=colors, alpha=0.8)
         ax2.set_yticks(range(len(mac_diff)))
         ax2.set_yticklabels(mac_diff.index, fontsize=8)
         ax2.axvline(x=0, color='gray', linewidth=2)
         ax2.set_xlabel('M1 - M2 Score', fontweight='bold')
         ax2.set_title('M1/M2 Balance', fontweight='bold')
-        ax2.text(mac_diff.max() * 0.5, len(mac_diff) * 0.95, 'M1 dominant', color='#E74C3C', fontweight='bold')
-        ax2.text(mac_diff.min() * 0.5, len(mac_diff) * 0.95, 'M2 dominant', color='#3498DB', fontweight='bold')
+        ax2.text(mac_diff.max() * 0.5, len(mac_diff) * 0.95, 'M1 dominant', color='#8B1A1A', fontweight='bold')
+        ax2.text(mac_diff.min() * 0.5, len(mac_diff) * 0.95, 'M2 dominant', color='#1B2F5E', fontweight='bold')
 
         fig.suptitle('Tumor-Associated Macrophage Analysis', fontsize=14, fontweight='bold', y=1.02)
         plt.tight_layout()
@@ -1510,7 +1504,7 @@ try:
 
     ax1 = axes[0]
     t_exh_z = (t_exh_stage - t_exh_stage.mean()) / t_exh_stage.std()
-    sns.heatmap(t_exh_z.T, cmap='YlOrRd', ax=ax1, annot=True, fmt='.2f',
+    sns.heatmap(t_exh_z.T, cmap='magma', ax=ax1, annot=True, fmt='.2f',
                linewidths=0.5, cbar_kws={'shrink': 0.8, 'label': 'Z-score'})
     ax1.set_title('T Cell Exhaustion Markers by Stage', fontweight='bold')
 
@@ -1549,7 +1543,7 @@ try:
 
     ax1 = axes[0]
     ckpt_z = (ckpt_stage - ckpt_stage.mean()) / ckpt_stage.std()
-    sns.heatmap(ckpt_z.T, cmap='Purples', ax=ax1, annot=True, fmt='.2f',
+    sns.heatmap(ckpt_z.T, cmap='viridis', ax=ax1, annot=True, fmt='.2f',
                linewidths=0.5, cbar_kws={'shrink': 0.7})
     ax1.set_title('Checkpoint Expression by Stage', fontweight='bold')
 
@@ -1557,7 +1551,7 @@ try:
     ckpt_top = ckpt_ct.sum(axis=1).nlargest(15)
     ckpt_subset = ckpt_ct.loc[ckpt_top.index]
     ckpt_norm = (ckpt_subset - ckpt_subset.min()) / (ckpt_subset.max() - ckpt_subset.min() + 0.01)
-    sns.heatmap(ckpt_norm, cmap='YlOrRd', ax=ax2, annot=True, fmt='.2f',
+    sns.heatmap(ckpt_norm, cmap='magma', ax=ax2, annot=True, fmt='.2f',
                linewidths=0.5, cbar_kws={'shrink': 0.7, 'label': 'Normalized'})
     ax2.set_title('Checkpoint Expression by Cell Type (Top 15)', fontweight='bold')
 
@@ -1652,8 +1646,8 @@ try:
     at2_mean = at2.mean(axis=1)
     x = np.arange(len(STAGE_ORDER))
     width = 0.35
-    ax1.bar(x - width/2, at1_mean, width, label='AT1', color='#9B59B6', alpha=0.85)
-    ax1.bar(x + width/2, at2_mean, width, label='AT2', color='#27AE60', alpha=0.85)
+    ax1.bar(x - width/2, at1_mean, width, label='AT1', color='#6B3FA0', alpha=0.9)
+    ax1.bar(x + width/2, at2_mean, width, label='AT2', color='#046307', alpha=0.9)
     ax1.set_xticks(x)
     ax1.set_xticklabels(STAGE_ORDER)
     ax1.set_ylabel('Mean Expression', fontweight='bold')
@@ -1701,13 +1695,13 @@ try:
 
     ax1 = axes[0, 0]
     onco_z = (onco - onco.mean()) / onco.std()
-    sns.heatmap(onco_z.T, cmap='Reds', ax=ax1, annot=True, fmt='.2f',
+    sns.heatmap(onco_z.T, cmap='rocket', ax=ax1, annot=True, fmt='.2f',
                linewidths=0.5, cbar_kws={'shrink': 0.8})
     ax1.set_title('Oncogene Expression by Stage', fontweight='bold')
 
     ax2 = axes[0, 1]
     ts_z = (ts - ts.mean()) / ts.std()
-    sns.heatmap(ts_z.T, cmap='Blues', ax=ax2, annot=True, fmt='.2f',
+    sns.heatmap(ts_z.T, cmap='mako', ax=ax2, annot=True, fmt='.2f',
                linewidths=0.5, cbar_kws={'shrink': 0.8})
     ax2.set_title('Tumor Suppressor Expression by Stage', fontweight='bold')
 
@@ -1829,7 +1823,7 @@ try:
 
     ax1 = axes[0]
     infl_z = (infl - infl.mean()) / infl.std()
-    sns.heatmap(infl_z.T, cmap='YlOrRd', ax=ax1, annot=True, fmt='.2f',
+    sns.heatmap(infl_z.T, cmap='magma', ax=ax1, annot=True, fmt='.2f',
                linewidths=0.5, cbar_kws={'shrink': 0.8})
     ax1.set_title('Inflammatory Cytokines by Stage', fontweight='bold')
 
@@ -1854,6 +1848,394 @@ try:
 
 except Exception as e:
     print(f"  Inflammatory analysis failed: {e}")
+
+# =============================================================================
+# EDA 15: Dendritic Cell Subtypes
+# =============================================================================
+print("\n[EDA] Dendritic cell analysis...")
+sys.stdout.flush()
+
+try:
+    dc_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'dendritic_cells_by_stage.parquet')
+    dc_stage = dc_stage.reindex(STAGE_ORDER)
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+    dc_z = (dc_stage - dc_stage.mean()) / dc_stage.std()
+    sns.heatmap(dc_z.T, cmap='plasma', ax=ax, annot=True, fmt='.2f', annot_kws={'size': 8},
+               linewidths=0.5, cbar_kws={'shrink': 0.7, 'label': 'Z-score'})
+    ax.set_title('Dendritic Cell Markers by Disease Stage', fontsize=14, fontweight='bold', pad=15)
+    ax.set_xlabel('Disease Stage', fontweight='bold')
+    for i, label in enumerate(ax.get_xticklabels()):
+        label.set_color(STAGE_COLORS.get(label.get_text(), 'black'))
+        label.set_fontweight('bold')
+    plt.tight_layout()
+    save_figure(fig, EDA, 'dendritic_cells')
+    plt.close()
+    print("  Saved dendritic_cells.png/pdf")
+
+except Exception as e:
+    print(f"  DC analysis failed: {e}")
+
+# =============================================================================
+# EDA 16: Neutrophil Infiltration
+# =============================================================================
+print("\n[EDA] Neutrophil analysis...")
+sys.stdout.flush()
+
+try:
+    neut_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'neutrophils_by_stage.parquet')
+    neut_stage = neut_stage.reindex(STAGE_ORDER)
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+    neut_z = (neut_stage - neut_stage.mean()) / neut_stage.std()
+    sns.heatmap(neut_z.T, cmap='inferno', ax=ax, annot=True, fmt='.2f', annot_kws={'size': 8},
+               linewidths=0.5, cbar_kws={'shrink': 0.7, 'label': 'Z-score'})
+    ax.set_title('Neutrophil Markers by Disease Stage', fontsize=14, fontweight='bold', pad=15)
+    ax.set_xlabel('Disease Stage', fontweight='bold')
+    for i, label in enumerate(ax.get_xticklabels()):
+        label.set_color(STAGE_COLORS.get(label.get_text(), 'black'))
+        label.set_fontweight('bold')
+    plt.tight_layout()
+    save_figure(fig, EDA, 'neutrophils')
+    plt.close()
+    print("  Saved neutrophils.png/pdf")
+
+except Exception as e:
+    print(f"  Neutrophil analysis failed: {e}")
+
+# =============================================================================
+# EDA 17: B Cell and Plasma Cell Analysis
+# =============================================================================
+print("\n[EDA] B cell/Plasma cell analysis...")
+sys.stdout.flush()
+
+try:
+    b_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'b_cells_by_stage.parquet')
+    plasma_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'plasma_cells_by_stage.parquet')
+    b_stage = b_stage.reindex(STAGE_ORDER)
+    plasma_stage = plasma_stage.reindex(STAGE_ORDER)
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+    ax1 = axes[0]
+    b_z = (b_stage - b_stage.mean()) / b_stage.std()
+    sns.heatmap(b_z.T, cmap='viridis', ax=ax1, annot=True, fmt='.2f',
+               linewidths=0.5, cbar_kws={'shrink': 0.8})
+    ax1.set_title('B Cell Markers', fontsize=13, fontweight='bold')
+
+    ax2 = axes[1]
+    plasma_z = (plasma_stage - plasma_stage.mean()) / plasma_stage.std()
+    sns.heatmap(plasma_z.T, cmap='cividis', ax=ax2, annot=True, fmt='.2f',
+               linewidths=0.5, cbar_kws={'shrink': 0.8})
+    ax2.set_title('Plasma Cell Markers', fontsize=13, fontweight='bold')
+
+    fig.suptitle('B Cell Lineage Analysis', fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    save_figure(fig, EDA, 'b_cells_plasma')
+    plt.close()
+    print("  Saved b_cells_plasma.png/pdf")
+
+except Exception as e:
+    print(f"  B cell analysis failed: {e}")
+
+# =============================================================================
+# EDA 18: NK Cell Analysis
+# =============================================================================
+print("\n[EDA] NK cell analysis...")
+sys.stdout.flush()
+
+try:
+    nk_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'nk_cells_by_stage.parquet')
+    nk_stage = nk_stage.reindex(STAGE_ORDER)
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    nk_z = (nk_stage - nk_stage.mean()) / nk_stage.std()
+    sns.heatmap(nk_z.T, cmap='magma', ax=ax, annot=True, fmt='.2f', annot_kws={'size': 9},
+               linewidths=0.5, cbar_kws={'shrink': 0.7, 'label': 'Z-score'})
+    ax.set_title('NK Cell Markers by Disease Stage', fontsize=14, fontweight='bold', pad=15)
+    ax.set_xlabel('Disease Stage', fontweight='bold')
+    plt.tight_layout()
+    save_figure(fig, EDA, 'nk_cells')
+    plt.close()
+    print("  Saved nk_cells.png/pdf")
+
+except Exception as e:
+    print(f"  NK cell analysis failed: {e}")
+
+# =============================================================================
+# EDA 19: Stromal Compartment - Endothelial and Lymphatic
+# =============================================================================
+print("\n[EDA] Stromal/Endothelial analysis...")
+sys.stdout.flush()
+
+try:
+    endo_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'endothelial_by_stage.parquet')
+    lymph_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'lymphatic_by_stage.parquet')
+    endo_stage = endo_stage.reindex(STAGE_ORDER)
+    lymph_stage = lymph_stage.reindex(STAGE_ORDER)
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+    ax1 = axes[0]
+    endo_z = (endo_stage - endo_stage.mean()) / endo_stage.std()
+    sns.heatmap(endo_z.T, cmap='mako', ax=ax1, annot=True, fmt='.2f',
+               linewidths=0.5, cbar_kws={'shrink': 0.8})
+    ax1.set_title('Endothelial Markers', fontsize=13, fontweight='bold')
+
+    ax2 = axes[1]
+    if len(lymph_stage.columns) > 0:
+        lymph_z = (lymph_stage - lymph_stage.mean()) / lymph_stage.std()
+        sns.heatmap(lymph_z.T, cmap='rocket', ax=ax2, annot=True, fmt='.2f',
+                   linewidths=0.5, cbar_kws={'shrink': 0.8})
+    ax2.set_title('Lymphatic Markers', fontsize=13, fontweight='bold')
+
+    fig.suptitle('Vascular Compartment Analysis', fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    save_figure(fig, EDA, 'endothelial_lymphatic')
+    plt.close()
+    print("  Saved endothelial_lymphatic.png/pdf")
+
+except Exception as e:
+    print(f"  Stromal analysis failed: {e}")
+
+# =============================================================================
+# EDA 20: Pericytes and Smooth Muscle
+# =============================================================================
+print("\n[EDA] Pericyte/SMC analysis...")
+sys.stdout.flush()
+
+try:
+    peri_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'pericytes_by_stage.parquet')
+    smc_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'smooth_muscle_by_stage.parquet')
+    peri_stage = peri_stage.reindex(STAGE_ORDER)
+    smc_stage = smc_stage.reindex(STAGE_ORDER)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    ax1 = axes[0]
+    peri_z = (peri_stage - peri_stage.mean()) / peri_stage.std()
+    sns.heatmap(peri_z.T, cmap='flare', ax=ax1, annot=True, fmt='.2f',
+               linewidths=0.5, cbar_kws={'shrink': 0.8})
+    ax1.set_title('Pericyte Markers', fontsize=13, fontweight='bold')
+
+    ax2 = axes[1]
+    smc_z = (smc_stage - smc_stage.mean()) / smc_stage.std()
+    sns.heatmap(smc_z.T, cmap='crest', ax=ax2, annot=True, fmt='.2f',
+               linewidths=0.5, cbar_kws={'shrink': 0.8})
+    ax2.set_title('Smooth Muscle Markers', fontsize=13, fontweight='bold')
+
+    fig.suptitle('Mural Cell Analysis', fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    save_figure(fig, EDA, 'pericytes_smc')
+    plt.close()
+    print("  Saved pericytes_smc.png/pdf")
+
+except Exception as e:
+    print(f"  Pericyte/SMC analysis failed: {e}")
+
+# =============================================================================
+# EDA 21: Treg Analysis
+# =============================================================================
+print("\n[EDA] Treg analysis...")
+sys.stdout.flush()
+
+try:
+    treg_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'tregs_by_stage.parquet')
+    treg_stage = treg_stage.reindex(STAGE_ORDER)
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    treg_z = (treg_stage - treg_stage.mean()) / treg_stage.std()
+    sns.heatmap(treg_z.T, cmap='RdPu', ax=ax, annot=True, fmt='.2f', annot_kws={'size': 9},
+               linewidths=0.5, cbar_kws={'shrink': 0.7, 'label': 'Z-score'})
+    ax.set_title('Regulatory T Cell Markers by Disease Stage', fontsize=14, fontweight='bold', pad=15)
+    ax.set_xlabel('Disease Stage', fontweight='bold')
+    plt.tight_layout()
+    save_figure(fig, EDA, 'tregs')
+    plt.close()
+    print("  Saved tregs.png/pdf")
+
+except Exception as e:
+    print(f"  Treg analysis failed: {e}")
+
+# =============================================================================
+# EDA 22: CD8 T Cell Subtypes
+# =============================================================================
+print("\n[EDA] CD8 T cell subtypes...")
+sys.stdout.flush()
+
+try:
+    pw_scores = pd.read_parquet(CANONICAL / 'key_genes' / 'pathway_scores_by_stage.parquet')
+    pw_scores = pw_scores.reindex(STAGE_ORDER)
+
+    cd8_cols = ['cd8_naive', 'cd8_effector', 'cd8_memory', 'cd8_resident']
+    cd8_avail = [c for c in cd8_cols if c in pw_scores.columns]
+
+    if cd8_avail:
+        fig, ax = plt.subplots(figsize=(10, 7))
+        for col in cd8_avail:
+            label = col.replace('cd8_', '').title()
+            ax.plot(range(len(STAGE_ORDER)), pw_scores[col], 'o-', linewidth=3,
+                   markersize=12, label=label, markeredgecolor='white', markeredgewidth=2)
+        ax.set_xticks(range(len(STAGE_ORDER)))
+        ax.set_xticklabels(STAGE_ORDER, fontsize=11)
+        for i, stage in enumerate(STAGE_ORDER):
+            ax.get_xticklabels()[i].set_color(STAGE_COLORS[stage])
+            ax.get_xticklabels()[i].set_fontweight('bold')
+        ax.set_ylabel('Pathway Score', fontweight='bold')
+        ax.set_title('CD8+ T Cell Subtype Trajectories', fontsize=14, fontweight='bold', pad=15)
+        ax.legend(loc='best', frameon=True, fancybox=True, shadow=True)
+        ax.yaxis.grid(True, alpha=0.3)
+        plt.tight_layout()
+        save_figure(fig, EDA, 'cd8_subtypes')
+        plt.close()
+        print("  Saved cd8_subtypes.png/pdf")
+
+except Exception as e:
+    print(f"  CD8 subtype analysis failed: {e}")
+
+# =============================================================================
+# EDA 23: Monocyte Subtypes
+# =============================================================================
+print("\n[EDA] Monocyte analysis...")
+sys.stdout.flush()
+
+try:
+    mono_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'monocytes_by_stage.parquet')
+    mono_stage = mono_stage.reindex(STAGE_ORDER)
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+    mono_z = (mono_stage - mono_stage.mean()) / mono_stage.std()
+    sns.heatmap(mono_z.T, cmap='icefire', ax=ax, annot=True, fmt='.2f', annot_kws={'size': 9},
+               linewidths=0.5, cbar_kws={'shrink': 0.7, 'label': 'Z-score'})
+    ax.set_title('Monocyte Markers by Disease Stage', fontsize=14, fontweight='bold', pad=15)
+    ax.set_xlabel('Disease Stage', fontweight='bold')
+    plt.tight_layout()
+    save_figure(fig, EDA, 'monocytes')
+    plt.close()
+    print("  Saved monocytes.png/pdf")
+
+except Exception as e:
+    print(f"  Monocyte analysis failed: {e}")
+
+# =============================================================================
+# EDA 24: Immune Landscape Overview - Scanpy-style Dotplot
+# =============================================================================
+print("\n[EDA] Immune landscape dotplot...")
+sys.stdout.flush()
+
+try:
+    pw_ct = pd.read_parquet(CANONICAL / 'key_genes' / 'pathway_scores_by_luca_celltype.parquet')
+
+    immune_pathways = ['t_cell', 'mac_m1', 'mac_m2', 'dendritic_cells', 'neutrophils',
+                      'b_cells', 'nk_cells', 'tregs', 't_exhaustion']
+    avail_pw = [p for p in immune_pathways if p in pw_ct.columns]
+
+    if avail_pw:
+        pw_immune = pw_ct[avail_pw]
+        top_ct = pw_immune.sum(axis=1).nlargest(20).index
+        pw_top = pw_immune.loc[top_ct]
+
+        pw_scaled = (pw_top - pw_top.min()) / (pw_top.max() - pw_top.min() + 0.001)
+
+        fig, ax = plt.subplots(figsize=(14, 12))
+
+        for i, ct in enumerate(pw_top.index):
+            for j, pw in enumerate(avail_pw):
+                val = pw_top.loc[ct, pw]
+                size = pw_scaled.loc[ct, pw]
+                color = plt.cm.plasma(size)
+                ax.scatter(j, i, s=size * 400 + 30, c=[color], edgecolors='#333333',
+                          linewidths=0.5, zorder=3)
+
+        ax.set_xticks(range(len(avail_pw)))
+        ax.set_xticklabels([p.replace('_', ' ').title() for p in avail_pw],
+                          rotation=45, ha='right', fontsize=10)
+        ax.set_yticks(range(len(pw_top.index)))
+        ax.set_yticklabels(pw_top.index, fontsize=9)
+
+        for i in range(len(pw_top.index)):
+            ax.axhline(i, color='#EEEEEE', linewidth=0.5, zorder=1)
+        for j in range(len(avail_pw)):
+            ax.axvline(j, color='#EEEEEE', linewidth=0.5, zorder=1)
+
+        ax.set_xlim(-0.5, len(avail_pw) - 0.5)
+        ax.set_ylim(-0.5, len(pw_top.index) - 0.5)
+
+        ax.set_title('Immune Pathway Enrichment by Cell Type', fontsize=14, fontweight='bold', pad=15)
+
+        sm = plt.cm.ScalarMappable(cmap='plasma', norm=plt.Normalize(0, 1))
+        cbar = plt.colorbar(sm, ax=ax, shrink=0.5, pad=0.02)
+        cbar.set_label('Relative Enrichment', fontweight='bold')
+
+        plt.tight_layout()
+        save_figure(fig, EDA, 'immune_landscape_dotplot')
+        plt.close()
+        print("  Saved immune_landscape_dotplot.png/pdf")
+
+except Exception as e:
+    print(f"  Immune dotplot failed: {e}")
+
+# =============================================================================
+# EDA 25: Mast Cell Analysis
+# =============================================================================
+print("\n[EDA] Mast cell analysis...")
+sys.stdout.flush()
+
+try:
+    mast_stage = pd.read_parquet(CANONICAL / 'key_genes' / 'pathways' / 'mast_cells_by_stage.parquet')
+    mast_stage = mast_stage.reindex(STAGE_ORDER)
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+    mast_z = (mast_stage - mast_stage.mean()) / mast_stage.std()
+    sns.heatmap(mast_z.T, cmap='YlOrBr', ax=ax, annot=True, fmt='.2f', annot_kws={'size': 10},
+               linewidths=0.5, cbar_kws={'shrink': 0.7, 'label': 'Z-score'})
+    ax.set_title('Mast Cell Markers by Disease Stage', fontsize=14, fontweight='bold', pad=15)
+    ax.set_xlabel('Disease Stage', fontweight='bold')
+    plt.tight_layout()
+    save_figure(fig, EDA, 'mast_cells')
+    plt.close()
+    print("  Saved mast_cells.png/pdf")
+
+except Exception as e:
+    print(f"  Mast cell analysis failed: {e}")
+
+# =============================================================================
+# EDA 26: Full Pathway Correlation Clustermap
+# =============================================================================
+print("\n[EDA] Pathway correlation clustermap...")
+sys.stdout.flush()
+
+try:
+    pw_scores = pd.read_parquet(CANONICAL / 'key_genes' / 'pathway_scores.parquet')
+    pw_cols = [c for c in pw_scores.columns if c not in ['stage', 'luca_cell_type']]
+
+    corr = pw_scores[pw_cols].corr()
+
+    g = sns.clustermap(
+        corr,
+        cmap='RdBu_r',
+        center=0,
+        figsize=(16, 14),
+        dendrogram_ratio=(0.1, 0.1),
+        cbar_pos=(0.02, 0.8, 0.03, 0.15),
+        linewidths=0.3,
+        linecolor='white',
+        method='ward',
+        annot=False,
+        xticklabels=True,
+        yticklabels=True,
+    )
+    g.ax_heatmap.tick_params(axis='both', labelsize=8)
+    g.fig.suptitle('Pathway Score Correlations (Hierarchically Clustered)',
+                  fontsize=14, fontweight='bold', y=1.02)
+    g.cax.set_ylabel('Correlation', fontsize=10)
+
+    save_figure(g.fig, EDA, 'pathway_clustermap')
+    plt.close()
+    print("  Saved pathway_clustermap.png/pdf")
+
+except Exception as e:
+    print(f"  Pathway clustermap failed: {e}")
 
 print("\n[EDA] Complete!")
 
