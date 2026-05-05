@@ -75,6 +75,12 @@ def main():
         except Exception as e:
             print(f"  {key}: ERROR - {e}")
             results[key] = {"error": str(e)}
+        finally:
+            # Clear memory between checkpoints
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     # Save results
     output_file = output_dir / "entropy_stats.json"
