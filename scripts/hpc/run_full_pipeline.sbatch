@@ -13,13 +13,7 @@
 # 3. Full data prep (signatures, DE, activity, trajectories, niches)
 # 4. Generate advanced publication figures (UMAP, PHATE, GSEA, Ricci, etc.)
 #
-# ENVIRONMENT:
-#   Data prep (Parts 1-5): stagebridge_env
-#   Figures (Part 6): stagebridge_figures (has PHATE, GSEA, GraphRicciCurvature)
-#
-# To create figures env:
-#   conda env create -f /home/booka/StageBridge/envs/figures_env.yaml \
-#       -p /scratch/chaunzt1/envs/stagebridge_figures
+# ENVIRONMENT: stagebridge_env (anndata 0.12.10)
 
 set -e
 
@@ -821,21 +815,6 @@ fi
 # =============================================================================
 # PART 6: Advanced Single-Cell Visualizations (Scanpy/Squidpy style)
 # =============================================================================
-echo ""
-echo "=============================================="
-echo "Switching to figures environment..."
-echo "=============================================="
-
-# Switch to figures environment (has PHATE, GSEA, GraphRicciCurvature, etc.)
-FIGURES_ENV="/scratch/chaunzt1/envs/stagebridge_figures"
-if [ -d "$FIGURES_ENV" ]; then
-    conda activate "$FIGURES_ENV"
-    echo "  Activated: stagebridge_figures"
-else
-    echo "  WARNING: stagebridge_figures not found, using stagebridge_env"
-    echo "  To create: conda env create -f /home/booka/StageBridge/envs/figures_env.yaml -p $FIGURES_ENV"
-fi
-
 echo ""
 echo "=============================================="
 echo "PART 6A: Advanced SC Visualizations (UMAP, PHATE, etc.)"
