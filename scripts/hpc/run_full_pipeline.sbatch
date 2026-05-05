@@ -282,8 +282,27 @@ import decoupler as dc
 # =========================================================================
 import time
 
-def extract_activity_df(adata, net, key='ulm_estimate'):
+def extract_activity_df(adata, net, method='ulm'):
     """Extract activity scores from adata.obsm as DataFrame."""
+    # Try different key patterns used by decoupler versions
+    possible_keys = [
+        f'{method}_estimate',      # newer versions
+        f'{method}estimate',       # some versions
+        f'X_{method}',             # alternative
+        method,                    # simple
+    ]
+
+    key = None
+    for k in possible_keys:
+        if k in adata.obsm:
+            key = k
+            break
+
+    if key is None:
+        print(f"  Available obsm keys: {list(adata.obsm.keys())}")
+        raise KeyError(f"Could not find {method} results in adata.obsm")
+
+    print(f"  Using obsm key: {key}")
     estimates = adata.obsm[key]
     if hasattr(estimates, 'toarray'):
         estimates = estimates.toarray()
