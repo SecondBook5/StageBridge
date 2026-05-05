@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Sequence
 
@@ -23,6 +24,12 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 from tqdm import tqdm
+
+try:
+    from joblib import Parallel, delayed
+    HAS_JOBLIB = True
+except ImportError:
+    HAS_JOBLIB = False
 
 
 @dataclass
@@ -496,9 +503,11 @@ class GroundTruthLabeler:
         self,
         ring_radii: list[float] = [50, 100, 150, 200],
         use_default_rules: bool = True,
+        n_jobs: int = 1,
     ):
         self.ring_radii = ring_radii
         self.rules: list[InteractionRule] = []
+        self.n_jobs = n_jobs
         if use_default_rules:
             self.rules.extend(DEFAULT_LUAD_RULES)
 
@@ -600,48 +609,60 @@ class GroundTruthLabeler:
             if len(sender_idx) == 0 or len(receiver_idx) == 0:
                 continue
 
-            # For each receiver, find nearby senders
-            sender_set = set(sender_idx)
-            for recv_i in tqdm(receiver_idx, desc=f"  {rule.interaction_name}", file=sys.stdout):
-                nearby = tree.query_ball_point(coords[recv_i], rule.max_distance)
-                nearby_senders = [i for i in nearby if i in sender_set and i != recv_i]
+            # Build KDTree for senders only (much smaller)
+            sender_coords = coords[sender_idx]
+            sender_tree = cKDTree(sender_coords)
 
-                if nearby_senders:
-                    # Find nearest sender
-                    distances = np.linalg.norm(
-                        coords[nearby_senders] - coords[recv_i], axis=1
-                    )
-                    nearest_idx = np.argmin(distances)
-                    nearest_sender = nearby_senders[nearest_idx]
-                    dist = distances[nearest_idx]
+            # Query all receivers at once (vectorized)
+            receiver_coords = coords[receiver_idx]
+            nearby_lists = sender_tree.query_ball_point(receiver_coords, rule.max_distance)
 
-                    # Update if this is closer than previous interactions
-                    if dist < nearest_sender_dist[recv_i]:
-                        is_interacting[recv_i] = True
-                        interaction_type[recv_i] = rule.interaction_name
-                        nearest_sender_dist[recv_i] = dist
-                        nearest_sender_id[recv_i] = cell_ids[nearest_sender]
+            print(f"  Processing {len(receiver_idx)} receivers...")
+            sys.stdout.flush()
 
-                        # Determine which ring
-                        radii = [0] + self.ring_radii
-                        for ring_idx in range(len(self.ring_radii)):
-                            if radii[ring_idx] <= dist < radii[ring_idx + 1]:
-                                expected_ring[recv_i] = ring_idx
-                                break
+            # Process results
+            for i, recv_i in enumerate(receiver_idx):
+                nearby_sender_local_idx = nearby_lists[i]
+                if not nearby_sender_local_idx:
+                    continue
 
-                    # Record all pairs
-                    for sender_i in nearby_senders:
-                        d = np.linalg.norm(coords[sender_i] - coords[recv_i])
-                        pairs.append({
-                            "receiver_id": cell_ids[recv_i],
-                            "sender_id": cell_ids[sender_i],
-                            "receiver_idx": recv_i,
-                            "sender_idx": sender_i,
-                            "distance": d,
-                            "rule_name": rule.interaction_name,
-                            "receiver_type": cell_types[recv_i],
-                            "sender_type": cell_types[sender_i],
-                        })
+                # Convert local sender indices back to global
+                nearby_senders = sender_idx[nearby_sender_local_idx]
+
+                # Calculate distances
+                distances = np.linalg.norm(
+                    coords[nearby_senders] - coords[recv_i], axis=1
+                )
+                nearest_local_idx = np.argmin(distances)
+                nearest_sender = nearby_senders[nearest_local_idx]
+                dist = distances[nearest_local_idx]
+
+                # Update if this is closer than previous interactions
+                if dist < nearest_sender_dist[recv_i]:
+                    is_interacting[recv_i] = True
+                    interaction_type[recv_i] = rule.interaction_name
+                    nearest_sender_dist[recv_i] = dist
+                    nearest_sender_id[recv_i] = cell_ids[nearest_sender]
+
+                    # Determine which ring
+                    radii = [0] + self.ring_radii
+                    for ring_idx in range(len(self.ring_radii)):
+                        if radii[ring_idx] <= dist < radii[ring_idx + 1]:
+                            expected_ring[recv_i] = ring_idx
+                            break
+
+                # Record all pairs
+                for j, sender_i in enumerate(nearby_senders):
+                    pairs.append({
+                        "receiver_id": cell_ids[recv_i],
+                        "sender_id": cell_ids[sender_i],
+                        "receiver_idx": recv_i,
+                        "sender_idx": sender_i,
+                        "distance": distances[j],
+                        "rule_name": rule.interaction_name,
+                        "receiver_type": cell_types[recv_i],
+                        "sender_type": cell_types[sender_i],
+                    })
 
         pairs_df = pd.DataFrame(pairs) if pairs else pd.DataFrame(
             columns=["receiver_id", "sender_id", "receiver_idx", "sender_idx",
@@ -718,44 +739,57 @@ class GroundTruthLabeler:
             if len(sender_idx) == 0 or len(receiver_idx) == 0:
                 continue
 
-            # For each receiver, find nearby senders
-            sender_set = set(sender_idx)
-            for recv_i in tqdm(receiver_idx, desc=f"  {rule.interaction_name}", file=sys.stdout):
-                nearby = tree.query_ball_point(coords[recv_i], rule.max_distance)
-                nearby_senders = [i for i in nearby if i in sender_set and i != recv_i]
+            # Build KDTree for senders only (much smaller)
+            sender_coords = coords[sender_idx]
+            sender_tree = cKDTree(sender_coords)
 
-                if nearby_senders:
-                    distances = np.linalg.norm(
-                        coords[nearby_senders] - coords[recv_i], axis=1
-                    )
-                    nearest_idx = np.argmin(distances)
-                    nearest_sender = nearby_senders[nearest_idx]
-                    dist = distances[nearest_idx]
+            # Query all receivers at once (vectorized)
+            receiver_coords = coords[receiver_idx]
+            nearby_lists = sender_tree.query_ball_point(receiver_coords, rule.max_distance)
 
-                    if dist < nearest_sender_dist[recv_i]:
-                        is_interacting[recv_i] = True
-                        interaction_type[recv_i] = rule.interaction_name
-                        nearest_sender_dist[recv_i] = dist
-                        nearest_sender_id[recv_i] = str(cell_ids[nearest_sender])
+            print(f"  Processing {len(receiver_idx)} receivers...")
+            sys.stdout.flush()
 
-                        radii = [0] + self.ring_radii
-                        for ring_idx in range(len(self.ring_radii)):
-                            if radii[ring_idx] <= dist < radii[ring_idx + 1]:
-                                expected_ring[recv_i] = ring_idx
-                                break
+            # Process results
+            for i, recv_i in enumerate(receiver_idx):
+                nearby_sender_local_idx = nearby_lists[i]
+                if not nearby_sender_local_idx:
+                    continue
 
-                    for sender_i in nearby_senders:
-                        d = np.linalg.norm(coords[sender_i] - coords[recv_i])
-                        pairs.append({
-                            "receiver_id": str(cell_ids[recv_i]),
-                            "sender_id": str(cell_ids[sender_i]),
-                            "receiver_idx": recv_i,
-                            "sender_idx": sender_i,
-                            "distance": d,
-                            "rule_name": rule.interaction_name,
-                            "receiver_type": cell_types[recv_i],
-                            "sender_type": cell_types[sender_i],
-                        })
+                # Convert local sender indices back to global
+                nearby_senders = sender_idx[nearby_sender_local_idx]
+
+                # Calculate distances
+                distances = np.linalg.norm(
+                    coords[nearby_senders] - coords[recv_i], axis=1
+                )
+                nearest_local_idx = np.argmin(distances)
+                nearest_sender = nearby_senders[nearest_local_idx]
+                dist = distances[nearest_local_idx]
+
+                if dist < nearest_sender_dist[recv_i]:
+                    is_interacting[recv_i] = True
+                    interaction_type[recv_i] = rule.interaction_name
+                    nearest_sender_dist[recv_i] = dist
+                    nearest_sender_id[recv_i] = str(cell_ids[nearest_sender])
+
+                    radii = [0] + self.ring_radii
+                    for ring_idx in range(len(self.ring_radii)):
+                        if radii[ring_idx] <= dist < radii[ring_idx + 1]:
+                            expected_ring[recv_i] = ring_idx
+                            break
+
+                for j, sender_i in enumerate(nearby_senders):
+                    pairs.append({
+                        "receiver_id": str(cell_ids[recv_i]),
+                        "sender_id": str(cell_ids[sender_i]),
+                        "receiver_idx": recv_i,
+                        "sender_idx": sender_i,
+                        "distance": distances[j],
+                        "rule_name": rule.interaction_name,
+                        "receiver_type": cell_types[recv_i],
+                        "sender_type": cell_types[sender_i],
+                    })
 
         pairs_df = pd.DataFrame(pairs) if pairs else pd.DataFrame(
             columns=["receiver_id", "sender_id", "receiver_idx", "sender_idx",
