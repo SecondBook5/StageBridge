@@ -2,11 +2,12 @@
 """Compute entropy for all completed checkpoints.
 
 Outputs a JSON file with entropy stats for each fold/seed.
-Parallelized across checkpoints using concurrent.futures.
+Uses spawn (not fork) for CUDA compatibility, limited workers to avoid OOM.
 """
 
+import gc
 import json
-import os
+import multiprocessing as mp
 import torch
 from pathlib import Path
 from tqdm import tqdm
@@ -15,7 +16,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from stagebridge.models import StageBridge, StageBridgeConfig
 from stagebridge.loaders.dataset import create_dataloaders
 
-N_WORKERS = int(os.environ.get('SLURM_CPUS_PER_TASK', 4))
+N_WORKERS = 4  # Limited to avoid OOM (each worker loads model + data)
 
 
 def compute_entropy(ckpt_path: Path, data_dir: Path, fold_idx: int, device: str = 'cuda') -> dict:
@@ -73,12 +74,15 @@ def process_checkpoint(args):
 
 
 def main():
+    # Use spawn to avoid CUDA fork issues
+    mp.set_start_method('spawn', force=True)
+
     output_dir = Path("/data1/chaunzt1/stagebridge/outputs/v1")
     data_dir = Path("/data1/chaunzt1/stagebridge/processed/luad_evo/canonical")
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
-    print(f"Using {N_WORKERS} workers")
+    print(f"Using {N_WORKERS} workers (spawn mode for CUDA)")
 
     # Collect all checkpoint tasks
     tasks = []
@@ -93,8 +97,9 @@ def main():
 
     results = {}
 
-    # Process in parallel (but GPU work is sequential within each worker)
-    with ProcessPoolExecutor(max_workers=min(N_WORKERS, len(tasks))) as executor:
+    # Process in parallel with spawn context
+    ctx = mp.get_context('spawn')
+    with ProcessPoolExecutor(max_workers=min(N_WORKERS, len(tasks)), mp_context=ctx) as executor:
         futures = {executor.submit(process_checkpoint, task): task[3] for task in tasks}
         for future in tqdm(as_completed(futures), total=len(futures), desc="Processing checkpoints"):
             key = futures[future]
