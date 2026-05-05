@@ -1,0 +1,100 @@
+{
+  "n_cells": 996,
+  "n_interacting": 0,
+  "pct_interacting": 0.0,
+  "cell_types": [
+    "AT2",
+    "Basal",
+    "Capillary",
+    "Ciliated",
+    "Fibroblast lineage",
+    "Macrophages",
+    "Mast cells",
+    "Secretory",
+    "T cell lineage"
+  ],
+  "stages": [
+    "AAH",
+    "AIS",
+    "LUAD",
+    "MIA",
+    "Normal"
+  ],
+  "spatial_pattern": "gradient",
+  "source_file": "/data1/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad",
+  "interaction_rules": [
+    {
+      "name": "IL1B-IL1R1",
+      "sender": "Macrophage",
+      "receiver": "Epithelial",
+      "max_distance": 50.0,
+      "ligand": "IL1B",
+      "receptor": "IL1R1"
+    },
+    {
+      "name": "IL1A-IL1R1",
+      "sender": "Macrophage",
+      "receiver": "Epithelial",
+      "max_distance": 50.0,
+      "ligand": "IL1A",
+      "receptor": "IL1R1"
+    },
+    {
+      "name": "TNF-TNFRSF1A",
+      "sender": "Macrophage",
+      "receiver": "Epithelial",
+      "max_distance": 60.0,
+      "ligand": "TNF",
+      "receptor": "TNFRSF1A"
+    },
+    {
+      "name": "CXCL12-CXCR4",
+      "sender": "Fibroblast",
+      "receiver": "Epithelial",
+      "max_distance": 100.0,
+      "ligand": "CXCL12",
+      "receptor": "CXCR4"
+    },
+    {
+      "name": "TGFB1-TGFBR1",
+      "sender": "Fibroblast",
+      "receiver": "Epithelial",
+      "max_distance": 75.0,
+      "ligand": "TGFB1",
+      "receptor": "TGFBR1"
+    },
+    {
+      "name": "HGF-MET",
+      "sender": "Fibroblast",
+      "receiver": "Epithelial",
+      "max_distance": 100.0,
+      "ligand": "HGF",
+      "receptor": "MET"
+    },
+    {
+      "name": "SPP1-CD44",
+      "sender": "Macrophage",
+      "receiver": "Epithelial",
+      "max_distance": 60.0,
+      "ligand": "SPP1",
+      "receptor": "CD44"
+    },
+    {
+      "name": "IL6-IL6R",
+      "sender": "Macrophage",
+      "receiver": "Epithelial",
+      "max_distance": 70.0,
+      "ligand": "IL6",
+      "receptor": "IL6R"
+    },
+    {
+      "name": "PDL1-PD1",
+      "sender": "Epithelial",
+      "receiver": "T cell",
+      "max_distance": 40.0,
+      "ligand": "CD274",
+      "receptor": "PDCD1"
+    }
+  ],
+  "n_pairs": 0
+}
