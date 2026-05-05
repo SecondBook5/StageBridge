@@ -293,7 +293,9 @@ for attempt in range(max_retries):
         sys.stdout.flush()
         collectri = dc.op.collectri(organism='human')
         dc.mt.ulm(data=adata, net=collectri)
-        tf_df = dc.pp.extract(adata)
+        # dc.pp.extract returns (estimates, pvalues) tuple in newer versions
+        tf_result = dc.pp.extract(adata)
+        tf_df = tf_result[0] if isinstance(tf_result, tuple) else tf_result
         tf_df.to_parquet(out / 'tf_activity_collectri.parquet')
         print('  CollecTRI TF activity saved')
         break
@@ -315,7 +317,9 @@ print('Computing pathway activity (PROGENy)...')
 sys.stdout.flush()
 progeny = dc.op.progeny(organism='human')
 dc.mt.ulm(data=adata, net=progeny)
-pw_df = dc.pp.extract(adata)
+# dc.pp.extract returns (estimates, pvalues) tuple in newer versions
+pw_result = dc.pp.extract(adata)
+pw_df = pw_result[0] if isinstance(pw_result, tuple) else pw_result
 pw_df.to_parquet(out / 'pathway_activity_progeny.parquet')
 
 # =========================================================================
