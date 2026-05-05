@@ -278,20 +278,34 @@ sys.stdout.flush()
 import decoupler as dc
 
 # =========================================================================
-# CollecTRI TF activity (with timeout fallback)
+# CollecTRI TF activity (with retry and timeout fallback)
 # =========================================================================
+import time
+
 print('Computing TF activity (CollecTRI)...')
 sys.stdout.flush()
 tf_df = None
-try:
-    collectri = dc.op.collectri(organism='human')
-    dc.mt.ulm(data=adata, net=collectri)
-    tf_df = dc.pp.extract(adata)
-    tf_df.to_parquet(out / 'tf_activity_collectri.parquet')
-    print('  CollecTRI TF activity saved')
-except Exception as e:
-    print(f'  WARNING: CollecTRI failed ({e}), skipping TF activity')
-    print('  Will compute AP-1 scores manually below')
+
+max_retries = 3
+for attempt in range(max_retries):
+    try:
+        print(f'  Attempt {attempt + 1}/{max_retries}: downloading CollecTRI...')
+        sys.stdout.flush()
+        collectri = dc.op.collectri(organism='human')
+        dc.mt.ulm(data=adata, net=collectri)
+        tf_df = dc.pp.extract(adata)
+        tf_df.to_parquet(out / 'tf_activity_collectri.parquet')
+        print('  CollecTRI TF activity saved')
+        break
+    except Exception as e:
+        print(f'  Attempt {attempt + 1} failed: {e}')
+        if attempt < max_retries - 1:
+            wait_time = 30 * (2 ** attempt)  # 30s, 60s, 120s
+            print(f'  Retrying in {wait_time}s...')
+            sys.stdout.flush()
+            time.sleep(wait_time)
+        else:
+            print('  WARNING: CollecTRI failed after all retries, using expression fallback')
 sys.stdout.flush()
 
 # =========================================================================
