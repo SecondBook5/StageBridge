@@ -285,8 +285,10 @@ import time
 def extract_activity_df(adata, net, method='ulm'):
     """Extract activity scores from adata.obsm as DataFrame."""
     # Try different key patterns used by decoupler versions
+    # Per decoupler docs: dc.mt.ulm() stores results in adata.obsm['score_ulm']
     possible_keys = [
-        f'{method}_estimate',      # newer versions
+        f'score_{method}',         # current decoupler API (score_ulm)
+        f'{method}_estimate',      # older versions
         f'{method}estimate',       # some versions
         f'X_{method}',             # alternative
         method,                    # simple
