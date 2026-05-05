@@ -3,7 +3,8 @@
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --mem=256G
-#SBATCH --time=2:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --time=12:00:00
 #SBATCH --output=/home/booka/StageBridge/logs/entropy_%j.log
 #SBATCH --error=/home/booka/StageBridge/logs/entropy_%j.err
 
