@@ -261,6 +261,7 @@ import numpy as np
 from pathlib import Path
 import os
 import sys
+from scipy import stats
 
 SNRNA = os.environ['SNRNA']
 CANONICAL = Path(os.environ['CANONICAL'])
@@ -276,13 +277,26 @@ sys.stdout.flush()
 
 import decoupler as dc
 
+# =========================================================================
+# CollecTRI TF activity (with timeout fallback)
+# =========================================================================
 print('Computing TF activity (CollecTRI)...')
 sys.stdout.flush()
-collectri = dc.op.collectri(organism='human')
-dc.mt.ulm(data=adata, net=collectri)
-tf_df = dc.pp.extract(adata)
-tf_df.to_parquet(out / 'tf_activity_collectri.parquet')
+tf_df = None
+try:
+    collectri = dc.op.collectri(organism='human')
+    dc.mt.ulm(data=adata, net=collectri)
+    tf_df = dc.pp.extract(adata)
+    tf_df.to_parquet(out / 'tf_activity_collectri.parquet')
+    print('  CollecTRI TF activity saved')
+except Exception as e:
+    print(f'  WARNING: CollecTRI failed ({e}), skipping TF activity')
+    print('  Will compute AP-1 scores manually below')
+sys.stdout.flush()
 
+# =========================================================================
+# PROGENy pathway activity
+# =========================================================================
 print('Computing pathway activity (PROGENy)...')
 sys.stdout.flush()
 progeny = dc.op.progeny(organism='human')
@@ -290,9 +304,161 @@ dc.mt.ulm(data=adata, net=progeny)
 pw_df = dc.pp.extract(adata)
 pw_df.to_parquet(out / 'pathway_activity_progeny.parquet')
 
+# =========================================================================
+# AP-1 SCORING - use CollecTRI TF ACTIVITIES (not just expression)
+# =========================================================================
+print('Computing AP-1 transcription factor scores...')
+sys.stdout.flush()
+
+AP1_TFS = ['FOS', 'FOSB', 'FOSL1', 'FOSL2', 'JUN', 'JUNB', 'JUND', 'ATF3', 'ATF4', 'ATF6', 'BATF', 'BATF2', 'BATF3']
+
+ap1_results = pd.DataFrame(index=adata.obs_names)
+ap1_results['stage'] = adata.obs['stage'].values
+if 'luca_cell_type' in adata.obs.columns:
+    ap1_results['luca_cell_type'] = adata.obs['luca_cell_type'].values
+if 'cell_type' in adata.obs.columns:
+    ap1_results['cell_type'] = adata.obs['cell_type'].values
+if 'donor_id' in adata.obs.columns:
+    ap1_results['donor_id'] = adata.obs['donor_id'].values
+
+# Primary: Use CollecTRI TF ACTIVITY scores (target-based inference)
+if tf_df is not None:
+    ap1_in_collectri = [tf for tf in AP1_TFS if tf in tf_df.columns]
+    print(f'  AP-1 TFs in CollecTRI: {ap1_in_collectri}')
+
+    if ap1_in_collectri:
+        # Add individual TF activities
+        for tf in ap1_in_collectri:
+            ap1_results[f'{tf}_activity'] = tf_df[tf].values
+
+        # Composite AP-1 activity score (mean of all AP-1 TF activities)
+        ap1_results['ap1_activity_score'] = tf_df[ap1_in_collectri].mean(axis=1).values
+        print(f'  Created ap1_activity_score from {len(ap1_in_collectri)} TFs')
+else:
+    print('  CollecTRI not available, using expression-based fallback')
+
+# Fallback/supplement: Expression-based scoring
+ap1_tfs_found = [g for g in AP1_TFS if g in adata.var_names]
+print(f'  AP-1 TF genes in expression: {ap1_tfs_found}')
+
+if ap1_tfs_found:
+    sc.tl.score_genes(adata, gene_list=ap1_tfs_found, score_name='ap1_expr_score')
+    ap1_results['ap1_expr_score'] = adata.obs['ap1_expr_score'].values
+
+    # Add raw expression for each TF
+    for g in ap1_tfs_found:
+        expr = adata[:, g].X
+        ap1_results[f'{g}_expr'] = expr.toarray().flatten() if hasattr(expr, 'toarray') else expr.flatten()
+
+# Add IL1B for correlation analysis
+if 'IL1B' in adata.var_names:
+    expr = adata[:, 'IL1B'].X
+    ap1_results['IL1B'] = expr.toarray().flatten() if hasattr(expr, 'toarray') else expr.flatten()
+
+ap1_results.to_parquet(out / 'ap1_scores.parquet')
+print(f'  Saved AP-1 scores for {len(ap1_results):,} cells')
+
+# Summary statistics
+print('\n  === AP-1 Activity by Stage ===')
+score_col = 'ap1_activity_score' if 'ap1_activity_score' in ap1_results.columns else 'ap1_expr_score'
+if score_col in ap1_results.columns:
+    print(ap1_results.groupby('stage')[score_col].agg(['mean', 'std', 'count']))
+
+    # Stage correlation
+    stage_map = {'Normal': 0, 'AAH': 1, 'AIS': 2, 'MIA': 3, 'LUAD': 4}
+    valid_stages = ap1_results['stage'].isin(stage_map.keys())
+    if valid_stages.sum() > 0:
+        stage_numeric = ap1_results.loc[valid_stages, 'stage'].map(stage_map)
+        r, p = stats.spearmanr(ap1_results.loc[valid_stages, score_col], stage_numeric)
+        print(f'\n  AP-1 vs Stage correlation: r={r:.3f}, p={p:.2e}')
+
+    if 'IL1B' in ap1_results.columns:
+        r, p = stats.spearmanr(ap1_results[score_col], ap1_results['IL1B'])
+        print(f'  AP-1 vs IL1B correlation: r={r:.3f}, p={p:.2e}')
+sys.stdout.flush()
+
+# =========================================================================
+# SENESCENCE / SASP SCORING
+# =========================================================================
+print('Computing Senescence and SASP scores...')
+sys.stdout.flush()
+
+# Core senescence markers (CDKN2A=p16, CDKN1A=p21)
+SENESCENCE_CORE = ['CDKN2A', 'CDKN1A', 'TP53', 'RB1', 'GLB1', 'SERPINE1', 'IGFBP7']
+
+# SASP (Senescence-Associated Secretory Phenotype) - inflammatory cytokines/chemokines
+SASP_GENES = [
+    'IL1A', 'IL1B', 'IL6', 'IL8', 'CXCL8', 'CXCL1', 'CXCL2', 'CXCL3',
+    'CCL2', 'CCL3', 'CCL5', 'CCL20',
+    'MMP1', 'MMP3', 'MMP9', 'MMP10', 'MMP12',
+    'SERPINE1', 'SERPINE2', 'IGFBP3', 'IGFBP5', 'IGFBP7',
+    'VEGFA', 'FGF2', 'HGF', 'AREG',
+    'TGFB1', 'TGFB2', 'TNFA', 'TNF',
+]
+
+# Extended senescence signature (SenMayo - curated from literature)
+SENMAYO_GENES = [
+    'CDKN1A', 'CDKN2A', 'CDKN2B', 'TP53', 'RB1',
+    'SERPINE1', 'IGFBP7', 'GLB1', 'LMNB1',
+    'IL1A', 'IL1B', 'IL6', 'IL8', 'CXCL8',
+    'MMP1', 'MMP3', 'MMP9',
+    'VEGFA', 'FGF2', 'CCL2', 'TGFB1',
+]
+
+sen_core_found = [g for g in SENESCENCE_CORE if g in adata.var_names]
+sasp_found = [g for g in SASP_GENES if g in adata.var_names]
+senmayo_found = [g for g in SENMAYO_GENES if g in adata.var_names]
+
+print(f'  Senescence core found: {sen_core_found}')
+print(f'  SASP genes found: {len(sasp_found)}/{len(SASP_GENES)}')
+print(f'  SenMayo genes found: {len(senmayo_found)}/{len(SENMAYO_GENES)}')
+
+sen_results = pd.DataFrame(index=adata.obs_names)
+sen_results['stage'] = adata.obs['stage'].values
+if 'luca_cell_type' in adata.obs.columns:
+    sen_results['luca_cell_type'] = adata.obs['luca_cell_type'].values
+if 'cell_type' in adata.obs.columns:
+    sen_results['cell_type'] = adata.obs['cell_type'].values
+if 'donor_id' in adata.obs.columns:
+    sen_results['donor_id'] = adata.obs['donor_id'].values
+
+if sen_core_found:
+    sc.tl.score_genes(adata, gene_list=sen_core_found, score_name='senescence_core_score')
+    sen_results['senescence_core_score'] = adata.obs['senescence_core_score'].values
+
+if sasp_found:
+    sc.tl.score_genes(adata, gene_list=sasp_found, score_name='sasp_score')
+    sen_results['sasp_score'] = adata.obs['sasp_score'].values
+
+if senmayo_found:
+    sc.tl.score_genes(adata, gene_list=senmayo_found, score_name='senmayo_score')
+    sen_results['senmayo_score'] = adata.obs['senmayo_score'].values
+
+# Add individual key markers
+for g in ['CDKN2A', 'CDKN1A', 'IL1B', 'IL6', 'SERPINE1', 'GLB1']:
+    if g in adata.var_names:
+        expr = adata[:, g].X
+        sen_results[g] = expr.toarray().flatten() if hasattr(expr, 'toarray') else expr.flatten()
+
+sen_results.to_parquet(out / 'senescence_sasp_scores.parquet')
+print(f'  Saved senescence/SASP scores for {len(sen_results):,} cells')
+
+if 'sasp_score' in sen_results.columns:
+    print('\n  === SASP Score by Stage ===')
+    print(sen_results.groupby('stage')['sasp_score'].agg(['mean', 'std', 'count']))
+if 'senescence_core_score' in sen_results.columns:
+    print('\n  === Senescence Core Score by Stage ===')
+    print(sen_results.groupby('stage')['senescence_core_score'].agg(['mean', 'std', 'count']))
+sys.stdout.flush()
+
+# =========================================================================
+# Summary statistics by stage and cell type
+# =========================================================================
 print('Computing summaries by stage and cell type...')
 sys.stdout.flush()
 for name, df in [('tf', tf_df), ('pathway', pw_df)]:
+    if df is None:
+        continue
     df_copy = df.copy()
 
     if 'stage' in adata.obs.columns:
@@ -306,7 +472,7 @@ for name, df in [('tf', tf_df), ('pathway', pw_df)]:
         if 'stage' in adata.obs.columns:
             df_copy.groupby(['stage', 'luca_cell_type']).mean(numeric_only=True).to_parquet(out / f'{name}_activity_by_stage_celltype.parquet')
 
-print('decoupleR complete')
+print('decoupleR + AP-1 + Senescence/SASP complete')
 PYTHON_ACTIVITY
 fi
 
