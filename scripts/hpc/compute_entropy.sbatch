@@ -2,7 +2,7 @@
 #SBATCH --job-name=entropy
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --mem=64G
+#SBATCH --mem=256G
 #SBATCH --time=2:00:00
 #SBATCH --output=/home/booka/StageBridge/logs/entropy_%j.log
 #SBATCH --error=/home/booka/StageBridge/logs/entropy_%j.err
