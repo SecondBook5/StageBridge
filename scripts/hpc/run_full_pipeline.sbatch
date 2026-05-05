@@ -282,6 +282,14 @@ import decoupler as dc
 # =========================================================================
 import time
 
+def extract_activity_df(adata, net, key='ulm_estimate'):
+    """Extract activity scores from adata.obsm as DataFrame."""
+    estimates = adata.obsm[key]
+    if hasattr(estimates, 'toarray'):
+        estimates = estimates.toarray()
+    sources = net['source'].unique()
+    return pd.DataFrame(estimates, index=adata.obs_names, columns=sources)
+
 print('Computing TF activity (CollecTRI)...')
 sys.stdout.flush()
 tf_df = None
@@ -293,11 +301,9 @@ for attempt in range(max_retries):
         sys.stdout.flush()
         collectri = dc.op.collectri(organism='human')
         dc.mt.ulm(data=adata, net=collectri)
-        # dc.pp.extract returns (estimates, pvalues) tuple in newer versions
-        tf_result = dc.pp.extract(adata)
-        tf_df = tf_result[0] if isinstance(tf_result, tuple) else tf_result
+        tf_df = extract_activity_df(adata, collectri)
         tf_df.to_parquet(out / 'tf_activity_collectri.parquet')
-        print('  CollecTRI TF activity saved')
+        print(f'  CollecTRI TF activity saved: {tf_df.shape[1]} TFs')
         break
     except Exception as e:
         print(f'  Attempt {attempt + 1} failed: {e}')
@@ -317,10 +323,9 @@ print('Computing pathway activity (PROGENy)...')
 sys.stdout.flush()
 progeny = dc.op.progeny(organism='human')
 dc.mt.ulm(data=adata, net=progeny)
-# dc.pp.extract returns (estimates, pvalues) tuple in newer versions
-pw_result = dc.pp.extract(adata)
-pw_df = pw_result[0] if isinstance(pw_result, tuple) else pw_result
+pw_df = extract_activity_df(adata, progeny)
 pw_df.to_parquet(out / 'pathway_activity_progeny.parquet')
+print(f'  PROGENy pathway activity saved: {pw_df.shape[1]} pathways')
 
 # =========================================================================
 # AP-1 SCORING - use CollecTRI TF ACTIVITIES (not just expression)
