@@ -44,14 +44,15 @@ ABLATION_CONFIGS = {
     "no_niche": {"use_niche_context": False},
     "no_distance": {"refiner_use_spatial_rpe": False},
     "no_gate": {"use_cross_attn_drift": False},  # Falls back to MLP drift
-    "random_niche": {},  # Handled at data level, not config - TODO: implement
+    "random_niche": {"_shuffle_rings": True},  # Handled at data level via dataloader
 
     # Reference ablations: test dual-reference value
     "hlca_only": {"use_gw_fusion": False, "use_luca_reference": False},
     "luca_only": {"use_gw_fusion": False, "use_hlca_reference": False},
 
     # Architecture ablations
-    "no_token_types": {},  # Would need model change - TODO: implement
+    # no_token_types: REMOVED - current architecture uses structural separation
+    # (separate projections, ring poolers) instead of explicit token type embeddings
     "frozen_encoder": {},  # Special handling: loads pretrained encoder, freezes it
     "no_ring_pooling": {"use_learned_ring_pooling": False},
     "no_context_refiner": {"use_context_refiner": False},
@@ -213,10 +214,17 @@ def run_ablation(
     if ablation not in ABLATION_CONFIGS:
         raise ValueError(f"Unknown ablation: {ablation}. Available: {list(ABLATION_CONFIGS)}")
 
+    # Check for data-level ablations
+    ablation_config = ABLATION_CONFIGS[ablation].copy()
+    shuffle_rings = ablation_config.pop("_shuffle_rings", False)
+
     # Create dataloaders
     train_loader, val_loader, test_loader = create_dataloaders(
-        data_dir, fold_idx=fold_idx, batch_size=64
+        data_dir, fold_idx=fold_idx, batch_size=64, shuffle_rings=shuffle_rings
     )
+
+    if shuffle_rings:
+        print("random_niche ablation: shuffling cells across rings to break spatial structure")
 
     # Detect evolution_dim from data
     sample_batch = next(iter(train_loader))
@@ -256,8 +264,8 @@ def run_ablation(
     # Note: use_gw_fusion from HPO is ignored - ablation controls this
 
     # Apply ablation config (overrides HPO where specified)
-    ablation_kwargs = ABLATION_CONFIGS[ablation].copy()
-    model_kwargs.update(ablation_kwargs)
+    # ablation_config was already copied and had _shuffle_rings removed above
+    model_kwargs.update(ablation_config)
 
     # Override evolution_dim with detected value if evolution branch is used
     if model_kwargs.get("use_evolution_branch", True) and evolution_dim > 0:

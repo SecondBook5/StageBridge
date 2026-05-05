@@ -106,6 +106,7 @@ class StageBridgeDataset(Dataset):
         latent_dim: Embedding dimension
         max_cells_per_ring: Maximum cells per ring (for padding)
         stages: Optional list of stages to include
+        shuffle_rings: If True, randomly shuffle cells across rings (ablation)
     """
 
     NUM_RINGS = 4
@@ -117,10 +118,12 @@ class StageBridgeDataset(Dataset):
         latent_dim: int = LATENT_DIM,
         max_cells_per_ring: int = MAX_CELLS_PER_RING,
         stages: Sequence[str] | None = None,
+        shuffle_rings: bool = False,
     ):
         self.data_dir = Path(data_dir)
         self.latent_dim = latent_dim
         self.max_cells_per_ring = max_cells_per_ring
+        self.shuffle_rings = shuffle_rings
 
         neighborhoods_path = self.data_dir / "neighborhoods.parquet"
         if not neighborhoods_path.exists():
@@ -260,16 +263,43 @@ class StageBridgeDataset(Dataset):
         hlca = np.array(row["hlca_z"], dtype=np.float32)
         luca = np.array(row["luca_z"], dtype=np.float32)
 
-        ring_cells = []
-        ring_masks = []
+        # Collect all cells from all rings first
+        all_cells = []
         for i in range(1, self.NUM_RINGS + 1):
             cells_list = row[f"ring_{i}_cells"]
-            if cells_list is None:
-                n_cells = 0
-            elif isinstance(cells_list, np.ndarray):
-                n_cells = len(cells_list) if cells_list.size > 0 else 0
+            if cells_list is not None:
+                if isinstance(cells_list, np.ndarray) and cells_list.size > 0:
+                    all_cells.extend(cells_list)
+                elif cells_list:
+                    all_cells.extend(cells_list)
+
+        # Shuffle all cells if random_niche ablation
+        if self.shuffle_rings and len(all_cells) > 0:
+            np.random.shuffle(all_cells)
+
+        # Redistribute cells to rings (either original or shuffled)
+        ring_cells = []
+        ring_masks = []
+        cell_idx = 0
+
+        for i in range(1, self.NUM_RINGS + 1):
+            if self.shuffle_rings:
+                # Distribute shuffled cells evenly across rings
+                cells_per_ring = len(all_cells) // self.NUM_RINGS
+                extra = 1 if i <= (len(all_cells) % self.NUM_RINGS) else 0
+                n_cells = cells_per_ring + extra
+                ring_cell_list = all_cells[cell_idx:cell_idx + n_cells]
+                cell_idx += n_cells
             else:
-                n_cells = len(cells_list) if cells_list else 0
+                # Use original ring assignment
+                cells_list = row[f"ring_{i}_cells"]
+                if cells_list is None:
+                    ring_cell_list = []
+                elif isinstance(cells_list, np.ndarray):
+                    ring_cell_list = list(cells_list) if cells_list.size > 0 else []
+                else:
+                    ring_cell_list = list(cells_list) if cells_list else []
+                n_cells = len(ring_cell_list)
 
             padded = np.zeros((self.max_cells_per_ring, self.latent_dim), dtype=np.float32)
             mask = np.zeros(self.max_cells_per_ring, dtype=bool)
@@ -277,7 +307,7 @@ class StageBridgeDataset(Dataset):
             if n_cells > 0:
                 n_use = min(n_cells, self.max_cells_per_ring)
                 for j in range(n_use):
-                    padded[j] = np.array(cells_list[j], dtype=np.float32)[:self.latent_dim]
+                    padded[j] = np.array(ring_cell_list[j], dtype=np.float32)[:self.latent_dim]
                     mask[j] = True
 
             ring_cells.append(padded)
@@ -400,6 +430,7 @@ def create_dataloaders(
     num_workers: int = 0,
     latent_dim: int = LATENT_DIM,
     max_cells_per_ring: int = MAX_CELLS_PER_RING,
+    shuffle_rings: bool = False,
 ) -> tuple["torch.utils.data.DataLoader", "torch.utils.data.DataLoader", "torch.utils.data.DataLoader"]:
     """Create train/val/test DataLoaders for a fold.
 
@@ -411,6 +442,7 @@ def create_dataloaders(
         num_workers: DataLoader workers
         latent_dim: Embedding dimension
         max_cells_per_ring: Max cells per ring for padding
+        shuffle_rings: If True, randomly shuffle cells across rings (random_niche ablation)
 
     Returns:
         (train_loader, val_loader, test_loader)
@@ -430,18 +462,21 @@ def create_dataloaders(
         donors=fold.train_donors,
         latent_dim=latent_dim,
         max_cells_per_ring=max_cells_per_ring,
+        shuffle_rings=shuffle_rings,
     )
     val_dataset = StageBridgeDataset(
         data_dir,
         donors=fold.val_donors,
         latent_dim=latent_dim,
         max_cells_per_ring=max_cells_per_ring,
+        shuffle_rings=shuffle_rings,
     )
     test_dataset = StageBridgeDataset(
         data_dir,
         donors=fold.test_donors,
         latent_dim=latent_dim,
         max_cells_per_ring=max_cells_per_ring,
+        shuffle_rings=shuffle_rings,
     )
 
     train_loader = DataLoader(
