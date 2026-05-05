@@ -498,9 +498,10 @@ def create_semisynthetic_benchmark(
     neighborhoods.to_parquet(output_path / "neighborhoods.parquet")
     print(f"  neighborhoods.parquet: {len(neighborhoods)} rows")
 
-    # Ground truth labels
+    # Ground truth labels - use actual length from ground_truth arrays
+    actual_n = len(ground_truth["is_interacting"])
     gt_labels = pd.DataFrame({
-        "cell_id": [f"cell_{i:06d}" for i in range(n_cells)],
+        "cell_id": [f"cell_{i:06d}" for i in range(actual_n)],
         "is_interacting": ground_truth["is_interacting"],
         "interaction_type": ground_truth["interaction_type"],
         "nearest_sender_distance": ground_truth["nearest_sender_distance"],
@@ -516,7 +517,7 @@ def create_semisynthetic_benchmark(
 
     # Coordinates (for visualization)
     coords_df = pd.DataFrame({
-        "cell_id": [f"cell_{i:06d}" for i in range(n_cells)],
+        "cell_id": [f"cell_{i:06d}" for i in range(actual_n)],
         "x": coords[:, 0],
         "y": coords[:, 1],
         "cell_type": cell_types,
@@ -528,9 +529,9 @@ def create_semisynthetic_benchmark(
 
     # Summary
     summary = {
-        "n_cells": n_cells,
+        "n_cells": actual_n,
         "n_interacting": int(n_interacting),
-        "pct_interacting": float(100 * n_interacting / n_cells),
+        "pct_interacting": float(100 * n_interacting / actual_n),
         "cell_types": list(np.unique(cell_types)),
         "stages": list(np.unique(stage_labels)),
         "spatial_pattern": spatial_pattern,
@@ -576,8 +577,8 @@ def create_semisynthetic_benchmark(
     print("SUMMARY")
     print("=" * 60)
     print(f"Output: {output_path}")
-    print(f"Cells: {n_cells}")
-    print(f"Interacting: {n_interacting} ({100 * n_interacting / n_cells:.1f}%)")
+    print(f"Cells: {actual_n}")
+    print(f"Interacting: {n_interacting} ({100 * n_interacting / actual_n:.1f}%)")
     print(f"Cell types: {len(np.unique(cell_types))}")
     print(f"Stages: {list(np.unique(stage_labels))}")
     print(f"Pairs: {len(ground_truth['pairs'])}")
