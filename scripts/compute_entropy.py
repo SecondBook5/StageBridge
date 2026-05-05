@@ -10,7 +10,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from stagebridge.models import StageBridge, StageBridgeConfig
-from stagebridge.data import create_dataloaders
+from stagebridge.loaders.dataset import create_dataloaders
 
 
 def compute_entropy(ckpt_path: Path, data_dir: Path, fold_idx: int, device: str = 'cuda') -> dict:
