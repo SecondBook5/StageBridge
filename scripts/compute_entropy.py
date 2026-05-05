@@ -17,11 +17,13 @@ def compute_entropy(ckpt_path: Path, data_dir: Path, fold_idx: int, device: str 
     """Compute entropy stats for a single checkpoint."""
     print(f"\nProcessing: {ckpt_path.parent.parent.name}/{ckpt_path.parent.name}")
 
-    # Load checkpoint
+    # Load checkpoint (strict=False for backward compat with old evolution_branch)
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     config = StageBridgeConfig(**ckpt['config']['model_config'])
     model = StageBridge(config).to(device)
-    model.load_state_dict(ckpt['model_state_dict'])
+    missing, unexpected = model.load_state_dict(ckpt['model_state_dict'], strict=False)
+    if unexpected:
+        print(f"  Ignoring {len(unexpected)} unexpected keys (old model version)")
     model.eval()
 
     # Get val loader
