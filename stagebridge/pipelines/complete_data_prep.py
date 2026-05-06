@@ -564,8 +564,8 @@ def generate_cells_table(
     print("  Building snRNA records (vectorized)...")
 
     # Build base DataFrame from snrna.obs
-    snrna_df = snrna.obs.copy()
-    snrna_df['cell_id'] = snrna.obs_names
+    snrna_df = snrna.obs.copy().reset_index(drop=True)
+    snrna_df['cell_id'] = snrna.obs_names.tolist()
     snrna_df['data_type'] = 'snrna'
     snrna_df['x'] = np.nan
     snrna_df['y'] = np.nan
@@ -607,18 +607,30 @@ def generate_cells_table(
         # Convert categorical to string first, then fillna
         snrna_df['phase'] = snrna_df['phase'].astype(str).replace('nan', 'unknown').fillna('unknown')
 
-    # Add embeddings from reference geometry (vectorized lookup)
+    # Add embeddings from reference geometry (vectorized lookup via merge)
     print("    Adding embeddings...")
+
+    def reset_index_to_cell_id(df):
+        """Reset index and ensure column is named 'cell_id'."""
+        df = df.reset_index()
+        # Index column could be named 'cell_id', 'index', or something else
+        if 'cell_id' not in df.columns:
+            # Find the index column (first column after reset)
+            idx_col = df.columns[0]
+            df = df.rename(columns={idx_col: 'cell_id'})
+        return df
+
     if fused_emb_df is not None:
         # Get columns for each embedding type
         fused_cols = [c for c in fused_emb_df.columns if c.startswith('fused_') or c.startswith('z_fused_')]
         if not fused_cols:
             fused_cols = [c for c in fused_emb_df.columns if fused_emb_df[c].dtype in ['float32', 'float64']][:fused_dim]
 
-        # Join embeddings
+        # Merge embeddings (emb_df has cell_id as index)
         emb_subset = fused_emb_df[fused_cols].copy()
         emb_subset.columns = [f'z_fused_{i}' for i in range(len(fused_cols))]
-        snrna_df = snrna_df.join(emb_subset, on='cell_id', how='left')
+        emb_subset = reset_index_to_cell_id(emb_subset)
+        snrna_df = snrna_df.merge(emb_subset, on='cell_id', how='left')
 
     if hlca_emb_df is not None:
         hlca_cols = [c for c in hlca_emb_df.columns if c.startswith('hlca_') or c.startswith('z_hlca_')]
@@ -626,7 +638,8 @@ def generate_cells_table(
             hlca_cols = [c for c in hlca_emb_df.columns if hlca_emb_df[c].dtype in ['float32', 'float64']][:hlca_dim]
         emb_subset = hlca_emb_df[hlca_cols].copy()
         emb_subset.columns = [f'z_hlca_{i}' for i in range(len(hlca_cols))]
-        snrna_df = snrna_df.join(emb_subset, on='cell_id', how='left')
+        emb_subset = reset_index_to_cell_id(emb_subset)
+        snrna_df = snrna_df.merge(emb_subset, on='cell_id', how='left')
 
     if luca_emb_df is not None:
         luca_cols = [c for c in luca_emb_df.columns if c.startswith('luca_') or c.startswith('z_luca_')]
@@ -634,7 +647,8 @@ def generate_cells_table(
             luca_cols = [c for c in luca_emb_df.columns if luca_emb_df[c].dtype in ['float32', 'float64']][:luca_dim]
         emb_subset = luca_emb_df[luca_cols].copy()
         emb_subset.columns = [f'z_luca_{i}' for i in range(len(luca_cols))]
-        snrna_df = snrna_df.join(emb_subset, on='cell_id', how='left')
+        emb_subset = reset_index_to_cell_id(emb_subset)
+        snrna_df = snrna_df.merge(emb_subset, on='cell_id', how='left')
 
     # Fill missing embeddings with zeros
     for i in range(fused_dim):
