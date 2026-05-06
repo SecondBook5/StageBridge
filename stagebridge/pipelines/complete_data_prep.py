@@ -66,7 +66,6 @@ def generate_canonical_artifacts(
     snrna_path: Path,
     spatial_path: Path,
     wes_features_path: Path,
-    spatial_backend_dir: Path,
     output_dir: Path,
     stage_definitions: dict[str, list[str]],
     n_folds: int = 5,
@@ -107,11 +106,7 @@ def generate_canonical_artifacts(
     spatial = ad.read_h5ad(spatial_path)
     wes_df = cache.read_parquet(wes_features_path) if wes_features_path.exists() else None
 
-    # Load spatial backend results (use canonical backend from benchmark)
-    backend_results = cache.read_parquet(spatial_backend_dir / "cell_type_proportions.parquet")
-
-    # NOTE: Gamma loading moved to hlca_deconv_dir/luca_deconv_dir sections below
-    # to properly separate HLCA (30d) and LuCA (10d) gamma values
+    # NOTE: Gamma and proportions loaded from hlca_deconv_dir/luca_deconv_dir below
     gamma_df = None  # For backward compat (averaged gamma for storage in cells.parquet)
 
     print(f"  snRNA: {snrna.shape[0]} cells")
@@ -158,7 +153,7 @@ def generate_canonical_artifacts(
     neighborhoods_df = generate_neighborhoods_table(
         cells_df=cells_df,
         spatial=spatial,
-        backend_results=backend_results,
+        spatial_deconv_luca=spatial_deconv_luca,
     )
     neighborhoods_df.to_parquet(output_dir / "neighborhoods.parquet", index=False)
     print(f"  Saved {len(neighborhoods_df)} neighborhoods")
@@ -770,7 +765,7 @@ def generate_cells_table(
 def generate_neighborhoods_table(
     cells_df: pd.DataFrame,
     spatial: ad.AnnData,
-    backend_results: pd.DataFrame,
+    spatial_deconv_luca: dict,
     k_neighbors: int = 20,
 ) -> pd.DataFrame:
     """
@@ -925,18 +920,25 @@ def generate_neighborhoods_table(
                 }
             )
 
-            # Token 7: Pathway activity (from spatial backend cell type proportions)
-            spot_proportions = (
-                backend_results.loc[cell_id] if cell_id in backend_results.index else None
-            )
+            # Token 7: Pathway activity (from LuCA deconvolution - cancer-aware cell types)
+            # Strip spatial_ prefix to match deconv keys
+            spot_id = cell_id[8:] if cell_id.startswith("spatial_") else cell_id
+            spot_proportions = spatial_deconv_luca.get(spot_id, None)
 
             if spot_proportions is not None:
-                # Compute pathway scores from cell type composition
-                caf_fraction = spot_proportions.get("Fibroblast", 0.0) + spot_proportions.get(
-                    "CAF", 0.0
+                # Compute pathway scores from cell type composition (LuCA cell type names)
+                caf_fraction = (
+                    spot_proportions.get("fibroblast of lung", 0.0) +
+                    spot_proportions.get("bronchus fibroblast of lung", 0.0) +
+                    spot_proportions.get("stromal cell", 0.0)
                 )
-                immune_fraction = spot_proportions.get("Macrophage", 0.0) + spot_proportions.get(
-                    "T_cell", 0.0
+                immune_fraction = (
+                    spot_proportions.get("alveolar macrophage", 0.0) +
+                    spot_proportions.get("macrophage", 0.0) +
+                    spot_proportions.get("CD4-positive, alpha-beta T cell", 0.0) +
+                    spot_proportions.get("CD8-positive, alpha-beta T cell", 0.0) +
+                    spot_proportions.get("regulatory T cell", 0.0) +
+                    spot_proportions.get("natural killer cell", 0.0)
                 )
                 emt_score = 0.6 * caf_fraction + 0.4 * immune_fraction
             else:
@@ -1114,9 +1116,6 @@ def main():
     parser.add_argument("--spatial", type=str, required=True, help="Path to spatial_merged.h5ad")
     parser.add_argument("--wes", type=str, required=True, help="Path to wes_features.parquet")
     parser.add_argument(
-        "--spatial_backend_dir", type=str, required=True, help="Spatial backend results directory"
-    )
-    parser.add_argument(
         "--reference_geometry", type=str, required=True,
         help="Path to reference_geometry directory (contains fused_embedding.parquet, etc.)"
     )
@@ -1125,11 +1124,11 @@ def main():
         help="Path to clonal_patterns.json from run_clonal_extraction.py (for H3 validation)"
     )
     parser.add_argument(
-        "--hlca_deconv_dir", type=str, default=None,
+        "--hlca_deconv_dir", type=str, required=True,
         help="Path to HLCA deconvolution results (for spatial embedding composition)"
     )
     parser.add_argument(
-        "--luca_deconv_dir", type=str, default=None,
+        "--luca_deconv_dir", type=str, required=True,
         help="Path to LuCA deconvolution results (for spatial embedding composition)"
     )
 
@@ -1159,14 +1158,13 @@ def main():
         snrna_path=Path(args.snrna),
         spatial_path=Path(args.spatial),
         wes_features_path=Path(args.wes),
-        spatial_backend_dir=Path(args.spatial_backend_dir),
         output_dir=Path(args.output_dir),
         stage_definitions=stage_definitions,
         n_folds=args.n_folds,
         reference_geometry_dir=Path(args.reference_geometry),
         clonal_patterns_path=Path(args.clonal_patterns) if args.clonal_patterns else None,
-        hlca_deconv_dir=Path(args.hlca_deconv_dir) if args.hlca_deconv_dir else None,
-        luca_deconv_dir=Path(args.luca_deconv_dir) if args.luca_deconv_dir else None,
+        hlca_deconv_dir=Path(args.hlca_deconv_dir),
+        luca_deconv_dir=Path(args.luca_deconv_dir),
     )
 
 
