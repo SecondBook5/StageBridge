@@ -108,6 +108,71 @@ def load_destvi_fractions(luca_path: Path, hlca_path: Path | None = None) -> pd.
     return result
 
 
+def compute_cell_cycle_scores(h5ad_path: Path, cells_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute cell cycle scores (S_score, G2M_score, phase) from h5ad.
+
+    Uses scanpy's score_genes_cell_cycle with Tirosh et al. 2016 gene sets.
+    Only computes if scores are missing from cells_df.
+
+    Returns:
+        DataFrame with cell_id, S_score, G2M_score, phase columns.
+    """
+    required_cols = ['S_score', 'G2M_score', 'phase']
+    if all(col in cells_df.columns and cells_df[col].notna().any() for col in required_cols):
+        print('  Cell cycle scores already present in cells.parquet')
+        return cells_df[['cell_id'] + required_cols].copy()
+
+    print(f'  Computing cell cycle scores from {h5ad_path}...')
+    import scanpy as sc
+
+    adata = sc.read_h5ad(h5ad_path)
+
+    # Tirosh et al. 2016 cell cycle genes (standard markers)
+    s_genes = [
+        'MCM5', 'PCNA', 'TYMS', 'FEN1', 'MCM2', 'MCM4', 'RRM1', 'UNG',
+        'GINS2', 'MCM6', 'CDCA7', 'DTL', 'PRIM1', 'UHRF1', 'MLF1IP',
+        'HELLS', 'RFC2', 'RPA2', 'NASP', 'RAD51AP1', 'GMNN', 'WDR76',
+        'SLBP', 'CCNE2', 'UBR7', 'POLD3', 'MSH2', 'ATAD2', 'RAD51',
+        'RRM2', 'CDC45', 'CDC6', 'EXO1', 'TIPIN', 'DSCC1', 'BLM',
+        'CASP8AP2', 'USP1', 'CLSPN', 'POLA1', 'CHAF1B', 'BRIP1', 'E2F8'
+    ]
+    g2m_genes = [
+        'HMGB2', 'CDK1', 'NUSAP1', 'UBE2C', 'BIRC5', 'TPX2', 'TOP2A',
+        'NDC80', 'CKS2', 'NUF2', 'CKS1B', 'MKI67', 'TMPO', 'CENPF',
+        'TACC3', 'FAM64A', 'SMC4', 'CCNB2', 'CKAP2L', 'CKAP2', 'AURKB',
+        'BUB1', 'KIF11', 'ANP32E', 'TUBB4B', 'GTSE1', 'KIF20B', 'HJURP',
+        'CDCA3', 'HN1', 'CDC20', 'TTK', 'CDC25C', 'KIF2C', 'RANGAP1',
+        'NCAPD2', 'DLGAP5', 'CDCA2', 'CDCA8', 'ECT2', 'KIF23', 'HMMR',
+        'AURKA', 'PSRC1', 'ANLN', 'LBR', 'CKAP5', 'CENPE', 'CTCF',
+        'NEK2', 'G2E3', 'GAS2L3', 'CBX5', 'CENPA'
+    ]
+
+    # Filter to genes present in the data
+    s_genes_present = [g for g in s_genes if g in adata.var_names]
+    g2m_genes_present = [g for g in g2m_genes if g in adata.var_names]
+
+    print(f'    S phase genes: {len(s_genes_present)}/{len(s_genes)} present')
+    print(f'    G2M phase genes: {len(g2m_genes_present)}/{len(g2m_genes)} present')
+
+    if len(s_genes_present) < 10 or len(g2m_genes_present) < 10:
+        print('    WARNING: Too few cell cycle genes found, scores may be unreliable')
+
+    # Score cell cycle
+    sc.tl.score_genes_cell_cycle(adata, s_genes=s_genes_present, g2m_genes=g2m_genes_present)
+
+    # Extract scores
+    result = pd.DataFrame({
+        'cell_id': adata.obs.index,
+        'S_score': adata.obs['S_score'].values,
+        'G2M_score': adata.obs['G2M_score'].values,
+        'phase': adata.obs['phase'].values,
+    })
+
+    print(f'    Phase distribution: {result["phase"].value_counts().to_dict()}')
+
+    return result
+
+
 def get_embedding_matrix(df: pd.DataFrame, prefix: str, dim: int) -> np.ndarray:
     """Extract embedding matrix from individual columns."""
     cols = [f'{prefix}_{i}' for i in range(dim)]
@@ -479,6 +544,19 @@ def prepare_data(
             transfer_luca_labels=run_liana,  # Use LuCA labels for LIANA if running
         )
         print(f'  {len(biological_features):,} cells with EMT/senescence/SASP scores')
+
+    # Compute cell cycle scores from h5ad if missing from cells_df
+    if h5ad_path and h5ad_path.exists():
+        print('Checking cell cycle scores...')
+        cell_cycle_df = compute_cell_cycle_scores(h5ad_path, cells_df)
+        # Merge into cells_df if computed fresh
+        if 'S_score' not in cells_df.columns or cells_df['S_score'].isna().all():
+            cells_df = cells_df.merge(
+                cell_cycle_df[['cell_id', 'S_score', 'G2M_score', 'phase']],
+                on='cell_id',
+                how='left'
+            )
+            print(f'  Merged cell cycle scores into cells_df')
 
     # Load evolution features (WES + clonal) if provided
     evolution_features = None
