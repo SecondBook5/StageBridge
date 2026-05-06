@@ -73,6 +73,7 @@ def generate_canonical_artifacts(
     n_folds: int = 5,
     reference_geometry_dir: Path | None = None,
     clonal_patterns_path: Path | None = None,
+    spatial_embeddings_path: Path | None = None,
     hlca_deconv_dir: Path | None = None,
     luca_deconv_dir: Path | None = None,
 ):
@@ -83,7 +84,7 @@ def generate_canonical_artifacts(
         - snrna_merged.h5ad (from run_data_prep.py)
         - spatial_merged.h5ad (from run_data_prep.py)
         - wes_features.parquet (from run_data_prep.py)
-        - spatial_backend results (cell_type_proportions.parquet)
+        - spatial_embeddings (from scArches mapping - RECOMMENDED)
         - reference_geometry outputs (fused_embedding.parquet, etc.)
         - clonal_patterns.json (from run_clonal_extraction.py) [optional]
 
@@ -138,9 +139,9 @@ def generate_canonical_artifacts(
         spatial=spatial,
         wes_df=wes_df,
         stage_definitions=stage_definitions,
-        gamma_df=gamma_df,
         reference_geometry_dir=reference_geometry_dir,
         clonal_patterns=clonal_patterns,
+        spatial_embeddings_path=spatial_embeddings_path,
         hlca_deconv_dir=hlca_deconv_dir,
         luca_deconv_dir=luca_deconv_dir,
     )
@@ -233,9 +234,9 @@ def generate_cells_table(
     spatial: ad.AnnData,
     wes_df: pd.DataFrame,
     stage_definitions: dict[str, list[str]],
-    gamma_df: pd.DataFrame | None = None,
     reference_geometry_dir: Path | None = None,
     clonal_patterns: dict[str, str] | None = None,
+    spatial_embeddings_path: Path | None = None,
     hlca_deconv_dir: Path | None = None,
     luca_deconv_dir: Path | None = None,
 ) -> pd.DataFrame:
@@ -432,7 +433,6 @@ def generate_cells_table(
                         for spot_id in prop_norm.index:
                             spatial_deconv_luca[spot_id] = prop_norm.loc[spot_id].to_dict()
         print(f"    Loaded LuCA deconvolution for {len(spatial_deconv_luca):,} spots")
-        print(f"    Loaded LuCA gamma for {len(gamma_per_celltype_luca):,} spots")
 
     def extract_stage_from_cell_id(cell_id: str) -> str:
         """Extract stage from cell_id and map to 3-stage system.
@@ -456,44 +456,74 @@ def generate_cells_table(
                     return STAGE_MAP_3.get(s, "unknown")
         return "unknown"
 
+    # ==========================================================================
+    # Load scArches spatial embeddings if provided (RECOMMENDED)
+    # These are embeddings computed by mapping spatial expression directly through
+    # the HLCA/LuCA reference models via scArches surgery, putting spatial spots
+    # in the SAME latent space as snRNA cells.
+    # ==========================================================================
+    spatial_emb_df = None
+    if spatial_embeddings_path is not None and spatial_embeddings_path.exists():
+        print(f"  Loading scArches spatial embeddings from {spatial_embeddings_path}...")
+        spatial_emb_df = cache.read_parquet(spatial_embeddings_path)
+        if 'cell_id' in spatial_emb_df.columns:
+            spatial_emb_df = spatial_emb_df.set_index('cell_id')
+        print(f"    Loaded embeddings for {len(spatial_emb_df):,} spatial spots")
+        # Detect columns
+        spatial_hlca_cols = [c for c in spatial_emb_df.columns if c.startswith('hlca_latent_')]
+        spatial_luca_cols = [c for c in spatial_emb_df.columns if c.startswith('luca_latent_')]
+        print(f"    HLCA dims: {len(spatial_hlca_cols)}, LuCA dims: {len(spatial_luca_cols)}")
+    elif spatial_embeddings_path is not None:
+        print(f"  WARNING: spatial_embeddings_path provided but file not found: {spatial_embeddings_path}")
+        print("           Falling back to proportions × mean (causes modality separation)")
+
     def get_embeddings(cell_id: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get embeddings for a cell from loaded dataframes.
 
         Returns actual dimensions: HLCA (30d), LuCA (10d), Fused (40d).
         NOT truncated to a single latent_dim.
 
-        For spatial spots (cell_id starting with "spatial_"), composes embeddings
-        from deconvolution proportions:
-        - HLCA embedding = sum(HLCA_proportion[type] * mean_HLCA_embedding[type])
-        - LuCA embedding = sum(LuCA_proportion[type] * mean_LuCA_embedding[type])
+        For spatial spots (cell_id starting with "spatial_"):
+        - If scArches embeddings available: use those directly (RECOMMENDED)
+        - Otherwise: compose from proportions × mean (causes modality separation)
         """
         z_fused = np.zeros(fused_dim, dtype=np.float32)
         z_hlca = np.zeros(hlca_dim, dtype=np.float32)
         z_luca = np.zeros(luca_dim, dtype=np.float32)
 
-        # For spatial spots, compose embeddings from deconvolution + gamma
+        # For spatial spots
         if cell_id.startswith("spatial_"):
             spot_id = cell_id[8:]  # Strip "spatial_" prefix
 
-            # Compose HLCA embedding from HLCA deconvolution + gamma (DestVI latent shift)
-            # Formula: z_hlca = sum(proportion[ct] * (mean_hlca[ct] + gamma[ct]))
+            # Option 1 (PREFERRED): Use scArches embeddings if available
+            if spatial_emb_df is not None and spot_id in spatial_emb_df.index:
+                row = spatial_emb_df.loc[spot_id]
+                # Extract HLCA embedding
+                hlca_cols = [c for c in spatial_emb_df.columns if c.startswith('hlca_latent_')]
+                if hlca_cols:
+                    z_hlca = row[hlca_cols].values.astype(np.float32)
+                # Extract LuCA embedding
+                luca_cols = [c for c in spatial_emb_df.columns if c.startswith('luca_latent_')]
+                if luca_cols:
+                    z_luca = row[luca_cols].values.astype(np.float32)
+                # Fused = concatenation
+                z_fused[:len(z_hlca)] = z_hlca
+                z_fused[len(z_hlca):len(z_hlca) + len(z_luca)] = z_luca
+                return z_fused, z_hlca, z_luca
+
+            # Option 2 (FALLBACK): Compose from proportions × mean
+            # NOTE: This causes modality separation (spatial at centroids, snRNA spread around)
             if spot_id in spatial_deconv_hlca and hlca_mean_emb:
                 props = spatial_deconv_hlca[spot_id]
-                spot_gamma_hlca = gamma_per_celltype_hlca.get(spot_id, {})
                 for cell_type, proportion in props.items():
                     if cell_type in hlca_mean_emb and proportion > 0:
-                        gamma = spot_gamma_hlca.get(cell_type, np.zeros(hlca_dim, dtype=np.float32))
-                        z_hlca += proportion * (hlca_mean_emb[cell_type] + gamma)
+                        z_hlca += proportion * hlca_mean_emb[cell_type]
 
-            # Compose LuCA embedding from LuCA deconvolution + gamma (DestVI latent shift)
-            # Formula: z_luca = sum(proportion[ct] * (mean_luca[ct] + gamma[ct]))
             if spot_id in spatial_deconv_luca and luca_mean_emb:
                 props = spatial_deconv_luca[spot_id]
-                spot_gamma_luca = gamma_per_celltype_luca.get(spot_id, {})
                 for cell_type, proportion in props.items():
                     if cell_type in luca_mean_emb and proportion > 0:
-                        gamma = spot_gamma_luca.get(cell_type, np.zeros(luca_dim, dtype=np.float32))
-                        z_luca += proportion * (luca_mean_emb[cell_type] + gamma)
+                        z_luca += proportion * luca_mean_emb[cell_type]
 
             # Fused = concatenation of HLCA and LuCA
             z_fused[:hlca_dim] = z_hlca
@@ -755,77 +785,107 @@ def generate_cells_table(
     spatial_df['x'] = spatial.obsm['spatial'][:, 0]
     spatial_df['y'] = spatial.obsm['spatial'][:, 1]
 
-    # Compute embeddings for spatial spots (PARALLEL via ThreadPool)
-    # This is the slow part - needs gamma composition per spot
-    # Use ThreadPool (not Pool) because worker function uses closure variables
-    print("    Computing spatial embeddings with gamma (parallel)...")
+    # Compute embeddings for spatial spots
+    # Two modes:
+    # 1. scArches (PREFERRED): Direct lookup from pre-computed embeddings
+    # 2. Proportions × mean (FALLBACK): Causes modality separation
     n_spatial = len(spatial_df)
-
-    # Determine number of workers (use environment or default to available CPUs)
-    import os
-    from multiprocessing.pool import ThreadPool
-    n_workers = int(os.environ.get('SLURM_CPUS_PER_TASK', cpu_count()))
-    n_workers = min(n_workers, 32)  # Cap at 32
-    print(f"    Using {n_workers} threads for parallel processing")
-
-    # Prepare data
-    cell_ids = spatial_df['cell_id'].tolist()
-
-    # Worker function (can access closure variables because ThreadPool shares memory)
-    # NOTE: DestVI gamma is in DestVI's latent space, not reference atlas space,
-    # so we only use cell type proportions × mean reference embeddings
-    def compute_spot_embedding(idx):
-        cell_id = cell_ids[idx]
-        spot_id = cell_id[8:] if cell_id.startswith("spatial_") else cell_id
-
-        z_fused = np.zeros(fused_dim, dtype=np.float32)
-        z_hlca = np.zeros(hlca_dim, dtype=np.float32)
-        z_luca = np.zeros(luca_dim, dtype=np.float32)
-
-        # Compose HLCA embedding from HLCA cell type proportions
-        if spot_id in spatial_deconv_hlca and hlca_mean_emb:
-            props = spatial_deconv_hlca[spot_id]
-            for cell_type, proportion in props.items():
-                if cell_type in hlca_mean_emb and proportion > 0:
-                    z_hlca += proportion * hlca_mean_emb[cell_type]
-
-        # Compose LuCA embedding from LuCA cell type proportions
-        if spot_id in spatial_deconv_luca and luca_mean_emb:
-            props = spatial_deconv_luca[spot_id]
-            for cell_type, proportion in props.items():
-                if cell_type in luca_mean_emb and proportion > 0:
-                    z_luca += proportion * luca_mean_emb[cell_type]
-
-        # Fused = concatenation
-        z_fused[:hlca_dim] = z_hlca
-        z_fused[hlca_dim:hlca_dim + luca_dim] = z_luca
-
-        return idx, z_fused, z_hlca, z_luca
 
     # Pre-allocate arrays
     z_fused_arr = np.zeros((n_spatial, fused_dim), dtype=np.float32)
     z_hlca_arr = np.zeros((n_spatial, hlca_dim), dtype=np.float32)
     z_luca_arr = np.zeros((n_spatial, luca_dim), dtype=np.float32)
 
-    # Process in parallel using ThreadPool
-    if n_workers > 1:
-        with ThreadPool(n_workers) as pool:
-            results = list(tqdm(
-                pool.imap(compute_spot_embedding, range(n_spatial), chunksize=1000),
-                total=n_spatial,
-                desc="    Spatial embeddings"
-            ))
-        for idx, z_fused, z_hlca, z_luca in results:
-            z_fused_arr[idx] = z_fused
-            z_hlca_arr[idx] = z_hlca
-            z_luca_arr[idx] = z_luca
+    if spatial_emb_df is not None:
+        # ==========================================================================
+        # scArches mode: Use pre-computed embeddings (RECOMMENDED)
+        # These embeddings are in the SAME latent space as snRNA cells
+        # ==========================================================================
+        print("    Using scArches spatial embeddings (RECOMMENDED)...")
+        spot_ids = spatial_df['spot_id'].tolist()
+
+        # Get column names
+        spatial_hlca_cols = [c for c in spatial_emb_df.columns if c.startswith('hlca_latent_')]
+        spatial_luca_cols = [c for c in spatial_emb_df.columns if c.startswith('luca_latent_')]
+
+        n_matched = 0
+        for idx, spot_id in enumerate(tqdm(spot_ids, desc="    Loading spatial embeddings")):
+            if spot_id in spatial_emb_df.index:
+                row = spatial_emb_df.loc[spot_id]
+                if spatial_hlca_cols:
+                    z_hlca_arr[idx] = row[spatial_hlca_cols].values.astype(np.float32)
+                if spatial_luca_cols:
+                    z_luca_arr[idx] = row[spatial_luca_cols].values.astype(np.float32)
+                # Fused = concatenation
+                z_fused_arr[idx, :len(z_hlca_arr[idx])] = z_hlca_arr[idx]
+                z_fused_arr[idx, len(z_hlca_arr[idx]):len(z_hlca_arr[idx]) + len(z_luca_arr[idx])] = z_luca_arr[idx]
+                n_matched += 1
+
+        print(f"    Matched {n_matched:,} / {n_spatial:,} spots to scArches embeddings")
+        if n_matched < n_spatial:
+            print(f"    WARNING: {n_spatial - n_matched:,} spots have no scArches embedding (using zeros)")
     else:
-        # Single-threaded fallback
-        for idx in tqdm(range(n_spatial), desc="    Spatial embeddings"):
-            _, z_fused, z_hlca, z_luca = compute_spot_embedding(idx)
-            z_fused_arr[idx] = z_fused
-            z_hlca_arr[idx] = z_hlca
-            z_luca_arr[idx] = z_luca
+        # ==========================================================================
+        # Fallback mode: Proportions × mean (causes modality separation)
+        # ==========================================================================
+        print("    Computing spatial embeddings via proportions × mean (FALLBACK)...")
+        print("    WARNING: This causes modality separation! Use --spatial_embeddings for scArches.")
+
+        # Determine number of workers
+        import os
+        from multiprocessing.pool import ThreadPool
+        n_workers = int(os.environ.get('SLURM_CPUS_PER_TASK', cpu_count()))
+        n_workers = min(n_workers, 32)
+        print(f"    Using {n_workers} threads for parallel processing")
+
+        cell_ids = spatial_df['cell_id'].tolist()
+
+        def compute_spot_embedding(idx):
+            cell_id = cell_ids[idx]
+            spot_id = cell_id[8:] if cell_id.startswith("spatial_") else cell_id
+
+            z_fused = np.zeros(fused_dim, dtype=np.float32)
+            z_hlca = np.zeros(hlca_dim, dtype=np.float32)
+            z_luca = np.zeros(luca_dim, dtype=np.float32)
+
+            # Compose HLCA embedding from HLCA cell type proportions
+            if spot_id in spatial_deconv_hlca and hlca_mean_emb:
+                props = spatial_deconv_hlca[spot_id]
+                for cell_type, proportion in props.items():
+                    if cell_type in hlca_mean_emb and proportion > 0:
+                        z_hlca += proportion * hlca_mean_emb[cell_type]
+
+            # Compose LuCA embedding from LuCA cell type proportions
+            if spot_id in spatial_deconv_luca and luca_mean_emb:
+                props = spatial_deconv_luca[spot_id]
+                for cell_type, proportion in props.items():
+                    if cell_type in luca_mean_emb and proportion > 0:
+                        z_luca += proportion * luca_mean_emb[cell_type]
+
+            # Fused = concatenation
+            z_fused[:hlca_dim] = z_hlca
+            z_fused[hlca_dim:hlca_dim + luca_dim] = z_luca
+
+            return idx, z_fused, z_hlca, z_luca
+
+        # Process in parallel using ThreadPool
+        if n_workers > 1:
+            with ThreadPool(n_workers) as pool:
+                results = list(tqdm(
+                    pool.imap(compute_spot_embedding, range(n_spatial), chunksize=1000),
+                    total=n_spatial,
+                    desc="    Spatial embeddings"
+                ))
+            for idx, z_fused, z_hlca, z_luca in results:
+                z_fused_arr[idx] = z_fused
+                z_hlca_arr[idx] = z_hlca
+                z_luca_arr[idx] = z_luca
+        else:
+            for idx in tqdm(range(n_spatial), desc="    Spatial embeddings"):
+                _, z_fused, z_hlca, z_luca = compute_spot_embedding(idx)
+                z_fused_arr[idx] = z_fused
+                z_hlca_arr[idx] = z_hlca
+                z_luca_arr[idx] = z_luca
 
     # Add embedding columns
     for i in range(fused_dim):
@@ -1271,12 +1331,17 @@ def main():
         help="Path to clonal_patterns.json from run_clonal_extraction.py (for H3 validation)"
     )
     parser.add_argument(
-        "--hlca_deconv_dir", type=str, required=True,
-        help="Path to HLCA deconvolution results (for spatial embedding composition)"
+        "--spatial_embeddings", type=str, default=None,
+        help="Path to spatial_fused_embedding.parquet from scArches mapping (RECOMMENDED)"
+    )
+    # Legacy deconvolution args (deprecated, use --spatial_embeddings instead)
+    parser.add_argument(
+        "--hlca_deconv_dir", type=str, default=None,
+        help="[DEPRECATED] Path to HLCA deconvolution results"
     )
     parser.add_argument(
-        "--luca_deconv_dir", type=str, required=True,
-        help="Path to LuCA deconvolution results (for spatial embedding composition)"
+        "--luca_deconv_dir", type=str, default=None,
+        help="[DEPRECATED] Path to LuCA deconvolution results"
     )
 
     # Stage definitions
@@ -1310,8 +1375,9 @@ def main():
         n_folds=args.n_folds,
         reference_geometry_dir=Path(args.reference_geometry),
         clonal_patterns_path=Path(args.clonal_patterns) if args.clonal_patterns else None,
-        hlca_deconv_dir=Path(args.hlca_deconv_dir),
-        luca_deconv_dir=Path(args.luca_deconv_dir),
+        spatial_embeddings_path=Path(args.spatial_embeddings) if args.spatial_embeddings else None,
+        hlca_deconv_dir=Path(args.hlca_deconv_dir) if args.hlca_deconv_dir else None,
+        luca_deconv_dir=Path(args.luca_deconv_dir) if args.luca_deconv_dir else None,
     )
 
 
