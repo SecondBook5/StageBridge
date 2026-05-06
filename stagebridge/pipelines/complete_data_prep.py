@@ -750,27 +750,79 @@ def generate_cells_table(
     spatial_df['x'] = spatial.obsm['spatial'][:, 0]
     spatial_df['y'] = spatial.obsm['spatial'][:, 1]
 
-    # Compute embeddings for spatial spots (vectorized via get_embeddings per spot)
-    # This is the slow part - needs gamma composition
-    print("    Computing spatial embeddings with gamma...")
+    # Compute embeddings for spatial spots (PARALLEL via ThreadPool)
+    # This is the slow part - needs gamma composition per spot
+    # Use ThreadPool (not Pool) because worker function uses closure variables
+    print("    Computing spatial embeddings with gamma (parallel)...")
     n_spatial = len(spatial_df)
+
+    # Determine number of workers (use environment or default to available CPUs)
+    import os
+    from multiprocessing.pool import ThreadPool
+    n_workers = int(os.environ.get('SLURM_CPUS_PER_TASK', cpu_count()))
+    n_workers = min(n_workers, 32)  # Cap at 32
+    print(f"    Using {n_workers} threads for parallel processing")
+
+    # Prepare data
+    cell_ids = spatial_df['cell_id'].tolist()
+
+    # Worker function (can access closure variables because ThreadPool shares memory)
+    def compute_spot_embedding(idx):
+        cell_id = cell_ids[idx]
+        spot_id = cell_id[8:] if cell_id.startswith("spatial_") else cell_id
+
+        z_fused = np.zeros(fused_dim, dtype=np.float32)
+        z_hlca = np.zeros(hlca_dim, dtype=np.float32)
+        z_luca = np.zeros(luca_dim, dtype=np.float32)
+
+        # Compose HLCA embedding from HLCA deconvolution + gamma
+        if spot_id in spatial_deconv_hlca and hlca_mean_emb:
+            props = spatial_deconv_hlca[spot_id]
+            spot_gamma_hlca = gamma_per_celltype_hlca.get(spot_id, {})
+            for cell_type, proportion in props.items():
+                if cell_type in hlca_mean_emb and proportion > 0:
+                    gamma = spot_gamma_hlca.get(cell_type, np.zeros(hlca_dim, dtype=np.float32))
+                    z_hlca += proportion * (hlca_mean_emb[cell_type] + gamma)
+
+        # Compose LuCA embedding from LuCA deconvolution + gamma
+        if spot_id in spatial_deconv_luca and luca_mean_emb:
+            props = spatial_deconv_luca[spot_id]
+            spot_gamma_luca = gamma_per_celltype_luca.get(spot_id, {})
+            for cell_type, proportion in props.items():
+                if cell_type in luca_mean_emb and proportion > 0:
+                    gamma = spot_gamma_luca.get(cell_type, np.zeros(luca_dim, dtype=np.float32))
+                    z_luca += proportion * (luca_mean_emb[cell_type] + gamma)
+
+        # Fused = concatenation
+        z_fused[:hlca_dim] = z_hlca
+        z_fused[hlca_dim:hlca_dim + luca_dim] = z_luca
+
+        return idx, z_fused, z_hlca, z_luca
 
     # Pre-allocate arrays
     z_fused_arr = np.zeros((n_spatial, fused_dim), dtype=np.float32)
     z_hlca_arr = np.zeros((n_spatial, hlca_dim), dtype=np.float32)
     z_luca_arr = np.zeros((n_spatial, luca_dim), dtype=np.float32)
 
-    # Process in batches with progress bar
-    batch_size = 10000
-    for start_idx in tqdm(range(0, n_spatial, batch_size), desc="    Spatial embeddings"):
-        end_idx = min(start_idx + batch_size, n_spatial)
-        for i in range(start_idx, end_idx):
-            spot_id = spatial_df.iloc[i]['spot_id']
-            cell_id = spatial_df.iloc[i]['cell_id']
-            z_fused, z_hlca, z_luca = get_embeddings(cell_id)
-            z_fused_arr[i] = z_fused
-            z_hlca_arr[i] = z_hlca
-            z_luca_arr[i] = z_luca
+    # Process in parallel using ThreadPool
+    if n_workers > 1:
+        with ThreadPool(n_workers) as pool:
+            results = list(tqdm(
+                pool.imap(compute_spot_embedding, range(n_spatial), chunksize=1000),
+                total=n_spatial,
+                desc="    Spatial embeddings"
+            ))
+        for idx, z_fused, z_hlca, z_luca in results:
+            z_fused_arr[idx] = z_fused
+            z_hlca_arr[idx] = z_hlca
+            z_luca_arr[idx] = z_luca
+    else:
+        # Single-threaded fallback
+        for idx in tqdm(range(n_spatial), desc="    Spatial embeddings"):
+            _, z_fused, z_hlca, z_luca = compute_spot_embedding(idx)
+            z_fused_arr[idx] = z_fused
+            z_hlca_arr[idx] = z_hlca
+            z_luca_arr[idx] = z_luca
 
     # Add embedding columns
     for i in range(fused_dim):
