@@ -604,7 +604,8 @@ def generate_cells_table(
     if 'phase' not in snrna_df.columns:
         snrna_df['phase'] = 'unknown'
     else:
-        snrna_df['phase'] = snrna_df['phase'].fillna('unknown').astype(str)
+        # Convert categorical to string first, then fillna
+        snrna_df['phase'] = snrna_df['phase'].astype(str).replace('nan', 'unknown').fillna('unknown')
 
     # Add embeddings from reference geometry (vectorized lookup)
     print("    Adding embeddings...")
