@@ -13,7 +13,7 @@ paths:
   data_root: "/data1/chaunzt1/stagebridge"
   # Canonical dataset (preprocessed with progression scores)
   data_dir: "/data1/chaunzt1/stagebridge/processed/luad_evo/canonical"
-  output_dir: "/data1/chaunzt1/stagebridge/outputs/v1"
+  output_dir: "/data1/chaunzt1/stagebridge/outputs/v1.1"
   results_dir: "/data1/chaunzt1/stagebridge/results"
   figures_dir: "/data1/chaunzt1/stagebridge/figures"
   hlca_dir: "/data1/chaunzt1/stagebridge/processed/HLCA"
