@@ -618,6 +618,7 @@ def create_dataloaders(
     latent_dim: int = LATENT_DIM,
     max_cells_per_ring: int = MAX_CELLS_PER_RING,
     shuffle_rings: bool = False,
+    use_ddp: bool = False,
 ) -> tuple["torch.utils.data.DataLoader", "torch.utils.data.DataLoader", "torch.utils.data.DataLoader"]:
     """Create train/val/test DataLoaders for a fold.
 
@@ -630,6 +631,7 @@ def create_dataloaders(
         latent_dim: Embedding dimension
         max_cells_per_ring: Max cells per ring for padding
         shuffle_rings: If True, randomly shuffle cells across rings (random_niche ablation)
+        use_ddp: If True, use DistributedSampler for multi-GPU training
 
     Returns:
         (train_loader, val_loader, test_loader)
@@ -666,21 +668,34 @@ def create_dataloaders(
         shuffle_rings=shuffle_rings,
     )
 
+    # DDP samplers for distributed training
+    train_sampler = None
+    val_sampler = None
+    if use_ddp and len(train_dataset) > 0:
+        from torch.utils.data.distributed import DistributedSampler
+        train_sampler = DistributedSampler(train_dataset, shuffle=True)
+        if len(val_dataset) > 0:
+            val_sampler = DistributedSampler(val_dataset, shuffle=False)
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=min(batch_size, max(1, len(train_dataset))),
-        shuffle=len(train_dataset) > 0,
+        shuffle=(train_sampler is None and len(train_dataset) > 0),
+        sampler=train_sampler,
         collate_fn=collate_niche_batch,
         num_workers=num_workers,
         drop_last=len(train_dataset) >= batch_size,
+        pin_memory=True,
     ) if len(train_dataset) > 0 else None
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=min(batch_size, max(1, len(val_dataset))),
         shuffle=False,
+        sampler=val_sampler,
         collate_fn=collate_niche_batch,
         num_workers=num_workers,
+        pin_memory=True,
     ) if len(val_dataset) > 0 else None
 
     test_loader = DataLoader(
@@ -689,6 +704,7 @@ def create_dataloaders(
         shuffle=False,
         collate_fn=collate_niche_batch,
         num_workers=num_workers,
+        pin_memory=True,
     ) if len(test_dataset) > 0 else None
 
     return train_loader, val_loader, test_loader

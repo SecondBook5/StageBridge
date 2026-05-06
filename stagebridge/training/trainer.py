@@ -6,6 +6,7 @@ Conditional Flow Matching for stage transitions.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -134,19 +135,37 @@ class StageBridgeTrainer:
         model: StageBridge,
         config: TrainerConfig,
         device: torch.device | str = "cuda",
+        use_ddp: bool = False,
     ):
-        self.model = model
         self.config = config
-        self.device = torch.device(device) if isinstance(device, str) else device
+        self.use_ddp = use_ddp
 
-        self.model.to(self.device)
+        # Handle device for DDP (local_rank) vs single GPU
+        if use_ddp:
+            local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            self.device = torch.device(f"cuda:{local_rank}")
+            torch.cuda.set_device(self.device)
+        else:
+            self.device = torch.device(device) if isinstance(device, str) else device
+
+        model.to(self.device)
+
+        # Wrap in DDP if distributed
+        if use_ddp:
+            from torch.nn.parallel import DistributedDataParallel as DDP
+            self.model = DDP(model, device_ids=[self.device.index])
+            self._raw_model = model  # Keep reference for checkpointing
+        else:
+            self.model = model
+            self._raw_model = model
 
         # If run_name is empty or ".", use output_dir directly
         if config.run_name and config.run_name != ".":
             run_dir = config.output_dir / config.run_name
         else:
             run_dir = config.output_dir
-        run_dir.mkdir(parents=True, exist_ok=True)
+        if is_main_process():
+            run_dir.mkdir(parents=True, exist_ok=True)
         self.run_dir = run_dir
 
         self.checkpoint_manager = CheckpointManager(
@@ -156,7 +175,7 @@ class StageBridgeTrainer:
         self.metrics_logger = MetricsLogger(run_dir / "logs")
 
         self.optimizer = torch.optim.AdamW(
-            model.parameters(),
+            self.model.parameters(),
             lr=config.learning_rate,
             weight_decay=config.weight_decay,
         )
@@ -200,9 +219,9 @@ class StageBridgeTrainer:
         print(f"\nModel:")
         print(f"  Total parameters: {n_params:,}")
         print(f"  Trainable parameters: {n_trainable:,}")
-        print(f"  Hidden dim: {self.model.config.hidden_dim}")
-        print(f"  Num heads: {self.model.config.num_heads}")
-        print(f"  GW fusion: {self.model.config.use_gw_fusion}")
+        print(f"  Hidden dim: {self._raw_model.config.hidden_dim}")
+        print(f"  Num heads: {self._raw_model.config.num_heads}")
+        print(f"  GW fusion: {self._raw_model.config.use_gw_fusion}")
 
         # Training config
         print(f"\nTraining:")
@@ -233,6 +252,9 @@ class StageBridgeTrainer:
         Returns:
             Final metrics summary with both SSL and transition metrics
         """
+        # Store sampler for DDP epoch updates
+        self._train_sampler = getattr(train_loader, 'sampler', None)
+
         if resume_from:
             self._load_checkpoint(resume_from)
 
@@ -359,6 +381,10 @@ class StageBridgeTrainer:
         for epoch in range(start_epoch, self.config.ssl_epochs):
             self.current_epoch = epoch
 
+            # DDP: set epoch for sampler to ensure proper shuffling
+            if self._train_sampler is not None and hasattr(self._train_sampler, 'set_epoch'):
+                self._train_sampler.set_epoch(epoch)
+
             train_metrics = self._train_epoch_ssl(train_loader, epoch)
 
             val_metrics = {}
@@ -441,6 +467,10 @@ class StageBridgeTrainer:
         for epoch in range(start_epoch, self.config.transition_epochs):
             global_epoch = self.config.ssl_epochs + epoch
             self.current_epoch = global_epoch
+
+            # DDP: set epoch for sampler to ensure proper shuffling
+            if self._train_sampler is not None and hasattr(self._train_sampler, 'set_epoch'):
+                self._train_sampler.set_epoch(global_epoch)
 
             train_metrics = self._train_epoch_transition(train_loader, epoch)
 
@@ -529,7 +559,7 @@ class StageBridgeTrainer:
 
         ssl_path = self.run_dir / "checkpoints" / "ssl_pretrained.pt"
         torch.save({
-            "model_state_dict": self.model.state_dict(),
+            "model_state_dict": self._raw_model.state_dict(),
             "epoch": self.config.ssl_epochs,
             "phase": "ssl_complete",
         }, ssl_path)
@@ -1028,7 +1058,7 @@ class StageBridgeTrainer:
         """Load checkpoint and resume training."""
         checkpoint = CheckpointManager.load(path, self.device)
 
-        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self._raw_model.load_state_dict(checkpoint["model_state_dict"])
 
         # ssl_pretrained.pt only has model weights, no optimizer state
         if "optimizer_state_dict" in checkpoint:
@@ -1046,22 +1076,22 @@ class StageBridgeTrainer:
         """Get config as serializable dict."""
         return {
             "model_config": {
-                "input_dim": self.model.config.input_dim,
-                "hidden_dim": self.model.config.hidden_dim,
-                "num_heads": self.model.config.num_heads,
-                "num_encoder_layers": self.model.config.num_encoder_layers,
-                "max_neighbors": self.model.config.max_neighbors,
-                "num_stages": self.model.config.num_stages,
+                "input_dim": self._raw_model.config.input_dim,
+                "hidden_dim": self._raw_model.config.hidden_dim,
+                "num_heads": self._raw_model.config.num_heads,
+                "num_encoder_layers": self._raw_model.config.num_encoder_layers,
+                "max_neighbors": self._raw_model.config.max_neighbors,
+                "num_stages": self._raw_model.config.num_stages,
                 # GW fusion config (critical for checkpoint loading)
-                "use_gw_fusion": self.model.config.use_gw_fusion,
-                "gw_output_dim": self.model.config.gw_output_dim,
-                "gw_sinkhorn_iters": self.model.config.gw_sinkhorn_iters,
-                "gw_sinkhorn_reg": self.model.config.gw_sinkhorn_reg,
-                "gw_mode": self.model.config.gw_mode,
+                "use_gw_fusion": self._raw_model.config.use_gw_fusion,
+                "gw_output_dim": self._raw_model.config.gw_output_dim,
+                "gw_sinkhorn_iters": self._raw_model.config.gw_sinkhorn_iters,
+                "gw_sinkhorn_reg": self._raw_model.config.gw_sinkhorn_reg,
+                "gw_mode": self._raw_model.config.gw_mode,
                 # Other model config
-                "use_learned_ring_pooling": self.model.config.use_learned_ring_pooling,
-                "use_context_refiner": self.model.config.use_context_refiner,
-                "use_cross_attn_drift": self.model.config.use_cross_attn_drift,
+                "use_learned_ring_pooling": self._raw_model.config.use_learned_ring_pooling,
+                "use_context_refiner": self._raw_model.config.use_context_refiner,
+                "use_cross_attn_drift": self._raw_model.config.use_cross_attn_drift,
             },
             "trainer_config": {
                 "num_epochs": self.config.num_epochs,
@@ -1137,6 +1167,9 @@ def train_stagebridge(
     fold_idx: int = 0,
     device: str = "cuda",
     resume_from: Path | str | None = None,
+    use_ddp: bool = False,
+    batch_size: int = 64,
+    num_workers: int = 4,
 ) -> dict[str, Any]:
     """Convenience function to train StageBridge.
 
@@ -1148,6 +1181,9 @@ def train_stagebridge(
         fold_idx: Cross-validation fold index
         device: Device to train on
         resume_from: Optional checkpoint path to resume from
+        use_ddp: Enable DistributedDataParallel for multi-GPU training
+        batch_size: Per-GPU batch size
+        num_workers: DataLoader workers per GPU
 
     Returns:
         Training summary
@@ -1166,8 +1202,9 @@ def train_stagebridge(
     train_loader, val_loader, _ = create_dataloaders(
         data_dir=data_dir,
         fold_idx=fold_idx,
-        batch_size=64,
-        num_workers=4,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        use_ddp=use_ddp,
     )
 
     # Detect evolution_dim from data (may differ from contracts.EVOLUTION_DIM)
@@ -1175,7 +1212,8 @@ def train_stagebridge(
     if sample_batch.evolution_features is not None and model_config.use_evolution_branch:
         detected_dim = sample_batch.evolution_features.shape[-1]
         if detected_dim != model_config.evolution_dim:
-            print(f"Detected evolution_dim={detected_dim} from data (config had {model_config.evolution_dim})")
+            if is_main_process():
+                print(f"Detected evolution_dim={detected_dim} from data (config had {model_config.evolution_dim})")
             model_config = StageBridgeConfig(
                 **{k: v for k, v in model_config.__dict__.items() if k != 'evolution_dim'},
                 evolution_dim=detected_dim,
@@ -1187,6 +1225,7 @@ def train_stagebridge(
         model=model,
         config=trainer_config,
         device=device,
+        use_ddp=use_ddp,
     )
 
     return trainer.train(train_loader, val_loader, resume_from=resume_from)
@@ -1219,10 +1258,23 @@ if __name__ == "__main__":
     # Resume from checkpoint
     parser.add_argument("--resume", type=Path, default=None,
                         help="Path to checkpoint to resume from (or 'auto' to find best)")
+    # DDP for multi-GPU training
+    parser.add_argument("--ddp", action="store_true",
+                        help="Enable DistributedDataParallel (use with torchrun)")
+    parser.add_argument("--num-workers", type=int, default=4,
+                        help="DataLoader workers per GPU")
     args = parser.parse_args()
 
+    # Initialize DDP if requested
+    if args.ddp:
+        import torch.distributed as dist
+        dist.init_process_group(backend="nccl")
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        torch.cuda.set_device(local_rank)
+
     torch.manual_seed(args.seed)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    if is_main_process():
+        args.output_dir.mkdir(parents=True, exist_ok=True)
 
     # Load HPO params if provided (overrides CLI defaults)
     hpo = {}
@@ -1311,7 +1363,16 @@ if __name__ == "__main__":
         trainer_config=trainer_config,
         fold_idx=args.fold_idx,
         resume_from=resume_from,
+        use_ddp=args.ddp,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
     )
 
-    with open(args.output_dir / "training_summary.json", "w") as f:
-        json.dump(result, f, indent=2)
+    if is_main_process():
+        with open(args.output_dir / "training_summary.json", "w") as f:
+            json.dump(result, f, indent=2)
+
+    # Cleanup DDP
+    if args.ddp:
+        import torch.distributed as dist
+        dist.destroy_process_group()
