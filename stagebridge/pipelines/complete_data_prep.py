@@ -22,6 +22,8 @@ import json
 import yaml
 from tqdm import tqdm
 import torch
+from multiprocessing import Pool, cpu_count
+from functools import partial
 from stagebridge.utils.data_cache import get_data_cache
 from stagebridge.biology.pathway_targets import (
     compute_proliferation_targets,
@@ -150,6 +152,20 @@ def generate_canonical_artifacts(
 
     # Generate neighborhoods.parquet
     print("\n[3/6] Generating neighborhoods.parquet...")
+    # Load LuCA deconvolution for neighborhoods (CAF/immune fraction computation)
+    spatial_deconv_luca = {}
+    if luca_deconv_dir is not None and luca_deconv_dir.exists():
+        samples_dir = luca_deconv_dir / "samples"
+        if samples_dir.exists():
+            for sample_dir in samples_dir.iterdir():
+                if sample_dir.is_dir():
+                    prop_path = sample_dir / "cell_type_proportions.parquet"
+                    if prop_path.exists():
+                        prop_df = cache.read_parquet(prop_path)
+                        prop_sum = prop_df.sum(axis=1)
+                        prop_norm = prop_df.div(prop_sum, axis=0).fillna(0)
+                        for spot_id in prop_norm.index:
+                            spatial_deconv_luca[spot_id] = prop_norm.loc[spot_id].to_dict()
     neighborhoods_df = generate_neighborhoods_table(
         cells_df=cells_df,
         spatial=spatial,
@@ -544,87 +560,150 @@ def generate_cells_table(
     print(f"    Pathway RAW: {pathway_raw.shape if pathway_raw is not None else 'None'}")
     print(f"    Proliferation targets: {prolif_targets.shape if prolif_targets is not None else 'None'}")
 
-    # Process snRNA cells
-    for idx, cell_id in enumerate(tqdm(snrna.obs_names, desc="Processing snRNA")):
-        obs = snrna.obs.iloc[idx]
+    # VECTORIZED snRNA processing (much faster than per-cell loop)
+    print("  Building snRNA records (vectorized)...")
 
-        donor_id = obs.get("donor_id", obs.get("patient_id", "unknown"))
+    # Build base DataFrame from snrna.obs
+    snrna_df = snrna.obs.copy()
+    snrna_df['cell_id'] = snrna.obs_names
+    snrna_df['data_type'] = 'snrna'
+    snrna_df['x'] = np.nan
+    snrna_df['y'] = np.nan
 
-        # Extract stage from cell_id (more reliable than donor mapping)
-        stage = extract_stage_from_cell_id(cell_id)
-        if stage == "unknown":
-            # Fallback to donor mapping
-            stage = donor_to_stage.get(donor_id, "unknown")
-        stage_idx = stage_to_idx.get(stage, -1)
+    # Extract donor_id
+    if 'donor_id' not in snrna_df.columns:
+        snrna_df['donor_id'] = snrna_df.get('patient_id', 'unknown')
 
-        # Get REAL embeddings from reference geometry
-        z_fused, z_hlca, z_luca = get_embeddings(cell_id)
+    # Vectorized stage extraction from cell_id
+    def extract_stage_vectorized(cell_ids):
+        stages = []
+        for cid in cell_ids:
+            stages.append(extract_stage_from_cell_id(cid))
+        return stages
 
-        # Get WES features if available - lookup by (patient_id, stage) for proper evolutionary tracking
-        wes_row = None
-        if wes_df is not None:
-            # WES data is per-(patient, stage) lesion, not just per-patient
-            mask = (wes_df[wes_id_col] == donor_id) & (wes_df["stage"] == stage)
-            matching_rows = wes_df[mask]
-            if len(matching_rows) > 0:
-                wes_row = matching_rows.iloc[0]
-            else:
-                # Fallback: try patient-level (any stage) if lesion-specific not found
-                mask_patient = wes_df[wes_id_col] == donor_id
-                if mask_patient.any():
-                    wes_row = wes_df[mask_patient].iloc[0]
+    snrna_df['stage'] = extract_stage_vectorized(snrna_df['cell_id'].values)
+    # Fill unknowns from donor mapping
+    unknown_mask = snrna_df['stage'] == 'unknown'
+    snrna_df.loc[unknown_mask, 'stage'] = snrna_df.loc[unknown_mask, 'donor_id'].map(donor_to_stage).fillna('unknown')
+    snrna_df['stage_idx'] = snrna_df['stage'].map(stage_to_idx).fillna(-1).astype(int)
 
-        record = {
-            # Core identifiers (contracts.CELLS_REQUIRED_COLS)
-            "cell_id": cell_id,
-            "donor_id": donor_id,
-            "stage": stage,
-            "stage_idx": stage_idx,
-            "data_type": "snrna",  # contracts.DATA_TYPES
-            # Cell type annotations
-            "cell_type": obs.get("cell_type", "unknown"),
-            "cell_type_hlca": obs.get("cell_type_hlca", None),
-            "cell_type_luca": obs.get("cell_type_luca", None),
-            # Stats token columns (contracts.STATS_TOKEN_COLUMNS)
-            "S_score": float(obs.get("S_score", 0.0)) if pd.notna(obs.get("S_score")) else 0.0,
-            "G2M_score": float(obs.get("G2M_score", 0.0)) if pd.notna(obs.get("G2M_score")) else 0.0,
-            "phase": str(obs.get("phase", "unknown")) if pd.notna(obs.get("phase")) else "unknown",
-            # Embeddings (stored as lists for neighborhoods, individual columns added below)
-            "z_fused": z_fused.tolist(),
-            "z_hlca": z_hlca.tolist(),
-            "z_luca": z_luca.tolist(),
-            # Spatial coordinates (contracts uses x/y, not x/y)
-            "x": np.nan,  # snRNA doesn't have spatial coords
-            "y": np.nan,
-        }
+    # Cell type columns
+    if 'cell_type' not in snrna_df.columns:
+        snrna_df['cell_type'] = 'unknown'
+    if 'cell_type_hlca' not in snrna_df.columns:
+        snrna_df['cell_type_hlca'] = None
+    if 'cell_type_luca' not in snrna_df.columns:
+        snrna_df['cell_type_luca'] = None
 
-        # Add WES features (8 columns for evolutionary regularization)
-        for wes_col in WES_FEATURE_COLS:
-            record[wes_col] = float(wes_row[wes_col]) if wes_row is not None and wes_col in wes_row.index else 0.0
-
-        # Add latent dimension columns (preserve actual dimensions: HLCA=30, LuCA=10, Fused=40)
-        for dim in range(fused_dim):
-            record[f"z_fused_{dim}"] = z_fused[dim]
-        for dim in range(hlca_dim):
-            record[f"z_hlca_{dim}"] = z_hlca[dim]
-        for dim in range(luca_dim):
-            record[f"z_luca_{dim}"] = z_luca[dim]
-
-        # Add RAW pathway means (will be z-scored at training time using train-only stats)
-        # Column names: pathway_raw_0, pathway_raw_1, ... (not pathway_0 to signal raw values)
-        if pathway_raw is not None:
-            for p_idx in range(n_pathways):
-                record[f"pathway_raw_{p_idx}"] = float(pathway_raw[idx, p_idx].item())
+    # Cell cycle columns
+    for col in ['S_score', 'G2M_score']:
+        if col not in snrna_df.columns:
+            snrna_df[col] = 0.0
         else:
-            for p_idx in range(n_pathways):
-                record[f"pathway_raw_{p_idx}"] = 0.0
+            snrna_df[col] = snrna_df[col].fillna(0.0)
+    if 'phase' not in snrna_df.columns:
+        snrna_df['phase'] = 'unknown'
+    else:
+        snrna_df['phase'] = snrna_df['phase'].fillna('unknown').astype(str)
 
-        # Proliferation is binary (threshold-based), OK to store directly
-        record["proliferation_label"] = (
-            float(prolif_targets[idx, 0].item()) if prolif_targets is not None else 0.0
-        )
+    # Add embeddings from reference geometry (vectorized lookup)
+    print("    Adding embeddings...")
+    if fused_emb_df is not None:
+        # Get columns for each embedding type
+        fused_cols = [c for c in fused_emb_df.columns if c.startswith('fused_') or c.startswith('z_fused_')]
+        if not fused_cols:
+            fused_cols = [c for c in fused_emb_df.columns if fused_emb_df[c].dtype in ['float32', 'float64']][:fused_dim]
 
-        records.append(record)
+        # Join embeddings
+        emb_subset = fused_emb_df[fused_cols].copy()
+        emb_subset.columns = [f'z_fused_{i}' for i in range(len(fused_cols))]
+        snrna_df = snrna_df.join(emb_subset, on='cell_id', how='left')
+
+    if hlca_emb_df is not None:
+        hlca_cols = [c for c in hlca_emb_df.columns if c.startswith('hlca_') or c.startswith('z_hlca_')]
+        if not hlca_cols:
+            hlca_cols = [c for c in hlca_emb_df.columns if hlca_emb_df[c].dtype in ['float32', 'float64']][:hlca_dim]
+        emb_subset = hlca_emb_df[hlca_cols].copy()
+        emb_subset.columns = [f'z_hlca_{i}' for i in range(len(hlca_cols))]
+        snrna_df = snrna_df.join(emb_subset, on='cell_id', how='left')
+
+    if luca_emb_df is not None:
+        luca_cols = [c for c in luca_emb_df.columns if c.startswith('luca_') or c.startswith('z_luca_')]
+        if not luca_cols:
+            luca_cols = [c for c in luca_emb_df.columns if luca_emb_df[c].dtype in ['float32', 'float64']][:luca_dim]
+        emb_subset = luca_emb_df[luca_cols].copy()
+        emb_subset.columns = [f'z_luca_{i}' for i in range(len(luca_cols))]
+        snrna_df = snrna_df.join(emb_subset, on='cell_id', how='left')
+
+    # Fill missing embeddings with zeros
+    for i in range(fused_dim):
+        col = f'z_fused_{i}'
+        if col not in snrna_df.columns:
+            snrna_df[col] = 0.0
+        else:
+            snrna_df[col] = snrna_df[col].fillna(0.0)
+    for i in range(hlca_dim):
+        col = f'z_hlca_{i}'
+        if col not in snrna_df.columns:
+            snrna_df[col] = 0.0
+        else:
+            snrna_df[col] = snrna_df[col].fillna(0.0)
+    for i in range(luca_dim):
+        col = f'z_luca_{i}'
+        if col not in snrna_df.columns:
+            snrna_df[col] = 0.0
+        else:
+            snrna_df[col] = snrna_df[col].fillna(0.0)
+
+    # Add pathway scores
+    print("    Adding pathway scores...")
+    if pathway_raw is not None:
+        pathway_np = pathway_raw.numpy()
+        for p_idx in range(n_pathways):
+            snrna_df[f'pathway_raw_{p_idx}'] = pathway_np[:, p_idx]
+    else:
+        for p_idx in range(n_pathways):
+            snrna_df[f'pathway_raw_{p_idx}'] = 0.0
+
+    # Add proliferation
+    if prolif_targets is not None:
+        snrna_df['proliferation_label'] = prolif_targets.numpy()[:, 0]
+    else:
+        snrna_df['proliferation_label'] = 0.0
+
+    # Add WES features (vectorized via merge)
+    print("    Adding WES features...")
+    for wes_col in WES_FEATURE_COLS:
+        snrna_df[wes_col] = 0.0
+
+    if wes_df is not None:
+        # Create donor-stage key for merging
+        snrna_df['_merge_key'] = snrna_df['donor_id'] + '_' + snrna_df['stage']
+        wes_df_copy = wes_df.copy()
+        wes_df_copy['_merge_key'] = wes_df_copy[wes_id_col] + '_' + wes_df_copy['stage']
+        wes_df_copy = wes_df_copy.drop_duplicates('_merge_key')
+
+        # Merge WES features
+        wes_cols_to_merge = [c for c in WES_FEATURE_COLS if c in wes_df_copy.columns]
+        if wes_cols_to_merge:
+            wes_subset = wes_df_copy[['_merge_key'] + wes_cols_to_merge].set_index('_merge_key')
+            for col in wes_cols_to_merge:
+                snrna_df[col] = snrna_df['_merge_key'].map(wes_subset[col]).fillna(0.0)
+        snrna_df = snrna_df.drop(columns=['_merge_key'])
+
+    # Create z_fused, z_hlca, z_luca list columns for neighborhoods compatibility
+    print("    Creating embedding list columns...")
+    z_fused_cols = [f'z_fused_{i}' for i in range(fused_dim)]
+    z_hlca_cols = [f'z_hlca_{i}' for i in range(hlca_dim)]
+    z_luca_cols = [f'z_luca_{i}' for i in range(luca_dim)]
+
+    snrna_df['z_fused'] = snrna_df[z_fused_cols].values.tolist()
+    snrna_df['z_hlca'] = snrna_df[z_hlca_cols].values.tolist()
+    snrna_df['z_luca'] = snrna_df[z_luca_cols].values.tolist()
+
+    # Convert to records
+    records = snrna_df.to_dict('records')
+    print(f"    Processed {len(records):,} snRNA cells")
 
     # Pre-compute RAW pathway means for spatial spots (z-scored at training time)
     print("  Computing spatial pathway/proliferation targets (RAW, no z-score)...")
@@ -638,107 +717,120 @@ def generate_cells_table(
     print(f"    Spatial pathway RAW: {spatial_pathway_raw.shape if spatial_pathway_raw is not None else 'None'}")
     print(f"    Spatial proliferation targets: {spatial_prolif_targets.shape if spatial_prolif_targets is not None else 'None'}")
 
-    # Process spatial spots
-    for idx, spot_id in enumerate(tqdm(spatial.obs_names, desc="Processing spatial")):
-        obs = spatial.obs.iloc[idx]
+    # VECTORIZED spatial processing
+    print("  Building spatial records (vectorized)...")
 
-        donor_id = obs.get("donor_id", obs.get("patient_id", "unknown"))
+    spatial_df = spatial.obs.copy()
+    spatial_df['cell_id'] = 'spatial_' + spatial.obs_names.astype(str)
+    spatial_df['spot_id'] = spatial.obs_names  # Keep original for lookups
+    spatial_df['data_type'] = 'spatial'
 
-        # Extract stage from spot_id or use donor mapping
-        cell_id_for_lookup = f"spatial_{spot_id}"
-        stage = extract_stage_from_cell_id(spot_id)
-        if stage == "unknown":
-            stage = donor_to_stage.get(donor_id, "unknown")
-        stage_idx = stage_to_idx.get(stage, -1)
+    # Extract donor_id
+    if 'donor_id' not in spatial_df.columns:
+        spatial_df['donor_id'] = spatial_df.get('patient_id', 'unknown')
 
-        # Spatial coordinates
-        spatial_coords = spatial.obsm["spatial"][idx]
+    # Vectorized stage extraction
+    spatial_df['stage'] = extract_stage_vectorized(spatial_df['spot_id'].values)
+    unknown_mask = spatial_df['stage'] == 'unknown'
+    spatial_df.loc[unknown_mask, 'stage'] = spatial_df.loc[unknown_mask, 'donor_id'].map(donor_to_stage).fillna('unknown')
+    spatial_df['stage_idx'] = spatial_df['stage'].map(stage_to_idx).fillna(-1).astype(int)
 
-        # Get REAL embeddings (spatial spots may not have embeddings, use zeros as fallback)
-        z_fused, z_hlca, z_luca = get_embeddings(cell_id_for_lookup)
+    # Cell type columns (spatial spots are mixtures)
+    if 'cell_type' not in spatial_df.columns:
+        spatial_df['cell_type'] = 'mixed'
+    spatial_df['cell_type_hlca'] = None
+    spatial_df['cell_type_luca'] = None
 
-        # Get WES features - lookup by (patient_id, stage) for proper evolutionary tracking
-        wes_row = None
-        if wes_df is not None:
-            mask = (wes_df[wes_id_col] == donor_id) & (wes_df["stage"] == stage)
-            matching_rows = wes_df[mask]
-            if len(matching_rows) > 0:
-                wes_row = matching_rows.iloc[0]
-            else:
-                mask_patient = wes_df[wes_id_col] == donor_id
-                if mask_patient.any():
-                    wes_row = wes_df[mask_patient].iloc[0]
+    # Spatial-specific: NaN for cell cycle (no single-cell resolution)
+    spatial_df['S_score'] = np.nan
+    spatial_df['G2M_score'] = np.nan
+    spatial_df['phase'] = 'spatial'
 
-        record = {
-            # Core identifiers (contracts.CELLS_REQUIRED_COLS)
-            "cell_id": cell_id_for_lookup,
-            "donor_id": donor_id,
-            "stage": stage,
-            "stage_idx": stage_idx,
-            "data_type": "spatial",  # contracts.DATA_TYPES
-            # Cell type annotations (from deconvolution)
-            "cell_type": obs.get("cell_type", "mixed"),  # Spatial spots are mixtures
-            "cell_type_hlca": None,  # Will be set from deconvolution below
-            "cell_type_luca": None,
-            # Stats token columns (contracts.STATS_TOKEN_COLUMNS)
-            # Cell cycle is NaN for spatial - no single-cell resolution
-            "S_score": np.nan,
-            "G2M_score": np.nan,
-            "phase": "spatial",  # Mark as spatial spot
-            # Embeddings
-            "z_fused": z_fused.tolist(),
-            "z_hlca": z_hlca.tolist(),
-            "z_luca": z_luca.tolist(),
-            # Spatial coordinates (contracts uses x/y)
-            "x": spatial_coords[0],
-            "y": spatial_coords[1],
-        }
+    # Spatial coordinates
+    spatial_df['x'] = spatial.obsm['spatial'][:, 0]
+    spatial_df['y'] = spatial.obsm['spatial'][:, 1]
 
-        # Add WES features (8 columns for evolutionary regularization)
-        for wes_col in WES_FEATURE_COLS:
-            record[wes_col] = float(wes_row[wes_col]) if wes_row is not None and wes_col in wes_row.index else 0.0
+    # Compute embeddings for spatial spots (vectorized via get_embeddings per spot)
+    # This is the slow part - needs gamma composition
+    print("    Computing spatial embeddings with gamma...")
+    n_spatial = len(spatial_df)
 
-        # Add latent dimension columns (preserve actual dimensions: HLCA=30, LuCA=10, Fused=40)
-        for dim in range(fused_dim):
-            record[f"z_fused_{dim}"] = z_fused[dim]
-        for dim in range(hlca_dim):
-            record[f"z_hlca_{dim}"] = z_hlca[dim]
-        for dim in range(luca_dim):
-            record[f"z_luca_{dim}"] = z_luca[dim]
+    # Pre-allocate arrays
+    z_fused_arr = np.zeros((n_spatial, fused_dim), dtype=np.float32)
+    z_hlca_arr = np.zeros((n_spatial, hlca_dim), dtype=np.float32)
+    z_luca_arr = np.zeros((n_spatial, luca_dim), dtype=np.float32)
 
-        # Add RAW pathway means (will be z-scored at training time using train-only stats)
-        if spatial_pathway_raw is not None:
-            for p_idx in range(n_pathways):
-                record[f"pathway_raw_{p_idx}"] = float(spatial_pathway_raw[idx, p_idx].item())
-        else:
-            for p_idx in range(n_pathways):
-                record[f"pathway_raw_{p_idx}"] = 0.0
+    # Process in batches with progress bar
+    batch_size = 10000
+    for start_idx in tqdm(range(0, n_spatial, batch_size), desc="    Spatial embeddings"):
+        end_idx = min(start_idx + batch_size, n_spatial)
+        for i in range(start_idx, end_idx):
+            spot_id = spatial_df.iloc[i]['spot_id']
+            cell_id = spatial_df.iloc[i]['cell_id']
+            z_fused, z_hlca, z_luca = get_embeddings(cell_id)
+            z_fused_arr[i] = z_fused
+            z_hlca_arr[i] = z_hlca
+            z_luca_arr[i] = z_luca
 
-        # Proliferation is binary (threshold-based), OK to store directly
-        record["proliferation_label"] = (
-            float(spatial_prolif_targets[idx, 0].item()) if spatial_prolif_targets is not None else 0.0
-        )
+    # Add embedding columns
+    for i in range(fused_dim):
+        spatial_df[f'z_fused_{i}'] = z_fused_arr[:, i]
+    for i in range(hlca_dim):
+        spatial_df[f'z_hlca_{i}'] = z_hlca_arr[:, i]
+    for i in range(luca_dim):
+        spatial_df[f'z_luca_{i}'] = z_luca_arr[:, i]
 
-        # Add DestVI gamma values (intra-cell-type variation) for spatial spots
-        if gamma_df is not None and spot_id in gamma_df.index:
-            gamma_row = gamma_df.loc[spot_id]
-            for g_idx, g_col in enumerate(gamma_df.columns):
-                record[g_col] = float(gamma_row[g_col])
-        elif gamma_df is not None:
-            # Gamma available but spot not found - fill with zeros
-            for g_col in gamma_df.columns:
-                record[g_col] = 0.0
+    # Add pathway scores
+    print("    Adding pathway scores...")
+    if spatial_pathway_raw is not None:
+        pathway_np = spatial_pathway_raw.numpy()
+        for p_idx in range(n_pathways):
+            spatial_df[f'pathway_raw_{p_idx}'] = pathway_np[:, p_idx]
+    else:
+        for p_idx in range(n_pathways):
+            spatial_df[f'pathway_raw_{p_idx}'] = 0.0
 
-        records.append(record)
+    # Add proliferation
+    if spatial_prolif_targets is not None:
+        spatial_df['proliferation_label'] = spatial_prolif_targets.numpy()[:, 0]
+    else:
+        spatial_df['proliferation_label'] = 0.0
 
-    # Add gamma columns to snRNA records (zeros - gamma is spatial only)
-    if gamma_df is not None:
-        n_gamma = len(gamma_df.columns)
-        print(f"  Adding {n_gamma} gamma columns to snRNA cells (zeros - spatial only)...")
-        snrna_records = [r for r in records if not r["cell_id"].startswith("spatial_")]
-        for r in snrna_records:
-            for g_col in gamma_df.columns:
-                r[g_col] = 0.0
+    # Add WES features (vectorized via merge)
+    print("    Adding WES features...")
+    for wes_col in WES_FEATURE_COLS:
+        spatial_df[wes_col] = 0.0
+
+    if wes_df is not None:
+        spatial_df['_merge_key'] = spatial_df['donor_id'] + '_' + spatial_df['stage']
+        wes_df_copy = wes_df.copy()
+        wes_df_copy['_merge_key'] = wes_df_copy[wes_id_col] + '_' + wes_df_copy['stage']
+        wes_df_copy = wes_df_copy.drop_duplicates('_merge_key')
+
+        wes_cols_to_merge = [c for c in WES_FEATURE_COLS if c in wes_df_copy.columns]
+        if wes_cols_to_merge:
+            wes_subset = wes_df_copy[['_merge_key'] + wes_cols_to_merge].set_index('_merge_key')
+            for col in wes_cols_to_merge:
+                spatial_df[col] = spatial_df['_merge_key'].map(wes_subset[col]).fillna(0.0)
+        spatial_df = spatial_df.drop(columns=['_merge_key'])
+
+    # Create embedding list columns
+    print("    Creating embedding list columns...")
+    z_fused_cols = [f'z_fused_{i}' for i in range(fused_dim)]
+    z_hlca_cols = [f'z_hlca_{i}' for i in range(hlca_dim)]
+    z_luca_cols = [f'z_luca_{i}' for i in range(luca_dim)]
+
+    spatial_df['z_fused'] = spatial_df[z_fused_cols].values.tolist()
+    spatial_df['z_hlca'] = spatial_df[z_hlca_cols].values.tolist()
+    spatial_df['z_luca'] = spatial_df[z_luca_cols].values.tolist()
+
+    # Drop spot_id column (not needed in final output)
+    spatial_df = spatial_df.drop(columns=['spot_id'])
+
+    # Combine snRNA and spatial records
+    print(f"    Processed {len(spatial_df):,} spatial spots")
+    spatial_records = spatial_df.to_dict('records')
+    records.extend(spatial_records)
 
     # Convert to DataFrame
     cells_df = pd.DataFrame(records)
