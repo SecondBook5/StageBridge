@@ -34,9 +34,9 @@ runs/
 demo_output/
 *.log
 
-# Figures - keep source (tex), ignore generated unless in figures/publication/
-# figures/poster/
-# figures/preview/
+# Figures - keep source (tex) and publication/, ignore large generated sets
+figures/poster/
+figures/preview/
 figures/from_v1/
 
 # LaTeX auxiliary files
