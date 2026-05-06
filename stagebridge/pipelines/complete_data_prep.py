@@ -24,16 +24,11 @@ from tqdm import tqdm
 import torch
 from stagebridge.utils.data_cache import get_data_cache
 from stagebridge.biology.pathway_targets import (
-    compute_pathway_targets,
     compute_proliferation_targets,
-    compute_il1b_targets,
-    compute_kac_targets,
     compute_pathway_raw,
-    compute_il1b_raw,
-    compute_kac_raw,
     PROGENY_PATHWAYS,
 )
-from stagebridge.data.luad_evo.wes import WES_FEATURE_COLS
+from stagebridge.contracts import WES_COLS as WES_FEATURE_COLS
 
 # 3-STAGE MAPPING (due to zero donor overlap for AIS→MIA transitions)
 # This consolidation is REQUIRED for valid donor-held-out evaluation
@@ -559,14 +554,9 @@ def generate_cells_table(
     pathway_raw = compute_pathway_raw(snrna_expr, gene_names)
     # Proliferation is binary (threshold-based), not z-scored - OK to compute here
     prolif_targets = compute_proliferation_targets(snrna_expr, gene_names, torch.device("cpu"))
-    # Store RAW IL1B/KAC means - will be z-scored at training time
-    il1b_raw = compute_il1b_raw(snrna_expr, gene_names)
-    kac_raw = compute_kac_raw(snrna_expr, gene_names)
     n_pathways = len(PROGENY_PATHWAYS)
     print(f"    Pathway RAW: {pathway_raw.shape if pathway_raw is not None else 'None'}")
     print(f"    Proliferation targets: {prolif_targets.shape if prolif_targets is not None else 'None'}")
-    print(f"    IL1B RAW: {il1b_raw.shape if il1b_raw is not None else 'None'}")
-    print(f"    KAC RAW: {kac_raw.shape if kac_raw is not None else 'None'}")
 
     # Process snRNA cells
     for idx, cell_id in enumerate(tqdm(snrna.obs_names, desc="Processing snRNA")):
@@ -641,14 +631,6 @@ def generate_cells_table(
             float(prolif_targets[idx, 0].item()) if prolif_targets is not None else 0.0
         )
 
-        # Store RAW IL1B/KAC means (will be z-scored at training time)
-        record["il1b_raw"] = (
-            float(il1b_raw[idx, 0].item()) if il1b_raw is not None else 0.0
-        )
-        record["kac_raw"] = (
-            float(kac_raw[idx, 0].item()) if kac_raw is not None else 0.0
-        )
-
         records.append(record)
 
     # Pre-compute RAW pathway means for spatial spots (z-scored at training time)
@@ -660,12 +642,8 @@ def generate_cells_table(
     )
     spatial_pathway_raw = compute_pathway_raw(spatial_expr, spatial_gene_names)
     spatial_prolif_targets = compute_proliferation_targets(spatial_expr, spatial_gene_names, torch.device("cpu"))
-    spatial_il1b_raw = compute_il1b_raw(spatial_expr, spatial_gene_names)
-    spatial_kac_raw = compute_kac_raw(spatial_expr, spatial_gene_names)
     print(f"    Spatial pathway RAW: {spatial_pathway_raw.shape if spatial_pathway_raw is not None else 'None'}")
     print(f"    Spatial proliferation targets: {spatial_prolif_targets.shape if spatial_prolif_targets is not None else 'None'}")
-    print(f"    Spatial IL1B RAW: {spatial_il1b_raw.shape if spatial_il1b_raw is not None else 'None'}")
-    print(f"    Spatial KAC RAW: {spatial_kac_raw.shape if spatial_kac_raw is not None else 'None'}")
 
     # Process spatial spots
     for idx, spot_id in enumerate(tqdm(spatial.obs_names, desc="Processing spatial")):
@@ -738,14 +716,6 @@ def generate_cells_table(
         # Proliferation is binary (threshold-based), OK to store directly
         record["proliferation_label"] = (
             float(spatial_prolif_targets[idx, 0].item()) if spatial_prolif_targets is not None else 0.0
-        )
-
-        # Store RAW IL1B/KAC means (will be z-scored at training time)
-        record["il1b_raw"] = (
-            float(spatial_il1b_raw[idx, 0].item()) if spatial_il1b_raw is not None else 0.0
-        )
-        record["kac_raw"] = (
-            float(spatial_kac_raw[idx, 0].item()) if spatial_kac_raw is not None else 0.0
         )
 
         # Add DestVI gamma values (intra-cell-type variation) for spatial spots
