@@ -31,6 +31,7 @@ from stagebridge.biology.pathway_targets import (
 from stagebridge.contracts import (
     # Stage definitions
     STAGES_3,
+    STAGES_5,
     STAGE_5_TO_3,
     STAGE_TO_IDX,
     # Latent dimensions
@@ -291,9 +292,9 @@ def generate_cells_table(
 
     # Stage order for indexing (3-stage consolidation)
     # Raw 5-stage names used for extraction, then mapped to 3-stage
-    stage_order_raw = ["Normal", "AAH", "AIS", "MIA", "LUAD"]
+    stage_order_raw = list(STAGES_5)  # From contracts.py
     stage_order = CANONICAL_STAGES_3  # ["Normal", "Preinvasive", "Invasive"]
-    stage_to_idx = {s: i for i, s in enumerate(stage_order)}
+    stage_to_idx = STAGE_TO_IDX  # From contracts.py
 
     # Map donors to stages (fallback, prefer cell_id extraction)
     # Apply 3-stage mapping to stage_definitions too
@@ -314,10 +315,10 @@ def generate_cells_table(
     hlca_emb_df = None
     luca_emb_df = None
 
-    # Default dimensions from reference atlases (scArches/scVI models)
-    hlca_dim = 30  # HLCA scANVI latent
-    luca_dim = 10  # LuCA scVI latent
-    fused_dim = hlca_dim + luca_dim  # Concatenated
+    # Dimensions from contracts.py (canonical source of truth)
+    hlca_dim = HLCA_DIM  # 30 (HLCA scANVI latent)
+    luca_dim = LUCA_DIM  # 10 (LuCA scVI latent)
+    fused_dim = LATENT_DIM  # 40 (concatenated)
 
     if reference_geometry_dir is not None and reference_geometry_dir.exists():
         print("  Loading reference geometry embeddings...")
@@ -563,7 +564,7 @@ def generate_cells_table(
     pathway_raw = compute_pathway_raw(snrna_expr, gene_names)
     # Proliferation is binary (threshold-based), not z-scored - OK to compute here
     prolif_targets = compute_proliferation_targets(snrna_expr, gene_names, torch.device("cpu"))
-    n_pathways = len(PROGENY_PATHWAYS)
+    n_pathways = N_PROGENY_PATHWAYS  # From contracts.py
     print(f"    Pathway RAW: {pathway_raw.shape if pathway_raw is not None else 'None'}")
     print(f"    Proliferation targets: {prolif_targets.shape if prolif_targets is not None else 'None'}")
 

@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import torch
 
+from stagebridge.contracts import PROGENY_PATHWAY_NAMES, N_PROGENY_PATHWAYS
+
 # PROGENy pathway gene sets (top markers per pathway)
 # Reference: Schubert et al., Nature Communications 2018
-PROGENY_PATHWAYS = {
+# Order MUST match PROGENY_PATHWAY_NAMES from contracts.py
+_PATHWAY_GENES = {
     "Androgen": ["KLK3", "KLK2", "TMPRSS2", "NKX3-1", "FKBP5"],
     "EGFR": ["AREG", "EREG", "HBEGF", "DUSP6", "SPRY2"],
     "Estrogen": ["GREB1", "PGR", "TFF1", "XBP1", "CXCL12"],
@@ -23,14 +26,21 @@ PROGENY_PATHWAYS = {
     "JAK-STAT": ["SOCS1", "SOCS3", "IRF1", "IRF9", "STAT1"],
     "MAPK": ["DUSP6", "SPRY2", "ETV4", "FOS", "JUN", "EGR1"],
     "NFkB": ["NFKBIA", "TNFAIP3", "CCL2", "CXCL8", "IL6"],
-    "p53": ["CDKN1A", "BAX", "MDM2", "GADD45A", "PMAIP1"],
     "PI3K": ["PTEN", "INPP5D", "PIK3R1", "AKT1", "FOXO3"],
     "TGFb": ["SMAD7", "SERPINE1", "COL1A1", "TGFBI", "CTGF"],
     "TNFa": ["TNFAIP3", "NFKBIA", "CCL2", "CXCL1", "IL1B"],
     "Trail": ["TNFRSF10A", "TNFRSF10B", "CASP8", "CASP3"],
     "VEGF": ["VEGFA", "KDR", "FLT1", "PGF", "NRP1"],
     "WNT": ["AXIN2", "NKD1", "DKK1", "LEF1", "MYC", "CCND1"],
+    "p53": ["CDKN1A", "BAX", "MDM2", "GADD45A", "PMAIP1"],
 }
+
+# Build ordered dict matching contracts.PROGENY_PATHWAY_NAMES
+PROGENY_PATHWAYS = {name: _PATHWAY_GENES[name] for name in PROGENY_PATHWAY_NAMES}
+
+# Verify alignment with contracts
+assert len(PROGENY_PATHWAYS) == N_PROGENY_PATHWAYS, \
+    f"PROGENY_PATHWAYS has {len(PROGENY_PATHWAYS)} entries but contracts expects {N_PROGENY_PATHWAYS}"
 
 # Proliferation markers (from stagebridge/biology/signatures.py)
 PROLIFERATION_MARKERS = ["MKI67", "TOP2A", "PCNA", "MCM2", "MCM6"]
