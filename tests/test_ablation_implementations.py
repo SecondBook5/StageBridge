@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from stagebridge.loaders.dataset import StageBridgeDataset, collate_niche_batch
-from stagebridge.evaluation.ablation import ABLATION_CONFIGS
+from stagebridge.evaluation.ablation import ABLATION_CONFIGS, is_ablation_redundant
 
 
 class TestRandomNicheAblation:
@@ -143,3 +143,184 @@ class TestAblationConfigsValid:
                     continue
                 assert key in valid_params, \
                     f"Ablation '{name}' has invalid config key '{key}'. Valid keys: {valid_params}"
+
+
+class TestAblationRedundancyDetection:
+    """Test that redundant ablations are correctly detected.
+
+    This prevents wasting HPC compute on ablations that would be identical
+    to the main model given HPO choices.
+    """
+
+    # =========================================================================
+    # GW Fusion Redundancy
+    # =========================================================================
+
+    def test_no_gw_fusion_redundant_when_hpo_chose_concat(self):
+        """no_gw_fusion ablation is redundant if HPO already chose concat."""
+        hpo_params = {"use_gw_fusion": False}
+        is_redundant, reason = is_ablation_redundant("no_gw_fusion", hpo_params)
+        assert is_redundant, "no_gw_fusion should be redundant when HPO chose use_gw_fusion=False"
+        assert "use_gw_fusion=False" in reason
+
+    def test_no_gw_fusion_not_redundant_when_hpo_chose_pretrained(self):
+        """no_gw_fusion ablation is valid if HPO chose pretrained GW."""
+        hpo_params = {"use_gw_fusion": True, "gw_fusion_type": "pretrained"}
+        is_redundant, _ = is_ablation_redundant("no_gw_fusion", hpo_params)
+        assert not is_redundant, "no_gw_fusion should NOT be redundant when HPO chose pretrained"
+
+    def test_no_gw_fusion_not_redundant_when_hpo_chose_learned(self):
+        """no_gw_fusion ablation is valid if HPO chose learned projection."""
+        hpo_params = {"use_gw_fusion": True, "gw_fusion_type": "learned_projection"}
+        is_redundant, _ = is_ablation_redundant("no_gw_fusion", hpo_params)
+        assert not is_redundant, "no_gw_fusion should NOT be redundant when HPO chose learned_projection"
+
+    def test_gw_learned_redundant_when_hpo_chose_learned(self):
+        """gw_learned ablation is redundant if HPO already chose learned_projection."""
+        hpo_params = {"use_gw_fusion": True, "gw_fusion_type": "learned_projection"}
+        is_redundant, reason = is_ablation_redundant("gw_learned", hpo_params)
+        assert is_redundant, "gw_learned should be redundant when HPO chose learned_projection"
+        assert "learned_projection" in reason
+
+    def test_gw_learned_not_redundant_when_hpo_chose_pretrained(self):
+        """gw_learned ablation is valid if HPO chose pretrained GW."""
+        hpo_params = {"use_gw_fusion": True, "gw_fusion_type": "pretrained"}
+        is_redundant, _ = is_ablation_redundant("gw_learned", hpo_params)
+        assert not is_redundant, "gw_learned should NOT be redundant when HPO chose pretrained"
+
+    def test_gw_learned_not_redundant_when_hpo_chose_concat(self):
+        """gw_learned ablation is valid if HPO chose no GW (tests if GW helps)."""
+        hpo_params = {"use_gw_fusion": False}
+        is_redundant, _ = is_ablation_redundant("gw_learned", hpo_params)
+        assert not is_redundant, "gw_learned should NOT be redundant when HPO chose concat"
+
+    # =========================================================================
+    # Evolution Branch Redundancy
+    # =========================================================================
+
+    def test_no_evolution_redundant_when_no_evolution_data(self):
+        """no_evolution ablation is redundant if data has no evolution features."""
+        hpo_params = {}
+        is_redundant, reason = is_ablation_redundant("no_evolution", hpo_params, evolution_dim=0)
+        assert is_redundant, "no_evolution should be redundant when evolution_dim=0"
+        assert "No evolution features" in reason
+
+    def test_no_evolution_redundant_when_hpo_disabled(self):
+        """no_evolution ablation is redundant if HPO already disabled evolution."""
+        hpo_params = {"use_evolution_branch": False}
+        is_redundant, reason = is_ablation_redundant("no_evolution", hpo_params, evolution_dim=28)
+        assert is_redundant, "no_evolution should be redundant when HPO chose use_evolution_branch=False"
+        assert "use_evolution_branch=False" in reason
+
+    def test_no_evolution_not_redundant_when_hpo_enabled(self):
+        """no_evolution ablation is valid if HPO enabled evolution."""
+        hpo_params = {"use_evolution_branch": True}
+        is_redundant, _ = is_ablation_redundant("no_evolution", hpo_params, evolution_dim=28)
+        assert not is_redundant, "no_evolution should NOT be redundant when HPO enabled evolution"
+
+    def test_no_evolution_not_redundant_when_hpo_default(self):
+        """no_evolution ablation is valid if HPO didn't specify (uses default)."""
+        hpo_params = {}  # No explicit choice, will use default
+        is_redundant, _ = is_ablation_redundant("no_evolution", hpo_params, evolution_dim=28)
+        assert not is_redundant, "no_evolution should NOT be redundant when HPO used default"
+
+    # =========================================================================
+    # Architecture Ablations Redundancy
+    # =========================================================================
+
+    def test_no_ring_pooling_redundant_when_hpo_disabled(self):
+        """no_ring_pooling ablation is redundant if HPO already disabled it."""
+        hpo_params = {"use_learned_ring_pooling": False}
+        is_redundant, reason = is_ablation_redundant("no_ring_pooling", hpo_params)
+        assert is_redundant, "no_ring_pooling should be redundant when HPO disabled it"
+        assert "use_learned_ring_pooling=False" in reason
+
+    def test_no_ring_pooling_not_redundant_when_hpo_enabled(self):
+        """no_ring_pooling ablation is valid if HPO enabled ring pooling."""
+        hpo_params = {"use_learned_ring_pooling": True}
+        is_redundant, _ = is_ablation_redundant("no_ring_pooling", hpo_params)
+        assert not is_redundant, "no_ring_pooling should NOT be redundant when HPO enabled it"
+
+    def test_no_context_refiner_redundant_when_hpo_disabled(self):
+        """no_context_refiner ablation is redundant if HPO already disabled it."""
+        hpo_params = {"use_context_refiner": False}
+        is_redundant, reason = is_ablation_redundant("no_context_refiner", hpo_params)
+        assert is_redundant, "no_context_refiner should be redundant when HPO disabled it"
+        assert "use_context_refiner=False" in reason
+
+    def test_no_gate_redundant_when_hpo_disabled(self):
+        """no_gate ablation is redundant if HPO already disabled cross-attn drift."""
+        hpo_params = {"use_cross_attn_drift": False}
+        is_redundant, reason = is_ablation_redundant("no_gate", hpo_params)
+        assert is_redundant, "no_gate should be redundant when HPO disabled cross-attn drift"
+        assert "use_cross_attn_drift=False" in reason
+
+    # =========================================================================
+    # AMICI Attention Redundancy
+    # =========================================================================
+
+    def test_no_distance_redundant_when_amici_disabled(self):
+        """no_distance ablation is redundant if AMICI attention is disabled."""
+        hpo_params = {"use_amici_attention": False}
+        is_redundant, reason = is_ablation_redundant("no_distance", hpo_params)
+        assert is_redundant, "no_distance should be redundant when AMICI disabled"
+        assert "use_amici_attention=False" in reason
+
+    def test_no_distance_not_redundant_when_amici_enabled(self):
+        """no_distance ablation is valid if AMICI attention is enabled."""
+        hpo_params = {"use_amici_attention": True}
+        is_redundant, _ = is_ablation_redundant("no_distance", hpo_params)
+        assert not is_redundant, "no_distance should NOT be redundant when AMICI enabled"
+
+    # =========================================================================
+    # Ablations That Should Never Be Redundant
+    # =========================================================================
+
+    def test_no_niche_never_redundant(self):
+        """no_niche ablation tests core novelty - should never be skipped."""
+        for hpo_params in [{}, {"use_gw_fusion": True}, {"use_gw_fusion": False}]:
+            is_redundant, _ = is_ablation_redundant("no_niche", hpo_params)
+            assert not is_redundant, f"no_niche should never be redundant: {hpo_params}"
+
+    def test_random_niche_never_redundant(self):
+        """random_niche ablation tests spatial structure - should never be skipped."""
+        for hpo_params in [{}, {"use_gw_fusion": True}, {"use_gw_fusion": False}]:
+            is_redundant, _ = is_ablation_redundant("random_niche", hpo_params)
+            assert not is_redundant, f"random_niche should never be redundant: {hpo_params}"
+
+    def test_hlca_only_never_redundant(self):
+        """hlca_only ablation tests dual-reference value - should never be skipped."""
+        for hpo_params in [{}, {"use_gw_fusion": True}, {"use_gw_fusion": False}]:
+            is_redundant, _ = is_ablation_redundant("hlca_only", hpo_params)
+            assert not is_redundant, f"hlca_only should never be redundant: {hpo_params}"
+
+    def test_luca_only_never_redundant(self):
+        """luca_only ablation tests dual-reference value - should never be skipped."""
+        for hpo_params in [{}, {"use_gw_fusion": True}, {"use_gw_fusion": False}]:
+            is_redundant, _ = is_ablation_redundant("luca_only", hpo_params)
+            assert not is_redundant, f"luca_only should never be redundant: {hpo_params}"
+
+    def test_frozen_encoder_never_redundant(self):
+        """frozen_encoder ablation tests SSL quality - should never be skipped."""
+        for hpo_params in [{}, {"use_gw_fusion": True}, {"use_gw_fusion": False}]:
+            is_redundant, _ = is_ablation_redundant("frozen_encoder", hpo_params)
+            assert not is_redundant, f"frozen_encoder should never be redundant: {hpo_params}"
+
+    # =========================================================================
+    # Edge Cases
+    # =========================================================================
+
+    def test_unknown_ablation_not_redundant(self):
+        """Unknown ablation names should not be marked redundant."""
+        is_redundant, _ = is_ablation_redundant("nonexistent_ablation", {})
+        assert not is_redundant, "Unknown ablations should not be marked redundant"
+
+    def test_empty_hpo_params_uses_defaults(self):
+        """Empty HPO params should use defaults (most ablations valid)."""
+        for ablation in ABLATION_CONFIGS:
+            if ablation in {"no_distance"}:  # This depends on AMICI which defaults False
+                continue
+            is_redundant, _ = is_ablation_redundant(ablation, {}, evolution_dim=28)
+            # Most should not be redundant with empty HPO
+            if ablation not in {"no_distance"}:
+                assert not is_redundant, f"{ablation} should not be redundant with empty HPO params"

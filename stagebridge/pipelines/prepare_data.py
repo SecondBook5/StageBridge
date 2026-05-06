@@ -48,8 +48,12 @@ IMMUNE_TYPES = [
 class PrepConfig:
     """Configuration for data preparation."""
     n_neighbors: int = 50
-    ring_radii: tuple = (600, 1200, 2000, 3000)  # Micron scale for Visium
+    ring_radii: tuple = (600, 1200, 2000, 3000)  # Micron scale for Visium (legacy)
     max_cells_per_ring: int = 50
+    # AMICI-style continuous attention (no ring binning)
+    max_radius: float = 3000.0  # Maximum neighbor search radius (microns)
+    max_neighbors: int = 100  # Maximum neighbors to keep (sorted by distance)
+    use_continuous_attention: bool = True  # Enable AMICI-style format
 
 
 def load_destvi_fractions(luca_path: Path, hlca_path: Path | None = None) -> pd.DataFrame:
@@ -117,7 +121,12 @@ def get_embedding_matrix(df: pd.DataFrame, prefix: str, dim: int) -> np.ndarray:
 
 
 def build_neighborhoods(df: pd.DataFrame, config: PrepConfig) -> pd.DataFrame:
-    """Build neighborhoods with raw neighbor cell lists for learned pooling."""
+    """Build neighborhoods with raw neighbor cell lists for learned pooling.
+
+    Supports two formats:
+    - Legacy ring format: ring_N_cells columns (no distances)
+    - AMICI format: neighbor_cells + neighbor_distances (continuous attention)
+    """
     # Only use cells with spatial coordinates
     spatial_mask = df['x_spatial'].notna() & df['y_spatial'].notna()
     spatial_df = df[spatial_mask].reset_index(drop=True)
@@ -133,6 +142,10 @@ def build_neighborhoods(df: pd.DataFrame, config: PrepConfig) -> pd.DataFrame:
     z_luca = get_embedding_matrix(spatial_df, 'z_luca', 10)
 
     print(f'Building neighborhoods for {n_cells:,} spatial cells...')
+    if config.use_continuous_attention:
+        print(f'  Using AMICI-style continuous attention (max_neighbors={config.max_neighbors}, max_radius={config.max_radius})')
+    else:
+        print(f'  Using legacy ring format (ring_radii={config.ring_radii})')
 
     neighborhoods = []
 
@@ -142,8 +155,11 @@ def build_neighborhoods(df: pd.DataFrame, config: PrepConfig) -> pd.DataFrame:
 
         cell = spatial_df.iloc[i]
 
+        # Determine search radius
+        search_radius = config.max_radius if config.use_continuous_attention else config.ring_radii[-1]
+
         # Query all neighbors within max radius
-        idx = tree.query_ball_point(coords[i], r=config.ring_radii[-1])
+        idx = tree.query_ball_point(coords[i], r=search_radius)
         idx = [j for j in idx if j != i]  # Exclude self
 
         if not idx:
@@ -152,28 +168,13 @@ def build_neighborhoods(df: pd.DataFrame, config: PrepConfig) -> pd.DataFrame:
         neighbor_coords = coords[idx]
         distances = np.linalg.norm(neighbor_coords - coords[i], axis=1)
 
-        # Assign to rings
-        ring_cells = [[] for _ in range(4)]
+        # Sort by distance
+        sort_order = np.argsort(distances)
+        idx = [idx[j] for j in sort_order]
+        distances = distances[sort_order]
 
-        prev_r = 0
-        for ring_idx, r in enumerate(config.ring_radii):
-            ring_mask = (distances > prev_r) & (distances <= r)
-            ring_neighbor_idx = [idx[j] for j in np.where(ring_mask)[0]]
-
-            # Limit cells per ring
-            if len(ring_neighbor_idx) > config.max_cells_per_ring:
-                ring_neighbor_idx = ring_neighbor_idx[:config.max_cells_per_ring]
-
-            for j in ring_neighbor_idx:
-                ring_cells[ring_idx].append(z_fused[j].tolist())
-
-            prev_r = r
-
-        # Skip if no neighbors in any ring
-        if all(len(rc) == 0 for rc in ring_cells):
-            continue
-
-        neighborhoods.append({
+        # Base record
+        record = {
             'cell_id': cell['cell_id'],
             'donor_id': cell['donor_id'],
             'stage': cell['stage'],
@@ -181,13 +182,50 @@ def build_neighborhoods(df: pd.DataFrame, config: PrepConfig) -> pd.DataFrame:
             'receiver_z': z_fused[i].tolist(),
             'hlca_z': z_hlca[i].tolist(),
             'luca_z': z_luca[i].tolist(),
-            'ring_1_cells': ring_cells[0],
-            'ring_2_cells': ring_cells[1],
-            'ring_3_cells': ring_cells[2],
-            'ring_4_cells': ring_cells[3],
             'x_spatial': coords[i, 0],
             'y_spatial': coords[i, 1],
-        })
+        }
+
+        if config.use_continuous_attention:
+            # AMICI format: flat list of neighbors with distances
+            n_keep = min(len(idx), config.max_neighbors)
+            neighbor_cells = [z_fused[idx[j]].tolist() for j in range(n_keep)]
+            neighbor_dists = distances[:n_keep].tolist()
+
+            if not neighbor_cells:
+                continue
+
+            record['neighbor_cells'] = neighbor_cells
+            record['neighbor_distances'] = neighbor_dists
+            record['n_neighbors'] = n_keep
+        else:
+            # Legacy ring format for backward compatibility
+            ring_cells = [[] for _ in range(4)]
+
+            prev_r = 0
+            for ring_idx, r in enumerate(config.ring_radii):
+                ring_mask = (distances > prev_r) & (distances <= r)
+                ring_neighbor_idx = [idx[j] for j in np.where(ring_mask)[0]]
+
+                # Limit cells per ring
+                if len(ring_neighbor_idx) > config.max_cells_per_ring:
+                    ring_neighbor_idx = ring_neighbor_idx[:config.max_cells_per_ring]
+
+                for j in ring_neighbor_idx:
+                    ring_cells[ring_idx].append(z_fused[j].tolist())
+
+                prev_r = r
+
+            # Skip if no neighbors in any ring
+            if all(len(rc) == 0 for rc in ring_cells):
+                continue
+
+            record['ring_1_cells'] = ring_cells[0]
+            record['ring_2_cells'] = ring_cells[1]
+            record['ring_3_cells'] = ring_cells[2]
+            record['ring_4_cells'] = ring_cells[3]
+
+        neighborhoods.append(record)
 
     return pd.DataFrame(neighborhoods)
 

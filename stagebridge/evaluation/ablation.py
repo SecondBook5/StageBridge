@@ -7,9 +7,9 @@ Usage:
         --output-dir /path/to/output \
         --fold-idx 0
 
-    # With GW fusion figures:
+    # With GW fusion figures (for gw_learned ablation):
     python -m stagebridge.evaluation.ablation \
-        --ablation gw_barycentric \
+        --ablation gw_learned \
         --data-dir /path/to/data \
         --output-dir /path/to/output \
         --figures
@@ -31,13 +31,13 @@ from stagebridge.training import StageBridgeTrainer, TrainerConfig
 
 ABLATION_CONFIGS = {
     # ==========================================================================
-    # Main model uses CONCAT fusion (no GW). Ablations test:
-    # 1. Removing components to validate their contribution
-    # 2. Alternative fusion strategies (GW variants) to see if they beat concat
+    # Ablations test component contributions by removing/changing them.
+    # Main model uses pretrained GW fusion (precomputed on cell population).
     #
-    # REMOVED redundant ablations:
-    # - "full" (was identical to gw_barycentric)
-    # - "no_gw_fusion" (was identical to main model which uses concat)
+    # GW fusion options (valid):
+    # - pretrained: Proper GW precomputed on population (recommended)
+    # - learned_projection: Simple learned weighted projection (fallback)
+    # - False/concat: No GW, simple concatenation (baseline)
     # ==========================================================================
 
     # Niche ablations: test core novelty (receiver-centered niche context)
@@ -51,26 +51,72 @@ ABLATION_CONFIGS = {
     "luca_only": {"use_gw_fusion": False, "use_hlca_reference": False},
 
     # Architecture ablations
-    # no_token_types: REMOVED - current architecture uses structural separation
-    # (separate projections, ring poolers) instead of explicit token type embeddings
     "frozen_encoder": {},  # Special handling: loads pretrained encoder, freezes it
     "no_ring_pooling": {"use_learned_ring_pooling": False},
     "no_context_refiner": {"use_context_refiner": False},
 
-    # GW fusion ablations: test if OT-based fusion beats concat
-    # Result so far: gw_barycentric (0.00390) LOST to concat (0.00352)
-    "gw_project_hlca": {"use_gw_fusion": True, "gw_mode": "project_to_hlca"},
-    "gw_project_luca": {"use_gw_fusion": True, "gw_mode": "project_to_luca"},
-    "gw_barycentric": {"use_gw_fusion": True, "gw_mode": "barycentric"},
+    # GW fusion ablations: compare fusion strategies
+    "no_gw_fusion": {"use_gw_fusion": False},  # Concat baseline
+    "gw_learned": {"use_gw_fusion": True, "gw_fusion_type": "learned_projection"},
 
-    # Prototype bottleneck ablations (interpretable archetypes)
-    "with_prototypes": {
-        "use_niche_prototypes": True,        # Neighborhood archetypes (IL1B-high, fibrotic, etc.)
-        "num_niche_prototypes": 16,
-        "hierarchical_use_prototypes": True,  # Patient archetypes (progressor vs indolent)
-        "hierarchical_num_prototypes": 8,
-    },
+    # Evolution branch ablation
+    "no_evolution": {"use_evolution_branch": False},  # Remove WES/clonal features
 }
+
+
+def is_ablation_redundant(
+    ablation: str,
+    hpo_params: dict,
+    evolution_dim: int = 0,
+) -> tuple[bool, str]:
+    """Check if an ablation is redundant given HPO choices.
+
+    Returns (is_redundant, reason) tuple.
+    """
+    if ablation not in ABLATION_CONFIGS:
+        return False, ""
+
+    ablation_config = ABLATION_CONFIGS[ablation]
+
+    # GW fusion ablations
+    if ablation == "no_gw_fusion":
+        # Redundant if HPO chose no GW fusion
+        if not hpo_params.get("use_gw_fusion", True):
+            return True, "HPO already chose use_gw_fusion=False (concat)"
+
+    if ablation == "gw_learned":
+        # Redundant if HPO chose learned_projection
+        if (hpo_params.get("use_gw_fusion", False) and
+            hpo_params.get("gw_fusion_type") == "learned_projection"):
+            return True, "HPO already chose gw_fusion_type=learned_projection"
+
+    # Evolution ablation
+    if ablation == "no_evolution":
+        # Redundant if no evolution data or HPO disabled it
+        if evolution_dim == 0:
+            return True, "No evolution features in data"
+        if not hpo_params.get("use_evolution_branch", True):
+            return True, "HPO already chose use_evolution_branch=False"
+
+    # Architecture ablations
+    if ablation == "no_ring_pooling":
+        if not hpo_params.get("use_learned_ring_pooling", True):
+            return True, "HPO already chose use_learned_ring_pooling=False"
+
+    if ablation == "no_context_refiner":
+        if not hpo_params.get("use_context_refiner", True):
+            return True, "HPO already chose use_context_refiner=False"
+
+    if ablation == "no_gate":
+        if not hpo_params.get("use_cross_attn_drift", True):
+            return True, "HPO already chose use_cross_attn_drift=False"
+
+    # AMICI attention
+    if ablation == "no_distance":
+        if not hpo_params.get("use_amici_attention", False):
+            return True, "HPO chose use_amici_attention=False (no distance encoding)"
+
+    return False, ""
 
 
 def run_frozen_encoder_ablation(
@@ -184,6 +230,9 @@ def run_ablation(
 ) -> tuple[dict, StageBridge, any]:
     """Run a single ablation experiment.
 
+    If the ablation is redundant given HPO choices (e.g., HPO already disabled
+    a feature), this will skip training and save a skip marker instead.
+
     Args:
         ablation: Name of ablation to run
         data_dir: Path to data directory
@@ -195,6 +244,9 @@ def run_ablation(
         pretrained_checkpoint: Path to pretrained checkpoint (required for frozen_encoder)
         hpo_params_path: Path to HPO best_params.json for controlled comparison
         resume_from: Path to checkpoint to resume training from
+
+    Returns:
+        (result, model, train_loader) - model is None if ablation was skipped
     """
     torch.manual_seed(seed)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -230,6 +282,25 @@ def run_ablation(
     sample_batch = next(iter(train_loader))
     evolution_dim = sample_batch.evolution_features.shape[-1] if sample_batch.evolution_features is not None else 0
     print(f"Detected evolution_dim={evolution_dim} from data")
+
+    # Check if ablation is redundant given HPO choices
+    is_redundant, reason = is_ablation_redundant(ablation, hpo_params, evolution_dim)
+    if is_redundant:
+        print(f"SKIPPING ablation '{ablation}': {reason}")
+        # Save a skip marker instead of running
+        skip_result = {
+            "ablation": ablation,
+            "status": "skipped",
+            "reason": reason,
+            "hpo_params": hpo_params,
+            "fold_idx": fold_idx,
+            "seed": seed,
+            "completed_at": datetime.now().isoformat(),
+        }
+        result_path = output_dir / f"ablation_{ablation}.json"
+        with open(result_path, "w") as f:
+            json.dump(skip_result, f, indent=2)
+        return skip_result, None, train_loader
 
     # Handle frozen_encoder ablation specially
     if ablation == "frozen_encoder":
@@ -267,12 +338,18 @@ def run_ablation(
     # ablation_config was already copied and had _shuffle_rings removed above
     model_kwargs.update(ablation_config)
 
-    # Override evolution_dim with detected value if evolution branch is used
-    if model_kwargs.get("use_evolution_branch", True) and evolution_dim > 0:
+    # Set evolution_dim from data, but respect ablation override
+    # If ablation explicitly sets use_evolution_branch=False, don't override it
+    if "use_evolution_branch" not in ablation_config:
+        # No ablation override - use evolution if data has it
+        if evolution_dim > 0:
+            model_kwargs["evolution_dim"] = evolution_dim
+            model_kwargs["use_evolution_branch"] = True
+        else:
+            model_kwargs["use_evolution_branch"] = False
+    elif model_kwargs.get("use_evolution_branch", False) and evolution_dim > 0:
+        # Ablation wants evolution branch and data has it
         model_kwargs["evolution_dim"] = evolution_dim
-        model_kwargs["use_evolution_branch"] = True
-    elif evolution_dim == 0:
-        model_kwargs["use_evolution_branch"] = False
 
     config = StageBridgeConfig(**model_kwargs)
     model = StageBridge(config).to(device)

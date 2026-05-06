@@ -61,27 +61,23 @@ BASELINES = config.get("baselines", ["pooling", "deepsets", "set_transformer", "
 
 # External competing methods (OT-based, trajectory methods)
 # These use external packages and have different training loops
-EXTERNAL_METHODS = config.get("external_methods", ["moscot", "cellrank", "commot"])
+# EXTERNAL_METHODS = config.get("external_methods", ["moscot", "cellrank", "commot"])
+EXTERNAL_METHODS = []  # Disabled - external baselines not needed for V1
 ABLATIONS = config.get("ablations", [
-    "full",
     "no_niche",
     "no_distance",
     "no_gate",
-    "random_niche",
+    "random_niche",  # Shuffle niche assignments to test spatial structure
     "hlca_only",
     "luca_only",
-    "no_token_types",
     "frozen_encoder",
-    # Architecture ablations
     "no_ring_pooling",
     "no_context_refiner",
     # GW fusion ablations
     "no_gw_fusion",
-    "gw_project_hlca",
-    "gw_project_luca",
-    "gw_barycentric",
-    # Prototype bottleneck (interpretable archetypes)
-    "with_prototypes",
+    "gw_learned",
+    # Evolution branch
+    "no_evolution",
 ])
 
 
@@ -125,6 +121,10 @@ rule all:
         expand(f"{OUTPUT_DIR}/evaluation/full/fold_{{fold}}/evaluation.json", fold=FOLDS),
         # Final comparison report
         f"{RESULTS_DIR}/comparison_report.json",
+        # Results summary (one-stop-shop)
+        f"{RESULTS_DIR}/results_summary.json",
+        f"{RESULTS_DIR}/results_summary.csv",
+        f"{RESULTS_DIR}/results_summary.md",
         # Publication figures
         f"{FIGURES_DIR}/fig1_architecture.pdf",
         f"{FIGURES_DIR}/fig2_training_baselines.pdf",
@@ -236,36 +236,55 @@ rule prepare_data_with_liana:
         """
 
 
-rule run_scenic:
-    """Run pySCENIC regulon analysis (slow, ~2-4 hours).
+# =============================================================================
+# GROMOV-WASSERSTEIN PRECOMPUTATION
+# =============================================================================
 
-    Computes TF activity scores via AUCell for regulon-based analysis.
+# Directory for GW precomputed alignment
+GW_ALIGNMENT_DIR = config["paths"].get("gw_alignment_dir", f"{OUTPUT_DIR}/gw_alignment")
+GW_N_REFERENCE_CELLS = config.get("gw_precompute", {}).get("n_reference_cells", 5000)
+GW_SINKHORN_REG = config.get("gw_precompute", {}).get("sinkhorn_reg", 0.05)
+GW_ITERS = config.get("gw_precompute", {}).get("gw_iters", 50)
+
+rule precompute_gw:
+    """Precompute Gromov-Wasserstein alignment between HLCA and LuCA.
+
+    This is required for proper GW fusion (gw_fusion_type="pretrained").
+    GW finds structure-preserving alignment between reference atlases, then
+    trains a neural transport map for inference on new cells.
+
+    Can be run independently:
+        snakemake precompute_gw --profile workflow/slurm
+
+    The alignment is computed once and reused across all folds/seeds.
     """
     input:
-        h5ad=SNRNA_H5AD,
+        validated=f"{OUTPUT_DIR}/.data_validated",
+        cells=f"{DATA_DIR}/cells.parquet",
     output:
-        aucell=f"{DATA_DIR}/scenic/aucell_scores.parquet",
-        regulon_scores=f"{DATA_DIR}/scenic/regulon_scores.parquet",
+        coupling=f"{GW_ALIGNMENT_DIR}/gw_coupling.pt",
+        neural_map=f"{GW_ALIGNMENT_DIR}/neural_transport_map.pt",
+        config=f"{GW_ALIGNMENT_DIR}/gw_config.json",
+        summary=f"{GW_ALIGNMENT_DIR}/precompute_summary.json",
     params:
-        output_dir=f"{DATA_DIR}/scenic",
+        output_dir=GW_ALIGNMENT_DIR,
+        n_reference_cells=GW_N_REFERENCE_CELLS,
+        sinkhorn_reg=GW_SINKHORN_REG,
+        gw_iters=GW_ITERS,
     resources:
         mem_mb=256000,
-        runtime=480,  # 8 hours
+        runtime=480,  # 8 hours (GW on 5k cells is intensive)
         slurm_partition="gpu",
         gpu=1,
     shell:
         """
-        python -c "
-from pathlib import Path
-from stagebridge.biology.regulons import run_scenic_pipeline
-results = run_scenic_pipeline(
-    Path('{input.h5ad}'),
-    Path('{params.output_dir}'),
-    skip_grn=True,  # Use predefined lung cancer regulons for speed
-    n_jobs=8,
-)
-print('pySCENIC complete:', results)
-"
+        python scripts/precompute_gw_alignment.py \
+            --cells {input.cells} \
+            --output-dir {params.output_dir} \
+            --n-reference-cells {params.n_reference_cells} \
+            --sinkhorn-reg {params.sinkhorn_reg} \
+            --gw-iters {params.gw_iters} \
+            --device cuda
         """
 
 
@@ -299,15 +318,22 @@ print('Data contract validated successfully')
 # HYPERPARAMETER OPTIMIZATION
 # =============================================================================
 
+# Whether to use pretrained GW fusion (requires precompute_gw to run first)
+USE_PRETRAINED_GW = config.get("gw_precompute", {}).get("use_pretrained", True)
+
 rule hpo:
     """Hyperparameter optimization using Optuna.
 
     Searches over model architecture and training hyperparameters.
     Outputs best_params.json which can be used by subsequent training runs.
+
+    If GW precomputation exists, HPO will search over pretrained GW fusion.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        # Optional: GW precomputation (if use_pretrained=True in config)
+        gw_checkpoint=f"{GW_ALIGNMENT_DIR}/neural_transport_map.pt" if USE_PRETRAINED_GW else [],
     output:
         best_params=f"{OUTPUT_DIR}/hpo/best_params.json",
         history=f"{OUTPUT_DIR}/hpo/optimization_history.json",
@@ -316,6 +342,7 @@ rule hpo:
         n_trials=config.get("hpo", {}).get("n_trials", 30),
         n_epochs=config.get("hpo", {}).get("n_epochs_per_trial", 10),
         batch_size=config["trainer"]["batch_size"],
+        gw_checkpoint_dir=GW_ALIGNMENT_DIR if USE_PRETRAINED_GW else "",
     resources:
         mem_mb=256000,
         runtime=1440,  # 24 hours (resumable if timeout)
@@ -329,9 +356,10 @@ rule hpo:
             --n-trials {params.n_trials} \
             --n-epochs {params.n_epochs} \
             --batch-size {params.batch_size} \
-            --seed {SEED} \
+            --seed {BASE_SEED} \
             --storage sqlite:///{params.hpo_dir}/optuna.db \
-            --study-name stagebridge_hpo
+            --study-name stagebridge_hpo \
+            $([ -n "{params.gw_checkpoint_dir}" ] && echo "--gw-checkpoint {params.gw_checkpoint_dir}")
         """
 
 
@@ -346,6 +374,7 @@ rule train_full:
     STAGE 2 (Transition): OT-CFM flow matching
 
     GW fusion is enabled by default for the full model.
+    If gw_precompute.use_pretrained=true, uses pretrained GW alignment.
     Uses best hyperparameters from HPO.
     Runs for each fold x seed combination.
     """
@@ -353,6 +382,8 @@ rule train_full:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
         hpo_params=f"{OUTPUT_DIR}/hpo/best_params.json",
+        # Optional: GW precomputation (if use_pretrained=True in config)
+        gw_checkpoint=f"{GW_ALIGNMENT_DIR}/neural_transport_map.pt" if USE_PRETRAINED_GW else [],
     output:
         summary=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/training_summary.json",
         checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
@@ -363,6 +394,7 @@ rule train_full:
         ssl_epochs=config["trainer"]["ssl_epochs"],
         transition_epochs=config["trainer"]["transition_epochs"],
         batch_size=config["trainer"]["batch_size"],
+        gw_checkpoint_dir=GW_ALIGNMENT_DIR if USE_PRETRAINED_GW else "",
     resources:
         mem_mb=256000,
         runtime=2880,  # 48 hours
@@ -378,7 +410,8 @@ rule train_full:
             --ssl-epochs {params.ssl_epochs} \
             --transition-epochs {params.transition_epochs} \
             --batch-size {params.batch_size} \
-            --hpo-params {input.hpo_params}
+            --hpo-params {input.hpo_params} \
+            $([ -n "{params.gw_checkpoint_dir}" ] && echo "--gw-checkpoint-dir {params.gw_checkpoint_dir}")
         """
 
 
@@ -754,6 +787,118 @@ rule comparison_report:
 
 
 # =============================================================================
+# INTERPRETATION (POST-TRAINING ANALYSIS)
+# =============================================================================
+
+rule interpret:
+    """Run post-training interpretation analysis.
+
+    Includes:
+    - Token ablation analysis (contribution of each token type)
+    - Attention pattern extraction (spatial attention decay, reference balance)
+    - Interaction network inference (cell-cell communication patterns)
+    - Trajectory visualization (flow fields, fate probabilities)
+    - Manifold comparison (embedding quality analysis)
+
+    Uses fold 0, first seed as representative.
+    """
+    input:
+        checkpoint=f"{OUTPUT_DIR}/full/fold_0/seed_{SEEDS[0]}/checkpoints/best_checkpoint.pt",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        summary=f"{OUTPUT_DIR}/interpretation/interpretation_summary.json",
+        ablation=f"{OUTPUT_DIR}/interpretation/ablation_results.json",
+        attention=f"{OUTPUT_DIR}/interpretation/attention_summary.json",
+    params:
+        output_dir=f"{OUTPUT_DIR}/interpretation",
+    resources:
+        mem_mb=256000,
+        runtime=480,  # 8 hours
+        slurm_partition="gpu",
+        gpu=1,
+    shell:
+        """
+        python scripts/run_interpretation.py \
+            --checkpoint {input.checkpoint} \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.output_dir} \
+            --fold-idx 0 \
+            --all
+        """
+
+
+# =============================================================================
+# RESULTS SUMMARY (ONE-STOP-SHOP)
+# =============================================================================
+
+rule results_summary:
+    """Generate comprehensive results summary - the one-stop-shop for all outputs.
+
+    Produces:
+    - results_summary.json: Complete machine-readable summary
+    - results_summary.csv: Flat table of key metrics
+    - results_summary.md: Human-readable markdown report
+
+    This rule aggregates whatever results exist at the time it runs.
+    It's designed to be called multiple times as results come in.
+    """
+    input:
+        # Depends on comparison_report which aggregates everything
+        report=f"{RESULTS_DIR}/comparison_report.json",
+    output:
+        json=f"{RESULTS_DIR}/results_summary.json",
+        csv=f"{RESULTS_DIR}/results_summary.csv",
+        md=f"{RESULTS_DIR}/results_summary.md",
+    params:
+        results_dir=OUTPUT_DIR,
+        data_dir=DATA_DIR,
+    resources:
+        mem_mb=32000,
+        runtime=15,
+        slurm_partition="cpu",
+    shell:
+        """
+        python -m stagebridge.evaluation.results_summary \
+            --results-dir {params.results_dir} \
+            --data-dir {params.data_dir} \
+            --output-dir {RESULTS_DIR}
+        """
+
+
+rule results_summary_partial:
+    """Generate partial results summary - runs early when HPO + first fold complete.
+
+    Use this to check progress before the full pipeline finishes.
+    """
+    input:
+        hpo=f"{OUTPUT_DIR}/hpo/best_params.json",
+        first_full=f"{OUTPUT_DIR}/full/fold_0/seed_{SEEDS[0]}/training_summary.json",
+    output:
+        json=f"{RESULTS_DIR}/results_summary_partial.json",
+        csv=f"{RESULTS_DIR}/results_summary_partial.csv",
+        md=f"{RESULTS_DIR}/results_summary_partial.md",
+    params:
+        results_dir=OUTPUT_DIR,
+        data_dir=DATA_DIR,
+    resources:
+        mem_mb=32000,
+        runtime=15,
+        slurm_partition="cpu",
+    shell:
+        """
+        python -m stagebridge.evaluation.results_summary \
+            --results-dir {params.results_dir} \
+            --data-dir {params.data_dir} \
+            --output-dir {RESULTS_DIR}
+
+        # Rename to partial
+        mv {RESULTS_DIR}/results_summary.json {output.json}
+        mv {RESULTS_DIR}/results_summary.csv {output.csv}
+        mv {RESULTS_DIR}/results_summary.md {output.md}
+        """
+
+
+# =============================================================================
 # FIGURE GENERATION
 # =============================================================================
 
@@ -1022,6 +1167,43 @@ rule fig9_novel_biology:
 # =============================================================================
 # UTILITY TARGETS
 # =============================================================================
+
+rule summary:
+    """Generate results summary from whatever exists now.
+
+    Run anytime to see current progress:
+        snakemake summary --profile workflow/slurm
+
+    This is a "checkpoint" target - it doesn't wait for other rules,
+    it just summarizes whatever results have completed so far.
+    """
+    output:
+        json=f"{RESULTS_DIR}/results_summary_live.json",
+        csv=f"{RESULTS_DIR}/results_summary_live.csv",
+        md=f"{RESULTS_DIR}/results_summary_live.md",
+    params:
+        results_dir=OUTPUT_DIR,
+        data_dir=DATA_DIR,
+    resources:
+        mem_mb=16000,
+        runtime=10,
+        slurm_partition="cpu",
+    shell:
+        """
+        python -m stagebridge.evaluation.results_summary \
+            --results-dir {params.results_dir} \
+            --data-dir {params.data_dir} \
+            --output-dir {RESULTS_DIR}
+
+        # Rename to live (indicates this is a snapshot, not final)
+        mv {RESULTS_DIR}/results_summary.json {output.json} 2>/dev/null || true
+        mv {RESULTS_DIR}/results_summary.csv {output.csv} 2>/dev/null || true
+        mv {RESULTS_DIR}/results_summary.md {output.md} 2>/dev/null || true
+
+        # Print summary to stdout for quick viewing
+        cat {output.md}
+        """
+
 
 rule clean:
     """Remove all outputs."""

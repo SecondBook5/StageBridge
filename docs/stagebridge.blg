@@ -1,0 +1,46 @@
+This is BibTeX, Version 0.99d (TeX Live 2023/Debian)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: stagebridge.aux
+The style file: ieeetr.bst
+Database file #1: references.bib
+You've used 53 entries,
+            1876 wiz_defined-function locations,
+            802 strings with 25626 characters,
+and the built_in function-call counts, 23817 in all, are:
+= -- 1643
+> -- 2481
+< -- 0
++ -- 845
+- -- 792
+* -- 2411
+:= -- 4030
+add.period$ -- 53
+call.type$ -- 53
+change.case$ -- 53
+chr.to.int$ -- 0
+cite$ -- 53
+duplicate$ -- 814
+empty$ -- 1290
+format.name$ -- 792
+if$ -- 5062
+int.to.chr$ -- 0
+int.to.str$ -- 53
+missing$ -- 53
+newline$ -- 162
+num.names$ -- 53
+pop$ -- 93
+preamble$ -- 1
+purify$ -- 0
+quote$ -- 0
+skip$ -- 718
+stack$ -- 0
+substring$ -- 1162
+swap$ -- 441
+text.length$ -- 0
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 0
+warning$ -- 0
+while$ -- 153
+width$ -- 55
+write$ -- 501

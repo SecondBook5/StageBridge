@@ -48,6 +48,20 @@ luca:
 # Derived: fused_latent_dim = 30 + 10 = 40 (LATENT_DIM in contracts.py)
 
 # =============================================================================
+# Gromov-Wasserstein Precomputation
+# =============================================================================
+
+gw_precompute:
+  # Whether to use pretrained GW fusion (requires precompute_gw rule)
+  use_pretrained: true
+  # Number of reference cells for GW computation (stratified by stage/celltype)
+  n_reference_cells: 5000
+  # Sinkhorn entropic regularization
+  sinkhorn_reg: 0.05
+  # GW alternating optimization iterations
+  gw_iters: 50
+
+# =============================================================================
 # Experiment Settings
 # =============================================================================
 
@@ -67,12 +81,12 @@ model:
   num_encoder_layers: 2
   use_learned_ring_pooling: true
   use_context_refiner: true
-  # Gromov-Wasserstein atlas fusion (replaces naive HLCA+LuCA concat)
+  # Gromov-Wasserstein atlas fusion
+  # Options: false (concat), "learned_projection", "pretrained"
+  # "pretrained" requires precompute_gw rule to run first
   use_gw_fusion: true
-  gw_output_dim: 64       # Fused reference dimension
-  gw_sinkhorn_iters: 50   # Sinkhorn iterations
-  gw_sinkhorn_reg: 0.1    # Entropic regularization
-  gw_mode: barycentric    # project_to_hlca, project_to_luca, barycentric
+  gw_fusion_type: pretrained  # Use precomputed GW alignment (proper method)
+  gw_output_dim: 64           # Fused reference dimension
   # Evolution branch (WES + clonal conditioning)
   use_evolution_branch: true
   evolution_dim: 28       # EVOLUTION_DIM from contracts (15 WES + 13 clonal)
@@ -129,33 +143,30 @@ baselines:
 # =============================================================================
 
 ablations:
-  # Main model uses CONCAT (HPO found use_gw_fusion=false is optimal).
+  # Main model uses pretrained GW fusion.
   # These ablations test component contributions by removing them.
-  #
-  # REMOVED redundant ablations (2026-05-04):
-  # - "full" (identical to gw_barycentric)
-  # - "no_gw_fusion" (identical to main model which uses concat)
 
   # Core novelty: does niche context help?
   - no_niche             # Remove niche context entirely (receiver only)
   - no_distance          # Remove distance-based attention
   - no_gate              # Remove cross-attention drift (use MLP)
-  # - random_niche       # NOT IMPLEMENTED - would shuffle niche assignments
+  - random_niche         # Shuffle niche assignments to test spatial structure
 
   # Dual reference: do we need both HLCA and LuCA?
   - hlca_only            # Only HLCA reference (zero out LuCA token)
   - luca_only            # Only LuCA reference (zero out HLCA token)
 
   # Architecture components
-  # - no_token_types     # NOT IMPLEMENTED - would remove token type embeddings
   - frozen_encoder       # Freeze encoder during transition training
   - no_ring_pooling      # Mean pooling instead of ISAB+PMA
   - no_context_refiner   # Remove HierarchicalSetTransformer
 
-  # GW fusion: does OT-based fusion beat concat? (Answer: NO)
-  - gw_project_hlca      # Project LuCA into HLCA space
-  - gw_project_luca      # Project HLCA into LuCA space
-  - gw_barycentric       # Barycentric interpolation
+  # GW fusion ablations
+  - no_gw_fusion         # Concat only (no GW)
+  - gw_learned           # Learned projection (no precomputed GW)
+
+  # Evolution branch
+  - no_evolution         # Remove WES/clonal features
 
 # =============================================================================
 # SLURM Resources

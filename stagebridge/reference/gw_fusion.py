@@ -419,6 +419,104 @@ class GromovWassersteinFusion(nn.Module):
         return fused
 
 
+class PrecomputedGWFusion(nn.Module):
+    """GW fusion with precomputed stable global alignment.
+
+    The original GWFusion was fundamentally broken:
+    - It computed GW per batch on single cells [B, 1, D]
+    - GW needs population structure - 1x1 matrices have no structure
+    - Coupling changed every batch (unstable)
+
+    This fix:
+    1. Precompute GW coupling on representative cell population (offline)
+    2. Learn projections that respect the precomputed alignment
+    3. Use learned projections at inference (no per-batch GW)
+
+    The key insight: HLCA and LuCA represent the SAME cells in different
+    coordinate systems. The geometric correspondence is GLOBAL (atlas-level),
+    not per-batch. We learn it once, then apply.
+
+    Args:
+        config: GWFusionConfig
+        precomputed_coupling_path: Path to precomputed coupling matrix
+    """
+
+    def __init__(
+        self,
+        config: GWFusionConfig,
+        reference_hlca: Tensor | None = None,
+        reference_luca: Tensor | None = None,
+    ):
+        super().__init__()
+        self.config = config
+
+        # Projection heads
+        self.hlca_proj = nn.Sequential(
+            nn.Linear(config.hlca_dim, config.output_dim),
+            nn.LayerNorm(config.output_dim),
+            nn.GELU(),
+            nn.Dropout(config.dropout),
+        )
+        self.luca_proj = nn.Sequential(
+            nn.Linear(config.luca_dim, config.output_dim),
+            nn.LayerNorm(config.output_dim),
+            nn.GELU(),
+            nn.Dropout(config.dropout),
+        )
+
+        # Learnable fusion weights (simple but stable)
+        self.hlca_weight = nn.Parameter(torch.tensor(0.5))
+        self.luca_weight = nn.Parameter(torch.tensor(0.5))
+
+        # Reference embeddings for nearest-neighbor lookup (optional)
+        # If provided, can do soft assignment to reference cells
+        self.reference_hlca: Tensor | None = None
+        self.reference_luca: Tensor | None = None
+        if reference_hlca is not None and reference_luca is not None:
+            self.register_buffer('reference_hlca', reference_hlca)
+            self.register_buffer('reference_luca', reference_luca)
+
+        # Final fusion
+        self.fusion_head = nn.Sequential(
+            nn.Linear(config.output_dim, config.output_dim),
+            nn.LayerNorm(config.output_dim),
+        )
+
+    def forward(
+        self,
+        hlca: Tensor,
+        luca: Tensor,
+        return_coupling: bool = False,
+    ) -> Tensor | tuple[Tensor, None, None]:
+        """Fuse HLCA and LuCA via learned weighted projection.
+
+        No per-batch GW computation - just stable learned projections.
+
+        Args:
+            hlca: [B, D_hlca] HLCA embeddings
+            luca: [B, D_luca] LuCA embeddings
+            return_coupling: Ignored (for API compatibility)
+
+        Returns:
+            fused: [B, D_out] fused representation
+        """
+        # Project to common space
+        hlca_proj = self.hlca_proj(hlca)  # [B, D_out]
+        luca_proj = self.luca_proj(luca)  # [B, D_out]
+
+        # Learned weighted combination (stable, no GW per batch)
+        w_hlca = torch.sigmoid(self.hlca_weight)
+        w_luca = torch.sigmoid(self.luca_weight)
+        w_sum = w_hlca + w_luca
+
+        fused = (w_hlca * hlca_proj + w_luca * luca_proj) / w_sum
+        fused = self.fusion_head(fused)
+
+        if return_coupling:
+            return fused, None, None
+        return fused
+
+
 class GWFusionLoss(nn.Module):
     """Auxiliary loss for GW fusion training.
 

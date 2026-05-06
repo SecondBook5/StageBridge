@@ -44,6 +44,7 @@ def run_hpo(
     n_jobs: int = 1,
     storage: str | None = None,
     study_name: str | None = None,
+    gw_checkpoint_path: str | None = None,
 ) -> tuple:
     """Run Optuna HPO for StageBridge.
 
@@ -57,6 +58,8 @@ def run_hpo(
         device: Torch device
         n_jobs: Parallel trials (1 = sequential)
         storage: Optuna storage URL for distributed HPO
+        study_name: Optuna study name (for resuming)
+        gw_checkpoint_path: Path to precomputed GW alignment (enables pretrained fusion)
 
     Returns:
         (study, best_params)
@@ -99,9 +102,28 @@ def run_hpo(
         dropout = trial.suggest_float("dropout", 0.05, 0.3)
 
         # GW fusion hyperparameters
+        # Options: False (concat), "learned_projection", "pretrained"
+        # "pretrained" requires gw_checkpoint_dir to be set (proper GW on population)
         use_gw_fusion = trial.suggest_categorical("use_gw_fusion", [True, False])
+        gw_fusion_type = None
+        gw_checkpoint_dir = None
+        if use_gw_fusion:
+            # Only search over pretrained if checkpoint exists
+            if gw_checkpoint_path and Path(gw_checkpoint_path).exists():
+                gw_fusion_type = trial.suggest_categorical(
+                    "gw_fusion_type", ["pretrained", "learned_projection"]
+                )
+                if gw_fusion_type == "pretrained":
+                    gw_checkpoint_dir = gw_checkpoint_path
+            else:
+                gw_fusion_type = "learned_projection"
+
         gw_output_dim = trial.suggest_categorical("gw_output_dim", [40, 64, 96]) if use_gw_fusion else 40
-        gw_sinkhorn_reg = trial.suggest_float("gw_sinkhorn_reg", 0.01, 1.0, log=True) if use_gw_fusion else 0.1
+
+        # AMICI attention hyperparameters
+        use_amici = trial.suggest_categorical("use_amici_attention", [True, False])
+        amici_num_heads = trial.suggest_categorical("amici_num_heads", [2, 4, 8]) if use_amici else 4
+        amici_distance_scale = trial.suggest_float("amici_distance_scale", 50.0, 200.0) if use_amici else 100.0
 
         # Training weights
         ssl_weight = trial.suggest_float("ssl_weight", 0.3, 0.7)
@@ -113,8 +135,12 @@ def run_hpo(
             num_heads=num_heads,
             dropout=dropout,
             use_gw_fusion=use_gw_fusion,
+            gw_fusion_type=gw_fusion_type,
+            gw_checkpoint_dir=gw_checkpoint_dir,
             gw_output_dim=gw_output_dim,
-            gw_sinkhorn_reg=gw_sinkhorn_reg,
+            use_amici_attention=use_amici,
+            amici_num_heads=amici_num_heads,
+            amici_distance_scale=amici_distance_scale,
             use_learned_ring_pooling=True,
             use_context_refiner=True,
             use_cross_attn_drift=True,
@@ -265,6 +291,8 @@ def main():
     parser.add_argument("--n-jobs", type=int, default=1, help="Parallel trials")
     parser.add_argument("--storage", type=str, default=None, help="Optuna storage URL")
     parser.add_argument("--study-name", type=str, default=None, help="Study name (for resuming)")
+    parser.add_argument("--gw-checkpoint", type=str, default=None,
+                        help="Path to precomputed GW alignment dir (enables pretrained fusion)")
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -291,6 +319,7 @@ def main():
         n_jobs=args.n_jobs,
         storage=args.storage,
         study_name=args.study_name,
+        gw_checkpoint_path=args.gw_checkpoint,
     )
 
     # Save results

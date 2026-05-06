@@ -29,6 +29,7 @@
 \definecolor{recv}{HTML}{E74C3C}
 \definecolor{spatial}{HTML}{5DADE2}
 \definecolor{refcol}{HTML}{58D68D}
+\definecolor{auxcol}{HTML}{9B59B6}
 
 \definecolor{blockbg}{HTML}{F5F7FA}
 \definecolor{blockline}{HTML}{B0B8C0}
@@ -82,6 +83,9 @@
         fill=#1!40, draw=#1!60,
         minimum height=5.5mm, minimum width=5.5mm, line width=0.35pt
     },
+    toklabel/.style={
+        font=\fontsize{4}{5}\selectfont\sffamily, text=textmain
+    },
     % Matrix
     matrixbox/.style={
         rectangle, rounded corners=1mm,
@@ -117,167 +121,182 @@
     at (0, 66) {Receiver-centered niche encoding with OT-CFM for cell state transitions};
 
 % ============================================
-% a) TOKENIZATION
+% a) TOKENIZATION + HIERARCHICAL SET TRANSFORMER
 % ============================================
 \begin{scope}[shift={(0, 24)}]
-    \node[panel, minimum width=52mm, minimum height=44mm] at (26, 0) {};
+    \node[panel, minimum width=58mm, minimum height=56mm] at (29, -6) {};
     \node[title, anchor=west] at (4, 19) {a};
-    \node[subtitle, anchor=west] at (10, 19) {Set Transformer Tokenization};
+    \node[subtitle, anchor=west] at (10, 19) {Hierarchical Set Transformer};
 
-    % Variable input
-    \node[annot] at (26, 11) {Variable neighborhood};
-    \foreach \i in {1,...,6} {
-        \node[iocircle=spatial, minimum size=1.6em] at ({8 + \i*5.5}, 5) {};
-    }
-    \node[annot] at (44, 5) {...};
+    % 9-token niche input
+    \node[annot] at (29, 13) {9-token niche sequence};
 
-    % ISAB
-    \node[mhblock=encoder, minimum width=2.6cm] (isab) at (26, -4) {ISAB};
-    \node[dim, anchor=west] at (42, -4) {$m{=}4$};
+    % Token row with labels
+    \node[tok=recv, minimum size=4mm] (t0) at (6, 8) {};
+    \node[toklabel] at (6, 4) {recv};
+
+    \node[tok=spatial, minimum size=4mm] (t1) at (12, 8) {};
+    \node[toklabel] at (12, 4) {r1};
+
+    \node[tok=spatial, minimum size=4mm] (t2) at (18, 8) {};
+    \node[toklabel] at (18, 4) {r2};
+
+    \node[tok=spatial, minimum size=4mm] (t3) at (24, 8) {};
+    \node[toklabel] at (24, 4) {r3};
+
+    \node[tok=spatial, minimum size=4mm] (t4) at (30, 8) {};
+    \node[toklabel] at (30, 4) {r4};
+
+    \node[tok=refcol, minimum size=4mm] (t5) at (36, 8) {};
+    \node[toklabel] at (36, 4) {hlca};
+
+    \node[tok=refcol, minimum size=4mm] (t6) at (42, 8) {};
+    \node[toklabel] at (42, 4) {luca};
+
+    \node[tok=auxcol, minimum size=4mm] (t7) at (48, 8) {};
+    \node[toklabel] at (48, 4) {path};
+
+    \node[tok=auxcol, minimum size=4mm] (t8) at (54, 8) {};
+    \node[toklabel] at (54, 4) {stats};
+
+    % ISAB 1
+    \node[mhblock=encoder, minimum width=2.8cm] (isab1) at (29, -2) {ISAB$_1$};
+    \node[dim, anchor=west] at (46, -2) {$m{=}8$};
+
+    % ISAB 2 with Spatial RPE
+    \node[mhblock=encoder, minimum width=2.8cm] (isab2) at (29, -10) {ISAB$_2$ + RPE};
+    \node[dim, anchor=west] at (46, -10) {\textcolor{accent}{spatial}};
+
+    % SAB
+    \node[layer=attention, minimum width=2.8cm] (sab) at (29, -18) {SAB};
 
     % PMA
-    \node[layer=attention, minimum width=2.6cm] (pma) at (26, -13) {PMA};
-    \node[dim, anchor=west] at (42, -13) {$k{=}8$};
+    \node[layer=drift, minimum width=2.8cm] (pma) at (29, -26) {PMA};
+    \node[dim, anchor=west] at (46, -26) {$k{=}1$};
 
-    \draw[arrthick] (26, 1) -- (isab);
-    \draw[arrthick] (isab) -- (pma);
+    \draw[arrthick] (29, 2) -- (isab1);
+    \draw[arrthick] (isab1) -- (isab2);
+    \draw[arrthick] (isab2) -- (sab);
+    \draw[arrthick] (sab) -- (pma);
 
-    % Output tokens
-    \node[tok=recv] at (6, -22) {};
-    \node[tok=spatial] at (12, -22) {};
-    \node[tok=spatial] at (18, -22) {};
-    \node[tok=spatial] at (24, -22) {};
-    \node[tok=spatial] at (30, -22) {};
-    \node[tok=refcol] at (36, -22) {};
-    \node[tok=refcol] at (42, -22) {};
-    \node[tok=gate] at (48, -22) {};
+    % Output
+    \node[iocircle=refcol, minimum size=2.2em] (ctx) at (29, -36) {$e_i$};
+    \draw[arrthick] (pma) -- (ctx);
 
-    \node[dim] at (6, -27) {recv};
-    \node[dim] at (21, -27) {ring$_{1-4}$};
-    \node[dim] at (39, -27) {ref};
-    \node[dim] at (48, -27) {stats};
-
-    \draw[arrthick] (pma) -- (26, -18);
-
-    \node[dim] at (26, -32) {$9 \times D$};
+    \node[dim] at (29, -42) {context $\in \mathbb{R}^{256}$};
 \end{scope}
 
 % ============================================
-% b) RECEIVER-CENTERED ATTENTION
+% b) SPATIAL RPE DETAIL
 % ============================================
-\begin{scope}[shift={(58, 24)}]
-    \node[panel, minimum width=56mm, minimum height=44mm] at (28, 0) {};
+\begin{scope}[shift={(64, 24)}]
+    \node[panel, minimum width=56mm, minimum height=56mm] at (28, -6) {};
     \node[title, anchor=west] at (4, 19) {b};
-    \node[subtitle, anchor=west] at (10, 19) {Receiver-Centered Attention};
+    \node[subtitle, anchor=west] at (10, 19) {Spatial Relative Position Encoding};
 
-    % Tokens
-    \node[tok=recv] at (14, 11) {};
-    \node[dim] at (14, 15) {query};
+    % Spatial coordinates
+    \node[annot] at (28, 12) {Token coordinates $\mathbf{p}_j$};
 
-    \node[tok=spatial] at (36, 11) {};
-    \node[tok=spatial] at (42, 11) {};
-    \node[dim] at (39, 15) {keys/values};
+    % Centroid
+    \node[iocircle=gate, minimum size=1.6em] (cent) at (18, 4) {$\bar{\mathbf{p}}$};
+    \node[dim] at (18, -1) {centroid};
 
-    % Projections
-    \node[layersmall=encoder] (wq) at (14, 3) {$W_Q$};
-    \node[layersmall=encoder] (wkv) at (39, 3) {$W_{K,V}$};
+    % Distance computation
+    \node[layer=encoder, minimum width=2.2cm] (dist) at (40, 4) {$r_j = \|\mathbf{p}_j - \bar{\mathbf{p}}\|$};
 
-    \draw[arr] (14, 9) -- (wq);
-    \draw[arr] (39, 9) -- (wkv);
+    \draw[arr] (cent) -- (dist);
 
-    % Attention with distance
-    \node[layer=attention, minimum width=3.2cm] (attn) at (28, -7) {$\text{softmax}\!\left(\frac{QK^\top}{\sqrt{d}} - \beta d\right)$};
+    % MLP per head
+    \node[mhblock=attention, minimum width=2.6cm] (mlp) at (28, -10) {MLP$_h$};
+    \node[dim, anchor=west] at (44, -10) {per head};
 
-    \draw[arr] (wq) -- (14, -7) -- (attn.west);
-    \draw[arr] (wkv) -- (39, -7) -- (attn.east);
+    \draw[arr] (dist) -- (40, -10) -- (mlp.east);
 
-    % Distance input
-    \node[iocircle=gate, minimum size=1.8em] (dist) at (50, -7) {$d$};
-    \draw[arr] (dist) -- (attn);
+    % Bias output
+    \node[layer=drift, minimum width=2.4cm] (bias) at (28, -20) {$b_j^{(h)}$};
+    \draw[arr] (mlp) -- (bias);
 
-    % Output
-    \node[layer=drift, minimum width=2.4cm] (out) at (28, -18) {$\sum_j \alpha_j V_j$};
-    \draw[arr] (attn) -- (out);
+    % Attention formula
+    \node[layer=attention, minimum width=4cm] (attn) at (28, -32) {$\alpha = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d}} + b^{(h)}\right)$};
+    \draw[arrthick] (bias) -- (attn);
 
-    % Beta note
-    \node[dim] at (10, -18) {$\beta > 0$};
-
-    \node[dim] at (28, -26) {AMICI-style distance decay};
+    \node[dim] at (28, -40) {Additive bias in ISAB$_2$};
 \end{scope}
 
 % Arrow a->b
-\draw[arraccent] (52, 24) -- (58, 24);
+\draw[arraccent] (58, 18) -- (64, 18);
 
 % Arrow b->c
-\draw[arraccent] (114, 24) -- (120, 24);
+\draw[arraccent] (120, 18) -- (126, 18);
 
 % ============================================
 % c) GROMOV-WASSERSTEIN FUSION
 % ============================================
-\begin{scope}[shift={(120, 24)}]
-    \node[panel, minimum width=52mm, minimum height=44mm] at (26, 0) {};
+\begin{scope}[shift={(126, 24)}]
+    \node[panel, minimum width=56mm, minimum height=56mm] at (28, -6) {};
     \node[title, anchor=west] at (4, 19) {c};
-    \node[subtitle, anchor=west] at (10, 19) {Gromov-Wasserstein Fusion};
+    \node[subtitle, anchor=west] at (10, 19) {Dual-Reference Geometry};
 
     % HLCA latent space (left)
-    \node[layer=encoder, minimum width=1.6cm, minimum height=2.4cm] (hlca) at (12, 2) {};
-    \node[dim] at (12, 10) {HLCA};
-    \node[dim] at (12, -6) {$\mathbb{R}^{30}$};
+    \node[layer=encoder, minimum width=1.6cm, minimum height=2.4cm] (hlca) at (14, 4) {};
+    \node[dim] at (14, 12) {HLCA};
+    \node[dim] at (14, -4) {$\mathbb{R}^{30}$};
 
     % Points in HLCA space
-    \fill[encoder!80] (10, 6) circle (0.9mm);
-    \fill[encoder!80] (11, 1) circle (0.9mm);
-    \fill[encoder!80] (14, 4) circle (0.9mm);
-    \fill[encoder!80] (13, -1) circle (0.9mm);
+    \fill[encoder!80] (12, 8) circle (0.9mm);
+    \fill[encoder!80] (13, 3) circle (0.9mm);
+    \fill[encoder!80] (16, 6) circle (0.9mm);
+    \fill[encoder!80] (15, 1) circle (0.9mm);
 
     % Distance annotation in HLCA
-    \draw[textsub!50, line width=0.3pt] (10, 6) -- (14, 4);
-    \node[dim] at (9, 3) {$d_H$};
+    \draw[textsub!50, line width=0.3pt] (12, 8) -- (16, 6);
+    \node[dim] at (11, 5) {$d_H$};
 
     % LuCA latent space (right)
-    \node[layer=drift, minimum width=1.6cm, minimum height=2.4cm] (luca) at (40, 2) {};
-    \node[dim] at (40, 10) {LuCA};
-    \node[dim] at (40, -6) {$\mathbb{R}^{10}$};
+    \node[layer=drift, minimum width=1.6cm, minimum height=2.4cm] (luca) at (42, 4) {};
+    \node[dim] at (42, 12) {LuCA};
+    \node[dim] at (42, -4) {$\mathbb{R}^{10}$};
 
     % Points in LuCA space
-    \fill[drift!80] (38, 6) circle (0.9mm);
-    \fill[drift!80] (39, 1) circle (0.9mm);
-    \fill[drift!80] (42, 4) circle (0.9mm);
-    \fill[drift!80] (41, -1) circle (0.9mm);
+    \fill[drift!80] (40, 8) circle (0.9mm);
+    \fill[drift!80] (41, 3) circle (0.9mm);
+    \fill[drift!80] (44, 6) circle (0.9mm);
+    \fill[drift!80] (43, 1) circle (0.9mm);
 
     % Distance annotation in LuCA
-    \draw[textsub!50, line width=0.3pt] (38, 6) -- (42, 4);
-    \node[dim] at (44, 3) {$d_L$};
+    \draw[textsub!50, line width=0.3pt] (40, 8) -- (44, 6);
+    \node[dim] at (46, 5) {$d_L$};
 
     % GW coupling (curved dashed lines)
-    \draw[arr, draw=accent!60, dashed, bend left=20] (14, 4) to (38, 6);
-    \draw[arr, draw=accent!60, dashed, bend left=10] (11, 1) to (39, 1);
-    \draw[arr, draw=accent!40, dashed, bend right=10] (13, -1) to (41, -1);
-    \draw[arr, draw=accent!40, dashed, bend right=20] (10, 6) to (42, 4);
+    \draw[arr, draw=accent!60, dashed, bend left=20] (16, 6) to (40, 8);
+    \draw[arr, draw=accent!60, dashed, bend left=10] (13, 3) to (41, 3);
+    \draw[arr, draw=accent!40, dashed, bend right=10] (15, 1) to (43, 1);
+    \draw[arr, draw=accent!40, dashed, bend right=20] (12, 8) to (44, 6);
 
-    % GW optimization box
-    \node[layer=attention, minimum width=2.4cm] (gw) at (26, -14) {GW Transport};
+    % GW optimization box - UPDATED to Pretrained
+    \node[layer=attention, minimum width=2.6cm] (gw) at (28, -14) {GW Pretrained};
 
-    \draw[arr] (hlca.south) -- (12, -14) -- (gw.west);
-    \draw[arr] (luca.south) -- (40, -14) -- (gw.east);
+    \draw[arr] (hlca.south) -- (14, -14) -- (gw.west);
+    \draw[arr] (luca.south) -- (42, -14) -- (gw.east);
 
     % Output fused embedding
-    \node[iocircle=refcol, minimum size=2.4em] (fused) at (26, -24) {$z_f$};
+    \node[iocircle=refcol, minimum size=2.4em] (fused) at (28, -26) {$z_f$};
     \draw[arrthick] (gw) -- (fused);
-    \node[dim, anchor=west] at (32, -24) {$\mathbb{R}^{40}$};
+    \node[dim, anchor=west] at (34, -26) {$\mathbb{R}^{40}$};
 
     % Equation
-    \node[math] at (26, -32) {$\min_T \sum |d_H(i,j) - d_L(k,l)|^2 T_{ik}T_{jl}$};
+    \node[math] at (28, -36) {Preserve $|d_H - d_L|$ structure};
+    \node[dim] at (28, -42) {Neural transport map};
 \end{scope}
 
 % Arrow c->d
-\draw[arraccent] (172, 24) -- (172, -8);
+\draw[arraccent] (182, 22) -- (182, -8);
 
 % ============================================
 % d) CROSS-ATTENTION DRIFT
 % ============================================
-\begin{scope}[shift={(0, -46)}]
-    \node[panel, minimum width=168mm, minimum height=54mm] at (84, 0) {};
+\begin{scope}[shift={(0, -48)}]
+    \node[panel, minimum width=178mm, minimum height=54mm] at (89, 0) {};
     \node[title, anchor=west] at (4, 24) {d};
     \node[subtitle, anchor=west] at (10, 24) {CrossAttentionDrift Network};
 
@@ -350,12 +369,12 @@
 \end{scope}
 
 % Context connection from GW fusion (panel c) to CrossAttentionDrift (panel d)
-\draw[arrthick, draw=refcol!70] (146, 0) -- (146, -16) -| (18, -52);
+\draw[arrthick, draw=refcol!70] (154, -2) -- (154, -18) -| (18, -54);
 
 % ============================================
 % e) OT-CFM
 % ============================================
-\begin{scope}[shift={(0, -104)}]
+\begin{scope}[shift={(0, -106)}]
     \node[panel, minimum width=88mm, minimum height=36mm] at (44, 0) {};
     \node[title, anchor=west] at (4, 15) {e};
     \node[subtitle, anchor=west] at (10, 15) {Optimal Transport CFM};
@@ -398,23 +417,111 @@
 \end{scope}
 
 % ============================================
+% f) EVOLUTION BRANCH - UPDATED dimensions
+% ============================================
+\begin{scope}[shift={(94, -106)}]
+    \node[panel, minimum width=84mm, minimum height=36mm] at (42, 0) {};
+    \node[title, anchor=west] at (4, 15) {f};
+    \node[subtitle, anchor=west] at (10, 15) {Evolution Branch (WES + Clonal)};
+
+    % Input features - two boxes
+    \node[iocircle=attention, minimum size=2em] (wes) at (14, 4) {WES};
+    \node[dim] at (14, -2) {$\mathbb{R}^{15}$};
+
+    \node[iocircle=encoder, minimum size=2em] (clon) at (14, -10) {Clon};
+    \node[dim] at (14, -16) {$\mathbb{R}^{13}$};
+
+    % Feature labels
+    \node[annot, anchor=east] at (6, 8) {TMB};
+    \node[annot, anchor=east] at (6, 4) {SBS sigs};
+    \node[annot, anchor=east] at (6, 0) {OncoKB};
+    \node[annot, anchor=east] at (6, -8) {CNV};
+    \node[annot, anchor=east] at (6, -12) {clones};
+
+    % Concat
+    \node[layer=gate, minimum width=1.4cm] (cat) at (30, -3) {concat};
+    \draw[arr] (wes) -- (22, 4) -- (22, 0) -- (cat);
+    \draw[arr] (clon) -- (22, -10) -- (22, -6) -- (cat);
+    \node[dim] at (30, -9) {$\mathbb{R}^{28}$};
+
+    % Projection MLP
+    \node[layer=encoder, minimum width=2cm] (proj) at (48, -3) {Proj};
+    \node[dim] at (48, -9) {GELU + LN};
+    \draw[arr] (cat) -- (proj);
+
+    % Evolution embedding
+    \node[iocircle=encoder, minimum size=2em] (evo) at (64, -3) {$e_\text{evo}$};
+    \draw[arr] (proj) -- (evo);
+
+    % Context input
+    \node[iocircle=refcol, minimum size=2em] (ctxf) at (64, 8) {$e_i$};
+    \node[dim, anchor=west] at (70, 8) {from (a)};
+
+    % Gate mechanism
+    \node[layer=gate, minimum width=1.8cm] (gatef) at (78, 2) {$\sigma(g)$};
+    \draw[arr] (evo) -- (evo |- gatef) -- (gatef);
+    \draw[arr] (ctxf) -- (ctxf |- gatef) -- (gatef);
+
+    % Output
+    \node[iocircle=accent, minimum size=2.2em] (outf) at (78, -10) {$\tilde{e}_i$};
+    \draw[arrthick] (gatef) -- (outf);
+\end{scope}
+
+% ============================================
+% g) OUTPUT HEADS - NEW PANEL
+% ============================================
+\begin{scope}[shift={(0, -148)}]
+    \node[panel, minimum width=178mm, minimum height=28mm] at (89, 0) {};
+    \node[title, anchor=west] at (4, 11) {g};
+    \node[subtitle, anchor=west] at (10, 11) {Prediction Heads};
+
+    % Context input
+    \node[iocircle=refcol, minimum size=2.2em] (ctxg) at (24, 0) {$e_i$};
+    \node[dim] at (24, -10) {context};
+
+    % Stage head
+    \node[layer=attention, minimum width=2.4cm] (stageh) at (60, 4) {StageHead};
+    \draw[arr] (ctxg) -- (40, 0) -- (40, 4) -- (stageh);
+    \node[iocircle=attention, minimum size=2em] (stageout) at (84, 4) {$\hat{s}$};
+    \draw[arr] (stageh) -- (stageout);
+    \node[dim, anchor=west] at (90, 4) {3 classes};
+
+    % Pathway head
+    \node[layer=drift, minimum width=2.4cm] (pathh) at (60, -4) {PathwayHead};
+    \draw[arr] (ctxg) -- (40, 0) -- (40, -4) -- (pathh);
+    \node[iocircle=drift, minimum size=2em] (pathout) at (84, -4) {$\hat{p}$};
+    \draw[arr] (pathh) -- (pathout);
+    \node[dim, anchor=west] at (90, -4) {50 pathways};
+
+    % Proliferation head
+    \node[layer=encoder, minimum width=2.4cm] (prolifh) at (130, 0) {ProlifHead};
+    \draw[arr] (ctxg) -- (40, 0) -- (110, 0) -- (prolifh);
+    \node[iocircle=encoder, minimum size=2em] (prolifout) at (154, 0) {$\hat{r}$};
+    \draw[arr] (prolifh) -- (prolifout);
+    \node[dim, anchor=west] at (160, 0) {scalar};
+
+    % Loss annotation
+    \node[math] at (89, -12) {$\mathcal{L}_{\text{aux}} = \mathcal{L}_{\text{stage}} + \lambda_p \mathcal{L}_{\text{pathway}} + \lambda_r \mathcal{L}_{\text{prolif}}$};
+\end{scope}
+
+% ============================================
 % LEGEND
 % ============================================
-\begin{scope}[shift={(0, -140)}]
-    \node[tok=recv, minimum size=5mm] at (14, 0) {};
-    \node[annot, anchor=west] at (18, 0) {receiver};
+\begin{scope}[shift={(0, -182)}]
+    \node[tok=recv, minimum size=5mm] at (10, 0) {};
+    \node[annot, anchor=west] at (14, 0) {receiver};
 
-    \node[tok=spatial, minimum size=5mm] at (48, 0) {};
-    \node[annot, anchor=west] at (52, 0) {spatial};
+    \node[tok=spatial, minimum size=5mm] at (40, 0) {};
+    \node[annot, anchor=west] at (44, 0) {spatial (ring1-4)};
 
-    \node[tok=refcol, minimum size=5mm] at (82, 0) {};
-    \node[annot, anchor=west] at (86, 0) {context};
+    \node[tok=refcol, minimum size=5mm] at (76, 0) {};
+    \node[annot, anchor=west] at (80, 0) {reference (hlca/luca)};
 
-    \node[mhblock=attention, minimum width=1.2cm, minimum height=0.6cm] at (120, 0) {};
-    \node[annot, anchor=west] at (128, 0) {multi-head};
+    \node[tok=auxcol, minimum size=5mm] at (120, 0) {};
+    \node[annot, anchor=west] at (124, 0) {auxiliary (pathway/stats)};
 
-    \node[layer=gate, minimum width=1cm, minimum height=0.5cm] at (158, 0) {};
-    \node[annot, anchor=west] at (164, 0) {gate};
+    \node[layer=gate, minimum width=1cm, minimum height=0.5cm] at (164, 0) {};
+    \node[annot, anchor=west] at (170, 0) {gate};
 \end{scope}
 
 \end{tikzpicture}

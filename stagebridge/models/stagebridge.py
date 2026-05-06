@@ -38,7 +38,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor, nn
 
-from stagebridge.context.encoder import ReceiverNicheOutput
+from stagebridge.context.encoder import ReceiverNicheOutput, ReceiverCenteredNicheEncoder
 from stagebridge.context.layers import SAB, ISAB, PMA, SinusoidalTimeEmbedding
 from stagebridge.context.tokenizer import NicheTokenizer
 from stagebridge.context.aggregation import HierarchicalAggregator, SampleLevelHeads, PrototypeBottleneck
@@ -48,7 +48,8 @@ from stagebridge.transition.drift import (
     CrossAttentionDrift,
     FiLMConditioner,
 )
-from stagebridge.reference.gw_fusion import GromovWassersteinFusion, GWFusionConfig
+from stagebridge.reference.gw_fusion import GromovWassersteinFusion, PrecomputedGWFusion, GWFusionConfig
+from stagebridge.reference.gw_precompute import PretrainedGWFusion
 from stagebridge.contracts import EVOLUTION_DIM, STATS_TOKEN_DIM
 
 
@@ -142,17 +143,35 @@ class StageBridgeConfig:
     stats_dim: int = STATS_TOKEN_DIM  # from contracts
 
     # Learned ring pooling (individual cells per ring with ISAB+PMA)
+    # DEPRECATED: Use AMICI-style continuous attention instead
     use_learned_ring_pooling: bool = True
     ring_pooler_num_heads: int = 4
     ring_pooler_num_inducing: int = 4
     max_cells_per_ring: int = 50
 
+    # AMICI-style continuous attention (replaces ring binning)
+    use_amici_attention: bool = False  # Use ReceiverCenteredNicheEncoder
+    amici_num_heads: int = 4  # Each head learns different distance decay
+    amici_num_layers: int = 2  # Attention layers
+    amici_max_neighbors: int = 100  # Max neighbors (sorted by distance)
+    amici_distance_scale: float = 100.0  # Distance normalization (microns)
+    amici_use_empty_token: bool = True  # Allow "no neighbor is informative"
+    amici_empty_token_score: float = 3.0  # Fixed score for empty token
+    amici_sparsity_weight: float = 0.01  # Entropy regularization
+    amici_value_l1_weight: float = 0.01  # L1 on values for sparsity
+
     # Gromov-Wasserstein fusion (replaces concat for HLCA/LuCA)
+    # Options:
+    #   "pretrained" - Load precomputed GW alignment (recommended, run scripts/precompute_gw_alignment.py first)
+    #   "learned_projection" - Simple learned weighted projection (stable, no precomputation needed)
+    #   "per_batch" - Original per-batch GW (broken for single cells, kept for comparison)
     use_gw_fusion: bool = False
+    gw_fusion_type: str = "learned_projection"  # "pretrained", "learned_projection", or "per_batch"
+    gw_checkpoint_dir: str | None = None  # Path to precomputed GW alignment (for pretrained)
     gw_output_dim: int = 40  # Output dim of fused representation
     gw_sinkhorn_iters: int = 50
     gw_sinkhorn_reg: float = 0.1
-    gw_mode: str = "barycentric"  # project_to_hlca, project_to_luca, barycentric
+    gw_mode: str = "barycentric"  # project_to_hlca, project_to_luca, barycentric (per_batch only)
 
     # Reference ablations (for hlca_only / luca_only experiments)
     use_hlca_reference: bool = True  # Include HLCA token
@@ -482,22 +501,61 @@ class StageBridge(nn.Module):
 
         # Gromov-Wasserstein fusion for HLCA-LuCA alignment
         # Must be initialized before tokenizer to know output dimension
-        self.gw_fusion: GromovWassersteinFusion | None = None
+        self.gw_fusion: GromovWassersteinFusion | PrecomputedGWFusion | PretrainedGWFusion | None = None
         if config.use_gw_fusion:
-            gw_config = GWFusionConfig(
-                hlca_dim=30,  # Fixed by HLCA scANVI
-                luca_dim=10,  # Fixed by LuCA scVI
-                output_dim=config.gw_output_dim,
-                sinkhorn_iters=config.gw_sinkhorn_iters,
-                sinkhorn_reg=config.gw_sinkhorn_reg,
-                mode=config.gw_mode,
-                dropout=config.dropout,
-            )
-            self.gw_fusion = GromovWassersteinFusion(gw_config)
+            if config.gw_fusion_type == "pretrained":
+                # Load precomputed GW alignment (recommended)
+                if config.gw_checkpoint_dir is None:
+                    raise ValueError("gw_checkpoint_dir required for pretrained GW fusion")
+                self.gw_fusion = PretrainedGWFusion(config.gw_checkpoint_dir)
+            elif config.gw_fusion_type == "learned_projection":
+                # Simple learned weighted projection (stable, no precomputation)
+                gw_config = GWFusionConfig(
+                    hlca_dim=30,
+                    luca_dim=10,
+                    output_dim=config.gw_output_dim,
+                    dropout=config.dropout,
+                )
+                self.gw_fusion = PrecomputedGWFusion(gw_config)
+            else:
+                # Per-batch GW (broken for single cells, kept for comparison)
+                gw_config = GWFusionConfig(
+                    hlca_dim=30,
+                    luca_dim=10,
+                    output_dim=config.gw_output_dim,
+                    sinkhorn_iters=config.gw_sinkhorn_iters,
+                    sinkhorn_reg=config.gw_sinkhorn_reg,
+                    mode=config.gw_mode,
+                    dropout=config.dropout,
+                )
+                self.gw_fusion = GromovWassersteinFusion(gw_config)
 
-        # Learned ring pooling (individual cells per ring with ISAB+PMA)
+        # AMICI-style continuous attention (preferred)
+        self.amici_encoder: ReceiverCenteredNicheEncoder | None = None
+        if config.use_amici_attention:
+            self.amici_encoder = ReceiverCenteredNicheEncoder(
+                input_dim=config.input_dim,
+                hidden_dim=config.hidden_dim,
+                num_heads=config.amici_num_heads,
+                num_layers=config.amici_num_layers,
+                max_neighbors=config.amici_max_neighbors,
+                sparsity_weight=config.amici_sparsity_weight,
+                value_l1_weight=config.amici_value_l1_weight,
+                dropout=config.dropout,
+                use_reconstruction_head=True,
+                use_empty_token=config.amici_use_empty_token,
+                empty_token_score=config.amici_empty_token_score,
+                distance_scale=config.amici_distance_scale,
+            )
+            # Projections for reference tokens (not part of AMICI attention)
+            self.amici_hlca_proj = nn.Linear(30, config.hidden_dim)
+            self.amici_luca_proj = nn.Linear(10, config.hidden_dim)
+            self.amici_stats_proj = nn.Linear(config.stats_dim, config.hidden_dim)
+            self.amici_pathway_proj = nn.Linear(config.input_dim, config.hidden_dim)
+
+        # Learned ring pooling (DEPRECATED - use AMICI instead)
         self.niche_tokenizer: NicheTokenizer | None = None
-        if config.use_learned_ring_pooling:
+        if config.use_learned_ring_pooling and not config.use_amici_attention:
             self.niche_tokenizer = NicheTokenizer(
                 input_dim=config.input_dim,
                 hidden_dim=config.hidden_dim,
@@ -509,7 +567,7 @@ class StageBridge(nn.Module):
                 use_fused_reference=config.use_gw_fusion,
                 fused_ref_dim=config.gw_output_dim if config.use_gw_fusion else None,
             )
-        else:
+        elif not config.use_amici_attention:
             # Simple projections for fallback mean-pooling tokenization
             self.simple_token_proj = nn.Linear(config.input_dim, config.hidden_dim)
             self.simple_hlca_proj = nn.Linear(30, config.hidden_dim)  # HLCA dim
@@ -595,12 +653,39 @@ class StageBridge(nn.Module):
         if not self.config.use_luca_reference:
             luca = torch.zeros_like(luca)
 
-        # no_niche: zero out ring cells and masks
+        # no_niche ablation: SKIP niche tokenizer entirely
+        # This is a clean ablation - no learnable niche parameters
         if not self.config.use_niche_context:
-            ring_cells = [torch.zeros_like(rc) for rc in ring_cells]
-            ring_masks = [torch.zeros_like(rm) for rm in ring_masks]
+            B = receiver.shape[0]
+            # Build minimal token sequence without niche processing
+            token_list = []
+            # Receiver still gets projected (it's not "niche", it's the cell itself)
+            if self.niche_tokenizer is not None:
+                token_list.append(self.niche_tokenizer.token_proj(receiver))
+            else:
+                token_list.append(self.simple_token_proj(receiver))
+            # Zero ring tokens (no niche information)
+            for _ in range(4):
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
+            # Reference tokens
+            if self.niche_tokenizer is not None:
+                token_list.append(self.niche_tokenizer.hlca_proj(hlca) if self.config.use_hlca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
+                token_list.append(self.niche_tokenizer.luca_proj(luca) if self.config.use_luca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
+                token_list.append(self.niche_tokenizer.token_proj(pathway) if pathway is not None else torch.zeros(B, self.config.hidden_dim, device=device))
+                stats_input = stats[:, :self.config.stats_dim] if stats is not None and stats.shape[-1] > self.config.stats_dim else stats
+                token_list.append(self.niche_tokenizer.stats_proj(stats_input) if stats is not None else torch.zeros(B, self.config.hidden_dim, device=device))
+            else:
+                token_list.append(self.simple_hlca_proj(hlca) if self.config.use_hlca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
+                token_list.append(self.simple_luca_proj(luca) if self.config.use_luca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
+                token_list.append(self.simple_token_proj(pathway) if pathway is not None else torch.zeros(B, self.config.hidden_dim, device=device))
+                stats_input = stats[:, :self.config.stats_dim] if stats is not None and stats.shape[-1] > self.config.stats_dim else stats
+                token_list.append(self.simple_stats_proj(stats_input) if stats is not None else torch.zeros(B, self.config.hidden_dim, device=device))
 
-        if self.niche_tokenizer is not None:
+            tokens = torch.stack(token_list, dim=1)  # [B, 9, hidden_dim]
+            receiver_reconstruction = None
+            ring_attention = None
+
+        elif self.niche_tokenizer is not None:
             # NicheTokenizer: raw cells per ring -> 8 or 9-token structure
             tokens, receiver_reconstruction, ring_attention = self.niche_tokenizer(
                 receiver=receiver,
@@ -614,29 +699,25 @@ class StageBridge(nn.Module):
             )
         else:
             # Fallback: simple mean pooling for each ring (no learned attention)
+            # Only reaches here if use_niche_context=True and niche_tokenizer=None
             B = receiver.shape[0]
             token_list = []
 
             # Receiver token
             token_list.append(self.simple_token_proj(receiver))
 
-            # Ring tokens via mean pooling (skip if no_niche ablation)
-            if self.config.use_niche_context:
-                for i, (cells, mask) in enumerate(zip(ring_cells, ring_masks)):
-                    # cells: [B, max_cells, D], mask: [B, max_cells]
-                    if mask is not None:
-                        mask_expanded = mask.unsqueeze(-1).float()  # [B, max_cells, 1]
-                        masked_cells = cells * mask_expanded
-                        cell_sum = masked_cells.sum(dim=1)  # [B, D]
-                        cell_count = mask_expanded.sum(dim=1).clamp(min=1)  # [B, 1]
-                        ring_mean = cell_sum / cell_count  # [B, D]
-                    else:
-                        ring_mean = cells.mean(dim=1)
-                    token_list.append(self.simple_token_proj(ring_mean))
-            else:
-                # no_niche: add zero ring tokens to maintain sequence length
-                for _ in range(4):
-                    token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
+            # Ring tokens via mean pooling
+            for i, (cells, mask) in enumerate(zip(ring_cells, ring_masks)):
+                # cells: [B, max_cells, D], mask: [B, max_cells]
+                if mask is not None:
+                    mask_expanded = mask.unsqueeze(-1).float()  # [B, max_cells, 1]
+                    masked_cells = cells * mask_expanded
+                    cell_sum = masked_cells.sum(dim=1)  # [B, D]
+                    cell_count = mask_expanded.sum(dim=1).clamp(min=1)  # [B, 1]
+                    ring_mean = cell_sum / cell_count  # [B, D]
+                else:
+                    ring_mean = cells.mean(dim=1)
+                token_list.append(self.simple_token_proj(ring_mean))
 
             # Reference tokens (respect hlca_only / luca_only ablations)
             if self.config.use_hlca_reference:
@@ -710,6 +791,146 @@ class StageBridge(nn.Module):
             value_l1_loss=None,
             empty_attention=None,
             receiver_reconstruction=receiver_reconstruction if return_reconstruction else None,
+            niche_prototype_composition=niche_prototype_output.prototype_composition if niche_prototype_output else None,
+        )
+
+    def encode_niche_amici(
+        self,
+        receiver: Tensor,
+        neighbors: Tensor,
+        distances: Tensor,
+        neighbor_mask: Tensor,
+        hlca: Tensor,
+        luca: Tensor,
+        pathway: Tensor | None = None,
+        stats: Tensor | None = None,
+        evolution_features: Tensor | None = None,
+        return_reconstruction: bool = False,
+    ) -> ReceiverNicheOutput:
+        """Encode niche with AMICI-style continuous distance attention.
+
+        Uses ReceiverCenteredNicheEncoder with learned distance decay per head.
+        Each head learns its own effective interaction range from data.
+
+        Args:
+            receiver: [B, D] receiver cell embedding
+            neighbors: [B, K, D] neighbor embeddings (sorted by distance)
+            distances: [B, K] distances in microns
+            neighbor_mask: [B, K] True = valid neighbor
+            hlca: [B, 30] HLCA reference embedding
+            luca: [B, 10] LuCA reference embedding
+            pathway: [B, D] pathway features (optional)
+            stats: [B, stats_dim] stats features (optional)
+            evolution_features: [B, E] WES/genomic features (optional)
+            return_reconstruction: Return receiver reconstruction for SSL
+
+        Returns:
+            ReceiverNicheOutput with context, attention, and AMICI-specific losses
+        """
+        if self.amici_encoder is None:
+            raise RuntimeError("AMICI encoder not enabled. Set use_amici_attention=True")
+
+        B = receiver.shape[0]
+        device = receiver.device
+
+        # hlca_only / luca_only ablations
+        if not self.config.use_hlca_reference:
+            hlca = torch.zeros_like(hlca)
+        if not self.config.use_luca_reference:
+            luca = torch.zeros_like(luca)
+
+        # no_niche ablation: SKIP encoder entirely, use zero niche context
+        # This is a clean ablation - no learnable parameters from niche processing
+        if not self.config.use_niche_context:
+            niche_context = torch.zeros(B, self.config.hidden_dim, device=device)
+            amici_output = ReceiverNicheOutput(
+                context=niche_context,
+                context_tokens=None,
+                attention_weights=None,
+                entropy_loss=None,
+                value_l1_loss=None,
+                empty_attention=None,
+                receiver_reconstruction=None,
+            )
+        else:
+            # Run AMICI encoder (receiver-centered attention with distance decay)
+            amici_output = self.amici_encoder(
+                receiver=receiver,
+                neighbors=neighbors,
+                distances=distances,
+                neighbor_mask=neighbor_mask,
+                return_reconstruction=return_reconstruction,
+            )
+            niche_context = amici_output.context  # [B, hidden_dim]
+
+        # Build token sequence for context refiner (keep compatible with downstream)
+        # Tokens: [niche_context, hlca, luca, pathway, stats]
+        token_list = [niche_context]
+
+        # Reference tokens
+        if self.config.use_hlca_reference:
+            token_list.append(self.amici_hlca_proj(hlca))
+        else:
+            token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
+
+        if self.config.use_luca_reference:
+            token_list.append(self.amici_luca_proj(luca))
+        else:
+            token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
+
+        # Pathway token
+        if pathway is not None:
+            token_list.append(self.amici_pathway_proj(pathway))
+        else:
+            token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
+
+        # Stats token
+        if stats is not None:
+            stats_input = stats[:, :self.config.stats_dim] if stats.shape[-1] > self.config.stats_dim else stats
+            token_list.append(self.amici_stats_proj(stats_input))
+        else:
+            token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
+
+        tokens = torch.stack(token_list, dim=1)  # [B, 5, hidden_dim]
+
+        # Context refinement (optional)
+        entropy_loss = None
+        if self.context_refiner is not None:
+            refiner_output = self.context_refiner(tokens, return_entropy=self.training)
+            if self.training and len(refiner_output) == 3:
+                context, context_tokens, entropy_loss = refiner_output
+            else:
+                context, context_tokens = refiner_output[:2]
+        else:
+            context = tokens.mean(dim=1)
+            context_tokens = tokens
+
+        # Prototype bottleneck (optional)
+        niche_prototype_output = None
+        if self.niche_prototype_bottleneck is not None:
+            niche_prototype_output = self.niche_prototype_bottleneck(context.unsqueeze(1))
+            context = niche_prototype_output.aligned_embeddings.squeeze(1)
+
+        # Stats conditioning (optional)
+        if self.stats_conditioner is not None and stats is not None:
+            if stats.shape[-1] != self.config.stats_dim:
+                stats_cond = stats[:, :self.config.stats_dim]
+            else:
+                stats_cond = stats
+            context = self.stats_conditioner(context, stats_cond)
+
+        # Evolution branch (optional)
+        if self.evolution_branch is not None and evolution_features is not None:
+            context, _ = self.evolution_branch(context, evolution_features)
+
+        return ReceiverNicheOutput(
+            context=context,
+            context_tokens=context_tokens,
+            attention_weights=amici_output.attention_weights,
+            entropy_loss=entropy_loss,
+            value_l1_loss=amici_output.value_l1_loss,
+            empty_attention=amici_output.empty_attention,
+            receiver_reconstruction=amici_output.receiver_reconstruction if return_reconstruction else None,
             niche_prototype_composition=niche_prototype_output.prototype_composition if niche_prototype_output else None,
         )
 

@@ -94,28 +94,35 @@ HLCA_DIM = 30
 LUCA_DIM = 10
 
 # Fusion methods for dual-reference embeddings
+# Valid options for use_gw_fusion / gw_fusion_type:
+#   - False / "concat": Simple concatenation [HLCA; LuCA] -> 40d
+#   - "learned_projection": Learned weighted projection (fallback)
+#   - "pretrained": Precomputed GW alignment with neural transport map (recommended)
+GW_FUSION_TYPES = ("concat", "learned_projection", "pretrained")
+
+# Legacy fusion methods (deprecated - use GW_FUSION_TYPES)
 FUSION_METHODS = ("concat", "weighted", "gated", "film")
 
 
-def get_fused_dim(method: Literal["concat", "weighted", "gated", "film"] = "concat") -> int:
+def get_fused_dim(method: str = "concat") -> int:
     """Get output dimension for a fusion method.
 
     Args:
         method:
             - "concat": Simple concatenation [HLCA; LuCA] -> 40d
-            - "weighted": Learned weighted sum -> 30d (projects LuCA up)
-            - "gated": Gated fusion with sigmoid weighting -> 30d
-            - "film": FiLM conditioning (LuCA modulates HLCA) -> 30d
+            - "learned_projection": Learned weighted projection -> configurable
+            - "pretrained": Precomputed GW with neural map -> configurable
+            - "weighted"/"gated"/"film": Legacy methods -> 30d
 
     Returns:
         Output dimension of fused embedding
     """
-    if method == "concat":
-        return HLCA_DIM + LUCA_DIM  # 40
+    if method in ("concat", "learned_projection", "pretrained"):
+        return HLCA_DIM + LUCA_DIM  # 40 (default, can be overridden by gw_output_dim)
     elif method in ("weighted", "gated", "film"):
         return HLCA_DIM  # 30 (project to larger space)
     else:
-        raise ValueError(f"Unknown fusion method '{method}'. Expected one of {FUSION_METHODS}")
+        raise ValueError(f"Unknown fusion method '{method}'. Expected one of {GW_FUSION_TYPES} or {FUSION_METHODS}")
 
 
 # Default: concat (simplest, proven to work)
@@ -704,16 +711,18 @@ class AblationOutputContract:
     """Contract for ablation study outputs."""
 
     ABLATION_TYPES: tuple[str, ...] = (
-        "full",            # Full model (baseline)
         "no_niche",        # Zero out niche context
         "no_distance",     # Remove distance encoding
         "no_gate",         # Fix gate=1 (always use context)
         "random_niche",    # Randomize neighbor assignment
         "hlca_only",       # Single reference: HLCA
         "luca_only",       # Single reference: LuCA
-        "no_token_types",  # Remove token type embeddings
-        "no_wes",          # Remove WES/genomic features
-        "with_wes",        # Enable WES features (if not default)
+        "frozen_encoder",  # Freeze SSL encoder, train only transition head
+        "no_ring_pooling", # Mean pooling instead of ISAB+PMA
+        "no_context_refiner",  # Remove HierarchicalSetTransformer
+        "no_gw_fusion",    # Concat only (no GW)
+        "gw_learned",      # Learned projection (no precomputed GW)
+        "no_evolution",    # Remove WES/clonal evolution features
     )
 
     REQUIRED_KEYS: tuple[str, ...] = (

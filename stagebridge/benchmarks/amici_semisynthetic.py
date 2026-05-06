@@ -1,7 +1,7 @@
 """AMICI-style semi-synthetic data generator with ground-truth interaction rules.
 
 This module generates semi-synthetic data following the approach from AMICI
-(Yuan & Bhargava 2024):
+(Hong biorxiv 2025):
 - Real single-cell expression profiles (or realistic synthetic)
 - Explicit sender-receiver interaction rules with distance thresholds
 - "Interacting" subpopulations with distinct DE gene signatures

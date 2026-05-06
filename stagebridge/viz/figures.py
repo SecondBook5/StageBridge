@@ -698,6 +698,249 @@ def fig_proliferation_umap(coords_2d, cells_s, output_dir):
 
 
 # =============================================================================
+# IL1B AND CELL TYPE PANELS
+# =============================================================================
+
+def fig_il1b_umap(coords_2d, cells_s, output_dir):
+    """UMAP colored by IL1B expression."""
+    for col in ['il1b_raw', 'IL1B', 'il1b']:
+        if col in cells_s.columns and cells_s[col].notna().sum() > 100:
+            break
+    else:
+        print("  Skipping il1b_umap: no IL1B column")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 7))
+
+    values = cells_s[col].values
+    valid = ~np.isnan(values)
+    sc = ax.scatter(coords_2d[valid, 0], coords_2d[valid, 1],
+                   c=values[valid], cmap='Reds', s=5, alpha=0.5, rasterized=True)
+
+    cbar = plt.colorbar(sc, ax=ax, shrink=0.7)
+    cbar.set_label('IL1B Expression', fontsize=11)
+    ax.set_xlabel('UMAP 1')
+    ax.set_ylabel('UMAP 2')
+    ax.set_title('IL1B Expression')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    save_fig(fig, output_dir, 'il1b_umap')
+
+
+def fig_il1b_violin(cells_s, output_dir):
+    """Violin plot of IL1B by stage."""
+    for col in ['il1b_raw', 'IL1B', 'il1b']:
+        if col in cells_s.columns:
+            break
+    else:
+        print("  Skipping il1b_violin: no IL1B column")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    stage_order = [s for s in STAGE_ORDER if s in cells_s['stage'].unique()]
+    colors = [STAGE_COLORS.get(s, 'gray') for s in stage_order]
+
+    sns.violinplot(data=cells_s, x='stage', y=col, order=stage_order,
+                  hue='stage', palette=STAGE_COLORS, legend=False, ax=ax)
+
+    ax.set_xlabel('')
+    ax.set_ylabel('IL1B Expression')
+    ax.set_title('IL1B Expression by Disease Stage')
+    save_fig(fig, output_dir, 'il1b_violin')
+
+
+def fig_celltype_umap(coords_2d, cells_s, output_dir):
+    """UMAP colored by cell type."""
+    col = 'cell_type' if 'cell_type' in cells_s.columns else 'luca_cell_type'
+    if col not in cells_s.columns:
+        print("  Skipping celltype_umap: no cell_type column")
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    cell_types = cells_s[col].unique()
+    for ct in cell_types:
+        mask = cells_s[col] == ct
+        color = CELL_TYPE_COLORS.get(ct, 'gray')
+        ax.scatter(coords_2d[mask, 0], coords_2d[mask, 1],
+                  c=color, s=5, alpha=0.5, label=ct, rasterized=True)
+
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, markerscale=3)
+    ax.set_xlabel('UMAP 1')
+    ax.set_ylabel('UMAP 2')
+    ax.set_title('Cell Types')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    plt.tight_layout()
+    save_fig(fig, output_dir, 'celltype_umap')
+
+
+def fig_tcell_raincloud(cells, output_dir):
+    """Raincloud plot of T-cell fraction per donor by stage."""
+    ct_col = 'cell_type' if 'cell_type' in cells.columns else 'luca_cell_type'
+
+    records = []
+    for (donor, stage), group in cells.groupby(['donor_id', 'stage']):
+        n = len(group)
+        t_cells = group[ct_col].str.contains('T cell', case=False, na=False).sum()
+        records.append({'donor_id': donor, 'stage': stage, 't_cell_pct': 100 * t_cells / n})
+
+    df = pd.DataFrame(records)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    stage_order = [s for s in STAGE_ORDER if s in df['stage'].unique()]
+
+    # Violin
+    sns.violinplot(data=df, x='stage', y='t_cell_pct', order=stage_order,
+                  hue='stage', palette=STAGE_COLORS, inner=None, alpha=0.3, legend=False, ax=ax)
+    # Strip
+    sns.stripplot(data=df, x='stage', y='t_cell_pct', order=stage_order,
+                 hue='stage', palette=STAGE_COLORS, size=6, alpha=0.7, legend=False, ax=ax)
+    # Box
+    sns.boxplot(data=df, x='stage', y='t_cell_pct', order=stage_order,
+               color='white', width=0.3, showfliers=False, ax=ax)
+
+    # Add mean labels
+    for i, stage in enumerate(stage_order):
+        mean = df[df['stage'] == stage]['t_cell_pct'].mean()
+        ax.text(i, ax.get_ylim()[1] * 0.95, f'{mean:.1f}%',
+               ha='center', va='top', fontsize=10, fontweight='bold')
+
+    ax.set_xlabel('')
+    ax.set_ylabel('T-cell Fraction (%)')
+    ax.set_title('T-cell Depletion During Progression')
+    save_fig(fig, output_dir, 'tcell_raincloud')
+
+    # Print values
+    print("  T-cell percentages (donor-level):")
+    for stage in stage_order:
+        mean = df[df['stage'] == stage]['t_cell_pct'].mean()
+        std = df[df['stage'] == stage]['t_cell_pct'].std()
+        print(f"    {stage}: {mean:.1f}% +/- {std:.1f}%")
+
+
+def fig_gamma_umap(coords_2d, cells_s, output_dir, gamma_idx=4):
+    """UMAP colored by gamma context dimension."""
+    col = f'gamma_{gamma_idx}'
+    if col not in cells_s.columns:
+        # Try to find any gamma column
+        gamma_cols = [c for c in cells_s.columns if c.startswith('gamma_')]
+        if not gamma_cols:
+            print("  Skipping gamma_umap: no gamma columns")
+            return
+        col = gamma_cols[0]
+
+    fig, ax = plt.subplots(figsize=(8, 7))
+
+    values = cells_s[col].values
+    valid = ~np.isnan(values)
+    sc = ax.scatter(coords_2d[valid, 0], coords_2d[valid, 1],
+                   c=values[valid], cmap='coolwarm', s=5, alpha=0.5, rasterized=True)
+
+    cbar = plt.colorbar(sc, ax=ax, shrink=0.7)
+    cbar.set_label(col, fontsize=11)
+    ax.set_xlabel('UMAP 1')
+    ax.set_ylabel('UMAP 2')
+    ax.set_title(f'Context Embedding ({col})')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    save_fig(fig, output_dir, 'gamma_umap')
+
+
+def fig_spatial_stage(cells, output_dir, donor_id=None):
+    """Spatial map colored by stage."""
+    # Filter to spatial cells
+    if 'x_spatial' not in cells.columns:
+        print("  Skipping spatial_stage: no spatial coordinates")
+        return
+
+    spatial = cells[cells['x_spatial'].notna()].copy()
+    if len(spatial) == 0:
+        print("  Skipping spatial_stage: no spatial cells")
+        return
+
+    # Use donor_id or sample_id column
+    id_col = 'sample_id' if 'sample_id' in spatial.columns else 'donor_id'
+
+    # Pick a sample if not specified
+    if donor_id is None:
+        sample_counts = spatial.groupby(id_col).size()
+        donor_id = sample_counts.idxmax()
+
+    sample_data = spatial[spatial[id_col] == donor_id]
+    if len(sample_data) < 100:
+        print(f"  Skipping spatial_stage: {id_col} {donor_id} too small")
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    x = sample_data['x_spatial'].values
+    y = sample_data['y_spatial'].values
+    stages = sample_data['stage'].values
+
+    for stage in STAGE_ORDER:
+        mask = stages == stage
+        if mask.sum() > 0:
+            color = STAGE_COLORS.get(stage, 'gray')
+            n = mask.sum()
+            ax.scatter(x[mask], y[mask], c=color, s=3, alpha=0.6,
+                      label=f'{stage} (n={n:,})', rasterized=True)
+
+    ax.legend(loc='upper right', frameon=True, facecolor='white')
+    ax.set_xlabel('X (μm)')
+    ax.set_ylabel('Y (μm)')
+    ax.set_title(f'Spatial Map: {donor_id}')
+    ax.invert_yaxis()  # Match histology convention
+    ax.set_aspect('equal')
+    save_fig(fig, output_dir, f'spatial_stage_{donor_id}')
+
+
+def fig_spatial_il1b(cells, output_dir, sample_id=None):
+    """Spatial map colored by IL1B expression."""
+    if 'x_spatial' not in cells.columns:
+        print("  Skipping spatial_il1b: no spatial coordinates")
+        return
+
+    il1b_col = None
+    for col in ['il1b_raw', 'IL1B', 'il1b']:
+        if col in cells.columns:
+            il1b_col = col
+            break
+    if il1b_col is None:
+        print("  Skipping spatial_il1b: no IL1B column")
+        return
+
+    spatial = cells[cells['x_spatial'].notna()].copy()
+    if len(spatial) == 0:
+        return
+
+    if sample_id is None:
+        sample_counts = spatial.groupby('sample_id').size()
+        sample_id = sample_counts.idxmax()
+
+    sample_data = spatial[spatial['sample_id'] == sample_id]
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    x = sample_data['x_spatial'].values
+    y = sample_data['y_spatial'].values
+    values = sample_data[il1b_col].values
+
+    sc = ax.scatter(x, y, c=values, cmap='Reds', s=3, alpha=0.7, rasterized=True)
+    cbar = plt.colorbar(sc, ax=ax, shrink=0.7)
+    cbar.set_label('IL1B Expression', fontsize=11)
+
+    ax.set_xlabel('X (μm)')
+    ax.set_ylabel('Y (μm)')
+    ax.set_title(f'Spatial IL1B: {sample_id}')
+    ax.invert_yaxis()
+    ax.set_aspect('equal')
+    save_fig(fig, output_dir, f'spatial_il1b_{sample_id}')
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -770,11 +1013,23 @@ def main():
     print("\nGenerating figures...")
 
     all_figures = [
+        # Embedding panels
         ('stage_embedding', lambda: fig_stage_umap(coords_2d, stages, args.output_dir, embed_label)),
         ('stage_density_contours', lambda: fig_stage_density_contours(coords_2d, stages, args.output_dir, embed_label)),
         ('stage_distribution', lambda: fig_stage_distribution_bar(stages, args.output_dir)),
         ('cell_cycle', lambda: fig_cell_cycle_umap(coords_2d, cells_s, args.output_dir)),
         ('proliferation', lambda: fig_proliferation_umap(coords_2d, cells_s, args.output_dir)),
+        # IL1B panels
+        ('il1b_umap', lambda: fig_il1b_umap(coords_2d, cells_s, args.output_dir)),
+        ('il1b_violin', lambda: fig_il1b_violin(cells_s, args.output_dir)),
+        # Cell type panels
+        ('celltype_umap', lambda: fig_celltype_umap(coords_2d, cells_s, args.output_dir)),
+        ('tcell_raincloud', lambda: fig_tcell_raincloud(cells, args.output_dir)),
+        # Context panels
+        ('gamma_umap', lambda: fig_gamma_umap(coords_2d, cells_s, args.output_dir)),
+        # Spatial panels (use full cells, not sampled)
+        ('spatial_stage', lambda: fig_spatial_stage(cells, args.output_dir)),
+        ('spatial_il1b', lambda: fig_spatial_il1b(cells, args.output_dir)),
     ]
 
     if flow is not None and flux is not None:
