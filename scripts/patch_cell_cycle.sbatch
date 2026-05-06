@@ -6,8 +6,8 @@
 #SBATCH --output=patch_and_run_%j.log
 #SBATCH --error=patch_and_run_%j.log
 
-source ~/.bashrc
-conda activate stagebridge_env
+source /scratch/chaunzt1/miniforge3/etc/profile.d/conda.sh
+conda activate /scratch/chaunzt1/env/stagebridge_env
 
 cd /home/booka/projects/StageBridge
 
