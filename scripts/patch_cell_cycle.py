@@ -1,13 +1,18 @@
 #!/usr/bin/env python
-"""Patch cell cycle scores into existing cells.parquet and neighborhoods.parquet.
+"""Patch cell cycle scores and cell types into existing parquets.
 
 This is a one-time fix script - does NOT rerun prepare_data.
+Adds:
+- Cell cycle: S_score, G2M_score, phase (from h5ad)
+- Cell types: cell_type_hlca, cell_type_luca (from DestVI results)
 
 Usage:
     python scripts/patch_cell_cycle.py \
         --h5ad /path/to/snrna_with_celltypes.h5ad \
         --cells /path/to/cells.parquet \
-        --neighborhoods /path/to/neighborhoods.parquet
+        --neighborhoods /path/to/neighborhoods.parquet \
+        --destvi-hlca /path/to/hlca/cell_type_proportions.parquet \
+        --destvi-luca /path/to/luca/cell_type_proportions.parquet
 
 Or with defaults from config:
     python scripts/patch_cell_cycle.py --use-config
@@ -40,6 +45,37 @@ G2M_GENES = [
     'AURKA', 'PSRC1', 'ANLN', 'LBR', 'CKAP5', 'CENPE', 'CTCF',
     'NEK2', 'G2E3', 'GAS2L3', 'CBX5', 'CENPA'
 ]
+
+
+def load_cell_types(hlca_path: Path, luca_path: Path) -> pd.DataFrame:
+    """Load cell type assignments from DestVI results.
+
+    Returns DataFrame with cell_id as index and cell_type_hlca, cell_type_luca columns.
+    """
+    result = pd.DataFrame()
+
+    if luca_path and luca_path.exists():
+        print(f'Loading LuCA cell types from {luca_path}...')
+        luca = pd.read_parquet(luca_path)
+        # Get cell type columns (exclude metadata)
+        luca_types = [c for c in luca.columns if c not in ['sample', 'cell_id']]
+        if luca_types:
+            result['cell_type_luca'] = luca[luca_types].idxmax(axis=1)
+            result['cell_type_luca_confidence'] = luca[luca_types].max(axis=1)
+            print(f'  {len(result):,} cells, {result["cell_type_luca"].nunique()} unique types')
+            print(f'  Top types: {result["cell_type_luca"].value_counts().head(5).to_dict()}')
+
+    if hlca_path and hlca_path.exists():
+        print(f'Loading HLCA cell types from {hlca_path}...')
+        hlca = pd.read_parquet(hlca_path)
+        hlca_types = [c for c in hlca.columns if c not in ['sample', 'cell_id']]
+        if hlca_types:
+            result['cell_type_hlca'] = hlca[hlca_types].idxmax(axis=1)
+            result['cell_type_hlca_confidence'] = hlca[hlca_types].max(axis=1)
+            print(f'  {result["cell_type_hlca"].nunique()} unique HLCA types')
+            print(f'  Top types: {result["cell_type_hlca"].value_counts().head(5).to_dict()}')
+
+    return result
 
 
 def compute_cell_cycle_scores(h5ad_path: Path) -> pd.DataFrame:
@@ -76,16 +112,12 @@ def compute_cell_cycle_scores(h5ad_path: Path) -> pd.DataFrame:
     return result
 
 
-def patch_cells(cells_path: Path, scores_df: pd.DataFrame, backup: bool = True) -> None:
-    """Add cell cycle columns to cells.parquet."""
+def patch_cells(cells_path: Path, scores_df: pd.DataFrame, celltypes_df: pd.DataFrame | None,
+                backup: bool = True) -> None:
+    """Add cell cycle and cell type columns to cells.parquet."""
     print(f'\nPatching {cells_path}...')
     cells = pd.read_parquet(cells_path)
     print(f'  {len(cells):,} cells')
-
-    # Check if already has scores
-    if 'S_score' in cells.columns and cells['S_score'].notna().mean() > 0.5:
-        print('  WARNING: S_score already present and mostly non-null, skipping')
-        return
 
     # Backup
     if backup:
@@ -94,40 +126,55 @@ def patch_cells(cells_path: Path, scores_df: pd.DataFrame, backup: bool = True) 
             print(f'  Backing up to {backup_path}')
             cells.to_parquet(backup_path)
 
-    # Merge scores
-    scores_df = scores_df.set_index('cell_id')
+    # Merge cell cycle scores
+    if scores_df is not None:
+        scores_idx = scores_df.set_index('cell_id')
 
-    # Handle cell_id matching (may need prefix adjustment)
-    matched = cells['cell_id'].isin(scores_df.index).sum()
-    print(f'  Direct match: {matched:,}/{len(cells):,} cells')
+        # Handle cell_id matching (may need prefix adjustment)
+        matched = cells['cell_id'].isin(scores_idx.index).sum()
+        print(f'  Cell cycle direct match: {matched:,}/{len(cells):,} cells')
 
-    if matched < len(cells) * 0.5:
-        # Try stripping prefixes
+        if matched < len(cells) * 0.5:
+            # Try stripping prefixes
+            cells['_match_id'] = cells['cell_id'].str.replace('^spatial_', '', regex=True)
+            matched = cells['_match_id'].isin(scores_idx.index).sum()
+            print(f'  After stripping spatial_ prefix: {matched:,}/{len(cells):,} cells')
+
+            if matched > len(cells) * 0.5:
+                cells['S_score'] = cells['_match_id'].map(scores_idx['S_score'])
+                cells['G2M_score'] = cells['_match_id'].map(scores_idx['G2M_score'])
+                cells['phase'] = cells['_match_id'].map(scores_idx['phase'])
+            cells = cells.drop(columns=['_match_id'])
+        else:
+            cells['S_score'] = cells['cell_id'].map(scores_idx['S_score'])
+            cells['G2M_score'] = cells['cell_id'].map(scores_idx['G2M_score'])
+            cells['phase'] = cells['cell_id'].map(scores_idx['phase'])
+
+        filled = cells['S_score'].notna().sum()
+        print(f'  Filled {filled:,}/{len(cells):,} cells with cell cycle scores')
+
+    # Merge cell types (DestVI results are indexed by spot/cell barcode)
+    if celltypes_df is not None and len(celltypes_df) > 0:
+        # DestVI index is typically the barcode without prefix
+        # Try matching with stripped cell_id
         cells['_match_id'] = cells['cell_id'].str.replace('^spatial_', '', regex=True)
-        matched = cells['_match_id'].isin(scores_df.index).sum()
-        print(f'  After stripping spatial_ prefix: {matched:,}/{len(cells):,} cells')
 
-        if matched > len(cells) * 0.5:
-            cells['S_score'] = cells['_match_id'].map(scores_df['S_score'])
-            cells['G2M_score'] = cells['_match_id'].map(scores_df['G2M_score'])
-            cells['phase'] = cells['_match_id'].map(scores_df['phase'])
+        for col in ['cell_type_hlca', 'cell_type_hlca_confidence', 'cell_type_luca', 'cell_type_luca_confidence']:
+            if col in celltypes_df.columns:
+                cells[col] = cells['_match_id'].map(celltypes_df[col])
+                filled = cells[col].notna().sum()
+                print(f'  Filled {filled:,}/{len(cells):,} cells with {col}')
+
         cells = cells.drop(columns=['_match_id'])
-    else:
-        cells['S_score'] = cells['cell_id'].map(scores_df['S_score'])
-        cells['G2M_score'] = cells['cell_id'].map(scores_df['G2M_score'])
-        cells['phase'] = cells['cell_id'].map(scores_df['phase'])
-
-    # Report
-    filled = cells['S_score'].notna().sum()
-    print(f'  Filled {filled:,}/{len(cells):,} cells with scores')
 
     # Save
     cells.to_parquet(cells_path)
     print(f'  Saved {cells_path}')
 
 
-def patch_neighborhoods(nhood_path: Path, scores_df: pd.DataFrame, backup: bool = True) -> None:
-    """Add cell cycle columns and update stats_z in neighborhoods.parquet."""
+def patch_neighborhoods(nhood_path: Path, scores_df: pd.DataFrame, celltypes_df: pd.DataFrame | None,
+                        backup: bool = True) -> None:
+    """Add cell cycle, cell type columns and update stats_z in neighborhoods.parquet."""
     print(f'\nPatching {nhood_path}...')
     nhood = pd.read_parquet(nhood_path)
     print(f'  {len(nhood):,} neighborhoods')
@@ -139,29 +186,31 @@ def patch_neighborhoods(nhood_path: Path, scores_df: pd.DataFrame, backup: bool 
             print(f'  Backing up to {backup_path}')
             nhood.to_parquet(backup_path)
 
-    # Merge scores
-    scores_df = scores_df.set_index('cell_id')
+    # Create match column (strip spatial_ prefix for matching)
+    nhood['_match_id'] = nhood['cell_id'].str.replace('^spatial_', '', regex=True)
 
-    # Handle cell_id matching
-    matched = nhood['cell_id'].isin(scores_df.index).sum()
-    print(f'  Direct match: {matched:,}/{len(nhood):,} neighborhoods')
+    # Merge cell cycle scores
+    if scores_df is not None:
+        scores_idx = scores_df.set_index('cell_id')
+        matched = nhood['_match_id'].isin(scores_idx.index).sum()
+        print(f'  Cell cycle match: {matched:,}/{len(nhood):,} neighborhoods')
 
-    match_col = 'cell_id'
-    if matched < len(nhood) * 0.5:
-        nhood['_match_id'] = nhood['cell_id'].str.replace('^spatial_', '', regex=True)
-        matched = nhood['_match_id'].isin(scores_df.index).sum()
-        print(f'  After stripping spatial_ prefix: {matched:,}/{len(nhood):,}')
-        match_col = '_match_id'
+        nhood['S_score'] = nhood['_match_id'].map(scores_idx['S_score'])
+        nhood['G2M_score'] = nhood['_match_id'].map(scores_idx['G2M_score'])
+        nhood['phase'] = nhood['_match_id'].map(scores_idx['phase'])
 
-    nhood['S_score'] = nhood[match_col].map(scores_df['S_score'])
-    nhood['G2M_score'] = nhood[match_col].map(scores_df['G2M_score'])
-    nhood['phase'] = nhood[match_col].map(scores_df['phase'])
+        filled = nhood['S_score'].notna().sum()
+        print(f'  Filled {filled:,}/{len(nhood):,} neighborhoods with cell cycle scores')
 
-    if '_match_id' in nhood.columns:
-        nhood = nhood.drop(columns=['_match_id'])
+    # Merge cell types
+    if celltypes_df is not None and len(celltypes_df) > 0:
+        for col in ['cell_type_hlca', 'cell_type_hlca_confidence', 'cell_type_luca', 'cell_type_luca_confidence']:
+            if col in celltypes_df.columns:
+                nhood[col] = nhood['_match_id'].map(celltypes_df[col])
+                filled = nhood[col].notna().sum()
+                print(f'  Filled {filled:,}/{len(nhood):,} neighborhoods with {col}')
 
-    filled = nhood['S_score'].notna().sum()
-    print(f'  Filled {filled:,}/{len(nhood):,} neighborhoods with scores')
+    nhood = nhood.drop(columns=['_match_id'])
 
     # Update stats_z to include cell cycle
     # stats_z is [caf_fraction, immune_fraction, diversity, S_score, G2M_score]
@@ -188,12 +237,15 @@ def patch_neighborhoods(nhood_path: Path, scores_df: pd.DataFrame, backup: bool 
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Patch cell cycle scores into parquet files')
+    parser = argparse.ArgumentParser(description='Patch cell cycle scores and cell types into parquet files')
     parser.add_argument('--h5ad', type=Path, help='Path to snrna_with_celltypes.h5ad')
     parser.add_argument('--cells', type=Path, help='Path to cells.parquet')
     parser.add_argument('--neighborhoods', type=Path, help='Path to neighborhoods.parquet')
+    parser.add_argument('--destvi-hlca', type=Path, help='Path to HLCA DestVI cell_type_proportions.parquet')
+    parser.add_argument('--destvi-luca', type=Path, help='Path to LuCA DestVI cell_type_proportions.parquet')
     parser.add_argument('--use-config', action='store_true', help='Use paths from workflow/config.yaml')
     parser.add_argument('--no-backup', action='store_true', help='Skip creating backup files')
+    parser.add_argument('--skip-cell-cycle', action='store_true', help='Skip cell cycle scoring (only add cell types)')
     args = parser.parse_args()
 
     if args.use_config:
@@ -205,22 +257,45 @@ def main():
         h5ad_path = Path(config['paths']['snrna_h5ad'])
         cells_path = Path(config['paths']['data_dir']) / 'cells.parquet'
         nhood_path = Path(config['paths']['data_dir']) / 'neighborhoods.parquet'
+        destvi_hlca_path = Path(config['paths']['destvi_hlca'])
+        destvi_luca_path = Path(config['paths']['destvi_luca'])
     else:
-        if not all([args.h5ad, args.cells, args.neighborhoods]):
-            parser.error('Must provide --h5ad, --cells, --neighborhoods or use --use-config')
         h5ad_path = args.h5ad
         cells_path = args.cells
         nhood_path = args.neighborhoods
+        destvi_hlca_path = args.destvi_hlca
+        destvi_luca_path = args.destvi_luca
 
-    # Compute scores
-    scores_df = compute_cell_cycle_scores(h5ad_path)
+        if not cells_path or not nhood_path:
+            parser.error('Must provide --cells and --neighborhoods or use --use-config')
+
+    # Compute cell cycle scores
+    scores_df = None
+    if not args.skip_cell_cycle:
+        if h5ad_path and h5ad_path.exists():
+            scores_df = compute_cell_cycle_scores(h5ad_path)
+        else:
+            print(f'WARNING: h5ad not found at {h5ad_path}, skipping cell cycle scoring')
+
+    # Load cell types from DestVI
+    celltypes_df = None
+    if destvi_hlca_path or destvi_luca_path:
+        celltypes_df = load_cell_types(destvi_hlca_path, destvi_luca_path)
+
+    if scores_df is None and (celltypes_df is None or len(celltypes_df) == 0):
+        print('ERROR: Nothing to patch - no cell cycle scores and no cell types')
+        return
 
     # Patch files
     backup = not args.no_backup
-    patch_cells(cells_path, scores_df, backup=backup)
-    patch_neighborhoods(nhood_path, scores_df, backup=backup)
+    patch_cells(cells_path, scores_df, celltypes_df, backup=backup)
+    patch_neighborhoods(nhood_path, scores_df, celltypes_df, backup=backup)
 
-    print('\nDone! Cell cycle scores added.')
+    print('\nDone!')
+    if scores_df is not None:
+        print('  - Cell cycle scores added (S_score, G2M_score, phase)')
+    if celltypes_df is not None and len(celltypes_df) > 0:
+        print('  - Cell types added (cell_type_hlca, cell_type_luca)')
     print('Backups saved as .parquet.bak files (delete manually if satisfied)')
 
 
