@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=patch_and_run
-#SBATCH --partition=gpu
+#SBATCH --partition=cpu
 #SBATCH --mem=256G
 #SBATCH --time=72:00:00
 #SBATCH --output=patch_and_run_%j.log
@@ -10,7 +10,7 @@ module load miniforge3
 eval "$(conda shell.bash hook)"
 conda activate /scratch/chaunzt1/envs/stagebridge_env
 
-cd /home/booka/projects/StageBridge
+cd /home/booka/StageBridge
 
 echo "=== Patching cell cycle and cell types ==="
 python scripts/patch_cell_cycle.py --use-config
