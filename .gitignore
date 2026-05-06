@@ -34,8 +34,9 @@ runs/
 demo_output/
 *.log
 
-# Figures - keep source (tex) and publication/, ignore large generated sets
+# Figures - keep source (tex), ignore generated figures (regenerable from scripts)
 figures/poster/
+figures/publication/
 figures/preview/
 figures/from_v1/
 
