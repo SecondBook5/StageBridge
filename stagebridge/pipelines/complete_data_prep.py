@@ -26,20 +26,29 @@ from stagebridge.utils.data_cache import get_data_cache
 from stagebridge.biology.pathway_targets import (
     compute_proliferation_targets,
     compute_pathway_raw,
-    PROGENY_PATHWAYS,
+    PROGENY_PATHWAYS,  # Dict with actual gene lists for scoring
 )
-from stagebridge.contracts import WES_COLS as WES_FEATURE_COLS
+from stagebridge.contracts import (
+    # Stage definitions
+    STAGES_3,
+    STAGE_5_TO_3,
+    STAGE_TO_IDX,
+    # Latent dimensions
+    HLCA_DIM,
+    LUCA_DIM,
+    LATENT_DIM,
+    # Feature definitions
+    WES_COLS,
+    N_PROGENY_PATHWAYS,
+    STATS_TOKEN_COLUMNS,
+    # Data types
+    DATA_TYPES,
+)
 
-# 3-STAGE MAPPING (due to zero donor overlap for AIS→MIA transitions)
-# This consolidation is REQUIRED for valid donor-held-out evaluation
-STAGE_MAP_3 = {
-    "Normal": "Normal",
-    "AAH": "Preinvasive",
-    "AIS": "Preinvasive",
-    "MIA": "Preinvasive",
-    "LUAD": "Invasive",
-}
-CANONICAL_STAGES_3 = ["Normal", "Preinvasive", "Invasive"]
+# Alias for backward compatibility
+WES_FEATURE_COLS = WES_COLS
+STAGE_MAP_3 = STAGE_5_TO_3
+CANONICAL_STAGES_3 = list(STAGES_3)
 
 # Clonal pattern encoding for model input
 CLONAL_PATTERN_ENCODING = {
@@ -273,7 +282,7 @@ def generate_cells_table(
     - cell_type: Cell type annotation
     - z_fused, z_hlca, z_luca: Latent embeddings from reference geometry
     - WES features: tmb, kras_mut, egfr_mut, tp53_mut, stk11_mut, keap1_mut, smad4_mut, braf_mut
-    - x_spatial, y_spatial: Spatial coordinates (for spatial cells)
+    - x, y: Spatial coordinates (for spatial cells)
     - clonal_pattern: Clonal evolution pattern (1a/1b/2/stable/unknown) [if provided]
     - clonal_pattern_idx: Numeric encoding for model input [if provided]
     """
@@ -589,20 +598,27 @@ def generate_cells_table(
                     wes_row = wes_df[mask_patient].iloc[0]
 
         record = {
+            # Core identifiers (contracts.CELLS_REQUIRED_COLS)
             "cell_id": cell_id,
             "donor_id": donor_id,
             "stage": stage,
             "stage_idx": stage_idx,
+            "data_type": "snrna",  # contracts.DATA_TYPES
+            # Cell type annotations
             "cell_type": obs.get("cell_type", "unknown"),
-            # Cell cycle scores (for identifying cycling/rare cell states)
+            "cell_type_hlca": obs.get("cell_type_hlca", None),
+            "cell_type_luca": obs.get("cell_type_luca", None),
+            # Stats token columns (contracts.STATS_TOKEN_COLUMNS)
             "S_score": float(obs.get("S_score", 0.0)) if pd.notna(obs.get("S_score")) else 0.0,
             "G2M_score": float(obs.get("G2M_score", 0.0)) if pd.notna(obs.get("G2M_score")) else 0.0,
             "phase": str(obs.get("phase", "unknown")) if pd.notna(obs.get("phase")) else "unknown",
+            # Embeddings (stored as lists for neighborhoods, individual columns added below)
             "z_fused": z_fused.tolist(),
             "z_hlca": z_hlca.tolist(),
             "z_luca": z_luca.tolist(),
-            "x_spatial": np.nan,  # snRNA doesn't have spatial coords
-            "y_spatial": np.nan,
+            # Spatial coordinates (contracts uses x/y, not x/y)
+            "x": np.nan,  # snRNA doesn't have spatial coords
+            "y": np.nan,
         }
 
         # Add WES features (8 columns for evolutionary regularization)
@@ -677,20 +693,28 @@ def generate_cells_table(
                     wes_row = wes_df[mask_patient].iloc[0]
 
         record = {
+            # Core identifiers (contracts.CELLS_REQUIRED_COLS)
             "cell_id": cell_id_for_lookup,
             "donor_id": donor_id,
             "stage": stage,
             "stage_idx": stage_idx,
+            "data_type": "spatial",  # contracts.DATA_TYPES
+            # Cell type annotations (from deconvolution)
             "cell_type": obs.get("cell_type", "mixed"),  # Spatial spots are mixtures
-            # Cell cycle scores (NaN for spatial - no single-cell resolution)
+            "cell_type_hlca": None,  # Will be set from deconvolution below
+            "cell_type_luca": None,
+            # Stats token columns (contracts.STATS_TOKEN_COLUMNS)
+            # Cell cycle is NaN for spatial - no single-cell resolution
             "S_score": np.nan,
             "G2M_score": np.nan,
             "phase": "spatial",  # Mark as spatial spot
+            # Embeddings
             "z_fused": z_fused.tolist(),
             "z_hlca": z_hlca.tolist(),
             "z_luca": z_luca.tolist(),
-            "x_spatial": spatial_coords[0],
-            "y_spatial": spatial_coords[1],
+            # Spatial coordinates (contracts uses x/y)
+            "x": spatial_coords[0],
+            "y": spatial_coords[1],
         }
 
         # Add WES features (8 columns for evolutionary regularization)
@@ -780,7 +804,7 @@ def generate_neighborhoods_table(
     """
     # Build spatial graph
     print("  Building spatial neighborhood graph...")
-    spatial_cells = cells_df[~cells_df["x_spatial"].isna()].copy()
+    spatial_cells = cells_df[~cells_df["x"].isna()].copy()
 
     if len(spatial_cells) == 0:
         print("  Warning: No spatial cells found, skipping neighborhoods")
@@ -804,7 +828,7 @@ def generate_neighborhoods_table(
             continue
 
         # Build k-NN for this donor only
-        coords = donor_cells[["x_spatial", "y_spatial"]].values
+        coords = donor_cells[["x", "y"]].values
         nbrs = NearestNeighbors(n_neighbors=k_neighbors + 1).fit(coords)
         distances, indices = nbrs.kneighbors(coords)
 
