@@ -118,6 +118,9 @@ def patch_cells(cells_path: Path, scores_df: pd.DataFrame, celltypes_df: pd.Data
     print(f'\nPatching {cells_path}...')
     cells = pd.read_parquet(cells_path)
     print(f'  {len(cells):,} cells')
+    print(f'  BEFORE columns: {list(cells.columns)}')
+    print(f'  BEFORE head:')
+    print(cells.head(3).to_string())
 
     # Backup
     if backup:
@@ -168,6 +171,9 @@ def patch_cells(cells_path: Path, scores_df: pd.DataFrame, celltypes_df: pd.Data
         cells = cells.drop(columns=['_match_id'])
 
     # Save
+    print(f'  AFTER columns: {list(cells.columns)}')
+    print(f'  AFTER head:')
+    print(cells.head(3).to_string())
     cells.to_parquet(cells_path)
     print(f'  Saved {cells_path}')
 
@@ -178,6 +184,10 @@ def patch_neighborhoods(nhood_path: Path, scores_df: pd.DataFrame, celltypes_df:
     print(f'\nPatching {nhood_path}...')
     nhood = pd.read_parquet(nhood_path)
     print(f'  {len(nhood):,} neighborhoods')
+    print(f'  BEFORE columns: {list(nhood.columns)}')
+    print(f'  BEFORE head (key cols):')
+    key_cols = [c for c in ['cell_id', 'stage', 'S_score', 'G2M_score', 'cell_type_luca', 'stats_z'] if c in nhood.columns]
+    print(nhood[key_cols].head(3).to_string())
 
     # Backup
     if backup:
@@ -232,6 +242,10 @@ def patch_neighborhoods(nhood_path: Path, scores_df: pd.DataFrame, celltypes_df:
     print(f'  Sample stats_z: {sample_stats}')
 
     # Save
+    print(f'  AFTER columns: {list(nhood.columns)}')
+    print(f'  AFTER head (key cols):')
+    key_cols = [c for c in ['cell_id', 'stage', 'S_score', 'G2M_score', 'cell_type_luca', 'cell_type_hlca', 'stats_z'] if c in nhood.columns]
+    print(nhood[key_cols].head(3).to_string())
     nhood.to_parquet(nhood_path)
     print(f'  Saved {nhood_path}')
 
