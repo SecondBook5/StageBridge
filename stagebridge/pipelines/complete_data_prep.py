@@ -692,10 +692,10 @@ def generate_cells_table(
         snrna_df[wes_col] = 0.0
 
     if wes_df is not None:
-        # Create donor-stage key for merging
-        snrna_df['_merge_key'] = snrna_df['donor_id'] + '_' + snrna_df['stage']
+        # Create donor-stage key for merging (convert categorical to str)
+        snrna_df['_merge_key'] = snrna_df['donor_id'].astype(str) + '_' + snrna_df['stage'].astype(str)
         wes_df_copy = wes_df.copy()
-        wes_df_copy['_merge_key'] = wes_df_copy[wes_id_col] + '_' + wes_df_copy['stage']
+        wes_df_copy['_merge_key'] = wes_df_copy[wes_id_col].astype(str) + '_' + wes_df_copy['stage'].astype(str)
         wes_df_copy = wes_df_copy.drop_duplicates('_merge_key')
 
         # Merge WES features
@@ -869,9 +869,9 @@ def generate_cells_table(
         spatial_df[wes_col] = 0.0
 
     if wes_df is not None:
-        spatial_df['_merge_key'] = spatial_df['donor_id'] + '_' + spatial_df['stage']
+        spatial_df['_merge_key'] = spatial_df['donor_id'].astype(str) + '_' + spatial_df['stage'].astype(str)
         wes_df_copy = wes_df.copy()
-        wes_df_copy['_merge_key'] = wes_df_copy[wes_id_col] + '_' + wes_df_copy['stage']
+        wes_df_copy['_merge_key'] = wes_df_copy[wes_id_col].astype(str) + '_' + wes_df_copy['stage'].astype(str)
         wes_df_copy = wes_df_copy.drop_duplicates('_merge_key')
 
         wes_cols_to_merge = [c for c in WES_FEATURE_COLS if c in wes_df_copy.columns]
