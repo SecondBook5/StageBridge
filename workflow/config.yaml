@@ -23,8 +23,8 @@ paths:
   #   snakemake prepare_data --config raw_cells=/path/to/raw_cells.parquet
   raw_cells: null  # "/data1/chaunzt1/stagebridge/processed/luad_evo/raw/cells.parquet"
   # DestVI deconvolution results
-  destvi_luca: "/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/destvi/cell_type_proportions.parquet"
-  destvi_hlca: "/data1/chaunzt1/stagebridge/results/spatial_benchmark/hlca/destvi/cell_type_proportions.parquet"
+  destvi_luca: "/data1/chaunzt1/stagebridge/runs/spatial_benchmark/luca/destvi/cell_type_proportions.parquet"
+  destvi_hlca: "/data1/chaunzt1/stagebridge/runs/spatial_benchmark/hlca/destvi/cell_type_proportions.parquet"
   # Expression data for LIANA/SCENIC (if needed)
   snrna_h5ad: "/data1/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad"
   spatial_h5ad: "/data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad"
