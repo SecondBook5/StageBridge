@@ -3,6 +3,67 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# =============================================================================
+# PROJECT-SPECIFIC
+# =============================================================================
+
+# Model checkpoints and weights (large, regenerable)
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+weights/
+
+# Large data files (keep in external storage, not git)
+*.h5ad
+*.h5
+*.parquet
+*.zarr/
+*.zip
+*.tar.gz
+*.tar
+data/raw/
+data/processed/
+data/external/
+data/semisynthetic_benchmark*/
+
+# Results and outputs (regenerable from pipeline)
+results/
+outputs/
+runs/
+demo_output/
+*.log
+
+# Figures - keep source (tex), ignore generated unless in figures/publication/
+# figures/poster/
+# figures/preview/
+figures/from_v1/
+
+# LaTeX auxiliary files
+*.aux
+*.bbl
+*.blg
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex(busy)
+
+# Windows zone identifier files
+*:Zone.Identifier
+*.pdf:Zone.Identifier
+
+# Snakemake
+.snakemake/
+slurm-*.out
+
+# Wandb / MLflow
+wandb/
+mlruns/
+
 # C extensions
 *.so
 
