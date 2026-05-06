@@ -110,53 +110,9 @@ def generate_canonical_artifacts(
     # Load spatial backend results (use canonical backend from benchmark)
     backend_results = cache.read_parquet(spatial_backend_dir / "cell_type_proportions.parquet")
 
-    # Load DestVI gamma values if available (intra-cell-type variation)
-    # Gamma files are per-sample in samples/*/destvi_gamma_*.csv
-    # CRITICAL: Keep gamma per cell type, don't average - needed for proper embedding composition
-    gamma_df = None  # For backward compat (averaged gamma for storage)
-    gamma_per_celltype = {}  # {spot_id: {cell_type: gamma_array}} - for embedding computation
-    samples_dir = spatial_backend_dir / "samples"
-    if samples_dir.exists():
-        sample_dirs = [d for d in samples_dir.iterdir() if d.is_dir()]
-        print(f"  Searching for gamma files in {len(sample_dirs)} sample directories...")
-
-        all_gamma_dfs = []
-        for sample_dir in sorted(sample_dirs):
-            gamma_files = list(sample_dir.glob("destvi_gamma_*.csv"))
-            if gamma_files:
-                # Load gamma per cell type for embedding composition
-                gamma_stack = []
-                for gf in sorted(gamma_files):
-                    # Extract cell type from filename: destvi_gamma_<cell_type>.csv
-                    cell_type = gf.stem.replace("destvi_gamma_", "").replace("_", " ")
-                    gf_df = pd.read_csv(gf, index_col=0)
-                    gamma_stack.append(gf_df.values)
-
-                    # Store per cell type for embedding computation
-                    for spot_id in gf_df.index:
-                        if spot_id not in gamma_per_celltype:
-                            gamma_per_celltype[spot_id] = {}
-                        gamma_per_celltype[spot_id][cell_type] = gf_df.loc[spot_id].values.astype(np.float32)
-
-                # Also compute averaged gamma for backward compatibility (stored in cells.parquet)
-                mean_gamma = np.stack(gamma_stack).mean(axis=0)
-                n_gamma = mean_gamma.shape[1]
-                gamma_cols = [f"gamma_{i}" for i in range(n_gamma)]
-                sample_gamma_df = pd.DataFrame(
-                    mean_gamma,
-                    index=pd.read_csv(gamma_files[0], index_col=0).index,
-                    columns=gamma_cols
-                )
-                all_gamma_dfs.append(sample_gamma_df)
-
-        if all_gamma_dfs:
-            gamma_df = pd.concat(all_gamma_dfs, axis=0)
-            print(f"  Loaded gamma from {len(all_gamma_dfs)} samples: {gamma_df.shape} (spots x gamma dims)")
-            print(f"  Loaded per-celltype gamma for {len(gamma_per_celltype):,} spots")
-        else:
-            print("  No DestVI gamma files found in sample directories")
-    else:
-        print("  No samples directory found (using proportions only)")
+    # NOTE: Gamma loading moved to hlca_deconv_dir/luca_deconv_dir sections below
+    # to properly separate HLCA (30d) and LuCA (10d) gamma values
+    gamma_df = None  # For backward compat (averaged gamma for storage in cells.parquet)
 
     print(f"  snRNA: {snrna.shape[0]} cells")
     print(f"  Spatial: {spatial.shape[0]} spots")
@@ -431,7 +387,10 @@ def generate_cells_table(
                 fused_dim = hlca_dim + luca_dim  # Update fused dim too
             print(f"    Computed means for {len(luca_mean_emb)} LuCA cell types (dim={luca_dim})")
 
-    # Load spatial deconvolution results
+    # Load spatial deconvolution results + gamma values for both references
+    gamma_per_celltype_hlca = {}  # {spot_id: {cell_type: gamma_array}}
+    gamma_per_celltype_luca = {}  # {spot_id: {cell_type: gamma_array}}
+
     if hlca_deconv_dir is not None and hlca_deconv_dir.exists():
         print("  Loading HLCA deconvolution for spatial embedding composition...")
         samples_dir = hlca_deconv_dir / "samples"
@@ -446,7 +405,17 @@ def generate_cells_table(
                         prop_norm = prop_df.div(prop_sum, axis=0).fillna(0)
                         for spot_id in prop_norm.index:
                             spatial_deconv_hlca[spot_id] = prop_norm.loc[spot_id].to_dict()
+                    # Load HLCA gamma per cell type
+                    gamma_files = list(sample_dir.glob("destvi_gamma_*.csv"))
+                    for gf in gamma_files:
+                        cell_type = gf.stem.replace("destvi_gamma_", "").replace("_", " ")
+                        gf_df = pd.read_csv(gf, index_col=0)
+                        for spot_id in gf_df.index:
+                            if spot_id not in gamma_per_celltype_hlca:
+                                gamma_per_celltype_hlca[spot_id] = {}
+                            gamma_per_celltype_hlca[spot_id][cell_type] = gf_df.loc[spot_id].values.astype(np.float32)
         print(f"    Loaded HLCA deconvolution for {len(spatial_deconv_hlca):,} spots")
+        print(f"    Loaded HLCA gamma for {len(gamma_per_celltype_hlca):,} spots")
 
     if luca_deconv_dir is not None and luca_deconv_dir.exists():
         print("  Loading LuCA deconvolution for spatial embedding composition...")
@@ -462,7 +431,17 @@ def generate_cells_table(
                         prop_norm = prop_df.div(prop_sum, axis=0).fillna(0)
                         for spot_id in prop_norm.index:
                             spatial_deconv_luca[spot_id] = prop_norm.loc[spot_id].to_dict()
+                    # Load LuCA gamma per cell type
+                    gamma_files = list(sample_dir.glob("destvi_gamma_*.csv"))
+                    for gf in gamma_files:
+                        cell_type = gf.stem.replace("destvi_gamma_", "").replace("_", " ")
+                        gf_df = pd.read_csv(gf, index_col=0)
+                        for spot_id in gf_df.index:
+                            if spot_id not in gamma_per_celltype_luca:
+                                gamma_per_celltype_luca[spot_id] = {}
+                            gamma_per_celltype_luca[spot_id][cell_type] = gf_df.loc[spot_id].values.astype(np.float32)
         print(f"    Loaded LuCA deconvolution for {len(spatial_deconv_luca):,} spots")
+        print(f"    Loaded LuCA gamma for {len(gamma_per_celltype_luca):,} spots")
 
     def extract_stage_from_cell_id(cell_id: str) -> str:
         """Extract stage from cell_id and map to 3-stage system.
@@ -501,26 +480,28 @@ def generate_cells_table(
         z_hlca = np.zeros(hlca_dim, dtype=np.float32)
         z_luca = np.zeros(luca_dim, dtype=np.float32)
 
-        # For spatial spots, compose embeddings from deconvolution
+        # For spatial spots, compose embeddings from deconvolution + gamma
         if cell_id.startswith("spatial_"):
             spot_id = cell_id[8:]  # Strip "spatial_" prefix
 
-            # Compose HLCA embedding from HLCA deconvolution
+            # Compose HLCA embedding from HLCA deconvolution + gamma (DestVI latent shift)
+            # Formula: z_hlca = sum(proportion[ct] * (mean_hlca[ct] + gamma[ct]))
             if spot_id in spatial_deconv_hlca and hlca_mean_emb:
                 props = spatial_deconv_hlca[spot_id]
+                spot_gamma_hlca = gamma_per_celltype_hlca.get(spot_id, {})
                 for cell_type, proportion in props.items():
                     if cell_type in hlca_mean_emb and proportion > 0:
-                        z_hlca += proportion * hlca_mean_emb[cell_type]
+                        gamma = spot_gamma_hlca.get(cell_type, np.zeros(hlca_dim, dtype=np.float32))
+                        z_hlca += proportion * (hlca_mean_emb[cell_type] + gamma)
 
             # Compose LuCA embedding from LuCA deconvolution + gamma (DestVI latent shift)
             # Formula: z_luca = sum(proportion[ct] * (mean_luca[ct] + gamma[ct]))
-            # This aligns spatial embeddings with snRNA by incorporating per-spot latent variations
             if spot_id in spatial_deconv_luca and luca_mean_emb:
                 props = spatial_deconv_luca[spot_id]
-                spot_gamma = gamma_per_celltype.get(spot_id, {})
+                spot_gamma_luca = gamma_per_celltype_luca.get(spot_id, {})
                 for cell_type, proportion in props.items():
                     if cell_type in luca_mean_emb and proportion > 0:
-                        gamma = spot_gamma.get(cell_type, np.zeros(luca_dim, dtype=np.float32))
+                        gamma = spot_gamma_luca.get(cell_type, np.zeros(luca_dim, dtype=np.float32))
                         z_luca += proportion * (luca_mean_emb[cell_type] + gamma)
 
             # Fused = concatenation of HLCA and LuCA
