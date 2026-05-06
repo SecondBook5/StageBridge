@@ -570,6 +570,11 @@ def generate_cells_table(
     snrna_df['x'] = np.nan
     snrna_df['y'] = np.nan
 
+    # Convert categorical columns to string (avoid dtype issues later)
+    for col in snrna_df.columns:
+        if snrna_df[col].dtype.name == 'category':
+            snrna_df[col] = snrna_df[col].astype(str)
+
     # Extract donor_id
     if 'donor_id' not in snrna_df.columns:
         snrna_df['donor_id'] = snrna_df.get('patient_id', 'unknown')
@@ -692,8 +697,8 @@ def generate_cells_table(
         snrna_df[wes_col] = 0.0
 
     if wes_df is not None:
-        # Create donor-stage key for merging (convert categorical to str)
-        snrna_df['_merge_key'] = snrna_df['donor_id'].astype(str) + '_' + snrna_df['stage'].astype(str)
+        # Create donor-stage key for merging
+        snrna_df['_merge_key'] = snrna_df['donor_id'] + '_' + snrna_df['stage']
         wes_df_copy = wes_df.copy()
         wes_df_copy['_merge_key'] = wes_df_copy[wes_id_col].astype(str) + '_' + wes_df_copy['stage'].astype(str)
         wes_df_copy = wes_df_copy.drop_duplicates('_merge_key')
@@ -737,8 +742,13 @@ def generate_cells_table(
 
     spatial_df = spatial.obs.copy()
     spatial_df['cell_id'] = 'spatial_' + spatial.obs_names.astype(str)
-    spatial_df['spot_id'] = spatial.obs_names  # Keep original for lookups
+    spatial_df['spot_id'] = spatial.obs_names.astype(str)  # Keep original for lookups
     spatial_df['data_type'] = 'spatial'
+
+    # Convert categorical columns to string (avoid dtype issues later)
+    for col in spatial_df.columns:
+        if spatial_df[col].dtype.name == 'category':
+            spatial_df[col] = spatial_df[col].astype(str)
 
     # Extract donor_id
     if 'donor_id' not in spatial_df.columns:
@@ -869,7 +879,7 @@ def generate_cells_table(
         spatial_df[wes_col] = 0.0
 
     if wes_df is not None:
-        spatial_df['_merge_key'] = spatial_df['donor_id'].astype(str) + '_' + spatial_df['stage'].astype(str)
+        spatial_df['_merge_key'] = spatial_df['donor_id'] + '_' + spatial_df['stage']
         wes_df_copy = wes_df.copy()
         wes_df_copy['_merge_key'] = wes_df_copy[wes_id_col].astype(str) + '_' + wes_df_copy['stage'].astype(str)
         wes_df_copy = wes_df_copy.drop_duplicates('_merge_key')
