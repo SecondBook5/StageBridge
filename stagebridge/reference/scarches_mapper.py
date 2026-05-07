@@ -278,10 +278,21 @@ def _map_to_reference(
             n_layers=n_layers or 2,
         )
 
-        # Load weights
+        # Load weights from model.pt
+        # NOTE: LuCA retrained model (from retrain_luca_multigpu.py) saves a full checkpoint dict:
+        #   {"model_state_dict": ..., "var_names": [...], "attr_dict": {...}}
+        # Standard scvi-tools saves just the state_dict directly.
+        # We handle both formats here.
         model_pt = model_dir / "model.pt"
         if model_pt.exists():
-            state_dict = torch.load(model_pt, map_location="cpu", weights_only=False)
+            checkpoint = torch.load(model_pt, map_location="cpu", weights_only=False)
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                # Full checkpoint format from retrain_luca_multigpu.py
+                state_dict = checkpoint["model_state_dict"]
+                print(f"  Loaded checkpoint with keys: {list(checkpoint.keys())}")
+            else:
+                # Standard scvi-tools format (raw state_dict)
+                state_dict = checkpoint
             ref_model.module.load_state_dict(state_dict)
             print(f"  Loaded weights from {model_pt}")
         else:
