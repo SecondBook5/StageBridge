@@ -248,9 +248,11 @@ def _map_to_reference(
 
     if ref_model is None and n_latent is not None and ref_adata is not None:
         # Manual reconstruction from weights + architecture
+        # NOTE: This handles LuCA model saved from retrain_luca_multigpu.py which
+        # saves {"model_state_dict": ..., "var_names": [...], "attr_dict": {...}}
+        # but NOT the standard attr.pkl file that SCANVI.load() expects.
         print(f"  Attempting manual model reconstruction...")
 
-        # First, check if checkpoint has attr_dict with full config
         model_pt = model_dir / "model.pt"
         if not model_pt.exists():
             raise FileNotFoundError(f"No model.pt found at {model_dir}")
@@ -258,87 +260,71 @@ def _map_to_reference(
         checkpoint = torch.load(model_pt, map_location="cpu", weights_only=False)
 
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-            state_dict = checkpoint["model_state_dict"]
             print(f"  Loaded checkpoint with keys: {list(checkpoint.keys())}")
 
-            # Get var_names from checkpoint
-            model_var_names = checkpoint.get("var_names", None)
-            attr_dict = checkpoint.get("attr_dict", {})
+            # If checkpoint has attr_dict, write it to attr.pkl so SCANVI.load() works
+            if "attr_dict" in checkpoint and "var_names" in checkpoint:
+                import pickle
+                attr_dict = checkpoint["attr_dict"]
+                var_names = checkpoint["var_names"]
 
-            # Extract architecture from attr_dict if available
-            if attr_dict:
-                print(f"    Found attr_dict with keys: {list(attr_dict.keys())}")
-                n_latent = attr_dict.get("n_latent", n_latent)
-                n_hidden = attr_dict.get("n_hidden", n_hidden)
-                n_layers = attr_dict.get("n_layers", n_layers)
-                print(f"    Architecture from checkpoint: n_latent={n_latent}, n_hidden={n_hidden}, n_layers={n_layers}")
-        else:
-            state_dict = checkpoint
-            model_var_names = None
-            attr_dict = {}
+                # Write attr.pkl for SCANVI.load()
+                attr_pkl_path = model_dir / "attr.pkl"
+                print(f"    Writing attr.pkl from checkpoint attr_dict...")
+                with open(attr_pkl_path, "wb") as f:
+                    pickle.dump(attr_dict, f)
 
-        print(f"    Using architecture: n_latent={n_latent}, n_hidden={n_hidden}, n_layers={n_layers}")
+                # Write var_names.csv for SCANVI.load()
+                var_names_path = model_dir / "var_names.csv"
+                print(f"    Writing var_names.csv ({len(var_names)} genes)...")
+                pd.DataFrame({"var_names": var_names}).to_csv(var_names_path, index=False)
 
-        # Use raw counts if available
-        if ref_adata.raw is not None:
-            print(f"    Using adata.raw for counts")
-            ref_adata_counts = ref_adata.raw.to_adata()
-        elif "counts" in ref_adata.layers:
-            print(f"    Using adata.layers['counts']")
-            ref_adata_counts = ref_adata.copy()
-            ref_adata_counts.X = ref_adata_counts.layers["counts"]
-        else:
-            ref_adata_counts = ref_adata
+                # Now extract just model_state_dict and save as model.pt
+                # (SCANVI.load expects model.pt to be just the state_dict)
+                state_dict = checkpoint["model_state_dict"]
+                # Remove pyro keys if present
+                keys_to_remove = [k for k in state_dict.keys() if k.startswith("pyro_")]
+                for k in keys_to_remove:
+                    del state_dict[k]
 
-        # Model was trained on HVG subset - need to subset ref_adata to match
-        if model_var_names is not None:
-            print(f"    Model was trained on {len(model_var_names)} genes")
-            common_genes = [g for g in model_var_names if g in ref_adata_counts.var_names]
-            print(f"    Found {len(common_genes)} matching genes in reference")
-            if len(common_genes) < len(model_var_names) * 0.9:
-                print(f"    WARNING: Only {len(common_genes)}/{len(model_var_names)} genes found")
-            ref_adata_counts = ref_adata_counts[:, model_var_names].copy()
+                # Save clean state_dict
+                model_pt_backup = model_dir / "model_full_checkpoint.pt"
+                print(f"    Backing up full checkpoint to {model_pt_backup}")
+                torch.save(checkpoint, model_pt_backup)
 
-        # Setup anndata for scANVI
-        # Check if model used batch norm (Layer X.1 keys indicate BatchNorm)
-        has_batch_norm = any("Layer 0.1" in k or "Layer 1.1" in k for k in state_dict.keys())
-        print(f"    Model uses batch_norm: {has_batch_norm}")
+                print(f"    Saving clean state_dict to {model_pt}")
+                torch.save(state_dict, model_pt)
 
-        SCANVI.setup_anndata(
-            ref_adata_counts,
-            batch_key=batch_key,
-            labels_key=labels_key,
-            unlabeled_category="Unknown",
-        )
+                # Now try standard SCANVI.load()
+                print(f"    Attempting standard SCANVI.load()...")
 
-        # Create model - need to match exact architecture
-        # The checkpoint shows input size 6021 = 6000 genes + 21 batch categories
-        # And layer 1 has 149 = 128 hidden + 21 batch categories
-        # This means encode_covariates=True was used
-        ref_model = SCANVI(
-            ref_adata_counts,
-            n_latent=n_latent,
-            n_hidden=n_hidden or 128,
-            n_layers=n_layers or 2,
-            use_batch_norm="both" if has_batch_norm else "none",
-            encode_covariates=True,  # This adds batch encoding to input
-        )
+                # Subset reference to model's genes
+                if ref_adata.raw is not None:
+                    ref_adata_counts = ref_adata.raw.to_adata()
+                elif "counts" in ref_adata.layers:
+                    ref_adata_counts = ref_adata.copy()
+                    ref_adata_counts.X = ref_adata_counts.layers["counts"]
+                else:
+                    ref_adata_counts = ref_adata.copy()
 
-        # Load weights - use strict=False to handle minor mismatches
-        # Remove unexpected keys first
-        keys_to_remove = [k for k in state_dict.keys() if k.startswith("pyro_")]
-        for k in keys_to_remove:
-            del state_dict[k]
-            print(f"    Removed unexpected key: {k}")
+                # Keep only genes that are in both model and reference
+                model_genes_set = set(var_names)
+                ref_genes_set = set(ref_adata_counts.var_names)
+                common_genes = [g for g in var_names if g in ref_genes_set]
+                print(f"    Model genes: {len(var_names)}, Reference genes: {len(ref_genes_set)}, Overlap: {len(common_genes)}")
 
-        try:
-            ref_model.module.load_state_dict(state_dict, strict=True)
-            print(f"  Loaded weights from {model_pt}")
-        except RuntimeError as e:
-            print(f"  Strict load failed: {e}")
-            print(f"  Attempting non-strict load...")
-            ref_model.module.load_state_dict(state_dict, strict=False)
-            print(f"  Loaded weights from {model_pt} (non-strict)")
+                if len(common_genes) >= len(var_names) * 0.9:
+                    ref_adata_counts = ref_adata_counts[:, common_genes].copy()
+                    try:
+                        ref_model = SCANVI.load(str(model_dir), adata=ref_adata_counts)
+                        print(f"  Model loaded successfully via SCANVI.load()")
+                        print(f"    Latent dim: {ref_model.module.n_latent}")
+                    except Exception as e:
+                        print(f"  SCANVI.load() failed: {e}")
+                        ref_model = None
+                else:
+                    print(f"    Insufficient gene overlap for SCANVI.load()")
+                    ref_model = None
 
     if ref_model is None:
         raise RuntimeError(
