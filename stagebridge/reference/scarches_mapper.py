@@ -524,8 +524,9 @@ def _map_to_reference(
         print(f"  ERROR preparing query: {e}")
         raise
 
-    # Surgery (fine-tune on query)
+    # Surgery (fine-tune on query) - or direct inference if surgery fails
     print(f"  Running scArches surgery (max {surgery_epochs} epochs)...")
+    query_model = None
     try:
         query_model = SCANVI.load_query_data(query, ref_model)
         query_model.train(
@@ -538,19 +539,21 @@ def _map_to_reference(
         )
         print(f"    Surgery complete")
     except Exception as e:
-        print(f"  ERROR during surgery: {e}")
-        raise
+        print(f"  WARNING: Surgery failed: {e}")
+        print(f"  Falling back to direct inference (no fine-tuning)...")
+        query_model = None
 
     # Get latent representation
     print(f"  Extracting latent representation...")
-    latent = query_model.get_latent_representation(query, batch_size=batch_size)
+    model_for_inference = query_model if query_model is not None else ref_model
+    latent = model_for_inference.get_latent_representation(query, batch_size=batch_size)
     latent = np.asarray(latent, dtype=np.float32)
     print(f"    Latent shape: {latent.shape}")
 
     # Get predictions
     print(f"  Predicting cell types...")
     try:
-        predictions = query_model.predict(query, batch_size=batch_size)
+        predictions = model_for_inference.predict(query, batch_size=batch_size)
         if isinstance(predictions, pd.DataFrame):
             labels = predictions.iloc[:, 0].values
         else:
@@ -558,7 +561,7 @@ def _map_to_reference(
         labels = labels.astype(str)
 
         # Get confidence
-        probs = query_model.predict(query, soft=True, batch_size=batch_size)
+        probs = model_for_inference.predict(query, soft=True, batch_size=batch_size)
         if isinstance(probs, pd.DataFrame):
             probs = probs.values
         probs = np.asarray(probs, dtype=np.float32)
