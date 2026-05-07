@@ -83,6 +83,12 @@ def map_spatial_to_reference(
         reference_name="LuCA",
         batch_size=batch_size,
         surgery_epochs=surgery_epochs,
+        # LuCA architecture (from retrain_luca_multigpu.py) - used if attr.pkl missing
+        n_latent=10,
+        n_hidden=128,
+        n_layers=2,
+        batch_key="dataset",
+        labels_key="cell_type",
     )
 
     # Save embeddings
@@ -162,9 +168,16 @@ def _map_to_reference(
     reference_name: str,
     batch_size: int = 1024,
     surgery_epochs: int = 200,
+    # Manual architecture override for models without attr.pkl
+    n_latent: int | None = None,
+    n_hidden: int | None = None,
+    n_layers: int | None = None,
+    batch_key: str = "dataset",
+    labels_key: str = "cell_type",
 ) -> dict:
     """Map query cells to reference space via scArches surgery."""
     from scvi.model import SCANVI
+    import torch
 
     model_dir = Path(model_dir)
 
@@ -177,14 +190,69 @@ def _map_to_reference(
         ref_adata = ad.read_h5ad(ref_path)
         print(f"    Reference: {ref_adata.n_obs:,} cells, {ref_adata.n_vars:,} genes")
 
+    # Check if model has attr.pkl or metadata json (standard scvi-tools format)
+    has_metadata = (
+        (model_dir / "attr.pkl").exists() or
+        (model_dir / "_scvi_required_metadata.json").exists()
+    )
+
     # Load model
-    try:
-        ref_model = SCANVI.load(str(model_dir), adata=ref_adata)
-        print(f"  Model loaded successfully")
-        print(f"    Latent dim: {ref_model.module.n_latent}")
-    except Exception as e:
-        print(f"  ERROR loading model: {e}")
-        raise
+    ref_model = None
+    if has_metadata:
+        # Standard load
+        try:
+            ref_model = SCANVI.load(str(model_dir), adata=ref_adata)
+            print(f"  Model loaded successfully")
+            print(f"    Latent dim: {ref_model.module.n_latent}")
+        except Exception as e:
+            print(f"  Standard load failed: {e}")
+
+    if ref_model is None and n_latent is not None and ref_adata is not None:
+        # Manual reconstruction from weights + architecture
+        print(f"  Attempting manual model reconstruction...")
+        print(f"    Architecture: n_latent={n_latent}, n_hidden={n_hidden}, n_layers={n_layers}")
+
+        # Use raw counts if available
+        if ref_adata.raw is not None:
+            print(f"    Using adata.raw for counts")
+            ref_adata_counts = ref_adata.raw.to_adata()
+        elif "counts" in ref_adata.layers:
+            print(f"    Using adata.layers['counts']")
+            ref_adata_counts = ref_adata.copy()
+            ref_adata_counts.X = ref_adata_counts.layers["counts"]
+        else:
+            ref_adata_counts = ref_adata
+
+        # Setup anndata for scANVI
+        SCANVI.setup_anndata(
+            ref_adata_counts,
+            batch_key=batch_key,
+            labels_key=labels_key,
+        )
+
+        # Create model with same architecture
+        ref_model = SCANVI(
+            ref_adata_counts,
+            n_latent=n_latent,
+            n_hidden=n_hidden or 128,
+            n_layers=n_layers or 2,
+            unlabeled_category="Unknown",
+        )
+
+        # Load weights
+        model_pt = model_dir / "model.pt"
+        if model_pt.exists():
+            state_dict = torch.load(model_pt, map_location="cpu")
+            ref_model.module.load_state_dict(state_dict)
+            print(f"  Loaded weights from {model_pt}")
+        else:
+            raise FileNotFoundError(f"No model.pt found at {model_dir}")
+
+    if ref_model is None:
+        raise RuntimeError(
+            f"Could not load model from {model_dir}. "
+            f"Either provide attr.pkl or specify architecture (n_latent, n_hidden, n_layers) + ref_path."
+        )
 
     # Prepare query data
     print(f"  Preparing query data...")
