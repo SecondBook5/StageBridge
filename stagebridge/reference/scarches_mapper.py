@@ -370,21 +370,17 @@ def _map_to_reference(
             raise ValueError("Could not extract batch categories from checkpoint - needed for architecture match")
 
         # Set up batch column with ALL original categories to match architecture
-        # Use first category as placeholder, actual values don't matter for weight loading
-        ref_adata_counts.obs[batch_key] = pd.Categorical(
-            [batch_categories[0]] * ref_adata_counts.n_obs,
-            categories=batch_categories
-        )
-        print(f"    Set batch column with {len(batch_categories)} categories")
+        # Cycle through all categories so scvi-tools sees them all as "observed"
+        batch_values = [batch_categories[i % len(batch_categories)] for i in range(ref_adata_counts.n_obs)]
+        ref_adata_counts.obs[batch_key] = pd.Categorical(batch_values, categories=batch_categories)
+        print(f"    Set batch column with {len(batch_categories)} categories (cycling)")
 
         # Set up labels column with ALL original categories to match architecture
         if label_categories is None:
             raise ValueError("Could not extract label categories from checkpoint - needed for architecture match")
-        ref_adata_counts.obs[labels_key] = pd.Categorical(
-            [label_categories[0]] * ref_adata_counts.n_obs,
-            categories=label_categories
-        )
-        print(f"    Set labels column with {len(label_categories)} categories")
+        label_values = [label_categories[i % len(label_categories)] for i in range(ref_adata_counts.n_obs)]
+        ref_adata_counts.obs[labels_key] = pd.Categorical(label_values, categories=label_categories)
+        print(f"    Set labels column with {len(label_categories)} categories (cycling)")
 
         # Setup SCVI first (base for SCANVI)
         from scvi.model import SCVI
