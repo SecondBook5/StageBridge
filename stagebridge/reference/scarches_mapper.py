@@ -290,6 +290,33 @@ def _map_to_reference(
                 # Full checkpoint format from retrain_luca_multigpu.py
                 state_dict = checkpoint["model_state_dict"]
                 print(f"  Loaded checkpoint with keys: {list(checkpoint.keys())}")
+
+                # Model was trained on HVG subset - need to subset ref_adata to match
+                if "var_names" in checkpoint:
+                    model_var_names = checkpoint["var_names"]
+                    print(f"    Model was trained on {len(model_var_names)} genes")
+                    # Subset ref_adata to model's genes
+                    common_genes = [g for g in model_var_names if g in ref_adata_counts.var_names]
+                    print(f"    Found {len(common_genes)} matching genes in reference")
+                    if len(common_genes) < len(model_var_names) * 0.9:
+                        print(f"    WARNING: Only {len(common_genes)}/{len(model_var_names)} genes found")
+                    ref_adata_counts = ref_adata_counts[:, common_genes].copy()
+
+                    # Re-setup anndata with subsetted genes
+                    SCANVI.setup_anndata(
+                        ref_adata_counts,
+                        batch_key=batch_key,
+                        labels_key=labels_key,
+                        unlabeled_category="Unknown",
+                    )
+
+                    # Re-create model with correct gene count
+                    ref_model = SCANVI(
+                        ref_adata_counts,
+                        n_latent=n_latent,
+                        n_hidden=n_hidden or 128,
+                        n_layers=n_layers or 2,
+                    )
             else:
                 # Standard scvi-tools format (raw state_dict)
                 state_dict = checkpoint
