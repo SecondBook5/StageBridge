@@ -59,78 +59,112 @@ def map_spatial_to_reference(
     spatial = ad.read_h5ad(spatial_path)
     print(f"  {spatial.n_obs:,} spots, {spatial.n_vars:,} genes")
 
-    # Map to HLCA
-    print(f"\n{'=' * 60}")
-    print("Mapping to HLCA reference (30d)")
-    print("=" * 60)
-    hlca_result = _map_to_reference(
-        spatial,
-        hlca_model_dir,
-        hlca_ref_path,
-        reference_name="HLCA",
-        batch_size=batch_size,
-        surgery_epochs=surgery_epochs,
-    )
-
-    # Map to LuCA
-    print(f"\n{'=' * 60}")
-    print("Mapping to LuCA reference (10d)")
-    print("=" * 60)
-    luca_result = _map_to_reference(
-        spatial,
-        luca_model_dir,
-        luca_ref_path,
-        reference_name="LuCA",
-        batch_size=batch_size,
-        surgery_epochs=surgery_epochs,
-        # LuCA architecture (from retrain_luca_multigpu.py) - used if attr.pkl missing
-        n_latent=10,
-        n_hidden=128,
-        n_layers=2,
-        batch_key="dataset",
-        labels_key="cell_type",
-    )
-
-    # Save embeddings
-    print(f"\n{'=' * 60}")
-    print("Saving embeddings")
-    print("=" * 60)
-
-    # HLCA embeddings
-    hlca_df = pd.DataFrame(
-        hlca_result["latent"],
-        index=spatial.obs_names,
-        columns=[f"hlca_latent_{i}" for i in range(hlca_result["latent"].shape[1])]
-    )
-    hlca_df.index.name = "cell_id"
-    if hlca_result["labels"] is not None:
-        hlca_df["cell_type_hlca"] = hlca_result["labels"]
-    if hlca_result["confidence"] is not None:
-        hlca_df["cell_type_hlca_confidence"] = hlca_result["confidence"]
-
+    # Map to HLCA (or load if already exists)
     hlca_path = output_dir / "spatial_hlca_embedding.parquet"
-    hlca_df.to_parquet(hlca_path)
-    print(f"  Saved HLCA embeddings: {hlca_path}")
-    print(f"    Shape: {hlca_result['latent'].shape}")
+    if hlca_path.exists():
+        print(f"\n{'=' * 60}")
+        print("Loading existing HLCA embeddings (30d)")
+        print("=" * 60)
+        hlca_df = pd.read_parquet(hlca_path)
+        hlca_cols = [c for c in hlca_df.columns if c.startswith("hlca_latent_")]
+        hlca_result = {
+            "latent": hlca_df[hlca_cols].values,
+            "labels": hlca_df["cell_type_hlca"].values if "cell_type_hlca" in hlca_df.columns else None,
+            "confidence": hlca_df["cell_type_hlca_confidence"].values if "cell_type_hlca_confidence" in hlca_df.columns else None,
+        }
+        print(f"  Loaded from {hlca_path}")
+        print(f"    Shape: {hlca_result['latent'].shape}")
+    else:
+        print(f"\n{'=' * 60}")
+        print("Mapping to HLCA reference (30d)")
+        print("=" * 60)
+        hlca_result = _map_to_reference(
+            spatial,
+            hlca_model_dir,
+            hlca_ref_path,
+            reference_name="HLCA",
+            batch_size=batch_size,
+            surgery_epochs=surgery_epochs,
+        )
+        # Save immediately after completion
+        hlca_df = pd.DataFrame(
+            hlca_result["latent"],
+            index=spatial.obs_names,
+            columns=[f"hlca_latent_{i}" for i in range(hlca_result["latent"].shape[1])]
+        )
+        hlca_df.index.name = "cell_id"
+        if hlca_result["labels"] is not None:
+            hlca_df["cell_type_hlca"] = hlca_result["labels"]
+        if hlca_result["confidence"] is not None:
+            hlca_df["cell_type_hlca_confidence"] = hlca_result["confidence"]
+        hlca_df.to_parquet(hlca_path)
+        print(f"  Saved HLCA embeddings: {hlca_path}")
+        print(f"    Shape: {hlca_result['latent'].shape}")
+        # Save training history
+        if hlca_result.get("history"):
+            import json
+            with open(output_dir / "hlca_training_history.json", "w") as f:
+                json.dump(hlca_result["history"], f, indent=2, default=str)
+            print(f"  Saved HLCA training history")
 
-    # LuCA embeddings
-    luca_df = pd.DataFrame(
-        luca_result["latent"],
-        index=spatial.obs_names,
-        columns=[f"luca_latent_{i}" for i in range(luca_result["latent"].shape[1])]
-    )
-    luca_df.index.name = "cell_id"
-    if luca_result["labels"] is not None:
-        luca_df["cell_type_luca"] = luca_result["labels"]
-    if luca_result["confidence"] is not None:
-        luca_df["cell_type_luca_confidence"] = luca_result["confidence"]
-
+    # Map to LuCA (or load if already exists)
     luca_path = output_dir / "spatial_luca_embedding.parquet"
-    luca_df.to_parquet(luca_path)
-    print(f"  Saved LuCA embeddings: {luca_path}")
-    print(f"    Shape: {luca_result['latent'].shape}")
+    if luca_path.exists():
+        print(f"\n{'=' * 60}")
+        print("Loading existing LuCA embeddings (10d)")
+        print("=" * 60)
+        luca_df = pd.read_parquet(luca_path)
+        luca_cols = [c for c in luca_df.columns if c.startswith("luca_latent_")]
+        luca_result = {
+            "latent": luca_df[luca_cols].values,
+            "labels": luca_df["cell_type_luca"].values if "cell_type_luca" in luca_df.columns else None,
+            "confidence": luca_df["cell_type_luca_confidence"].values if "cell_type_luca_confidence" in luca_df.columns else None,
+        }
+        print(f"  Loaded from {luca_path}")
+        print(f"    Shape: {luca_result['latent'].shape}")
+    else:
+        print(f"\n{'=' * 60}")
+        print("Mapping to LuCA reference (10d)")
+        print("=" * 60)
+        luca_result = _map_to_reference(
+            spatial,
+            luca_model_dir,
+            luca_ref_path,
+            reference_name="LuCA",
+            batch_size=batch_size,
+            surgery_epochs=surgery_epochs,
+            # LuCA architecture (from retrain_luca_multigpu.py) - used if attr.pkl missing
+            n_latent=10,
+            n_hidden=128,
+            n_layers=2,
+            batch_key="dataset",
+            labels_key="cell_type",
+        )
+        # Save immediately after completion
+        luca_df = pd.DataFrame(
+            luca_result["latent"],
+            index=spatial.obs_names,
+            columns=[f"luca_latent_{i}" for i in range(luca_result["latent"].shape[1])]
+        )
+        luca_df.index.name = "cell_id"
+        if luca_result["labels"] is not None:
+            luca_df["cell_type_luca"] = luca_result["labels"]
+        if luca_result["confidence"] is not None:
+            luca_df["cell_type_luca_confidence"] = luca_result["confidence"]
+        luca_df.to_parquet(luca_path)
+        print(f"  Saved LuCA embeddings: {luca_path}")
+        print(f"    Shape: {luca_result['latent'].shape}")
+        # Save training history
+        if luca_result.get("history"):
+            import json
+            with open(output_dir / "luca_training_history.json", "w") as f:
+                json.dump(luca_result["history"], f, indent=2, default=str)
+            print(f"  Saved LuCA training history")
 
     # Fused embeddings (concatenate HLCA + LuCA)
+    print(f"\n{'=' * 60}")
+    print("Saving fused embeddings")
+    print("=" * 60)
     fused_latent = np.concatenate([hlca_result["latent"], luca_result["latent"]], axis=1)
     fused_df = pd.DataFrame(
         fused_latent,
@@ -228,6 +262,7 @@ def _map_to_reference(
             ref_adata_counts,
             batch_key=batch_key,
             labels_key=labels_key,
+            unlabeled_category="Unknown",
         )
 
         # Create model with same architecture
@@ -353,10 +388,16 @@ def _map_to_reference(
         labels = None
         confidence = None
 
+    # Extract training history for plotting
+    history = None
+    if hasattr(query_model, 'history') and query_model.history is not None:
+        history = {k: list(v) for k, v in query_model.history.items()}
+
     return {
         "latent": latent,
         "labels": labels,
         "confidence": confidence,
+        "history": history,
     }
 
 
