@@ -283,3 +283,223 @@ def plot_emt_along_pseudotime(
         print(f"Saved: {save_path}")
 
     return fig
+
+
+# Key EMT regulators from Cflows (Sun et al., 2025) and literature
+EMT_REGULATORS = {
+    "transcription_factors": [
+        "ESRRA",  # Key driver in Cflows - regulates CDH1, SNAI1
+        "SNAI1", "SNAI2",  # SNAIL family
+        "ZEB1", "ZEB2",  # ZEB family
+        "TWIST1", "TWIST2",  # TWIST family
+        "AHR",  # Aryl hydrocarbon receptor - in Cflows network
+    ],
+    "signaling": [
+        "TGFB1", "TGFB2", "TGFB3",  # TGF-beta - major EMT inducer
+        "WNT5A", "WNT3A",  # WNT signaling
+        "NOTCH1", "NOTCH2",  # Notch signaling
+        "IL6", "IL1B",  # Inflammatory - relevant to our niche hypothesis
+    ],
+}
+
+
+def test_emt_granger_causality(
+    adata,
+    niche_features: pd.DataFrame,
+    pseudotime: np.ndarray,
+    use_raw: bool = True,
+    output_dir: Optional[str] = None,
+) -> dict:
+    """Test which niche signals Granger-cause EMT.
+
+    Inspired by Cflows approach - tests causal relationships between
+    niche signals and EMT progression.
+
+    Args:
+        adata: AnnData with expression
+        niche_features: DataFrame with niche signals (L-R scores, etc.)
+        pseudotime: Pseudotime / transition probability ordering
+        use_raw: Use raw counts for EMT scoring
+        output_dir: Directory to save results
+
+    Returns:
+        Dict with Granger causality results and EMT scores
+    """
+    from pathlib import Path
+
+    # Import granger module
+    from stagebridge.biology.granger_causality import test_niche_granger_causes_state, plot_granger_results
+
+    # Get EMT scores
+    emt_df = score_emt(adata, use_raw=use_raw)
+    emt_score = emt_df["emt_score"].values
+
+    print("=== EMT Granger Causality Analysis ===")
+    print(f"  Testing {len(niche_features.columns)} niche features")
+
+    # Test Granger causality: niche → EMT
+    results = test_niche_granger_causes_state(
+        niche_features=niche_features,
+        cell_states=emt_score,
+        pseudotime=pseudotime,
+    )
+
+    n_sig = results["significant_adj"].sum() if len(results) > 0 else 0
+    print(f"  Significant niche → EMT: {n_sig}/{len(results)}")
+
+    if n_sig > 0:
+        print(f"\n  Top causal signals for EMT:")
+        for _, row in results[results["significant_adj"]].head(5).iterrows():
+            print(f"    {row['feature']}: F={row['f_stat']:.2f}, p={row['p_value_adj']:.2e}, lag={row['optimal_lag']}")
+
+    # Save results
+    if output_dir:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        results.to_csv(output_dir / "emt_granger_results.csv", index=False)
+
+        if len(results) > 0:
+            plot_granger_results(
+                results,
+                title="Niche Signals Granger-Causing EMT",
+                save_path=str(output_dir / "emt_granger_plot.png")
+            )
+
+    return {
+        "granger_results": results,
+        "emt_scores": emt_df,
+    }
+
+
+def analyze_emt_regulators(
+    adata,
+    pseudotime: np.ndarray,
+    use_raw: bool = True,
+    output_dir: Optional[str] = None,
+) -> pd.DataFrame:
+    """Analyze expression of known EMT regulators along trajectory.
+
+    Args:
+        adata: AnnData with expression
+        pseudotime: Pseudotime ordering
+        use_raw: Use raw counts
+        output_dir: Directory to save results
+
+    Returns:
+        DataFrame with regulator dynamics
+    """
+    import matplotlib.pyplot as plt
+    from pathlib import Path
+
+    if use_raw and adata.raw is not None:
+        expr_adata = adata.raw.to_adata()
+    else:
+        expr_adata = adata
+
+    var_names = list(expr_adata.var_names)
+    var_names_upper = [g.upper() for g in var_names]
+
+    # Collect all regulators
+    all_regulators = EMT_REGULATORS["transcription_factors"] + EMT_REGULATORS["signaling"]
+
+    # Get expression for available regulators
+    results = []
+    available = []
+
+    for gene in all_regulators:
+        if gene.upper() in var_names_upper:
+            idx = var_names_upper.index(gene.upper())
+            if hasattr(expr_adata.X, 'toarray'):
+                expr = expr_adata.X[:, idx].toarray().flatten()
+            else:
+                expr = expr_adata.X[:, idx].flatten()
+
+            # Correlation with pseudotime
+            from scipy.stats import spearmanr
+            r, p = spearmanr(pseudotime, expr)
+
+            results.append({
+                "gene": gene,
+                "category": "TF" if gene in EMT_REGULATORS["transcription_factors"] else "signaling",
+                "mean_expr": expr.mean(),
+                "spearman_r": r,
+                "p_value": p,
+                "direction": "up" if r > 0 else "down",
+            })
+            available.append((gene, expr))
+
+    df = pd.DataFrame(results)
+    if len(df) > 0:
+        from statsmodels.stats.multitest import multipletests
+        _, df["p_value_adj"], _, _ = multipletests(df["p_value"], method="fdr_bh")
+        df["significant"] = df["p_value_adj"] < 0.05
+        df = df.sort_values("spearman_r", ascending=False)
+
+    print(f"\n=== EMT Regulator Dynamics ===")
+    print(f"  Found {len(available)}/{len(all_regulators)} regulators")
+
+    if len(df) > 0:
+        up = df[(df["direction"] == "up") & df["significant"]]
+        down = df[(df["direction"] == "down") & df["significant"]]
+        print(f"  Upregulated along trajectory: {len(up)}")
+        print(f"  Downregulated along trajectory: {len(down)}")
+
+        if len(up) > 0:
+            print(f"\n  Top upregulated:")
+            for _, row in up.head(5).iterrows():
+                print(f"    {row['gene']} ({row['category']}): r={row['spearman_r']:.3f}")
+
+        if len(down) > 0:
+            print(f"\n  Top downregulated:")
+            for _, row in down.head(5).iterrows():
+                print(f"    {row['gene']} ({row['category']}): r={row['spearman_r']:.3f}")
+
+    # Plot
+    if output_dir and len(available) > 0:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        df.to_csv(output_dir / "emt_regulator_dynamics.csv", index=False)
+
+        # Plot top regulators along pseudotime
+        n_plot = min(6, len(available))
+        fig, axes = plt.subplots(2, 3, figsize=(12, 8))
+        axes = axes.flatten()
+
+        # Sort by absolute correlation
+        sorted_available = sorted(available, key=lambda x: abs(
+            spearmanr(pseudotime, x[1])[0]
+        ), reverse=True)
+
+        for i, (gene, expr) in enumerate(sorted_available[:n_plot]):
+            ax = axes[i]
+
+            # Bin and plot
+            n_bins = 30
+            bins = np.linspace(pseudotime.min(), pseudotime.max(), n_bins + 1)
+            bin_idx = np.digitize(pseudotime, bins) - 1
+            bin_idx = np.clip(bin_idx, 0, n_bins - 1)
+
+            bin_centers = [(bins[j] + bins[j+1])/2 for j in range(n_bins)]
+            bin_means = [expr[bin_idx == j].mean() for j in range(n_bins)]
+            bin_stds = [expr[bin_idx == j].std() for j in range(n_bins)]
+
+            ax.fill_between(bin_centers,
+                           np.array(bin_means) - np.array(bin_stds),
+                           np.array(bin_means) + np.array(bin_stds),
+                           alpha=0.3)
+            ax.plot(bin_centers, bin_means, linewidth=2)
+            ax.set_xlabel("Pseudotime")
+            ax.set_ylabel("Expression")
+            ax.set_title(gene)
+
+        # Hide unused axes
+        for i in range(n_plot, len(axes)):
+            axes[i].set_visible(False)
+
+        plt.tight_layout()
+        plt.savefig(output_dir / "emt_regulator_trajectories.png", dpi=150, bbox_inches="tight")
+        print(f"\n  Saved: {output_dir / 'emt_regulator_trajectories.png'}")
+
+    return df
