@@ -276,7 +276,6 @@ def _map_to_reference(
             n_latent=n_latent,
             n_hidden=n_hidden or 128,
             n_layers=n_layers or 2,
-            unlabeled_category="Unknown",
         )
 
         # Load weights
