@@ -358,11 +358,14 @@ def _map_to_reference(
         )
         print(f"    Set batch column with {len(batch_categories)} categories")
 
-        # Set up labels column
-        if labels_key in ref_adata_counts.obs:
-            ref_adata_counts.obs[labels_key] = ref_adata_counts.obs[labels_key].astype(str)
-        else:
-            ref_adata_counts.obs[labels_key] = "Unknown"
+        # Set up labels column with ALL original categories to match architecture
+        if label_categories is None:
+            raise ValueError("Could not extract label categories from checkpoint - needed for architecture match")
+        ref_adata_counts.obs[labels_key] = pd.Categorical(
+            [label_categories[0]] * ref_adata_counts.n_obs,
+            categories=label_categories
+        )
+        print(f"    Set labels column with {len(label_categories)} categories")
 
         # Setup SCVI first (base for SCANVI)
         from scvi.model import SCVI
