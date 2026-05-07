@@ -298,8 +298,15 @@ def _map_to_reference(
         # Prepare reference data with correct genes
         # Only need a small subset for model setup - use 100 cells to save memory
         n_setup_cells = 100
-        if ref_adata.raw is not None:
-            # Subset cells first, then get raw
+        # Handle backed mode - need to load subset into memory
+        if hasattr(ref_adata, 'isbacked') and ref_adata.isbacked:
+            print(f"    Loading {n_setup_cells} cells from backed reference...")
+            ref_adata_counts = ref_adata[:n_setup_cells].to_memory()
+            if ref_adata_counts.raw is not None:
+                ref_adata_counts = ref_adata_counts.raw.to_adata()
+            elif "counts" in ref_adata_counts.layers:
+                ref_adata_counts.X = ref_adata_counts.layers["counts"]
+        elif ref_adata.raw is not None:
             ref_subset = ref_adata[:n_setup_cells].copy()
             ref_adata_counts = ref_subset.raw.to_adata()
         elif "counts" in ref_adata.layers:
@@ -307,7 +314,7 @@ def _map_to_reference(
             ref_adata_counts.X = ref_adata_counts.layers["counts"]
         else:
             ref_adata_counts = ref_adata[:n_setup_cells].copy()
-        print(f"    Using {n_setup_cells} cells for model setup (memory optimization)")
+        print(f"    Using {n_setup_cells} cells for model setup")
 
         # Subset to model genes
         model_genes_set = set(var_names)
