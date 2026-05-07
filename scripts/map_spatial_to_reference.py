@@ -265,6 +265,38 @@ def _map_to_reference(
     if "dataset" not in query.obs.columns:
         query.obs["dataset"] = "query"
 
+    # Check gene name format and convert if needed
+    ref_var_names = ref_model.adata.var_names if ref_model.adata is not None else None
+    if ref_var_names is not None:
+        query_var_names = set(query.var_names)
+        ref_var_set = set(ref_var_names)
+        overlap = query_var_names & ref_var_set
+        print(f"    Query genes: {len(query_var_names):,}")
+        print(f"    Reference genes: {len(ref_var_set):,}")
+        print(f"    Direct overlap: {len(overlap):,}")
+
+        # If no overlap, check if reference uses Ensembl IDs with feature_name column
+        if len(overlap) < 100 and "feature_name" in ref_model.adata.var.columns:
+            print(f"    Low overlap - attempting symbol to Ensembl conversion...")
+            # Build symbol -> ensembl mapping from reference
+            ref_var = ref_model.adata.var
+            symbol_to_ensembl = dict(zip(ref_var["feature_name"], ref_var.index))
+
+            # Convert query var_names from symbols to Ensembl
+            new_var_names = []
+            for gene in query.var_names:
+                if gene in symbol_to_ensembl:
+                    new_var_names.append(symbol_to_ensembl[gene])
+                else:
+                    new_var_names.append(gene)  # Keep original if no match
+
+            query.var_names = new_var_names
+            query.var_names_make_unique()
+
+            # Recompute overlap
+            new_overlap = set(query.var_names) & ref_var_set
+            print(f"    After conversion overlap: {len(new_overlap):,}")
+
     # Align genes with reference
     try:
         SCANVI.prepare_query_anndata(query, ref_model)
