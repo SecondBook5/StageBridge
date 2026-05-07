@@ -448,12 +448,42 @@ def _map_to_reference(
     print(f"  Preparing query data...")
     query = adata.copy()
 
-    # Add required columns
+    # Add required columns - must use same batch_key as reference model
     query.obs["scanvi_label"] = "unlabeled"
-    if "batch" not in query.obs.columns:
-        query.obs["batch"] = "query"
-    if "dataset" not in query.obs.columns:
-        query.obs["dataset"] = "query"
+
+    # Get batch categories from reference model's registry
+    ref_batch_key = None
+    ref_batch_cats = None
+    if hasattr(ref_model, 'adata_manager') and ref_model.adata_manager is not None:
+        try:
+            registry = ref_model.adata_manager.registry
+            if "field_registries" in registry:
+                field_reg = registry["field_registries"]
+                if "batch" in field_reg:
+                    ref_batch_key = field_reg["batch"].get("attr_key", batch_key)
+                    if "state_registry" in field_reg["batch"]:
+                        cats = field_reg["batch"]["state_registry"].get("categorical_mapping")
+                        if cats is not None:
+                            ref_batch_cats = list(cats)
+        except Exception:
+            pass
+
+    # Fall back to passed batch_key
+    if ref_batch_key is None:
+        ref_batch_key = batch_key
+
+    # Set query batch column - scArches expects "query" as a new batch category
+    # but all original categories must be present in the Categorical
+    if ref_batch_cats is not None:
+        all_batch_cats = ref_batch_cats + ["query"]
+        query.obs[ref_batch_key] = pd.Categorical(
+            ["query"] * query.n_obs,
+            categories=all_batch_cats
+        )
+        print(f"    Set {ref_batch_key} with {len(all_batch_cats)} categories (including 'query')")
+    else:
+        query.obs[ref_batch_key] = "query"
+        print(f"    Set {ref_batch_key} = 'query'")
 
     # Check gene name format and convert if needed
     ref_var_names = ref_model.adata.var_names if ref_model.adata is not None else None
