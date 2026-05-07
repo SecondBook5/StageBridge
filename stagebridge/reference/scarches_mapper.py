@@ -223,10 +223,11 @@ def _map_to_reference(
     print(f"  Loading {reference_name} model from {model_dir}...")
 
     # Load reference if provided (for gene alignment)
+    # Use backed mode to avoid loading full matrix into memory
     ref_adata = None
     if ref_path and Path(ref_path).exists():
-        print(f"  Loading reference from {ref_path}...")
-        ref_adata = ad.read_h5ad(ref_path)
+        print(f"  Loading reference from {ref_path} (backed mode)...")
+        ref_adata = ad.read_h5ad(ref_path, backed='r')
         print(f"    Reference: {ref_adata.n_obs:,} cells, {ref_adata.n_vars:,} genes")
 
     # Check if model has attr.pkl or metadata json (standard scvi-tools format)
@@ -295,13 +296,18 @@ def _map_to_reference(
             del state_dict[k]
 
         # Prepare reference data with correct genes
+        # Only need a small subset for model setup - use 100 cells to save memory
+        n_setup_cells = 100
         if ref_adata.raw is not None:
-            ref_adata_counts = ref_adata.raw.to_adata()
+            # Subset cells first, then get raw
+            ref_subset = ref_adata[:n_setup_cells].copy()
+            ref_adata_counts = ref_subset.raw.to_adata()
         elif "counts" in ref_adata.layers:
-            ref_adata_counts = ref_adata.copy()
+            ref_adata_counts = ref_adata[:n_setup_cells].copy()
             ref_adata_counts.X = ref_adata_counts.layers["counts"]
         else:
-            ref_adata_counts = ref_adata.copy()
+            ref_adata_counts = ref_adata[:n_setup_cells].copy()
+        print(f"    Using {n_setup_cells} cells for model setup (memory optimization)")
 
         # Subset to model genes
         model_genes_set = set(var_names)
