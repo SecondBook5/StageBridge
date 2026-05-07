@@ -349,19 +349,22 @@ def _map_to_reference(
 
         # Trust the weights, not attr_dict - get actual sizes from state_dict
         # y_prior shape is [1, n_labels], classifier output is [n_labels, hidden]
+        # NOTE: n_labels includes the unlabeled category, so known labels = n_labels - 1
         if "y_prior" in state_dict:
             n_labels_from_weights = state_dict["y_prior"].shape[1]
-            print(f"    Actual n_labels from weights: {n_labels_from_weights}")
-            if label_categories and len(label_categories) != n_labels_from_weights:
-                print(f"    WARNING: attr_dict has {len(label_categories)} labels but weights have {n_labels_from_weights}")
-                # Trim or pad label_categories to match weights
-                if len(label_categories) > n_labels_from_weights:
-                    label_categories = label_categories[:n_labels_from_weights]
-                else:
-                    # Pad with dummy categories
-                    for i in range(n_labels_from_weights - len(label_categories)):
-                        label_categories.append(f"label_{len(label_categories) + i}")
-                print(f"    Adjusted to {len(label_categories)} label categories")
+            n_known_labels = n_labels_from_weights - 1  # Subtract 1 for unlabeled category
+            print(f"    Actual n_labels from weights: {n_labels_from_weights} (= {n_known_labels} known + 1 unlabeled)")
+            if label_categories:
+                # Remove "Unknown" or unlabeled if present, then trim to n_known_labels
+                label_categories = [l for l in label_categories if l.lower() not in ("unknown", "unlabeled")]
+                if len(label_categories) != n_known_labels:
+                    print(f"    WARNING: attr_dict has {len(label_categories)} known labels but need {n_known_labels}")
+                    if len(label_categories) > n_known_labels:
+                        label_categories = label_categories[:n_known_labels]
+                    else:
+                        for i in range(n_known_labels - len(label_categories)):
+                            label_categories.append(f"label_{len(label_categories) + i}")
+                print(f"    Using {len(label_categories)} known label categories (+ Unknown = {len(label_categories) + 1})")
 
         if batch_categories is None:
             raise ValueError("Could not extract batch categories from checkpoint - needed for architecture match")
