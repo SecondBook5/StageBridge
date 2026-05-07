@@ -281,7 +281,7 @@ def _map_to_reference(
         # Load weights
         model_pt = model_dir / "model.pt"
         if model_pt.exists():
-            state_dict = torch.load(model_pt, map_location="cpu")
+            state_dict = torch.load(model_pt, map_location="cpu", weights_only=False)
             ref_model.module.load_state_dict(state_dict)
             print(f"  Loaded weights from {model_pt}")
         else:
