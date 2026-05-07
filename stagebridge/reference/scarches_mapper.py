@@ -316,8 +316,9 @@ def _map_to_reference(
         ref_adata_counts = ref_adata_counts[:, common_genes].copy()
         print(f"    Reference subset to {ref_adata_counts.n_vars} genes")
 
-        # Get batch categories from attr_dict if available
+        # Get batch categories from attr_dict - REQUIRED for correct architecture
         batch_categories = None
+        label_categories = None
         if attr_dict and "registry_" in attr_dict:
             registry = attr_dict["registry_"]
             if "field_registries" in registry:
@@ -327,21 +328,52 @@ def _map_to_reference(
                     if "categorical_mapping" in batch_state:
                         batch_categories = list(batch_state["categorical_mapping"])
                         print(f"    Found {len(batch_categories)} batch categories in checkpoint")
+                if "labels" in field_reg and "state_registry" in field_reg["labels"]:
+                    label_state = field_reg["labels"]["state_registry"]
+                    if "categorical_mapping" in label_state:
+                        label_categories = list(label_state["categorical_mapping"])
+                        print(f"    Found {len(label_categories)} label categories in checkpoint")
 
-        # Add batch column - use "query" as a new batch
-        ref_adata_counts.obs[batch_key] = "reference_batch"
-        ref_adata_counts.obs[labels_key] = ref_adata_counts.obs[labels_key].astype(str) if labels_key in ref_adata_counts.obs else "Unknown"
+        if batch_categories is None:
+            raise ValueError("Could not extract batch categories from checkpoint - needed for architecture match")
+
+        # Set up batch column with ALL original categories to match architecture
+        # Use first category as placeholder, actual values don't matter for weight loading
+        ref_adata_counts.obs[batch_key] = pd.Categorical(
+            [batch_categories[0]] * ref_adata_counts.n_obs,
+            categories=batch_categories
+        )
+        print(f"    Set batch column with {len(batch_categories)} categories")
+
+        # Set up labels column
+        if labels_key in ref_adata_counts.obs:
+            ref_adata_counts.obs[labels_key] = ref_adata_counts.obs[labels_key].astype(str)
+        else:
+            ref_adata_counts.obs[labels_key] = "Unknown"
 
         # Setup SCVI first (base for SCANVI)
         from scvi.model import SCVI
-        print(f"    Setting up fresh SCVI model...")
+        print(f"    Setting up fresh SCVI model with {len(batch_categories)} batches...")
         SCVI.setup_anndata(ref_adata_counts, batch_key=batch_key)
+
+        # Architecture from checkpoint analysis:
+        # - Input size 6021 = 6000 genes + 21 batches -> encode_covariates=True
+        # - Layer 0.0 only (no 0.1 BatchNorm) -> use_batch_norm=False
+        # - Hidden size 149 = 128 + 21 batches -> deeply_inject_covariates=True
+        encode_covariates = True
+        use_batch_norm = False  # Checkpoint has no BatchNorm keys
+        deeply_inject_covariates = True  # Hidden layers also get batch concat
+
+        print(f"    Architecture: encode_covariates={encode_covariates}, use_batch_norm={use_batch_norm}, deeply_inject={deeply_inject_covariates}")
 
         scvi_model = SCVI(
             ref_adata_counts,
             n_latent=n_latent,
             n_hidden=n_hidden,
             n_layers=n_layers,
+            encode_covariates=encode_covariates,
+            use_batch_norm="none" if not use_batch_norm else "both",
+            deeply_inject_covariates=deeply_inject_covariates,
         )
 
         # Convert SCVI to SCANVI
