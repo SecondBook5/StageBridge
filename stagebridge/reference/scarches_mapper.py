@@ -249,7 +249,35 @@ def _map_to_reference(
     if ref_model is None and n_latent is not None and ref_adata is not None:
         # Manual reconstruction from weights + architecture
         print(f"  Attempting manual model reconstruction...")
-        print(f"    Architecture: n_latent={n_latent}, n_hidden={n_hidden}, n_layers={n_layers}")
+
+        # First, check if checkpoint has attr_dict with full config
+        model_pt = model_dir / "model.pt"
+        if not model_pt.exists():
+            raise FileNotFoundError(f"No model.pt found at {model_dir}")
+
+        checkpoint = torch.load(model_pt, map_location="cpu", weights_only=False)
+
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            state_dict = checkpoint["model_state_dict"]
+            print(f"  Loaded checkpoint with keys: {list(checkpoint.keys())}")
+
+            # Get var_names from checkpoint
+            model_var_names = checkpoint.get("var_names", None)
+            attr_dict = checkpoint.get("attr_dict", {})
+
+            # Extract architecture from attr_dict if available
+            if attr_dict:
+                print(f"    Found attr_dict with keys: {list(attr_dict.keys())}")
+                n_latent = attr_dict.get("n_latent", n_latent)
+                n_hidden = attr_dict.get("n_hidden", n_hidden)
+                n_layers = attr_dict.get("n_layers", n_layers)
+                print(f"    Architecture from checkpoint: n_latent={n_latent}, n_hidden={n_hidden}, n_layers={n_layers}")
+        else:
+            state_dict = checkpoint
+            model_var_names = None
+            attr_dict = {}
+
+        print(f"    Using architecture: n_latent={n_latent}, n_hidden={n_hidden}, n_layers={n_layers}")
 
         # Use raw counts if available
         if ref_adata.raw is not None:
@@ -262,7 +290,20 @@ def _map_to_reference(
         else:
             ref_adata_counts = ref_adata
 
+        # Model was trained on HVG subset - need to subset ref_adata to match
+        if model_var_names is not None:
+            print(f"    Model was trained on {len(model_var_names)} genes")
+            common_genes = [g for g in model_var_names if g in ref_adata_counts.var_names]
+            print(f"    Found {len(common_genes)} matching genes in reference")
+            if len(common_genes) < len(model_var_names) * 0.9:
+                print(f"    WARNING: Only {len(common_genes)}/{len(model_var_names)} genes found")
+            ref_adata_counts = ref_adata_counts[:, model_var_names].copy()
+
         # Setup anndata for scANVI
+        # Check if model used batch norm (Layer X.1 keys indicate BatchNorm)
+        has_batch_norm = any("Layer 0.1" in k or "Layer 1.1" in k for k in state_dict.keys())
+        print(f"    Model uses batch_norm: {has_batch_norm}")
+
         SCANVI.setup_anndata(
             ref_adata_counts,
             batch_key=batch_key,
@@ -270,60 +311,34 @@ def _map_to_reference(
             unlabeled_category="Unknown",
         )
 
-        # Create model with same architecture
+        # Create model - need to match exact architecture
+        # The checkpoint shows input size 6021 = 6000 genes + 21 batch categories
+        # And layer 1 has 149 = 128 hidden + 21 batch categories
+        # This means encode_covariates=True was used
         ref_model = SCANVI(
             ref_adata_counts,
             n_latent=n_latent,
             n_hidden=n_hidden or 128,
             n_layers=n_layers or 2,
+            use_batch_norm="both" if has_batch_norm else "none",
+            encode_covariates=True,  # This adds batch encoding to input
         )
 
-        # Load weights from model.pt
-        # NOTE: LuCA retrained model (from retrain_luca_multigpu.py) saves a full checkpoint dict:
-        #   {"model_state_dict": ..., "var_names": [...], "attr_dict": {...}}
-        # Standard scvi-tools saves just the state_dict directly.
-        # We handle both formats here.
-        model_pt = model_dir / "model.pt"
-        if model_pt.exists():
-            checkpoint = torch.load(model_pt, map_location="cpu", weights_only=False)
-            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-                # Full checkpoint format from retrain_luca_multigpu.py
-                state_dict = checkpoint["model_state_dict"]
-                print(f"  Loaded checkpoint with keys: {list(checkpoint.keys())}")
+        # Load weights - use strict=False to handle minor mismatches
+        # Remove unexpected keys first
+        keys_to_remove = [k for k in state_dict.keys() if k.startswith("pyro_")]
+        for k in keys_to_remove:
+            del state_dict[k]
+            print(f"    Removed unexpected key: {k}")
 
-                # Model was trained on HVG subset - need to subset ref_adata to match
-                if "var_names" in checkpoint:
-                    model_var_names = checkpoint["var_names"]
-                    print(f"    Model was trained on {len(model_var_names)} genes")
-                    # Subset ref_adata to model's genes
-                    common_genes = [g for g in model_var_names if g in ref_adata_counts.var_names]
-                    print(f"    Found {len(common_genes)} matching genes in reference")
-                    if len(common_genes) < len(model_var_names) * 0.9:
-                        print(f"    WARNING: Only {len(common_genes)}/{len(model_var_names)} genes found")
-                    ref_adata_counts = ref_adata_counts[:, common_genes].copy()
-
-                    # Re-setup anndata with subsetted genes
-                    SCANVI.setup_anndata(
-                        ref_adata_counts,
-                        batch_key=batch_key,
-                        labels_key=labels_key,
-                        unlabeled_category="Unknown",
-                    )
-
-                    # Re-create model with correct gene count
-                    ref_model = SCANVI(
-                        ref_adata_counts,
-                        n_latent=n_latent,
-                        n_hidden=n_hidden or 128,
-                        n_layers=n_layers or 2,
-                    )
-            else:
-                # Standard scvi-tools format (raw state_dict)
-                state_dict = checkpoint
-            ref_model.module.load_state_dict(state_dict)
+        try:
+            ref_model.module.load_state_dict(state_dict, strict=True)
             print(f"  Loaded weights from {model_pt}")
-        else:
-            raise FileNotFoundError(f"No model.pt found at {model_dir}")
+        except RuntimeError as e:
+            print(f"  Strict load failed: {e}")
+            print(f"  Attempting non-strict load...")
+            ref_model.module.load_state_dict(state_dict, strict=False)
+            print(f"  Loaded weights from {model_pt} (non-strict)")
 
     if ref_model is None:
         raise RuntimeError(
