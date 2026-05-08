@@ -584,6 +584,15 @@ def _map_to_reference(
         print(f"  Falling back to direct inference (no fine-tuning)...")
         query_model = None
 
+        # For direct inference, set batch to an existing category (not "query")
+        if ref_batch_cats is not None and len(ref_batch_cats) > 0:
+            fallback_batch = ref_batch_cats[0]
+            query.obs[ref_batch_key] = pd.Categorical(
+                [fallback_batch] * query.n_obs,
+                categories=ref_batch_cats
+            )
+            print(f"    Set batch to '{fallback_batch}' for direct inference")
+
     # Get latent representation
     print(f"  Extracting latent representation...")
     model_for_inference = query_model if query_model is not None else ref_model
