@@ -464,6 +464,12 @@ def _map_to_reference(
             if unexpected:
                 print(f"    Unexpected keys: {unexpected[:5]}..." if len(unexpected) > 5 else f"    Unexpected keys: {unexpected}")
 
+        # Mark as trained so we can use it for inference
+        ref_model.is_trained_ = True
+
+        # Store batch categories for later use in query setup
+        ref_model._reconstructed_batch_categories = batch_categories
+
         print(f"  Model reconstructed successfully")
         print(f"    Latent dim: {ref_model.module.n_latent}")
 
@@ -500,6 +506,11 @@ def _map_to_reference(
     # Fall back to passed batch_key
     if ref_batch_key is None:
         ref_batch_key = batch_key
+
+    # Check for reconstructed batch categories (from manual model reconstruction)
+    if ref_batch_cats is None and hasattr(ref_model, '_reconstructed_batch_categories'):
+        ref_batch_cats = ref_model._reconstructed_batch_categories
+        print(f"    Using {len(ref_batch_cats)} batch categories from reconstructed model")
 
     # Set query batch column - scArches expects "query" as a new batch category
     # but all original categories must be present in the Categorical
