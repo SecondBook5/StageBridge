@@ -395,13 +395,28 @@ def _map_to_reference(
         print(f"    Setting up fresh SCVI model with {len(batch_categories)} batches...")
         SCVI.setup_anndata(ref_adata_counts, batch_key=batch_key)
 
-        # Architecture from checkpoint analysis:
-        # - Input size 6021 = 6000 genes + 21 batches -> encode_covariates=True
-        # - Layer 0.0 only (no 0.1 BatchNorm) -> use_batch_norm=False
-        # - Hidden size 149 = 128 + 21 batches -> deeply_inject_covariates=True
-        encode_covariates = True
-        use_batch_norm = False  # Checkpoint has no BatchNorm keys
-        deeply_inject_covariates = True  # Hidden layers also get batch concat
+        # Detect architecture from checkpoint weight shapes
+        n_genes = len(var_names)
+        n_batches = len(batch_categories)
+
+        # Check encoder input size to detect encode_covariates
+        encoder_input_size = state_dict["z_encoder.encoder.fc_layers.Layer 0.0.weight"].shape[1]
+        encode_covariates = (encoder_input_size == n_genes + n_batches)
+        print(f"    Encoder input size: {encoder_input_size} (genes={n_genes}, batches={n_batches})")
+        print(f"    encode_covariates={encode_covariates} (expected {n_genes + n_batches if encode_covariates else n_genes})")
+
+        # Check for BatchNorm layers
+        use_batch_norm = any("BatchNorm" in k or "batch_norm" in k.lower() for k in state_dict.keys())
+
+        # Check hidden layer input size to detect deeply_inject_covariates
+        # Layer 1 input should be n_hidden + n_batches if deeply_inject=True
+        layer1_key = "z_encoder.encoder.fc_layers.Layer 1.0.weight"
+        if layer1_key in state_dict:
+            layer1_input_size = state_dict[layer1_key].shape[1]
+            deeply_inject_covariates = (layer1_input_size == n_hidden + n_batches)
+            print(f"    Layer 1 input size: {layer1_input_size} (hidden={n_hidden}, batches={n_batches})")
+        else:
+            deeply_inject_covariates = False
 
         print(f"    Architecture: encode_covariates={encode_covariates}, use_batch_norm={use_batch_norm}, deeply_inject={deeply_inject_covariates}")
 
