@@ -239,9 +239,20 @@ def _map_to_reference(
     # Load model
     ref_model = None
     if has_metadata:
-        # Standard load
+        # Standard load - need to load a small subset of ref_adata into memory
         try:
-            ref_model = SCANVI.load(str(model_dir), adata=ref_adata)
+            if ref_adata is not None and hasattr(ref_adata, 'isbacked') and ref_adata.isbacked:
+                # Load a small subset into memory for model setup
+                print(f"    Loading 100 cells from backed reference for model setup...")
+                ref_adata_subset = ref_adata[:100].to_memory()
+                # Get raw counts if available
+                if ref_adata_subset.raw is not None:
+                    ref_adata_subset = ref_adata_subset.raw.to_adata()
+                elif "counts" in ref_adata_subset.layers:
+                    ref_adata_subset.X = ref_adata_subset.layers["counts"]
+                ref_model = SCANVI.load(str(model_dir), adata=ref_adata_subset)
+            else:
+                ref_model = SCANVI.load(str(model_dir), adata=ref_adata)
             print(f"  Model loaded successfully")
             print(f"    Latent dim: {ref_model.module.n_latent}")
         except Exception as e:
