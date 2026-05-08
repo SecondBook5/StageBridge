@@ -283,7 +283,12 @@ def _map_to_reference(
             attr_dict = None
             var_names_csv = model_dir / "var_names.csv"
             if var_names_csv.exists():
-                var_names = pd.read_csv(var_names_csv)["var_names"].tolist()
+                var_df = pd.read_csv(var_names_csv, index_col=0)
+                # Handle both formats: column named "var_names" or genes as index
+                if "var_names" in var_df.columns:
+                    var_names = var_df["var_names"].tolist()
+                else:
+                    var_names = var_df.index.tolist()
 
         if var_names is None:
             raise ValueError("Could not determine model genes - no var_names in checkpoint or var_names.csv")
