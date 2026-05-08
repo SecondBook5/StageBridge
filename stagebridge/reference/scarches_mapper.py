@@ -256,7 +256,10 @@ def _map_to_reference(
             print(f"  Model loaded successfully")
             print(f"    Latent dim: {ref_model.module.n_latent}")
         except Exception as e:
+            import traceback
             print(f"  Standard load failed: {e}")
+            print(f"  Full traceback:")
+            traceback.print_exc()
 
     if ref_model is None and n_latent is not None and ref_adata is not None:
         # Manual reconstruction from weights + architecture
