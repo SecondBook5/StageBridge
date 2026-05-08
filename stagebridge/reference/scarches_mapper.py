@@ -578,37 +578,22 @@ def _map_to_reference(
         print(f"  ERROR preparing query: {e}")
         raise
 
-    # Surgery (fine-tune on query) - or direct inference if surgery fails
+    # Surgery (fine-tune on query) - REQUIRED for proper alignment
     print(f"  Running scArches surgery (max {surgery_epochs} epochs)...")
-    query_model = None
-    try:
-        query_model = SCANVI.load_query_data(query, ref_model)
-        query_model.train(
-            max_epochs=surgery_epochs,
-            early_stopping=True,
-            early_stopping_monitor="elbo_validation",
-            early_stopping_patience=20,
-            train_size=0.9,
-            batch_size=batch_size,
-        )
-        print(f"    Surgery complete")
-    except Exception as e:
-        print(f"  WARNING: Surgery failed: {e}")
-        print(f"  Falling back to direct inference (no fine-tuning)...")
-        query_model = None
-
-        # For direct inference, set batch to an existing category (not "query")
-        if ref_batch_cats is not None and len(ref_batch_cats) > 0:
-            fallback_batch = ref_batch_cats[0]
-            query.obs[ref_batch_key] = pd.Categorical(
-                [fallback_batch] * query.n_obs,
-                categories=ref_batch_cats
-            )
-            print(f"    Set batch to '{fallback_batch}' for direct inference")
+    query_model = SCANVI.load_query_data(query, ref_model)
+    query_model.train(
+        max_epochs=surgery_epochs,
+        early_stopping=True,
+        early_stopping_monitor="elbo_validation",
+        early_stopping_patience=20,
+        train_size=0.9,
+        batch_size=batch_size,
+    )
+    print(f"    Surgery complete")
 
     # Get latent representation
     print(f"  Extracting latent representation...")
-    model_for_inference = query_model if query_model is not None else ref_model
+    model_for_inference = query_model
     latent = model_for_inference.get_latent_representation(query, batch_size=batch_size)
     latent = np.asarray(latent, dtype=np.float32)
     print(f"    Latent shape: {latent.shape}")
