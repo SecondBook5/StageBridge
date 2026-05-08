@@ -277,10 +277,12 @@ def _map_to_reference(
             var_names = checkpoint.get("var_names")
             attr_dict = checkpoint.get("attr_dict")
         else:
-            # Raw state_dict - try to load var_names from csv
+            # Raw state_dict - try to load var_names and attr from separate files
             state_dict = checkpoint
             var_names = None
             attr_dict = None
+
+            # Load var_names.csv
             var_names_csv = model_dir / "var_names.csv"
             if var_names_csv.exists():
                 var_df = pd.read_csv(var_names_csv, index_col=0)
@@ -289,6 +291,17 @@ def _map_to_reference(
                     var_names = var_df["var_names"].tolist()
                 else:
                     var_names = var_df.index.tolist()
+
+            # Load attr.pkl if exists
+            attr_pkl = model_dir / "attr.pkl"
+            if attr_pkl.exists():
+                import pickle
+                with open(attr_pkl, "rb") as f:
+                    attr_dict = pickle.load(f)
+                print(f"    Loaded attr.pkl with keys: {list(attr_dict.keys())[:5]}...")
+                # The registry is stored in registry_ key
+                if "registry_" in attr_dict:
+                    print(f"    Found registry_ in attr_dict")
 
         if var_names is None:
             raise ValueError("Could not determine model genes - no var_names in checkpoint or var_names.csv")
