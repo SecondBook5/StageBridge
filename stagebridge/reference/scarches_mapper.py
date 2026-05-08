@@ -409,14 +409,24 @@ def _map_to_reference(
         use_batch_norm = any("BatchNorm" in k or "batch_norm" in k.lower() for k in state_dict.keys())
 
         # Check hidden layer input size to detect deeply_inject_covariates
-        # Layer 1 input should be n_hidden + n_batches if deeply_inject=True
-        layer1_key = "z_encoder.encoder.fc_layers.Layer 1.0.weight"
-        if layer1_key in state_dict:
-            layer1_input_size = state_dict[layer1_key].shape[1]
-            deeply_inject_covariates = (layer1_input_size == n_hidden + n_batches)
-            print(f"    Layer 1 input size: {layer1_input_size} (hidden={n_hidden}, batches={n_batches})")
-        else:
-            deeply_inject_covariates = False
+        # Check both encoder and decoder - either having batch concat means deeply_inject=True
+        deeply_inject_covariates = False
+
+        # Check encoder layer 1
+        enc_layer1_key = "z_encoder.encoder.fc_layers.Layer 1.0.weight"
+        if enc_layer1_key in state_dict:
+            enc_layer1_input = state_dict[enc_layer1_key].shape[1]
+            if enc_layer1_input == n_hidden + n_batches:
+                deeply_inject_covariates = True
+            print(f"    Encoder layer 1 input: {enc_layer1_input}")
+
+        # Check decoder layer 1
+        dec_layer1_key = "decoder.px_decoder.fc_layers.Layer 1.0.weight"
+        if dec_layer1_key in state_dict:
+            dec_layer1_input = state_dict[dec_layer1_key].shape[1]
+            if dec_layer1_input == n_hidden + n_batches:
+                deeply_inject_covariates = True
+            print(f"    Decoder layer 1 input: {dec_layer1_input}")
 
         print(f"    Architecture: encode_covariates={encode_covariates}, use_batch_norm={use_batch_norm}, deeply_inject={deeply_inject_covariates}")
 
