@@ -28,6 +28,8 @@ from stagebridge.contracts import (
     LUCA_DIM,
     LATENT_DIM,
     STAGE_TO_IDX,
+    MAX_NEIGHBORS,
+    NEIGHBORHOODS_SCHEMA,
 )
 
 
@@ -303,14 +305,23 @@ def main():
     neighborhoods_df.to_parquet(args.output, index=False)
     print(f"\nSaved: {args.output}")
 
-    # Basic validation
-    print("\nValidating...")
-    required_cols = ['cell_id', 'donor_id', 'receiver_z', 'hlca_z', 'luca_z', 'neighbor_cells', 'neighbor_distances']
-    missing_cols = [c for c in required_cols if c not in neighborhoods_df.columns]
-    if missing_cols:
-        print(f"  WARNING: Missing columns: {missing_cols}")
+    # Validate against contract schema
+    print("\nValidating against contract schema...")
+    errors = NEIGHBORHOODS_SCHEMA.validate(neighborhoods_df)
+    if errors:
+        print(f"  Contract violations:")
+        for e in errors:
+            print(f"    - {e}")
     else:
-        print("  All required columns present!")
+        print("  Contract validation passed!")
+
+    # Verify AMICI format columns specifically
+    amici_required = ['cell_id', 'donor_id', 'stage', 'receiver_z', 'hlca_z', 'luca_z', 'neighbor_cells', 'neighbor_distances']
+    missing_cols = [c for c in amici_required if c not in neighborhoods_df.columns]
+    if missing_cols:
+        print(f"  WARNING: Missing AMICI format columns: {missing_cols}")
+    else:
+        print("  All AMICI format columns present!")
 
 
 if __name__ == "__main__":

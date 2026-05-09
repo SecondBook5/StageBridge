@@ -87,10 +87,16 @@ def run_hpo(
     log.info(f"  Train batches: {len(train_loader)}")
     log.info(f"  Val batches: {len(val_loader) if val_loader else 0}")
 
-    # Detect evolution_dim from data (may differ from contracts.EVOLUTION_DIM)
+    # Detect data format and evolution_dim from first batch
     sample_batch = next(iter(train_loader))
     evolution_dim = sample_batch.evolution_features.shape[-1] if sample_batch.evolution_features is not None else 0
+    is_amici_format = hasattr(sample_batch, "neighbors")  # AMICIBatch has neighbors, NicheBatch has ring_cells
     log.info(f"  Evolution dim: {evolution_dim}")
+    data_format = "AMICI (continuous)" if is_amici_format else "Ring (discrete)"
+    log.info(f"  Data format: {data_format}")
+
+    # If data is AMICI format, model MUST use AMICI encoder
+    force_amici = is_amici_format
 
     def objective(trial: Trial) -> float:
         from stagebridge.models.stagebridge import StageBridge, StageBridgeConfig
@@ -121,7 +127,11 @@ def run_hpo(
         gw_output_dim = trial.suggest_categorical("gw_output_dim", [40, 64, 96]) if use_gw_fusion else 40
 
         # AMICI attention hyperparameters
-        use_amici = trial.suggest_categorical("use_amici_attention", [True, False])
+        # If data is AMICI format, MUST use AMICI encoder; otherwise it's a hyperparameter
+        if force_amici:
+            use_amici = True
+        else:
+            use_amici = trial.suggest_categorical("use_amici_attention", [True, False])
         amici_num_heads = trial.suggest_categorical("amici_num_heads", [2, 4, 8]) if use_amici else 4
         amici_distance_scale = trial.suggest_float("amici_distance_scale", 50.0, 200.0) if use_amici else 100.0
 
@@ -163,18 +173,34 @@ def run_hpo(
                 batch = batch.to(device)
                 optimizer.zero_grad()
 
-                # Encode niche
-                niche_output = model.encode_niche(
-                    receiver=batch.receiver,
-                    ring_cells=batch.ring_cells,
-                    ring_masks=batch.ring_masks,
-                    hlca=batch.hlca,
-                    luca=batch.luca,
-                    pathway=batch.pathway,
-                    stats=batch.stats,
-                    evolution_features=batch.evolution_features,
-                    return_reconstruction=True,
-                )
+                # Encode niche (auto-detect format from batch type)
+                if hasattr(batch, "neighbors"):
+                    # AMICI format (continuous distance attention)
+                    niche_output = model.encode_niche_amici(
+                        receiver=batch.receiver,
+                        neighbors=batch.neighbors,
+                        distances=batch.distances,
+                        neighbor_mask=batch.neighbor_mask,
+                        hlca=batch.hlca,
+                        luca=batch.luca,
+                        pathway=batch.pathway,
+                        stats=batch.stats,
+                        evolution_features=batch.evolution_features,
+                        return_reconstruction=True,
+                    )
+                else:
+                    # Ring format (discrete spatial bins)
+                    niche_output = model.encode_niche(
+                        receiver=batch.receiver,
+                        ring_cells=batch.ring_cells,
+                        ring_masks=batch.ring_masks,
+                        hlca=batch.hlca,
+                        luca=batch.luca,
+                        pathway=batch.pathway,
+                        stats=batch.stats,
+                        evolution_features=batch.evolution_features,
+                        return_reconstruction=True,
+                    )
 
                 # SSL loss: receiver reconstruction
                 ssl_loss = F.mse_loss(niche_output.receiver_reconstruction, batch.receiver)
@@ -236,17 +262,34 @@ def run_hpo(
             for batch in (val_loader or []):
                 batch = batch.to(device)
 
-                niche_output = model.encode_niche(
-                    receiver=batch.receiver,
-                    ring_cells=batch.ring_cells,
-                    ring_masks=batch.ring_masks,
-                    hlca=batch.hlca,
-                    luca=batch.luca,
-                    pathway=batch.pathway,
-                    stats=batch.stats,
-                    evolution_features=batch.evolution_features,
-                    return_reconstruction=True,
-                )
+                # Encode niche (auto-detect format from batch type)
+                if hasattr(batch, "neighbors"):
+                    # AMICI format
+                    niche_output = model.encode_niche_amici(
+                        receiver=batch.receiver,
+                        neighbors=batch.neighbors,
+                        distances=batch.distances,
+                        neighbor_mask=batch.neighbor_mask,
+                        hlca=batch.hlca,
+                        luca=batch.luca,
+                        pathway=batch.pathway,
+                        stats=batch.stats,
+                        evolution_features=batch.evolution_features,
+                        return_reconstruction=True,
+                    )
+                else:
+                    # Ring format
+                    niche_output = model.encode_niche(
+                        receiver=batch.receiver,
+                        ring_cells=batch.ring_cells,
+                        ring_masks=batch.ring_masks,
+                        hlca=batch.hlca,
+                        luca=batch.luca,
+                        pathway=batch.pathway,
+                        stats=batch.stats,
+                        evolution_features=batch.evolution_features,
+                        return_reconstruction=True,
+                    )
 
                 ssl_loss = F.mse_loss(niche_output.receiver_reconstruction, batch.receiver)
                 val_loss += ssl_loss.item()

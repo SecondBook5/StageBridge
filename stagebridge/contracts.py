@@ -863,41 +863,52 @@ CELLS_SCHEMA = ParquetSchema(
 
 
 # -----------------------------------------------------------------------------
-# neighborhoods.parquet schema (individual cells per ring for learned pooling)
+# neighborhoods.parquet schema
+# Supports two formats:
+#   1. AMICI format (PREFERRED): neighbor_cells + neighbor_distances for continuous attention
+#   2. Ring format (LEGACY): ring_N_cells for discrete ring binning
+# The dataloader auto-detects format based on column presence.
 # -----------------------------------------------------------------------------
 
 NEIGHBORHOODS_SCHEMA = ParquetSchema(
     name="neighborhoods.parquet",
-    description="Niche data with individual cells per ring for learned ISAB+PMA pooling",
+    description="Niche data for receiver-centered modeling. Supports AMICI (continuous) or ring (discrete) format.",
     columns=[
+        # Common required columns
         ColumnSchema("cell_id", "str", required=True, nullable=False, description="Cell identifier (matches cells.parquet)"),
         ColumnSchema("donor_id", "str", required=True, nullable=False, description="Donor identifier"),
         ColumnSchema("stage", "str", required=True, nullable=False, description="Disease stage"),
-        # Receiver cell
         ColumnSchema("receiver_z", "list", required=True, nullable=False, description="Receiver fused embedding [LATENT_DIM]"),
-        # Individual cells per ring (list of embeddings) - model learns which cells matter
-        ColumnSchema("ring_1_cells", "list", required=True, nullable=False, description="List of cell embeddings in ring 1"),
-        ColumnSchema("ring_2_cells", "list", required=True, nullable=False, description="List of cell embeddings in ring 2"),
-        ColumnSchema("ring_3_cells", "list", required=True, nullable=False, description="List of cell embeddings in ring 3"),
-        ColumnSchema("ring_4_cells", "list", required=True, nullable=False, description="List of cell embeddings in ring 4"),
-        # Ring distances (for spatial RPE)
-        ColumnSchema("ring_1_distances", "list", required=False, nullable=True, description="Distances to ring 1 cells"),
-        ColumnSchema("ring_2_distances", "list", required=False, nullable=True, description="Distances to ring 2 cells"),
-        ColumnSchema("ring_3_distances", "list", required=False, nullable=True, description="Distances to ring 3 cells"),
-        ColumnSchema("ring_4_distances", "list", required=False, nullable=True, description="Distances to ring 4 cells"),
-        # Reference embeddings
         ColumnSchema("hlca_z", "list", required=True, nullable=False, description="HLCA reference embedding [HLCA_DIM=30]"),
         ColumnSchema("luca_z", "list", required=True, nullable=False, description="LuCA reference embedding [LUCA_DIM=10]"),
-        # Optional pathway/stats (can also be zeros)
+
+        # AMICI format (PREFERRED): continuous distance attention
+        ColumnSchema("neighbor_cells", "list", required=False, nullable=True, description="AMICI: List of neighbor embeddings sorted by distance"),
+        ColumnSchema("neighbor_distances", "list", required=False, nullable=True, description="AMICI: Distances to neighbors in microns"),
+
+        # Ring format (LEGACY): discrete spatial bins
+        ColumnSchema("ring_1_cells", "list", required=False, nullable=True, description="Ring: Cell embeddings in ring 1 (0-50um)"),
+        ColumnSchema("ring_2_cells", "list", required=False, nullable=True, description="Ring: Cell embeddings in ring 2 (50-100um)"),
+        ColumnSchema("ring_3_cells", "list", required=False, nullable=True, description="Ring: Cell embeddings in ring 3 (100-150um)"),
+        ColumnSchema("ring_4_cells", "list", required=False, nullable=True, description="Ring: Cell embeddings in ring 4 (150-200um)"),
+        ColumnSchema("ring_1_distances", "list", required=False, nullable=True, description="Ring: Distances to ring 1 cells"),
+        ColumnSchema("ring_2_distances", "list", required=False, nullable=True, description="Ring: Distances to ring 2 cells"),
+        ColumnSchema("ring_3_distances", "list", required=False, nullable=True, description="Ring: Distances to ring 3 cells"),
+        ColumnSchema("ring_4_distances", "list", required=False, nullable=True, description="Ring: Distances to ring 4 cells"),
+
+        # Optional features
         ColumnSchema("pathway_z", "list", required=False, nullable=True, description="Pathway features [LATENT_DIM=40]"),
         ColumnSchema("stats_z", "list", required=False, nullable=True, description="Stats features [STATS_TOKEN_DIM=5]"),
     ],
 )
 
-# Maximum cells per ring (for padding)
+# Maximum cells per ring (ring format)
 MAX_CELLS_PER_RING = 50
 
-# Ring distance boundaries in microns
+# Maximum neighbors (AMICI format)
+MAX_NEIGHBORS = 100
+
+# Ring distance boundaries in microns (ring format)
 RING_BOUNDARIES = (0, 50, 100, 150, 200)  # ring 1: 0-50um, ring 2: 50-100um, etc.
 
 # Legacy schema alias (deprecated - use NEIGHBORHOODS_SCHEMA)
