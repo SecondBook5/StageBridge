@@ -733,6 +733,7 @@ def _direct_inference(
     # Run inference in batches using the model module directly
     model.module.eval()
     latents = []
+    all_probs = []
 
     with torch.no_grad():
         for i in range(0, len(X), batch_size):
@@ -751,9 +752,23 @@ def _direct_inference(
             z = inference_outputs["z"]
             latents.append(z.cpu().numpy())
 
+            # Get classifier predictions from the latent
+            if hasattr(model.module, 'classifier'):
+                probs = torch.softmax(model.module.classifier(z), dim=-1)
+                all_probs.append(probs.cpu().numpy())
+
     latent = np.concatenate(latents, axis=0).astype(np.float32)
 
-    return {"latent": latent, "labels": None, "confidence": None}
+    # Process predictions
+    labels = None
+    confidence = None
+    if all_probs:
+        probs = np.concatenate(all_probs, axis=0)
+        pred_idx = probs.argmax(axis=1)
+        labels = np.array([ref_label_cats[i] for i in pred_idx])
+        confidence = probs.max(axis=1).astype(np.float32)
+
+    return {"latent": latent, "labels": labels, "confidence": confidence}
 
 
 def map_to_reference_direct(
@@ -837,6 +852,8 @@ def map_to_reference_direct(
 
     results["spatial_luca"] = spatial_luca["latent"]
     results["snrna_luca"] = snrna_luca["latent"]
+    results["spatial_luca_labels"] = spatial_luca["labels"]
+    results["snrna_luca_labels"] = snrna_luca["labels"]
 
     # HLCA mapping (optional)
     if hlca_model_dir:
@@ -879,6 +896,8 @@ def map_to_reference_direct(
 
         results["spatial_hlca"] = spatial_hlca["latent"]
         results["snrna_hlca"] = snrna_hlca["latent"]
+        results["spatial_hlca_labels"] = spatial_hlca["labels"]
+        results["snrna_hlca_labels"] = snrna_hlca["labels"]
 
     # Save outputs
     if output_dir:
@@ -919,7 +938,7 @@ def map_to_reference_direct(
             snrna_hlca_df.to_parquet(output_dir / "snrna_hlca_direct.parquet")
             print(f"Saved: {output_dir / 'snrna_hlca_direct.parquet'}")
 
-        # Fused embeddings (concat HLCA + LuCA)
+        # Fused embeddings (concat HLCA + LuCA) with cell type labels
         if "spatial_hlca" in results:
             spatial_fused = np.hstack([results["spatial_hlca"], results["spatial_luca"]])
             snrna_fused = np.hstack([results["snrna_hlca"], results["snrna_luca"]])
@@ -929,12 +948,21 @@ def map_to_reference_direct(
                 [f"luca_latent_{i}" for i in range(results["spatial_luca"].shape[1])]
             )
 
-            pd.DataFrame(spatial_fused, index=spatial.obs_names, columns=fused_cols).to_parquet(
-                output_dir / "spatial_fused_direct.parquet"
-            )
-            pd.DataFrame(snrna_fused, index=snrna.obs_names, columns=fused_cols).to_parquet(
-                output_dir / "snrna_fused_direct.parquet"
-            )
+            spatial_fused_df = pd.DataFrame(spatial_fused, index=spatial.obs_names, columns=fused_cols)
+            snrna_fused_df = pd.DataFrame(snrna_fused, index=snrna.obs_names, columns=fused_cols)
+
+            # Add cell type labels from both references
+            if results.get("spatial_hlca_labels") is not None:
+                spatial_fused_df["cell_type_hlca"] = results["spatial_hlca_labels"]
+            if results.get("spatial_luca_labels") is not None:
+                spatial_fused_df["cell_type_luca"] = results["spatial_luca_labels"]
+            if results.get("snrna_hlca_labels") is not None:
+                snrna_fused_df["cell_type_hlca"] = results["snrna_hlca_labels"]
+            if results.get("snrna_luca_labels") is not None:
+                snrna_fused_df["cell_type_luca"] = results["snrna_luca_labels"]
+
+            spatial_fused_df.to_parquet(output_dir / "spatial_fused_direct.parquet")
+            snrna_fused_df.to_parquet(output_dir / "snrna_fused_direct.parquet")
             print(f"Saved fused: {output_dir / 'spatial_fused_direct.parquet'}")
             print(f"Saved fused: {output_dir / 'snrna_fused_direct.parquet'}")
 
