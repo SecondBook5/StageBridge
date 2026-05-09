@@ -237,6 +237,7 @@ def step3_build_cells_parquet(
     snrna_features: pd.DataFrame,
     spatial_features: pd.DataFrame,
     output_path: Path,
+    destvi_fractions: pd.DataFrame = None,
 ) -> pd.DataFrame:
     """Build unified cells.parquet with embeddings and features."""
     print("\n" + "="*60)
@@ -282,10 +283,19 @@ def step3_build_cells_parquet(
             'S_score': float(feat.get('S_score', 0.0)),
             'G2M_score': float(feat.get('G2M_score', 0.0)),
             'proliferation_label': float(feat.get('proliferation_label', 0.0)),
+            # Biological features
+            'emt_score': float(feat.get('emt_score', 0.0)) if not pd.isna(feat.get('emt_score', 0.0)) else 0.0,
+            'senescence_score': float(feat.get('senescence_score', 0.0)) if not pd.isna(feat.get('senescence_score', 0.0)) else 0.0,
+            'sasp_score': float(feat.get('sasp_score', 0.0)) if not pd.isna(feat.get('sasp_score', 0.0)) else 0.0,
+            'cytotrace': float(feat.get('cytotrace', 0.0)) if not pd.isna(feat.get('cytotrace', 0.0)) else 0.0,
+            # snRNA doesn't have spatial deconvolution
+            'caf_fraction': 0.0,
+            'immune_fraction': 0.0,
+            'diversity': 0.0,
         }
 
         for pathway in PROGENY_PATHWAYS:
-            record[f'pathway_{pathway}'] = float(feat.get(f'pathway_{pathway}', 0.0))
+            record[f'pathway_{pathway}'] = float(feat.get(f'pathway_{pathway}', 0.0)) if not pd.isna(feat.get(f'pathway_{pathway}', 0.0)) else 0.0
 
         records.append(record)
 
@@ -306,19 +316,39 @@ def step3_build_cells_parquet(
 
         feat = spatial_features.loc[cell_id] if cell_id in spatial_features.index else {}
 
+        # Get DestVI fractions for this spot
+        caf_frac = 0.0
+        immune_frac = 0.0
+        diversity = 0.0
+        cell_type_luca = 'mixed'
+        if destvi_fractions is not None and cell_id in destvi_fractions.index:
+            caf_frac = float(destvi_fractions.loc[cell_id, 'caf_fraction'])
+            immune_frac = float(destvi_fractions.loc[cell_id, 'immune_fraction'])
+            diversity = float(destvi_fractions.loc[cell_id, 'diversity'])
+            cell_type_luca = str(destvi_fractions.loc[cell_id, 'cell_type_luca'])
+
         record = {
             'cell_id': f'spatial_{cell_id}',
             'donor_id': str(donor_id),
             'stage': stage,
             'stage_idx': STAGE_TO_IDX.get(stage, -1),
             'data_type': 'spatial',
-            'cell_type': str(obs.get('cell_type', 'mixed')),
+            'cell_type': cell_type_luca,
             'z_fused': z_fused.tolist(),
             'z_hlca': z_hlca.tolist(),
             'z_luca': z_luca.tolist(),
             'S_score': float(feat.get('S_score', 0.0)),
             'G2M_score': float(feat.get('G2M_score', 0.0)),
             'proliferation_label': float(feat.get('proliferation_label', 0.0)),
+            # Biological features (not available for spatial)
+            'emt_score': 0.0,
+            'senescence_score': 0.0,
+            'sasp_score': 0.0,
+            'cytotrace': 0.0,
+            # DestVI fractions
+            'caf_fraction': caf_frac,
+            'immune_fraction': immune_frac,
+            'diversity': diversity,
         }
 
         if spatial_coords is not None:
@@ -326,7 +356,7 @@ def step3_build_cells_parquet(
             record['y'] = float(spatial_coords[i, 1])
 
         for pathway in PROGENY_PATHWAYS:
-            record[f'pathway_{pathway}'] = float(feat.get(f'pathway_{pathway}', 0.0))
+            record[f'pathway_{pathway}'] = float(feat.get(f'pathway_{pathway}', 0.0)) if not pd.isna(feat.get(f'pathway_{pathway}', 0.0)) else 0.0
 
         records.append(record)
 
@@ -471,6 +501,9 @@ def main():
     parser.add_argument("--max-neighbors", type=int, default=100, help="Max neighbors per cell")
     parser.add_argument("--max-distance", type=float, default=5000.0, help="Max neighbor distance (coordinate units)")
     parser.add_argument("--progeny-parquet", type=Path, help="Pre-computed PROGENy pathway_activity_progeny.parquet")
+    parser.add_argument("--biological-features", type=Path, help="Pre-computed biological_features.parquet (EMT, senescence, SASP)")
+    parser.add_argument("--destvi-luca", type=Path, help="DestVI LuCA cell_type_proportions.parquet for CAF/immune fractions")
+    parser.add_argument("--progression", type=Path, help="Pre-computed progression_scores.parquet (cytotrace, pseudotime)")
     parser.add_argument("--force", action="store_true", help="Recompute even if outputs exist")
 
     args = parser.parse_args()
@@ -521,12 +554,71 @@ def main():
         n_matched = snrna_features[[f'pathway_{p}' for p in PROGENY_PATHWAYS]].notna().any(axis=1).sum()
         print(f"    Matched PROGENy for {n_matched:,} snRNA cells")
 
+    # Merge biological features (EMT, senescence, SASP)
+    if args.biological_features and args.biological_features.exists():
+        print("\n  Merging biological features (EMT, senescence, SASP)...")
+        bio_df = pd.read_parquet(args.biological_features)
+        if 'cell_id' in bio_df.columns:
+            bio_df = bio_df.set_index('cell_id')
+
+        for col in ['emt_score', 'senescence_score', 'sasp_score', 'lr_activity_score']:
+            if col in bio_df.columns:
+                snrna_features[col] = snrna_features.index.map(bio_df[col])
+
+        n_matched = snrna_features['emt_score'].notna().sum() if 'emt_score' in snrna_features.columns else 0
+        print(f"    Matched biological features for {n_matched:,} snRNA cells")
+
+    # Merge progression scores (CytoTRACE plasticity)
+    if args.progression and args.progression.exists():
+        print("\n  Merging progression scores (CytoTRACE)...")
+        prog_df = pd.read_parquet(args.progression)
+        if 'cell_id' in prog_df.columns:
+            prog_df = prog_df.set_index('cell_id')
+
+        if 'cytotrace' in prog_df.columns:
+            snrna_features['cytotrace'] = snrna_features.index.map(prog_df['cytotrace'])
+            n_matched = snrna_features['cytotrace'].notna().sum()
+            print(f"    Matched CytoTRACE for {n_matched:,} snRNA cells")
+
+    # Merge DestVI CAF/immune fractions for spatial cells
+    destvi_fractions = None
+    if args.destvi_luca and args.destvi_luca.exists():
+        print("\n  Loading DestVI LuCA fractions...")
+        destvi_df = pd.read_parquet(args.destvi_luca)
+        print(f"    DestVI data: {len(destvi_df):,} spots")
+
+        # Define cell type groupings
+        CAF_TYPES = ['fibroblast of lung', 'bronchus fibroblast of lung', 'stromal cell']
+        IMMUNE_TYPES = [
+            'B cell', 'CD4-positive, alpha-beta T cell', 'CD8-positive, alpha-beta T cell',
+            'regulatory T cell', 'natural killer cell', 'alveolar macrophage', 'macrophage',
+            'classical monocyte', 'non-classical monocyte', 'myeloid cell', 'neutrophil',
+            'dendritic cell', 'mast cell', 'plasma cell'
+        ]
+
+        # Compute fractions
+        type_cols = [c for c in destvi_df.columns if c not in ['sample', 'cell_id', 'spot_id']]
+        caf_cols = [c for c in type_cols if c in CAF_TYPES]
+        immune_cols = [c for c in type_cols if c in IMMUNE_TYPES]
+
+        destvi_fractions = pd.DataFrame(index=destvi_df.index)
+        destvi_fractions['caf_fraction'] = destvi_df[caf_cols].sum(axis=1) if caf_cols else 0.0
+        destvi_fractions['immune_fraction'] = destvi_df[immune_cols].sum(axis=1) if immune_cols else 0.0
+        destvi_fractions['diversity'] = (destvi_df[type_cols] > 0.01).sum(axis=1)  # Number of cell types > 1%
+
+        # Get dominant cell type
+        destvi_fractions['cell_type_luca'] = destvi_df[type_cols].idxmax(axis=1)
+
+        print(f"    CAF fraction: {destvi_fractions['caf_fraction'].mean():.3f} mean")
+        print(f"    Immune fraction: {destvi_fractions['immune_fraction'].mean():.3f} mean")
+
     cells_path = args.output_dir / "cells.parquet"
     cells_df = step3_build_cells_parquet(
         args.snrna, args.spatial,
         snrna_emb, spatial_emb,
         snrna_features, spatial_features,
         cells_path,
+        destvi_fractions=destvi_fractions,
     )
 
     neighborhoods_path = args.output_dir / "neighborhoods.parquet"
