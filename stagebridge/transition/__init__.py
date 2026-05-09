@@ -35,6 +35,12 @@ from stagebridge.transition.schrodinger_bridge import (
     schrodinger_bridge_loss,
     sb_ot_coupled_loss,
     get_dynamics_module,
+    # Gaussian SB closed-form (Bunne et al. 2023)
+    GaussianSBInitializer,
+    compute_gaussian_sb_params,
+    gaussian_sb_interpolant,
+    gaussian_sb_drift,
+    estimate_gaussian_params,
 )
 
 __all__ = [
@@ -61,4 +67,10 @@ __all__ = [
     "schrodinger_bridge_loss",
     "sb_ot_coupled_loss",
     "get_dynamics_module",
+    # Gaussian SB closed-form
+    "GaussianSBInitializer",
+    "compute_gaussian_sb_params",
+    "gaussian_sb_interpolant",
+    "gaussian_sb_drift",
+    "estimate_gaussian_params",
 ]
