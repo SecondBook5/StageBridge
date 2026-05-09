@@ -2,16 +2,36 @@
 """
 Complete Real Data Pipeline for StageBridge V1
 
-This script completes all missing pieces from run_data_prep.py:
+DEPRECATED: Use scripts/prepare_training_data.py instead.
+
+This module is kept for backward compatibility but will be removed in a future version.
+The new unified script handles all data preparation in one command:
+
+    python scripts/prepare_training_data.py \\
+        --snrna $DATA/snrna.h5ad \\
+        --spatial $DATA/spatial.h5ad \\
+        --snrna-embeddings $DATA/snrna_emb.parquet \\
+        --spatial-embeddings $DATA/spatial_emb.parquet \\
+        --output-dir $DATA/canonical
+
+---
+
+Original description:
+Completes all missing pieces from run_data_prep.py:
 1. Generate canonical artifacts (cells.parquet, neighborhoods.parquet, etc.)
 2. Integrate spatial backend results
 3. Build 9-token niche structure
 4. Generate donor-held-out CV splits
 5. Extract WES features properly
 6. Integrate clonal evolution patterns for H3 validation
-
-This is the PRODUCTION-READY version that handles real LUAD data.
 """
+import warnings
+warnings.warn(
+    "stagebridge.pipelines.complete_data_prep is deprecated. "
+    "Use scripts/prepare_training_data.py instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import argparse
 from pathlib import Path

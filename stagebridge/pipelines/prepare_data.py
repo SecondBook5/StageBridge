@@ -1,22 +1,30 @@
 """Data preparation pipeline for StageBridge.
 
+DEPRECATED: Use scripts/prepare_training_data.py instead.
+
+This module is kept for backward compatibility but will be removed in a future version.
+The new unified script handles all data preparation in one command:
+
+    python scripts/prepare_training_data.py \\
+        --snrna $DATA/snrna.h5ad \\
+        --spatial $DATA/spatial.h5ad \\
+        --snrna-embeddings $DATA/snrna_emb.parquet \\
+        --spatial-embeddings $DATA/spatial_emb.parquet \\
+        --output-dir $DATA/canonical
+
+---
+
+Original description:
 Builds neighborhoods with raw cells for learned ring pooling from existing cells.parquet.
 Uses LuCA DestVI deconvolution results for CAF/immune fractions.
-Optionally loads precomputed scores or computes from h5ad:
-- CytoTRACE/pseudotime from progression_scores.parquet
-- EMT/senescence/SASP from h5ad expression
-- LIANA L-R scores from h5ad (slow, optional)
-
-Usage:
-    python -m stagebridge.pipelines.prepare_data \
-        --cells /path/to/cells.parquet \
-        --output-dir /path/to/output \
-        --destvi-luca /path/to/luca/destvi/cell_type_proportions.parquet \
-        --destvi-hlca /path/to/hlca/destvi/cell_type_proportions.parquet \
-        --progression /path/to/progression/progression_scores.parquet \
-        --h5ad /path/to/snrna_with_celltypes.h5ad \
-        --figures
 """
+import warnings
+warnings.warn(
+    "stagebridge.pipelines.prepare_data is deprecated. "
+    "Use scripts/prepare_training_data.py instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from __future__ import annotations
 
