@@ -946,6 +946,7 @@ rule figures:
         f"{FIGURES_DIR}/fig7_trajectories.pdf",
         f"{FIGURES_DIR}/fig8_spatial_attention.pdf",
         f"{FIGURES_DIR}/fig9_novel_biology.pdf",
+        f"{FIGURES_DIR}/fig10_helmholtz_flux.pdf",
 
 
 rule fig1_architecture:
@@ -1162,6 +1163,37 @@ rule fig9_novel_biology:
             --attention {input.attention} \
             --cells {input.neighborhoods} \
             --output {output.pdf}
+        """
+
+
+rule fig10_helmholtz_flux:
+    """Key figure: Helmholtz decomposition of flow field.
+
+    Decomposes learned velocity field into:
+    - Gradient component (reversible, conservative)
+    - Curl component (irreversible, rotational)
+
+    Critical for understanding EMT vs MET reversibility.
+    """
+    input:
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+        checkpoint=f"{OUTPUT_DIR}/full/fold_0/seed_0/checkpoints/best_checkpoint.pt",
+    output:
+        pdf=f"{FIGURES_DIR}/fig10_helmholtz_flux.pdf",
+        png=f"{FIGURES_DIR}/fig10_helmholtz_flux.png",
+    params:
+        data_dir=DATA_DIR,
+        output_dir=FIGURES_DIR,
+    resources:
+        mem_mb=256000,
+        runtime=60,
+        slurm_partition="gpu",
+        gpu=1,
+    shell:
+        """
+        python -m stagebridge.pipelines.generate_figures flux \
+            --data-dir {params.data_dir} \
+            --output-dir {params.output_dir}
         """
 
 

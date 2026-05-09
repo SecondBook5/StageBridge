@@ -225,7 +225,11 @@ EVOLUTION_DIM = len(EVOLUTION_COLS)  # 30 features
 # PATHWAY FEATURES (in token 7)
 # =============================================================================
 
-PATHWAY_FEATURES = ("emt_score", "caf_fraction", "immune_fraction", "il1b_score")
+# Legacy 4-feature pathway (deprecated)
+# PATHWAY_FEATURES = ("emt_score", "caf_fraction", "immune_fraction", "il1b_score")
+
+# Pathway token uses PROGENy 14 pathways (same as N_PROGENY_PATHWAYS)
+PATHWAY_TOKEN_DIM = 14  # PROGENy pathway activities
 N_PROGENY_PATHWAYS = 14  # PROGENy canonical pathways
 
 PROGENY_PATHWAY_NAMES = (
@@ -851,8 +855,8 @@ CELLS_SCHEMA = ParquetSchema(
         ColumnSchema("cell_type_luca", "str", required=False, nullable=True, description="Cell type from LuCA reference"),
         # WES features (optional)
         *[ColumnSchema(col, "float", required=False, nullable=True, description=f"WES feature: {col}") for col in WES_COLS],
-        # Pathway features
-        *[ColumnSchema(col, "float", required=False, nullable=True, description=f"Pathway feature: {col}") for col in PATHWAY_FEATURES],
+        # Pathway features (PROGENy pathways)
+        *[ColumnSchema(col, "float", required=False, nullable=True, description=f"Pathway feature: {col}") for col in PROGENY_PATHWAY_NAMES],
         # Stats token features (conditioning inputs)
         *[ColumnSchema(col, "float", required=False, nullable=True, description=f"Stats token feature: {col}") for col in STATS_TOKEN_COLUMNS],
         # Sample metadata

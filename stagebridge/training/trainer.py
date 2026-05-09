@@ -59,6 +59,10 @@ class TrainerConfig:
     ssl_entropy_weight: float = 0.01
     ssl_value_l1_weight: float = 0.01
 
+    # Dynamics type: OT-CFM (deterministic) or Schrödinger Bridge (stochastic)
+    dynamics_type: str = "ot_cfm"  # "ot_cfm" or "schrodinger_bridge"
+    sb_sigma: float = 0.1  # Diffusion coefficient for SB
+
     # OT-CFM
     ot_epsilon: float = 0.05
     sinkhorn_iters: int = 80
@@ -187,6 +191,36 @@ class StageBridgeTrainer:
         self._gradient_flow_verified = False
         self._transition_gradient_verified = False
         self._current_phase = "ssl"
+
+        # Schrödinger Bridge module (if dynamics_type == "schrodinger_bridge")
+        self.sb_module = None
+        if config.dynamics_type == "schrodinger_bridge":
+            from stagebridge.transition.schrodinger_bridge import (
+                SchrodingerBridge, SchrodingerBridgeConfig
+            )
+            sb_config = SchrodingerBridgeConfig(
+                input_dim=self._raw_model.config.input_dim,
+                context_dim=self._raw_model.config.hidden_dim,
+                hidden_dim=self._raw_model.config.hidden_dim,
+                num_stages=self._raw_model.config.num_stages,
+                sigma=config.sb_sigma,
+                use_external_drift=True,  # Use model's CrossAttentionDrift
+            )
+            self.sb_module = SchrodingerBridge(sb_config).to(self.device)
+
+            # Set external drift to model's forward_vector_field
+            def external_drift_fn(x_t, t, context, stage_pair_id):
+                return self._raw_model.forward_vector_field(
+                    x_t=x_t, t=t, context=context,
+                    stage_pair_id=stage_pair_id, context_tokens=None,
+                )
+            self.sb_module.set_external_drift(external_drift_fn)
+
+            # Add SB params to optimizer
+            self.optimizer.add_param_group({
+                "params": self.sb_module.parameters(),
+                "lr": config.learning_rate,
+            })
 
     def _print_training_info(
         self,
@@ -972,7 +1006,23 @@ class StageBridgeTrainer:
             context_tokens=ctx_tokens,
         )
 
-        loss = F.mse_loss(v_t, u_t)
+        # Drift loss (trains CrossAttentionDrift)
+        loss_drift = F.mse_loss(v_t, u_t)
+
+        # Add SB score loss if using Schrödinger Bridge
+        if self.sb_module is not None:
+            from stagebridge.transition.schrodinger_bridge import schrodinger_bridge_loss
+            loss_sb, _ = schrodinger_bridge_loss(
+                x_src=x_i,
+                x_tgt=y_j,
+                sb_module=self.sb_module,
+                context=ctx,
+                stage_pair_id=stage_pair_id,
+                num_time_samples=4,
+            )
+            loss = loss_drift + loss_sb
+        else:
+            loss = loss_drift
 
         return loss, coupling
 
@@ -1252,6 +1302,11 @@ if __name__ == "__main__":
     parser.add_argument("--gw-fusion-type", choices=["concat", "learned_gw", "precompute_gw"],
                         default="concat", help="Fusion method: concat (baseline), learned_gw, precompute_gw")
     parser.add_argument("--gw-output-dim", type=int, default=40)
+    # Dynamics type
+    parser.add_argument("--dynamics-type", choices=["ot_cfm", "schrodinger_bridge"],
+                        default="ot_cfm", help="Dynamics: ot_cfm (deterministic) or schrodinger_bridge (stochastic)")
+    parser.add_argument("--sb-sigma", type=float, default=0.1,
+                        help="Diffusion coefficient for Schrödinger Bridge")
     # HPO params (overrides defaults with optimized values)
     parser.add_argument("--hpo-params", type=Path, default=None,
                         help="Path to best_params.json from HPO (overrides CLI args)")
@@ -1312,6 +1367,8 @@ if __name__ == "__main__":
         transition_epochs=args.transition_epochs,
         learning_rate=hpo.get("lr", args.learning_rate),
         output_dir=args.output_dir,
+        dynamics_type=hpo.get("dynamics_type", args.dynamics_type),
+        sb_sigma=hpo.get("sb_sigma", args.sb_sigma),
     )
 
     # Auto-detect checkpoint to resume from

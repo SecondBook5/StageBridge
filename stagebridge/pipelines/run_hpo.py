@@ -161,6 +161,8 @@ def run_hpo(
         model = StageBridge(config).to(device)
 
         # Create Schrödinger Bridge module if needed
+        # SB uses StageBridge's CrossAttentionDrift for forward drift (same as OT-CFM)
+        # SB only learns the score network for backward/reversibility
         sb_module = None
         if dynamics_type == "schrodinger_bridge":
             from stagebridge.transition.schrodinger_bridge import (
@@ -172,9 +174,22 @@ def run_hpo(
                 hidden_dim=config.hidden_dim,
                 num_stages=config.num_stages,
                 sigma=sb_sigma,
+                use_external_drift=True,  # Use StageBridge's CrossAttentionDrift
             )
             sb_module = SchrodingerBridge(sb_config).to(device)
-            # Include SB params in optimizer
+
+            # Set external drift to StageBridge's forward_vector_field
+            def external_drift_fn(x_t, t, context, stage_pair_id):
+                return model.forward_vector_field(
+                    x_t=x_t,
+                    t=t,
+                    context=context,
+                    stage_pair_id=stage_pair_id,
+                    context_tokens=None,  # Will use cached tokens if available
+                )
+            sb_module.set_external_drift(external_drift_fn)
+
+            # Include SB score network params in optimizer (drift comes from model)
             all_params = list(model.parameters()) + list(sb_module.parameters())
             optimizer = AdamW(all_params, lr=lr, weight_decay=1e-4)
         else:
@@ -230,10 +245,25 @@ def run_hpo(
                 x1 = batch.receiver + 0.1 * torch.randn_like(batch.receiver)  # Simple target
                 stage_pair_id = torch.zeros(x0.shape[0], dtype=torch.long, device=device)
 
+                # OT-CFM loss for drift (used by both OT-CFM and SB)
+                # SB uses external drift from model, so we always train the drift this way
+                t = torch.rand(x0.shape[0], device=device)
+                x_t = (1 - t.unsqueeze(1)) * x0 + t.unsqueeze(1) * x1
+                u_t = x1 - x0
+
+                v_t = model.forward_vector_field(
+                    x_t=x_t,
+                    t=t,
+                    context=niche_output.context,
+                    stage_pair_id=stage_pair_id,
+                    context_tokens=niche_output.context_tokens,
+                )
+                drift_loss = F.mse_loss(v_t, u_t)
+
                 if dynamics_type == "schrodinger_bridge" and sb_module is not None:
-                    # Schrödinger Bridge loss
+                    # Schrödinger Bridge: drift_loss + score matching loss
                     from stagebridge.transition.schrodinger_bridge import schrodinger_bridge_loss
-                    transition_loss, _ = schrodinger_bridge_loss(
+                    sb_loss, _ = schrodinger_bridge_loss(
                         x_src=x0,
                         x_tgt=x1,
                         sb_module=sb_module,
@@ -241,20 +271,11 @@ def run_hpo(
                         stage_pair_id=stage_pair_id,
                         num_time_samples=4,
                     )
+                    # Combined: drift for forward process, score for backward
+                    transition_loss = drift_loss + sb_loss
                 else:
-                    # OT-CFM loss
-                    t = torch.rand(x0.shape[0], device=device)
-                    x_t = (1 - t.unsqueeze(1)) * x0 + t.unsqueeze(1) * x1
-                    u_t = x1 - x0
-
-                    v_t = model.forward_vector_field(
-                        x_t=x_t,
-                        t=t,
-                        context=niche_output.context,
-                        stage_pair_id=stage_pair_id,
-                        context_tokens=niche_output.context_tokens,
-                    )
-                    transition_loss = F.mse_loss(v_t, u_t)
+                    # Pure OT-CFM: just drift loss
+                    transition_loss = drift_loss
 
                 # Auxiliary losses
                 loss_pathway = torch.tensor(0.0, device=device)

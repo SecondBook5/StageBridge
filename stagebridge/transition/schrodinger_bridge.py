@@ -51,6 +51,7 @@ class SchrodingerBridgeConfig:
         use_score_matching: Use score matching loss (vs IPF)
         langevin_steps: Langevin corrector steps during sampling
         langevin_snr: Signal-to-noise ratio for Langevin
+        use_external_drift: If True, expects external drift function (e.g., CrossAttentionDrift)
     """
     input_dim: int = 40
     context_dim: int = 256
@@ -63,6 +64,7 @@ class SchrodingerBridgeConfig:
     use_score_matching: bool = True
     langevin_steps: int = 0
     langevin_snr: float = 0.1
+    use_external_drift: bool = False  # Use StageBridge's CrossAttentionDrift
 
 
 class DriftNetwork(nn.Module):
@@ -193,23 +195,30 @@ class SchrodingerBridge(nn.Module):
     - Natural handling of branching (partial EMT fates)
     - Built-in reversibility (forward ↔ backward)
     - Probability estimates for transition outcomes
+
+    When use_external_drift=True, the forward drift comes from an external
+    function (e.g., StageBridge.forward_vector_field with CrossAttentionDrift).
+    This ensures SB uses the same niche-conditioned attention as OT-CFM.
     """
 
-    def __init__(self, config: SchrodingerBridgeConfig):
+    def __init__(self, config: SchrodingerBridgeConfig, external_drift_fn: callable | None = None):
         super().__init__()
         self.config = config
+        self.external_drift_fn = external_drift_fn
 
-        # Forward drift f(x, t)
-        self.forward_drift = DriftNetwork(
-            input_dim=config.input_dim,
-            context_dim=config.context_dim,
-            hidden_dim=config.hidden_dim,
-            time_dim=config.time_dim,
-            stage_dim=config.stage_dim,
-            num_stages=config.num_stages,
-        )
+        # Forward drift f(x, t) - only create if not using external
+        self.forward_drift: DriftNetwork | None = None
+        if not config.use_external_drift:
+            self.forward_drift = DriftNetwork(
+                input_dim=config.input_dim,
+                context_dim=config.context_dim,
+                hidden_dim=config.hidden_dim,
+                time_dim=config.time_dim,
+                stage_dim=config.stage_dim,
+                num_stages=config.num_stages,
+            )
 
-        # Score network for ∇log p_t
+        # Score network for ∇log p_t (always needed for backward process)
         self.score_net = ScoreNetwork(
             input_dim=config.input_dim,
             context_dim=config.context_dim,
@@ -226,6 +235,10 @@ class SchrodingerBridge(nn.Module):
         )
         self.time_embedding = SinusoidalTimeEmbedding(config.time_dim)
 
+    def set_external_drift(self, drift_fn: callable) -> None:
+        """Set external drift function (e.g., from StageBridge model)."""
+        self.external_drift_fn = drift_fn
+
     def forward_velocity(
         self,
         x_t: Tensor,
@@ -236,7 +249,17 @@ class SchrodingerBridge(nn.Module):
         """Forward drift velocity f(x, t).
 
         For SDE: dx = f(x,t)dt + σdW
+
+        When use_external_drift=True, delegates to external_drift_fn (e.g.,
+        StageBridge.forward_vector_field with CrossAttentionDrift).
         """
+        if self.config.use_external_drift:
+            if self.external_drift_fn is None:
+                raise RuntimeError(
+                    "use_external_drift=True but no external_drift_fn set. "
+                    "Call set_external_drift() with the drift function."
+                )
+            return self.external_drift_fn(x_t, t, context, stage_pair_id)
         return self.forward_drift(x_t, t, context, stage_pair_id)
 
     def backward_velocity(
@@ -252,7 +275,7 @@ class SchrodingerBridge(nn.Module):
 
         For reverse SDE: dx = [f - σ²∇log p_t]dt + σd\bar{W}
         """
-        f = self.forward_drift(x_t, t, context, stage_pair_id)
+        f = self.forward_velocity(x_t, t, context, stage_pair_id)
         score = self.score_net(x_t, t, context, stage_pair_id)
         sigma_sq = self.config.sigma ** 2
         return f - sigma_sq * score
@@ -466,9 +489,14 @@ def schrodinger_bridge_loss(
 
     # Forward drift loss: should match velocity of OT path
     # Target velocity for linear interpolant: x1 - x0
-    target_vel = x1 - x0
-    pred_vel = sb_module.forward_velocity(x_t, t, ctx, stage)
-    loss_drift = F.mse_loss(pred_vel, target_vel)
+    # Note: Only compute this if SB has its own drift network
+    if sb_module.forward_drift is not None:
+        target_vel = x1 - x0
+        pred_vel = sb_module.forward_velocity(x_t, t, ctx, stage)
+        loss_drift = F.mse_loss(pred_vel, target_vel)
+    else:
+        # External drift is trained separately (e.g., in OT-CFM loss)
+        loss_drift = torch.tensor(0.0, device=device)
 
     # Total loss
     loss = loss_score + 0.5 * loss_drift
@@ -476,10 +504,12 @@ def schrodinger_bridge_loss(
     diagnostics = {
         "loss_total": loss.item(),
         "loss_score": loss_score.item(),
-        "loss_drift": loss_drift.item(),
+        "loss_drift": loss_drift.item() if isinstance(loss_drift, Tensor) else loss_drift,
         "mean_score_norm": pred_score.norm(dim=-1).mean().item(),
-        "mean_drift_norm": pred_vel.norm(dim=-1).mean().item(),
     }
+    # Only add drift norm if we computed it
+    if sb_module.forward_drift is not None:
+        diagnostics["mean_drift_norm"] = sb_module.forward_velocity(x_t, t, ctx, stage).norm(dim=-1).mean().item()
 
     return loss, diagnostics
 

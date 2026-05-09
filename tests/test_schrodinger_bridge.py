@@ -207,6 +207,132 @@ class TestSchrodingerBridgeWrapper:
         assert x1.shape == (B, D)
 
 
+class TestExternalDrift:
+    """Tests for external drift function integration."""
+
+    def test_external_drift_config(self):
+        """Test SB with external drift enabled."""
+        config = SchrodingerBridgeConfig(
+            input_dim=40,
+            context_dim=128,
+            hidden_dim=128,
+            num_stages=4,
+            sigma=0.1,
+            use_external_drift=True,
+        )
+        sb = SchrodingerBridge(config)
+
+        # Should NOT have internal forward_drift
+        assert sb.forward_drift is None
+        # Should still have score network
+        assert sb.score_net is not None
+
+    def test_external_drift_requires_function(self):
+        """Test that external drift raises if no function set."""
+        config = SchrodingerBridgeConfig(
+            input_dim=40,
+            context_dim=128,
+            hidden_dim=128,
+            use_external_drift=True,
+        )
+        sb = SchrodingerBridge(config)
+
+        B, D = 8, 40
+        x = torch.randn(B, D)
+        t = torch.rand(B)
+        ctx = torch.randn(B, 128)
+        stage = torch.zeros(B, dtype=torch.long)
+
+        with pytest.raises(RuntimeError, match="no external_drift_fn set"):
+            sb.forward_velocity(x, t, ctx, stage)
+
+    def test_external_drift_function(self):
+        """Test that external drift is called correctly."""
+        config = SchrodingerBridgeConfig(
+            input_dim=40,
+            context_dim=128,
+            hidden_dim=128,
+            use_external_drift=True,
+        )
+        sb = SchrodingerBridge(config)
+
+        # Simple external drift: returns constant
+        expected = torch.ones(8, 40)
+        def mock_drift(x_t, t, context, stage_pair_id):
+            return expected.clone()
+
+        sb.set_external_drift(mock_drift)
+
+        B, D = 8, 40
+        x = torch.randn(B, D)
+        t = torch.rand(B)
+        ctx = torch.randn(B, 128)
+        stage = torch.zeros(B, dtype=torch.long)
+
+        v = sb.forward_velocity(x, t, ctx, stage)
+        assert torch.allclose(v, expected)
+
+    def test_backward_velocity_uses_external_drift(self):
+        """Test backward velocity correctly combines external drift with score."""
+        config = SchrodingerBridgeConfig(
+            input_dim=40,
+            context_dim=128,
+            hidden_dim=128,
+            sigma=0.1,
+            use_external_drift=True,
+        )
+        sb = SchrodingerBridge(config)
+
+        # External drift returns zeros
+        def zero_drift(x_t, t, context, stage_pair_id):
+            return torch.zeros_like(x_t)
+
+        sb.set_external_drift(zero_drift)
+
+        B, D = 8, 40
+        x = torch.randn(B, D)
+        t = torch.rand(B)
+        ctx = torch.randn(B, 128)
+        stage = torch.zeros(B, dtype=torch.long)
+
+        # Forward drift is zero, so backward = -sigma^2 * score
+        bwd = sb.backward_velocity(x, t, ctx, stage)
+        score = sb.score(x, t, ctx, stage)
+        expected_bwd = -config.sigma**2 * score
+
+        assert torch.allclose(bwd, expected_bwd)
+
+    def test_sample_forward_with_external_drift(self):
+        """Test sampling works with external drift."""
+        config = SchrodingerBridgeConfig(
+            input_dim=40,
+            context_dim=128,
+            hidden_dim=128,
+            sigma=0.1,
+            use_external_drift=True,
+        )
+        sb = SchrodingerBridge(config)
+
+        # External drift points toward target
+        target = torch.ones(40)
+        def drift_to_target(x_t, t, context, stage_pair_id):
+            return (target.unsqueeze(0) - x_t) * 0.5
+
+        sb.set_external_drift(drift_to_target)
+
+        B, D = 4, 40
+        x0 = torch.randn(B, D)
+        ctx = torch.randn(B, 128)
+        stage = torch.zeros(B, dtype=torch.long)
+
+        x1 = sb.sample_forward(x0, ctx, stage, num_steps=20)
+        assert x1.shape == (B, D)
+        # Should have moved toward target (roughly)
+        dist_before = (x0 - target.unsqueeze(0)).norm(dim=-1).mean()
+        dist_after = (x1 - target.unsqueeze(0)).norm(dim=-1).mean()
+        assert dist_after < dist_before
+
+
 class TestReversibility:
     """Tests for forward-backward reversibility."""
 
