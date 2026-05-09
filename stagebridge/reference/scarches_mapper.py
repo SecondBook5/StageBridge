@@ -698,16 +698,19 @@ def _direct_inference(
     model,
     model_var_names: list[str],
     model_adata: ad.AnnData | None = None,
-    batch_key: str = "dataset",
-    labels_key: str = "cell_type",
     batch_size: int = 1024,
 ) -> dict[str, Any]:
     """Map adata through model using direct inference (no surgery)."""
+    # Get batch and labels keys from the model's registry
+    registry = model.adata_manager.registry
+    batch_key = registry["setup_args"]["batch_key"]
+    labels_key = registry["setup_args"]["labels_key"]
+
     ref_batch_cats = list(
-        model.adata_manager.registry["field_registries"]["batch"]["state_registry"]["categorical_mapping"]
+        registry["field_registries"]["batch"]["state_registry"]["categorical_mapping"]
     )
     ref_label_cats = list(
-        model.adata_manager.registry["field_registries"]["labels"]["state_registry"]["categorical_mapping"]
+        registry["field_registries"]["labels"]["state_registry"]["categorical_mapping"]
     )
 
     query = _align_genes_to_model(adata, model_var_names, model_adata)
@@ -718,20 +721,12 @@ def _direct_inference(
         categories=ref_batch_cats
     )
 
-    # Set labels to "Unknown" for SCANVI (will be ignored for latent representation)
-    # Use existing cell_type if available, otherwise use Unknown
-    if labels_key in query.obs.columns:
-        # Map existing labels to reference categories, unknown -> "Unknown"
-        existing = query.obs[labels_key].astype(str)
-        mapped = existing.apply(lambda x: x if x in ref_label_cats else "Unknown")
-        query.obs[labels_key] = pd.Categorical(mapped, categories=ref_label_cats)
-    else:
-        # No cell type info - use Unknown for all
-        unknown_label = "Unknown" if "Unknown" in ref_label_cats else ref_label_cats[0]
-        query.obs[labels_key] = pd.Categorical(
-            [unknown_label] * query.n_obs,
-            categories=ref_label_cats
-        )
+    # Set labels for SCANVI - use "Unknown" so model treats as unlabeled
+    unknown_label = "Unknown" if "Unknown" in ref_label_cats else ref_label_cats[0]
+    query.obs[labels_key] = pd.Categorical(
+        [unknown_label] * query.n_obs,
+        categories=ref_label_cats
+    )
 
     latent = model.get_latent_representation(query, batch_size=batch_size)
     latent = np.asarray(latent, dtype=np.float32)
