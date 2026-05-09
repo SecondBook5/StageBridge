@@ -569,7 +569,7 @@ def main():
     parser.add_argument("--spatial", type=Path, help="Path to spatial h5ad")
     parser.add_argument("--hlca-model", type=Path, help="Path to HLCA scArches model")
     parser.add_argument("--luca-model", type=Path, help="Path to LuCA scArches model")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
+    parser.add_argument("--output-dir", type=Path, help="Output directory")
 
     parser.add_argument("--snrna-embeddings", type=Path, help="Pre-computed snRNA embeddings (skip step 1)")
     parser.add_argument("--spatial-embeddings", type=Path, help="Pre-computed spatial embeddings (skip step 1)")
