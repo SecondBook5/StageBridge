@@ -35,7 +35,8 @@ def main():
     print(f"  Spatial: {len(spatial):,}")
     print(f"  snRNA: {len(snrna):,}")
 
-    emb_cols = [c for c in spatial.columns if c.startswith("z_fused_")]
+    # Columns are hlca_latent_* + luca_latent_* (40d fused)
+    emb_cols = [c for c in spatial.columns if c.startswith("hlca_latent_") or c.startswith("luca_latent_")]
     print(f"  Embedding dim: {len(emb_cols)}")
 
     n_spatial = min(args.n_sample, len(spatial))
