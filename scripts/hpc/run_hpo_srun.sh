@@ -23,8 +23,8 @@ echo "  Workers: 4 (1 GPU each)"
 
 # Activate environment (skip if already active)
 if [[ "$CONDA_DEFAULT_ENV" != "stagebridge_env" ]]; then
-    source ~/.bashrc
-    conda activate stagebridge_env 2>/dev/null || true
+    source ~/miniforge3/etc/profile.d/conda.sh
+    conda activate /scratch/chaunzt1/envs/stagebridge_env
 fi
 
 # Launch 4 workers in parallel, each pinned to 1 GPU
