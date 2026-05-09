@@ -1084,10 +1084,10 @@ class StageBridgeTrainer:
                 "num_stages": self._raw_model.config.num_stages,
                 # GW fusion config (critical for checkpoint loading)
                 "use_gw_fusion": self._raw_model.config.use_gw_fusion,
+                "gw_fusion_type": self._raw_model.config.gw_fusion_type,
                 "gw_output_dim": self._raw_model.config.gw_output_dim,
                 "gw_sinkhorn_iters": self._raw_model.config.gw_sinkhorn_iters,
                 "gw_sinkhorn_reg": self._raw_model.config.gw_sinkhorn_reg,
-                "gw_mode": self._raw_model.config.gw_mode,
                 # Other model config
                 "use_learned_ring_pooling": self._raw_model.config.use_learned_ring_pooling,
                 "use_context_refiner": self._raw_model.config.use_context_refiner,
@@ -1245,13 +1245,13 @@ if __name__ == "__main__":
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=64)
     # GW fusion args
-    parser.add_argument("--use-gw-fusion", action="store_true", default=True,
-                        help="Enable Gromov-Wasserstein atlas fusion (default: True)")
+    parser.add_argument("--use-gw-fusion", action="store_true", default=False,
+                        help="Enable Gromov-Wasserstein atlas fusion")
     parser.add_argument("--no-gw-fusion", dest="use_gw_fusion", action="store_false",
                         help="Disable GW fusion, use naive concat")
-    parser.add_argument("--gw-output-dim", type=int, default=64)
-    parser.add_argument("--gw-mode", choices=["barycentric", "project_to_hlca", "project_to_luca"],
-                        default="barycentric")
+    parser.add_argument("--gw-fusion-type", choices=["concat", "learned_gw", "precompute_gw"],
+                        default="concat", help="Fusion method: concat (baseline), learned_gw, precompute_gw")
+    parser.add_argument("--gw-output-dim", type=int, default=40)
     # HPO params (overrides defaults with optimized values)
     parser.add_argument("--hpo-params", type=Path, default=None,
                         help="Path to best_params.json from HPO (overrides CLI args)")
@@ -1297,9 +1297,9 @@ if __name__ == "__main__":
         num_heads=hpo.get("num_heads", 4),
         dropout=hpo.get("dropout", 0.1),
         use_gw_fusion=hpo.get("use_gw_fusion", args.use_gw_fusion),
+        gw_fusion_type=hpo.get("gw_fusion_type", args.gw_fusion_type),
         gw_output_dim=hpo.get("gw_output_dim", args.gw_output_dim),
         gw_sinkhorn_reg=hpo.get("gw_sinkhorn_reg", 0.1),
-        gw_mode=args.gw_mode,
         use_learned_ring_pooling=True,
         use_context_refiner=True,
         use_cross_attn_drift=True,

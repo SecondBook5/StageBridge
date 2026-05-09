@@ -48,8 +48,8 @@ from stagebridge.transition.drift import (
     CrossAttentionDrift,
     FiLMConditioner,
 )
-from stagebridge.reference.gw_fusion import GromovWassersteinFusion, PrecomputedGWFusion, GWFusionConfig
 from stagebridge.reference.gw_precompute import PretrainedGWFusion
+from stagebridge.reference.learned_gw_fusion import LearnedGWFusion, LearnedGWConfig
 from stagebridge.contracts import EVOLUTION_DIM, STATS_TOKEN_DIM
 
 
@@ -162,16 +162,15 @@ class StageBridgeConfig:
 
     # Gromov-Wasserstein fusion (replaces concat for HLCA/LuCA)
     # Options:
-    #   "pretrained" - Load precomputed GW alignment (recommended, run scripts/precompute_gw_alignment.py first)
-    #   "learned_projection" - Simple learned weighted projection (stable, no precomputation needed)
-    #   "per_batch" - Original per-batch GW (broken for single cells, kept for comparison)
+    #   "concat" - Simple concatenation [HLCA; LuCA] (baseline, default)
+    #   "learned_gw" - Learned GW fusion with differentiable coupling (recommended)
+    #   "precompute_gw" - Precomputed GW with barycentric projection (moscot-style)
     use_gw_fusion: bool = False
-    gw_fusion_type: str = "learned_projection"  # "pretrained", "learned_projection", or "per_batch"
-    gw_checkpoint_dir: str | None = None  # Path to precomputed GW alignment (for pretrained)
+    gw_fusion_type: str = "concat"  # "concat", "learned_gw", "precompute_gw"
+    gw_checkpoint_dir: str | None = None  # Path to precomputed GW alignment (for precompute_gw)
     gw_output_dim: int = 40  # Output dim of fused representation
-    gw_sinkhorn_iters: int = 50
-    gw_sinkhorn_reg: float = 0.1
-    gw_mode: str = "barycentric"  # project_to_hlca, project_to_luca, barycentric (per_batch only)
+    gw_sinkhorn_iters: int = 20  # Sinkhorn iterations for learned_gw
+    gw_sinkhorn_reg: float = 0.1  # Entropic regularization for learned_gw
 
     # Reference ablations (for hlca_only / luca_only experiments)
     use_hlca_reference: bool = True  # Include HLCA token
@@ -501,34 +500,34 @@ class StageBridge(nn.Module):
 
         # Gromov-Wasserstein fusion for HLCA-LuCA alignment
         # Must be initialized before tokenizer to know output dimension
-        self.gw_fusion: GromovWassersteinFusion | PrecomputedGWFusion | PretrainedGWFusion | None = None
+        self.gw_fusion: LearnedGWFusion | PretrainedGWFusion | None = None
         if config.use_gw_fusion:
-            if config.gw_fusion_type == "pretrained":
-                # Load precomputed GW alignment (recommended)
-                if config.gw_checkpoint_dir is None:
-                    raise ValueError("gw_checkpoint_dir required for pretrained GW fusion")
-                self.gw_fusion = PretrainedGWFusion(config.gw_checkpoint_dir)
-            elif config.gw_fusion_type == "learned_projection":
-                # Simple learned weighted projection (stable, no precomputation)
-                gw_config = GWFusionConfig(
+            if config.gw_fusion_type == "concat":
+                # Baseline: no fusion module, just concatenate in forward pass
+                self.gw_fusion = None
+            elif config.gw_fusion_type == "learned_gw":
+                # Learned GW fusion with differentiable coupling
+                gw_config = LearnedGWConfig(
                     hlca_dim=30,
                     luca_dim=10,
+                    metric_dim=32,
                     output_dim=config.gw_output_dim,
-                    dropout=config.dropout,
-                )
-                self.gw_fusion = PrecomputedGWFusion(gw_config)
-            else:
-                # Per-batch GW (broken for single cells, kept for comparison)
-                gw_config = GWFusionConfig(
-                    hlca_dim=30,
-                    luca_dim=10,
-                    output_dim=config.gw_output_dim,
-                    sinkhorn_iters=config.gw_sinkhorn_iters,
                     sinkhorn_reg=config.gw_sinkhorn_reg,
-                    mode=config.gw_mode,
+                    sinkhorn_iters=config.gw_sinkhorn_iters,
+                    gw_iters=10,
                     dropout=config.dropout,
                 )
-                self.gw_fusion = GromovWassersteinFusion(gw_config)
+                self.gw_fusion = LearnedGWFusion(gw_config)
+            elif config.gw_fusion_type == "precompute_gw":
+                # Precomputed GW with barycentric projection (moscot-style)
+                if config.gw_checkpoint_dir is None:
+                    raise ValueError("gw_checkpoint_dir required for precompute_gw fusion")
+                self.gw_fusion = PretrainedGWFusion(config.gw_checkpoint_dir)
+            else:
+                raise ValueError(
+                    f"Unknown gw_fusion_type: {config.gw_fusion_type}. "
+                    f"Valid options: concat, learned_gw, precompute_gw"
+                )
 
         # AMICI-style continuous attention (preferred)
         self.amici_encoder: ReceiverCenteredNicheEncoder | None = None

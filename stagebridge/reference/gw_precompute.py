@@ -5,10 +5,15 @@ This module:
 1. Samples representative cells from the dataset
 2. Computes intra-space distance matrices for HLCA and LuCA
 3. Solves GW to find optimal coupling
-4. Trains a neural transport map that generalizes to new cells
+4. Uses coupling-based barycentric projection for fusion (moscot-style)
+
+The key insight from moscot (Klein et al. 2023): the GW coupling IS the principled
+OT solution. For out-of-sample cells, use k-NN in source space + barycentric
+projection using coupling weights. No neural network needed for valid OT.
 
 References:
 - Bunne et al. (2024) "Optimal transport for single-cell and spatial omics"
+- Klein et al. (2023) "moscot: scalable optimal transport for single-cell genomics"
 - Peyré et al. (2016) "Gromov-Wasserstein Averaging"
 """
 
@@ -161,15 +166,129 @@ def gromov_wasserstein(
     return P, cost
 
 
+class BarycentricFusion(nn.Module):
+    """moscot-style barycentric projection using GW coupling.
+
+    This is the principled approach: the GW coupling matrix P defines how mass
+    should be transported between HLCA and LuCA embeddings. For a query cell:
+    1. Find k nearest neighbors in the reference HLCA space
+    2. Use their coupling weights to compute barycentric projection into LuCA space
+    3. Fuse the aligned representations
+
+    No neural network training needed - the OT plan IS the valid transport.
+    """
+
+    def __init__(
+        self,
+        hlca_ref: Tensor,
+        luca_ref: Tensor,
+        coupling: Tensor,
+        k_neighbors: int = 15,
+        fused_dim: int = 40,
+    ):
+        super().__init__()
+
+        # Store reference data (not parameters, just buffers for inference)
+        self.register_buffer("hlca_ref", hlca_ref)  # [N_ref, hlca_dim]
+        self.register_buffer("luca_ref", luca_ref)  # [N_ref, luca_dim]
+
+        # Row-normalize coupling: P[i,:] = how cell i's mass distributes to LuCA
+        coupling_normalized = coupling / (coupling.sum(dim=1, keepdim=True) + 1e-8)
+        self.register_buffer("coupling", coupling_normalized)  # [N_ref, N_ref]
+
+        self.k_neighbors = k_neighbors
+        self.hlca_dim = hlca_ref.shape[1]
+        self.luca_dim = luca_ref.shape[1]
+        self.fused_dim = fused_dim
+
+        # Simple linear projections to shared dimension (no complex training)
+        self.hlca_proj = nn.Linear(self.hlca_dim, fused_dim)
+        self.luca_proj = nn.Linear(self.luca_dim, fused_dim)
+        self.output_norm = nn.LayerNorm(fused_dim)
+
+    def _find_knn(self, query_hlca: Tensor) -> tuple[Tensor, Tensor]:
+        """Find k nearest neighbors in reference HLCA space.
+
+        Returns:
+            indices: [B, k] indices into reference
+            weights: [B, k] softmax of negative distances (soft assignment)
+        """
+        # Compute distances: [B, N_ref]
+        dists = torch.cdist(query_hlca, self.hlca_ref)
+
+        # Get top-k nearest
+        top_dists, top_idx = dists.topk(self.k_neighbors, dim=1, largest=False)
+
+        # Convert to soft weights (temperature-scaled softmax)
+        temperature = top_dists.mean() + 1e-8  # Adaptive temperature
+        weights = torch.softmax(-top_dists / temperature, dim=1)
+
+        return top_idx, weights
+
+    def forward(
+        self,
+        hlca: Tensor,
+        luca: Tensor,
+        return_coupling: bool = False,
+    ) -> Tensor | tuple[Tensor, Tensor, Tensor]:
+        """Fuse HLCA and LuCA using coupling-based barycentric projection.
+
+        For each query cell:
+        1. Find k-NN in HLCA reference space
+        2. Aggregate their GW coupling weights to get soft assignment to LuCA ref
+        3. Compute barycentric projection: weighted average of LuCA ref points
+        4. Combine query's direct LuCA with its GW-transported HLCA
+
+        Args:
+            hlca: [B, hlca_dim] query HLCA embeddings
+            luca: [B, luca_dim] query LuCA embeddings
+            return_coupling: Whether to return the computed soft coupling
+
+        Returns:
+            fused: [B, fused_dim] aligned/fused representation
+        """
+        B = hlca.shape[0]
+
+        # Step 1: Find k-NN in HLCA reference
+        knn_idx, knn_weights = self._find_knn(hlca)  # [B, k], [B, k]
+
+        # Step 2: Aggregate coupling weights from neighbors
+        # For each query, get its soft assignment to LuCA reference via k-NN coupling
+        # knn_coupling[b, j] = Σ_i knn_weights[b,i] * coupling[knn_idx[b,i], j]
+
+        # Gather coupling rows for neighbors: [B, k, N_ref]
+        neighbor_couplings = self.coupling[knn_idx]  # [B, k, N_ref]
+
+        # Weighted average: [B, N_ref]
+        soft_coupling = torch.einsum("bk,bkn->bn", knn_weights, neighbor_couplings)
+
+        # Step 3: Barycentric projection into LuCA space
+        # transported_hlca[b] = Σ_j soft_coupling[b,j] * luca_ref[j]
+        transported_hlca = torch.einsum("bn,nd->bd", soft_coupling, self.luca_ref)  # [B, luca_dim]
+
+        # Step 4: Fuse direct LuCA with GW-transported HLCA
+        # Project both to shared dimension
+        hlca_aligned = self.hlca_proj(hlca)  # Original HLCA info
+        luca_direct = self.luca_proj(luca)   # Direct LuCA
+        luca_transported = self.luca_proj(transported_hlca)  # GW-transported HLCA→LuCA
+
+        # Combine: direct HLCA + (averaged: direct LuCA, transported LuCA)
+        fused = hlca_aligned + 0.5 * (luca_direct + luca_transported)
+        fused = self.output_norm(fused)
+
+        if return_coupling:
+            return fused, soft_coupling, knn_idx
+        return fused
+
+
 class NeuralTransportMap(nn.Module):
-    """Neural network that learns the GW transport map.
+    """DEPRECATED: Neural network approach - kept for backward compatibility.
 
-    Given the optimal coupling P* from GW precomputation, we train a network
-    to predict how to map HLCA embeddings into an aligned space that respects
-    the coupling structure.
+    The original approach tried to train a neural map supervised by coupling,
+    but the implementation was broken (line 336: just used MSE between encodings).
 
-    Architecture: MLP that takes HLCA embedding and outputs aligned representation.
-    Training: Minimize discrepancy with GW-transported embeddings.
+    Use BarycentricFusion instead - it directly uses the coupling matrix
+    as moscot does, which is the mathematically correct approach.
     """
 
     def __init__(
@@ -182,6 +301,12 @@ class NeuralTransportMap(nn.Module):
         dropout: float = 0.1,
     ):
         super().__init__()
+        import warnings
+        warnings.warn(
+            "NeuralTransportMap is deprecated - use BarycentricFusion instead. "
+            "The neural map training was not correctly supervised by the GW coupling.",
+            DeprecationWarning
+        )
 
         # HLCA encoder
         hlca_layers = [nn.Linear(hlca_dim, hidden_dim), nn.GELU(), nn.Dropout(dropout)]
@@ -269,85 +394,61 @@ def sample_reference_cells(
     return hlca_embeddings[indices], luca_embeddings[indices], indices
 
 
+def create_barycentric_fusion(
+    hlca_ref: Tensor,
+    luca_ref: Tensor,
+    coupling: Tensor,
+    config: GWPrecomputeConfig,
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+) -> BarycentricFusion:
+    """Create barycentric fusion module using GW coupling.
+
+    No training needed - the GW coupling matrix directly defines the valid
+    transport plan. We just store it and use for barycentric projection.
+
+    This is the moscot approach: coupling IS the solution.
+    """
+    model = BarycentricFusion(
+        hlca_ref=hlca_ref.to(device),
+        luca_ref=luca_ref.to(device),
+        coupling=coupling.to(device),
+        k_neighbors=min(15, hlca_ref.shape[0] // 10),  # Adaptive k
+        fused_dim=config.output_dim,
+    ).to(device)
+
+    # Initialize the linear projections sensibly
+    # HLCA projection: preserve variance
+    with torch.no_grad():
+        hlca_std = hlca_ref.std()
+        model.hlca_proj.weight.normal_(0, 1.0 / (config.hlca_dim ** 0.5))
+        model.hlca_proj.bias.zero_()
+
+        luca_std = luca_ref.std()
+        model.luca_proj.weight.normal_(0, 1.0 / (config.luca_dim ** 0.5))
+        model.luca_proj.bias.zero_()
+
+    print(f"  Created BarycentricFusion with k={model.k_neighbors} neighbors")
+    return model
+
+
 def train_neural_map(
     hlca_ref: Tensor,
     luca_ref: Tensor,
     coupling: Tensor,
     config: GWPrecomputeConfig,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
-) -> NeuralTransportMap:
-    """Train neural transport map supervised by GW coupling.
+) -> BarycentricFusion:
+    """DEPRECATED: Use create_barycentric_fusion instead.
 
-    The coupling P tells us how mass should be transported between spaces.
-    We train the neural map so that:
-    - HLCA points that couple to similar LuCA regions should map nearby
-    - The encoded representations respect the GW-discovered alignment
-
-    Loss: ||encode_hlca(hlca) - P @ encode_luca(luca)||² (soft assignment)
+    This function now just calls create_barycentric_fusion for backward compatibility.
+    The original neural map training was broken - it didn't use the coupling properly.
     """
-    model = NeuralTransportMap(
-        hlca_dim=config.hlca_dim,
-        luca_dim=config.luca_dim,
-        output_dim=config.output_dim,
-        hidden_dim=config.map_hidden_dim,
-        num_layers=config.map_num_layers,
-    ).to(device)
-
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.map_lr)
-
-    hlca_ref = hlca_ref.to(device)
-    luca_ref = luca_ref.to(device)
-    coupling = coupling.to(device)
-
-    # Normalize coupling to be row-stochastic (each HLCA cell's mass sums to 1)
-    P_normalized = coupling / (coupling.sum(dim=1, keepdim=True) + 1e-8)
-
-    dataset = TensorDataset(hlca_ref, luca_ref)
-    loader = DataLoader(dataset, batch_size=config.map_batch_size, shuffle=True)
-
-    model.train()
-    for epoch in range(config.map_epochs):
-        total_loss = 0.0
-        for hlca_batch, luca_batch in loader:
-            optimizer.zero_grad()
-
-            # Encode both
-            h_enc = model.encode_hlca(hlca_batch)
-            l_enc = model.encode_luca(luca_batch)
-
-            # Full forward for fusion training
-            fused = model(hlca_batch, luca_batch)
-
-            # Loss 1: HLCA-encoded should align with GW-transported LuCA
-            # For each HLCA cell i, its target is Σ_j P[i,j] * luca_encoded[j]
-            # This is expensive, so we use a contrastive approximation:
-            # Cells with high coupling should have similar encodings
-
-            # Compute similarity in encoded space
-            h_sim = h_enc @ h_enc.T  # [B, B]
-            l_sim = l_enc @ l_enc.T  # [B, B]
-
-            # Loss: encoded similarities should match coupling pattern
-            # High coupling → should have similar encodings
-            batch_idx = torch.arange(len(hlca_batch), device=device)
-            # This is a simplification - full version would use the coupling matrix
-
-            # For now, use alignment loss: hlca and luca of same cell should fuse well
-            alignment_loss = ((h_enc - l_enc) ** 2).mean()
-
-            # Reconstruction loss: fused should reconstruct original information
-            recon_loss = ((fused[:, :config.hlca_dim] - hlca_batch) ** 2).mean() if config.output_dim >= config.hlca_dim else 0
-
-            loss = alignment_loss + 0.1 * recon_loss
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item()
-
-        if (epoch + 1) % 20 == 0:
-            print(f"  Epoch {epoch+1}/{config.map_epochs}, Loss: {total_loss/len(loader):.4f}")
-
-    return model
+    import warnings
+    warnings.warn(
+        "train_neural_map is deprecated - use create_barycentric_fusion instead",
+        DeprecationWarning
+    )
+    return create_barycentric_fusion(hlca_ref, luca_ref, coupling, config, device)
 
 
 def precompute_gw_alignment(
@@ -413,18 +514,21 @@ def precompute_gw_alignment(
     )
     print(f"  GW cost: {gw_cost:.4f}")
 
-    # Train neural transport map
-    print("  Training neural transport map...")
-    neural_map = train_neural_map(hlca_ref_t, luca_ref_t, coupling, config, device)
+    # Create barycentric fusion (no training - coupling IS the solution)
+    print("  Creating barycentric fusion module...")
+    fusion_model = create_barycentric_fusion(hlca_ref_t, luca_ref_t, coupling, config, device)
 
     # Save everything
     print("  Saving results...")
 
-    # Coupling matrix
+    # Coupling matrix (the core OT artifact)
     torch.save(coupling.cpu(), output_dir / "gw_coupling.pt")
 
-    # Neural map
-    torch.save(neural_map.state_dict(), output_dir / "neural_transport_map.pt")
+    # Fusion model (includes reference data and linear projections)
+    torch.save(fusion_model.state_dict(), output_dir / "barycentric_fusion.pt")
+
+    # Legacy: also save as neural_transport_map.pt for backward compatibility
+    torch.save(fusion_model.state_dict(), output_dir / "neural_transport_map.pt")
 
     # Reference data
     np.savez(
@@ -455,7 +559,8 @@ def precompute_gw_alignment(
     return {
         "coupling": coupling.cpu(),
         "gw_cost": gw_cost,
-        "neural_map": neural_map,
+        "fusion_model": fusion_model,
+        "neural_map": fusion_model,  # Backward compatibility alias
         "reference_indices": ref_indices,
         "output_dir": output_dir,
     }
@@ -464,8 +569,8 @@ def precompute_gw_alignment(
 class PretrainedGWFusion(nn.Module):
     """GW fusion using precomputed alignment.
 
-    Loads the neural transport map trained on GW coupling and uses it
-    for inference on new cells. No per-batch GW computation.
+    Loads the BarycentricFusion model which uses the GW coupling for
+    principled transport. No per-batch GW computation.
     """
 
     def __init__(
@@ -482,17 +587,34 @@ class PretrainedGWFusion(nn.Module):
 
         config = metadata["config"]
 
-        # Initialize and load neural map
-        self.neural_map = NeuralTransportMap(
-            hlca_dim=config["hlca_dim"],
-            luca_dim=config["luca_dim"],
-            output_dim=config["output_dim"],
-        )
-        self.neural_map.load_state_dict(
-            torch.load(checkpoint_dir / "neural_transport_map.pt", map_location=device)
-        )
-        self.neural_map.eval()
+        # Load reference data (needed for BarycentricFusion)
+        ref_data = np.load(checkpoint_dir / "reference_data.npz")
+        hlca_ref = torch.from_numpy(ref_data["hlca"]).float()
+        luca_ref = torch.from_numpy(ref_data["luca"]).float()
 
+        # Load coupling
+        coupling = torch.load(checkpoint_dir / "gw_coupling.pt", map_location="cpu")
+
+        # Create fusion model
+        self.fusion = BarycentricFusion(
+            hlca_ref=hlca_ref,
+            luca_ref=luca_ref,
+            coupling=coupling,
+            k_neighbors=min(15, len(hlca_ref) // 10),
+            fused_dim=config["output_dim"],
+        ).to(device)
+
+        # Try to load trained projection weights if they exist
+        fusion_path = checkpoint_dir / "barycentric_fusion.pt"
+        if fusion_path.exists():
+            state = torch.load(fusion_path, map_location=device)
+            # Only load the projection layers (buffers are already set)
+            proj_state = {k: v for k, v in state.items()
+                        if "proj" in k or "norm" in k}
+            if proj_state:
+                self.fusion.load_state_dict(proj_state, strict=False)
+
+        self.fusion.eval()
         self.output_dim = config["output_dim"]
 
     def forward(
@@ -500,19 +622,16 @@ class PretrainedGWFusion(nn.Module):
         hlca: Tensor,
         luca: Tensor,
         return_coupling: bool = False,
-    ) -> Tensor | tuple[Tensor, None, None]:
-        """Fuse HLCA and LuCA using pretrained alignment.
+    ) -> Tensor | tuple[Tensor, Tensor, Tensor]:
+        """Fuse HLCA and LuCA using coupling-based barycentric projection.
 
         Args:
             hlca: [B, 30] HLCA embeddings
             luca: [B, 10] LuCA embeddings
-            return_coupling: Ignored (for API compatibility)
+            return_coupling: Whether to return the soft coupling
 
         Returns:
             fused: [B, output_dim] fused representation
+            (if return_coupling: also soft_coupling and knn_indices)
         """
-        fused = self.neural_map(hlca, luca)
-
-        if return_coupling:
-            return fused, None, None
-        return fused
+        return self.fusion(hlca, luca, return_coupling=return_coupling)

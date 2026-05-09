@@ -29,12 +29,14 @@ from stagebridge.reference.fusion import (
     ConcatFusion,
     get_fusion_module,
 )
-from stagebridge.reference.gw_fusion import (
-    GromovWassersteinFusion,
-    GWFusionConfig,
-    GWFusionLoss,
-    entropic_gromov_wasserstein,
-    sinkhorn,
+from stagebridge.reference.learned_gw_fusion import (
+    LearnedGWFusion,
+    LearnedGWConfig,
+)
+from stagebridge.reference.gw_precompute import (
+    PretrainedGWFusion,
+    BarycentricFusion,
+    precompute_gw_alignment,
 )
 from stagebridge.reference.confidence import (
     compute_confidence,
@@ -64,11 +66,11 @@ __all__ = [
     "ConcatFusion",
     "get_fusion_module",
     # Gromov-Wasserstein fusion
-    "GromovWassersteinFusion",
-    "GWFusionConfig",
-    "GWFusionLoss",
-    "entropic_gromov_wasserstein",
-    "sinkhorn",
+    "LearnedGWFusion",
+    "LearnedGWConfig",
+    "PretrainedGWFusion",
+    "BarycentricFusion",
+    "precompute_gw_alignment",
     # Confidence
     "compute_confidence",
     "ConfidenceResult",

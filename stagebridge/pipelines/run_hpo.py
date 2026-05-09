@@ -108,21 +108,15 @@ def run_hpo(
         dropout = trial.suggest_float("dropout", 0.05, 0.3)
 
         # GW fusion hyperparameters
-        # Options: False (concat), "learned_projection", "pretrained"
-        # "pretrained" requires gw_checkpoint_dir to be set (proper GW on population)
-        use_gw_fusion = trial.suggest_categorical("use_gw_fusion", [True, False])
-        gw_fusion_type = None
-        gw_checkpoint_dir = None
-        if use_gw_fusion:
-            # Only search over pretrained if checkpoint exists
-            if gw_checkpoint_path and Path(gw_checkpoint_path).exists():
-                gw_fusion_type = trial.suggest_categorical(
-                    "gw_fusion_type", ["pretrained", "learned_projection"]
-                )
-                if gw_fusion_type == "pretrained":
-                    gw_checkpoint_dir = gw_checkpoint_path
-            else:
-                gw_fusion_type = "learned_projection"
+        # Options: "concat" (baseline), "learned_gw" (recommended), "precompute_gw" (moscot-style)
+        # "precompute_gw" requires gw_checkpoint_dir with precomputed coupling
+        fusion_options = ["concat", "learned_gw"]
+        if gw_checkpoint_path and Path(gw_checkpoint_path).exists():
+            fusion_options.append("precompute_gw")
+
+        gw_fusion_type = trial.suggest_categorical("gw_fusion_type", fusion_options)
+        use_gw_fusion = gw_fusion_type != "concat"
+        gw_checkpoint_dir = gw_checkpoint_path if gw_fusion_type == "precompute_gw" else None
 
         gw_output_dim = trial.suggest_categorical("gw_output_dim", [40, 64, 96]) if use_gw_fusion else 40
 

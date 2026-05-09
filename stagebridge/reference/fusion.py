@@ -312,14 +312,14 @@ def get_fusion_module(
     elif method == FusionMethod.FILM:
         return FiLMFusion(hlca_dim, luca_dim, **kwargs)
     elif method == FusionMethod.GROMOV_WASSERSTEIN:
-        from stagebridge.reference.gw_fusion import GromovWassersteinFusion, GWFusionConfig
+        from stagebridge.reference.learned_gw_fusion import LearnedGWFusion, LearnedGWConfig
         output_dim = kwargs.pop('output_dim', hlca_dim + luca_dim)
-        config = GWFusionConfig(
+        config = LearnedGWConfig(
             hlca_dim=hlca_dim,
             luca_dim=luca_dim,
             output_dim=output_dim,
             **kwargs,
         )
-        return GromovWassersteinFusion(config)
+        return LearnedGWFusion(config)
     else:
         raise ValueError(f"No module for fusion method: {method}")
