@@ -856,6 +856,18 @@ def map_to_reference_direct(
             hlca_adata = ad.read_h5ad(hlca_adata_path)
             use_gpu = device == "cuda"
             hlca_model = SCANVI.load(str(hlca_model_dir), adata=hlca_adata, accelerator="gpu" if use_gpu else "cpu")
+
+            # Remove obsm fields from registry that aren't needed for inference
+            # HLCA has extra obsm like scanvi_latent_qzm that scvi-tools tries to transfer
+            field_regs = hlca_model.adata_manager.registry.get("field_registries", {})
+            obsm_fields_to_remove = []
+            for field_name, field_info in field_regs.items():
+                if field_info.get("data_registry", {}).get("attr_name") == "obsm":
+                    obsm_fields_to_remove.append(field_name)
+            for field_name in obsm_fields_to_remove:
+                if field_name not in ["batch", "labels", "X"]:
+                    del hlca_model.adata_manager.registry["field_registries"][field_name]
+                    print(f"    Removed optional obsm field: {field_name}")
         else:
             raise FileNotFoundError(f"Model adata.h5ad not found at {hlca_adata_path}")
 
