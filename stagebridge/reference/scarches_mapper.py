@@ -739,8 +739,8 @@ def _direct_inference(
             batch_X = torch.tensor(X[i:i+batch_size], device=device)
             batch_size_actual = batch_X.shape[0]
 
-            # Use batch index 0 for all query cells
-            batch_idx = torch.zeros(batch_size_actual, dtype=torch.long, device=device)
+            # Use batch index 0 for all query cells - must be 2D (n_cells, 1)
+            batch_idx = torch.zeros(batch_size_actual, 1, dtype=torch.long, device=device)
 
             # SCANVAE inference signature: (x, batch_index, cont_covs, cat_covs, n_samples)
             # Labels are NOT passed to inference - only used in classifier
