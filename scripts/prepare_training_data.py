@@ -199,14 +199,14 @@ def step2_enrich_features(
         print(f"    Computing PROGENy pathways...")
         try:
             import decoupler as dc
-            progeny = dc.get_progeny(organism='human', top=500)
-            dc.run_mlm(mat=adata, net=progeny, source='source', target='target',
-                       weight='weight', verbose=False, use_raw=False)
-            if 'mlm_estimate' in adata.obsm:
+            progeny = dc.op.progeny(organism='human')
+            dc.mt.ulm(data=adata, net=progeny)
+            if 'score_ulm' in adata.obsm:
+                pathway_acts = dc.pp.get_obsm(adata=adata, key='score_ulm')
                 for pathway in PROGENY_PATHWAYS:
                     col = f'pathway_{pathway}'
-                    if pathway in adata.obsm['mlm_estimate'].columns:
-                        features[col] = adata.obsm['mlm_estimate'][pathway].values
+                    if pathway in pathway_acts.columns:
+                        features[col] = pathway_acts[pathway].values
                     else:
                         features[col] = 0.0
             else:
@@ -469,7 +469,8 @@ def main():
     parser.add_argument("--spatial-embeddings", type=Path, help="Pre-computed spatial embeddings (skip step 1)")
 
     parser.add_argument("--max-neighbors", type=int, default=100, help="Max neighbors per cell")
-    parser.add_argument("--max-distance", type=float, default=200.0, help="Max neighbor distance (microns)")
+    parser.add_argument("--max-distance", type=float, default=5000.0, help="Max neighbor distance (coordinate units)")
+    parser.add_argument("--progeny-parquet", type=Path, help="Pre-computed PROGENy pathway_activity_progeny.parquet")
     parser.add_argument("--force", action="store_true", help="Recompute even if outputs exist")
 
     args = parser.parse_args()
@@ -502,6 +503,23 @@ def main():
         args.output_dir,
         skip_if_exists=not args.force,
     )
+
+    # Merge pre-computed PROGENy if provided
+    if args.progeny_parquet and args.progeny_parquet.exists():
+        print("\n  Merging pre-computed PROGENy pathways...")
+        progeny_df = pd.read_parquet(args.progeny_parquet)
+        if progeny_df.index.name != 'cell_id' and 'cell_id' not in progeny_df.columns:
+            progeny_df = progeny_df.reset_index()
+            progeny_df.columns = ['cell_id'] + list(progeny_df.columns[1:])
+        if 'cell_id' in progeny_df.columns:
+            progeny_df = progeny_df.set_index('cell_id')
+
+        for pathway in PROGENY_PATHWAYS:
+            if pathway in progeny_df.columns:
+                snrna_features[f'pathway_{pathway}'] = snrna_features.index.map(progeny_df[pathway])
+
+        n_matched = snrna_features[[f'pathway_{p}' for p in PROGENY_PATHWAYS]].notna().any(axis=1).sum()
+        print(f"    Matched PROGENy for {n_matched:,} snRNA cells")
 
     cells_path = args.output_dir / "cells.parquet"
     cells_df = step3_build_cells_parquet(
