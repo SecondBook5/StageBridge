@@ -21,11 +21,10 @@ echo "  Output: ${OUTPUT_DIR}"
 echo "  Trials: ${N_TRIALS}"
 echo "  Workers: 4 (1 GPU each)"
 
-# Activate environment (skip if already active)
-if [[ "$CONDA_DEFAULT_ENV" != "stagebridge_env" ]]; then
-    source ~/miniforge3/etc/profile.d/conda.sh
-    conda activate /scratch/chaunzt1/envs/stagebridge_env
-fi
+# Activate environment
+module load miniforge3
+eval "$(conda shell.bash hook)"
+conda activate /scratch/chaunzt1/envs/stagebridge_env
 
 # Launch 4 workers in parallel, each pinned to 1 GPU
 for gpu in 0 1 2 3; do
