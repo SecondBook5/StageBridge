@@ -239,9 +239,16 @@ def _map_to_reference(
     # Load model
     ref_model = None
     if has_metadata:
-        # Standard load - need to load a small subset of ref_adata into memory
+        # Standard load - check if model dir has adata.h5ad (HLCA format)
+        model_adata_path = model_dir / "adata.h5ad"
         try:
-            if ref_adata is not None and hasattr(ref_adata, 'isbacked') and ref_adata.isbacked:
+            if model_adata_path.exists():
+                # Load with bundled adata (like HLCA)
+                print(f"    Loading model with bundled adata.h5ad...")
+                model_adata = ad.read_h5ad(model_adata_path)
+                print(f"    Model adata: {model_adata.shape}")
+                ref_model = SCANVI.load(str(model_dir), adata=model_adata)
+            elif ref_adata is not None and hasattr(ref_adata, 'isbacked') and ref_adata.isbacked:
                 # Load a small subset into memory for model setup
                 print(f"    Loading 100 cells from backed reference for model setup...")
                 ref_adata_subset = ref_adata[:100].to_memory()
