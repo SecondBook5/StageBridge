@@ -129,6 +129,10 @@ def run_hpo(
         amici_num_heads = trial.suggest_categorical("amici_num_heads", [2, 4, 8]) if use_amici else 4
         amici_distance_scale = trial.suggest_float("amici_distance_scale", 50.0, 200.0) if use_amici else 100.0
 
+        # Dynamics type: OT-CFM (deterministic) vs Schrödinger Bridge (stochastic)
+        dynamics_type = trial.suggest_categorical("dynamics_type", ["ot_cfm", "schrodinger_bridge"])
+        sb_sigma = trial.suggest_float("sb_sigma", 0.05, 0.3) if dynamics_type == "schrodinger_bridge" else 0.1
+
         # Training weights
         ssl_weight = trial.suggest_float("ssl_weight", 0.3, 0.7)
         pathway_weight = trial.suggest_float("pathway_weight", 0.01, 0.2, log=True)
@@ -155,10 +159,32 @@ def run_hpo(
         )
 
         model = StageBridge(config).to(device)
-        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+
+        # Create Schrödinger Bridge module if needed
+        sb_module = None
+        if dynamics_type == "schrodinger_bridge":
+            from stagebridge.transition.schrodinger_bridge import (
+                SchrodingerBridge, SchrodingerBridgeConfig
+            )
+            sb_config = SchrodingerBridgeConfig(
+                input_dim=config.input_dim,
+                context_dim=config.hidden_dim,
+                hidden_dim=config.hidden_dim,
+                num_stages=config.num_stages,
+                sigma=sb_sigma,
+            )
+            sb_module = SchrodingerBridge(sb_config).to(device)
+            # Include SB params in optimizer
+            all_params = list(model.parameters()) + list(sb_module.parameters())
+            optimizer = AdamW(all_params, lr=lr, weight_decay=1e-4)
+        else:
+            optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
         # Training loop (simplified - SSL + transition combined)
         model.train()
+        if sb_module is not None:
+            sb_module.train()
+
         for epoch in range(n_epochs_per_trial):
             epoch_loss = 0.0
             n_batches = 0
@@ -199,22 +225,36 @@ def run_hpo(
                 # SSL loss: receiver reconstruction
                 ssl_loss = F.mse_loss(niche_output.receiver_reconstruction, batch.receiver)
 
-                # Transition loss: flow matching
+                # Transition loss depends on dynamics type
                 x0 = batch.receiver
                 x1 = batch.receiver + 0.1 * torch.randn_like(batch.receiver)  # Simple target
-                t = torch.rand(x0.shape[0], device=device)
-                x_t = (1 - t.unsqueeze(1)) * x0 + t.unsqueeze(1) * x1
-                u_t = x1 - x0
-
                 stage_pair_id = torch.zeros(x0.shape[0], dtype=torch.long, device=device)
-                v_t = model.forward_vector_field(
-                    x_t=x_t,
-                    t=t,
-                    context=niche_output.context,
-                    stage_pair_id=stage_pair_id,
-                    context_tokens=niche_output.context_tokens,
-                )
-                transition_loss = F.mse_loss(v_t, u_t)
+
+                if dynamics_type == "schrodinger_bridge" and sb_module is not None:
+                    # Schrödinger Bridge loss
+                    from stagebridge.transition.schrodinger_bridge import schrodinger_bridge_loss
+                    transition_loss, _ = schrodinger_bridge_loss(
+                        x_src=x0,
+                        x_tgt=x1,
+                        sb_module=sb_module,
+                        context=niche_output.context,
+                        stage_pair_id=stage_pair_id,
+                        num_time_samples=4,
+                    )
+                else:
+                    # OT-CFM loss
+                    t = torch.rand(x0.shape[0], device=device)
+                    x_t = (1 - t.unsqueeze(1)) * x0 + t.unsqueeze(1) * x1
+                    u_t = x1 - x0
+
+                    v_t = model.forward_vector_field(
+                        x_t=x_t,
+                        t=t,
+                        context=niche_output.context,
+                        stage_pair_id=stage_pair_id,
+                        context_tokens=niche_output.context_tokens,
+                    )
+                    transition_loss = F.mse_loss(v_t, u_t)
 
                 # Auxiliary losses
                 loss_pathway = torch.tensor(0.0, device=device)

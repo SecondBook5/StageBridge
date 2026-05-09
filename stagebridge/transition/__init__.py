@@ -1,7 +1,12 @@
 """Transition modeling for StageBridge.
 
-The transition module implements OT-CFM (Optimal Transport Conditional
-Flow Matching) for learning stage transitions conditioned on niche context.
+The transition module implements:
+- OT-CFM (Optimal Transport Conditional Flow Matching) for deterministic transitions
+- Schrödinger Bridge for stochastic transitions with branching/reversibility
+
+OT-CFM learns the mean velocity field - good for identifying drift direction.
+Schrödinger Bridge learns the full distribution of paths - good for EMT/MET
+branching and transition probability estimation.
 """
 
 from stagebridge.transition.drift import (
@@ -23,6 +28,14 @@ from stagebridge.transition.couplings import (
     build_sinkhorn_coupling_from_cost,
     build_ot_coupling,
 )
+from stagebridge.transition.schrodinger_bridge import (
+    SchrodingerBridge,
+    SchrodingerBridgeConfig,
+    SchrodingerBridgeWrapper,
+    schrodinger_bridge_loss,
+    sb_ot_coupled_loss,
+    get_dynamics_module,
+)
 
 __all__ = [
     # Drift networks
@@ -41,4 +54,11 @@ __all__ = [
     "build_cost_matrix",
     "build_sinkhorn_coupling_from_cost",
     "build_ot_coupling",
+    # Schrödinger Bridge
+    "SchrodingerBridge",
+    "SchrodingerBridgeConfig",
+    "SchrodingerBridgeWrapper",
+    "schrodinger_bridge_loss",
+    "sb_ot_coupled_loss",
+    "get_dynamics_module",
 ]
