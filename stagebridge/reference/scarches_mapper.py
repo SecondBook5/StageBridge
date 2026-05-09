@@ -700,65 +700,60 @@ def _direct_inference(
     model_adata: ad.AnnData | None = None,
     batch_size: int = 1024,
 ) -> dict[str, Any]:
-    """Map adata through model using direct inference (no surgery)."""
-    from scvi.model import SCANVI
+    """Map adata through model using direct inference (no surgery).
 
-    # Get batch and labels keys from the model's registry
+    Bypasses scvi-tools validation and runs the model module directly
+    to avoid issues with obsm field requirements.
+    """
+    import torch
+    from scipy.sparse import issparse
+
+    query = _align_genes_to_model(adata, model_var_names, model_adata)
+
+    # Get expression matrix
+    X = query.X
+    if issparse(X):
+        X = X.toarray()
+    X = np.asarray(X, dtype=np.float32)
+
+    # Get model device
+    device = next(model.module.parameters()).device
+
+    # Get batch and label category info from registry
     registry = model.adata_manager.registry
-    batch_key = registry["setup_args"]["batch_key"]
-    labels_key = registry["setup_args"]["labels_key"]
-    unlabeled_category = registry["setup_args"].get("unlabeled_category", "Unknown")
-
     ref_batch_cats = list(
         registry["field_registries"]["batch"]["state_registry"]["categorical_mapping"]
     )
     ref_label_cats = list(
         registry["field_registries"]["labels"]["state_registry"]["categorical_mapping"]
     )
+    n_batch = len(ref_batch_cats)
+    n_labels = len(ref_label_cats)
 
-    query = _align_genes_to_model(adata, model_var_names, model_adata)
+    # Run inference in batches using the model module directly
+    model.module.eval()
+    latents = []
 
-    # Set batch to first reference batch (all query treated as single batch)
-    query.obs[batch_key] = pd.Categorical(
-        [ref_batch_cats[0]] * query.n_obs,
-        categories=ref_batch_cats
-    )
+    with torch.no_grad():
+        for i in range(0, len(X), batch_size):
+            batch_X = torch.tensor(X[i:i+batch_size], device=device)
+            batch_size_actual = batch_X.shape[0]
 
-    # Set labels - use unlabeled category so model treats as unlabeled
-    unknown_label = unlabeled_category if unlabeled_category in ref_label_cats else ref_label_cats[0]
-    query.obs[labels_key] = pd.Categorical(
-        [unknown_label] * query.n_obs,
-        categories=ref_label_cats
-    )
+            # Use batch index 0 for all query cells
+            batch_idx = torch.zeros(batch_size_actual, dtype=torch.long, device=device)
 
-    # Explicitly setup anndata with SCANVI to avoid transfer issues
-    SCANVI.setup_anndata(
-        query,
-        batch_key=batch_key,
-        labels_key=labels_key,
-        unlabeled_category=unlabeled_category,
-    )
+            # Use label index for "Unknown" (typically last category)
+            unknown_idx = ref_label_cats.index("Unknown") if "Unknown" in ref_label_cats else 0
+            label_idx = torch.full((batch_size_actual,), unknown_idx, dtype=torch.long, device=device)
 
-    latent = model.get_latent_representation(query, batch_size=batch_size)
-    latent = np.asarray(latent, dtype=np.float32)
+            # Get latent representation from the encoder
+            inference_outputs = model.module.inference(batch_X, batch_idx, label_idx)
+            z = inference_outputs["z"]
+            latents.append(z.cpu().numpy())
 
-    try:
-        predictions = model.predict(query, batch_size=batch_size)
-        if isinstance(predictions, pd.DataFrame):
-            labels = predictions.iloc[:, 0].values
-        else:
-            labels = np.asarray(predictions)
-        labels = labels.astype(str)
+    latent = np.concatenate(latents, axis=0).astype(np.float32)
 
-        probs = model.predict(query, soft=True, batch_size=batch_size)
-        if isinstance(probs, pd.DataFrame):
-            probs = probs.values
-        confidence = np.asarray(probs, dtype=np.float32).max(axis=1)
-    except Exception:
-        labels = None
-        confidence = None
-
-    return {"latent": latent, "labels": labels, "confidence": confidence}
+    return {"latent": latent, "labels": None, "confidence": None}
 
 
 def map_to_reference_direct(
