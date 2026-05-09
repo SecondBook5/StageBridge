@@ -511,6 +511,15 @@ def step4_build_neighborhoods_parquet(
             # Evolution features (WES + clonal) for the evolution branch
             evolution_values = [float(row.get(col, 0.0)) if not pd.isna(row.get(col, 0.0)) else 0.0 for col in EVOLUTION_COLS]
 
+            # Stats token: [caf_fraction, immune_fraction, diversity, S_score, G2M_score]
+            stats_values = [
+                float(row.get('caf_fraction', 0.0)),
+                float(row.get('immune_fraction', 0.0)),
+                float(row.get('diversity', 0.0)),
+                float(row.get('S_score', 0.0)),
+                float(row.get('G2M_score', 0.0)),
+            ]
+
             record = {
                 'cell_id': row['cell_id'],
                 'donor_id': row['donor_id'],
@@ -520,10 +529,9 @@ def step4_build_neighborhoods_parquet(
                 'luca_z': row['z_luca'],
                 'neighbor_cells': neighbor_cells,
                 'neighbor_distances': distances.tolist(),
-                'S_score': float(row.get('S_score', 0.0)),
-                'G2M_score': float(row.get('G2M_score', 0.0)),
                 'proliferation_label': float(row.get('proliferation_label', 0.0)),
                 'pathway_targets': pathway_values,
+                'stats_z': stats_values,
                 'evolution_features': evolution_values,
             }
 

@@ -79,7 +79,8 @@ model:
   hidden_dim: 128
   num_heads: 4
   num_encoder_layers: 2
-  use_learned_ring_pooling: true
+  use_amici_attention: true  # AMICI format: continuous distance attention (preferred)
+  use_learned_ring_pooling: false  # Disabled when using AMICI
   use_context_refiner: true
   # Gromov-Wasserstein atlas fusion
   # Options: false (concat), "learned_projection", "pretrained"
@@ -89,7 +90,7 @@ model:
   gw_output_dim: 64           # Fused reference dimension
   # Evolution branch (WES + clonal conditioning)
   use_evolution_branch: true
-  evolution_dim: 28       # EVOLUTION_DIM from contracts (15 WES + 13 clonal)
+  evolution_dim: 30       # EVOLUTION_DIM from contracts (17 WES + 13 clonal)
   evolution_mode: gated   # gated or film
 
 # =============================================================================
