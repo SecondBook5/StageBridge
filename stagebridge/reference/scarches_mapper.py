@@ -701,10 +701,13 @@ def _direct_inference(
     batch_size: int = 1024,
 ) -> dict[str, Any]:
     """Map adata through model using direct inference (no surgery)."""
+    from scvi.model import SCANVI
+
     # Get batch and labels keys from the model's registry
     registry = model.adata_manager.registry
     batch_key = registry["setup_args"]["batch_key"]
     labels_key = registry["setup_args"]["labels_key"]
+    unlabeled_category = registry["setup_args"].get("unlabeled_category", "Unknown")
 
     ref_batch_cats = list(
         registry["field_registries"]["batch"]["state_registry"]["categorical_mapping"]
@@ -721,11 +724,19 @@ def _direct_inference(
         categories=ref_batch_cats
     )
 
-    # Set labels for SCANVI - use "Unknown" so model treats as unlabeled
-    unknown_label = "Unknown" if "Unknown" in ref_label_cats else ref_label_cats[0]
+    # Set labels - use unlabeled category so model treats as unlabeled
+    unknown_label = unlabeled_category if unlabeled_category in ref_label_cats else ref_label_cats[0]
     query.obs[labels_key] = pd.Categorical(
         [unknown_label] * query.n_obs,
         categories=ref_label_cats
+    )
+
+    # Explicitly setup anndata with SCANVI to avoid transfer issues
+    SCANVI.setup_anndata(
+        query,
+        batch_key=batch_key,
+        labels_key=labels_key,
+        unlabeled_category=unlabeled_category,
     )
 
     latent = model.get_latent_representation(query, batch_size=batch_size)
