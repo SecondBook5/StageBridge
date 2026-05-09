@@ -229,6 +229,9 @@ def step2_enrich_features(
     return snrna_features, spatial_features
 
 
+from stagebridge.contracts import WES_COLS
+
+
 def step3_build_cells_parquet(
     snrna_path: Path,
     spatial_path: Path,
@@ -238,6 +241,7 @@ def step3_build_cells_parquet(
     spatial_features: pd.DataFrame,
     output_path: Path,
     destvi_fractions: pd.DataFrame = None,
+    wes_df: pd.DataFrame = None,
 ) -> pd.DataFrame:
     """Build unified cells.parquet with embeddings and features."""
     print("\n" + "="*60)
@@ -256,6 +260,30 @@ def step3_build_cells_parquet(
     fused_dim = hlca_dim + luca_dim
 
     print(f"  Embedding dims: HLCA={hlca_dim}, LuCA={luca_dim}, Fused={fused_dim}")
+
+    # Build WES lookup by patient_id + stage
+    wes_lookup = {}
+    if wes_df is not None:
+        id_col = 'patient_id' if 'patient_id' in wes_df.columns else 'donor_id'
+        for _, row in wes_df.iterrows():
+            key = (str(row[id_col]), str(row['stage']))
+            wes_lookup[key] = {col: float(row.get(col, 0.0)) for col in WES_COLS if col in wes_df.columns}
+        print(f"  WES lookup: {len(wes_lookup)} patient-stage combinations")
+
+    def get_wes_features(donor_id: str, stage: str) -> dict:
+        """Get WES features for a donor-stage combination."""
+        # Try exact match first
+        key = (donor_id, stage)
+        if key in wes_lookup:
+            return wes_lookup[key]
+        # Try with stage mapping (5-stage to 3-stage)
+        stage_map = {'AAH': 'Preinvasive', 'AIS': 'Preinvasive', 'MIA': 'Invasive', 'LUAD': 'Invasive'}
+        if stage in stage_map:
+            key = (donor_id, stage_map[stage])
+            if key in wes_lookup:
+                return wes_lookup[key]
+        # Return zeros if not found
+        return {col: 0.0 for col in WES_COLS}
 
     print(f"  Processing snRNA cells...")
     for cell_id in tqdm(snrna.obs_names, desc="  snRNA"):
@@ -296,6 +324,11 @@ def step3_build_cells_parquet(
 
         for pathway in PROGENY_PATHWAYS:
             record[f'pathway_{pathway}'] = float(feat.get(f'pathway_{pathway}', 0.0)) if not pd.isna(feat.get(f'pathway_{pathway}', 0.0)) else 0.0
+
+        # WES features (broadcasted from patient-stage level)
+        wes_feats = get_wes_features(str(donor_id), stage)
+        for col in WES_COLS:
+            record[col] = wes_feats.get(col, 0.0)
 
         records.append(record)
 
@@ -357,6 +390,11 @@ def step3_build_cells_parquet(
 
         for pathway in PROGENY_PATHWAYS:
             record[f'pathway_{pathway}'] = float(feat.get(f'pathway_{pathway}', 0.0)) if not pd.isna(feat.get(f'pathway_{pathway}', 0.0)) else 0.0
+
+        # WES features (broadcasted from patient-stage level)
+        wes_feats = get_wes_features(str(donor_id), stage)
+        for col in WES_COLS:
+            record[col] = wes_feats.get(col, 0.0)
 
         records.append(record)
 
@@ -504,6 +542,7 @@ def main():
     parser.add_argument("--biological-features", type=Path, help="Pre-computed biological_features.parquet (EMT, senescence, SASP)")
     parser.add_argument("--destvi-luca", type=Path, help="DestVI LuCA cell_type_proportions.parquet for CAF/immune fractions")
     parser.add_argument("--progression", type=Path, help="Pre-computed progression_scores.parquet (cytotrace, pseudotime)")
+    parser.add_argument("--wes", type=Path, help="WES features parquet (patient_id, stage, tmb, mutations)")
     parser.add_argument("--force", action="store_true", help="Recompute even if outputs exist")
 
     args = parser.parse_args()
@@ -612,6 +651,15 @@ def main():
         print(f"    CAF fraction: {destvi_fractions['caf_fraction'].mean():.3f} mean")
         print(f"    Immune fraction: {destvi_fractions['immune_fraction'].mean():.3f} mean")
 
+    # Load WES features (patient-stage level, will be broadcasted to cells)
+    wes_df = None
+    if args.wes and args.wes.exists():
+        print("\n  Loading WES features...")
+        wes_df = pd.read_parquet(args.wes)
+        print(f"    WES data: {len(wes_df):,} patient-stage combinations")
+        wes_cols = [c for c in wes_df.columns if c not in ['patient_id', 'donor_id', 'stage']]
+        print(f"    WES features: {wes_cols}")
+
     cells_path = args.output_dir / "cells.parquet"
     cells_df = step3_build_cells_parquet(
         args.snrna, args.spatial,
@@ -619,6 +667,7 @@ def main():
         snrna_features, spatial_features,
         cells_path,
         destvi_fractions=destvi_fractions,
+        wes_df=wes_df,
     )
 
     neighborhoods_path = args.output_dir / "neighborhoods.parquet"
