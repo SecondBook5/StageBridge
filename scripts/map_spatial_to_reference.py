@@ -50,6 +50,8 @@ def main():
                         help="Inference batch size")
     parser.add_argument("--surgery-epochs", type=int, default=200,
                         help="Max epochs for scArches surgery (surgery mode only)")
+    parser.add_argument("--device", type=str, default=None,
+                        help="Device: 'cuda', 'cpu', or None for auto-detect")
     args = parser.parse_args()
 
     if args.mode == "direct":
@@ -65,6 +67,7 @@ def main():
             hlca_model_dir=args.hlca_model,
             output_dir=args.output_dir,
             batch_size=args.batch_size,
+            device=args.device,
         )
 
     else:  # surgery mode

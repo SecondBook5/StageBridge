@@ -40,6 +40,10 @@ from stagebridge.reference.confidence import (
     compute_confidence,
     ConfidenceResult,
 )
+from stagebridge.reference.scarches_mapper import (
+    map_spatial_to_reference,
+    map_to_reference_direct,
+)
 
 __all__ = [
     # Mapper

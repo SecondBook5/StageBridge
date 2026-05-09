@@ -741,6 +741,7 @@ def map_to_reference_direct(
     hlca_model_dir: Path | str | None = None,
     output_dir: Path | str | None = None,
     batch_size: int = 1024,
+    device: str | None = None,
 ) -> dict[str, Any]:
     """Map spatial and snRNA through references using direct inference.
 
@@ -754,10 +755,12 @@ def map_to_reference_direct(
         hlca_model_dir: Path to HLCA scANVI model (optional)
         output_dir: Output directory for embeddings (optional)
         batch_size: Inference batch size
+        device: Device to load model on ('cuda', 'cpu', or None for auto)
 
     Returns:
         dict with spatial_luca, snrna_luca, spatial_hlca, snrna_hlca embeddings
     """
+    import torch
     try:
         from scvi.model import SCANVI
     except ImportError:
@@ -765,6 +768,11 @@ def map_to_reference_direct(
 
     luca_model_dir = Path(luca_model_dir)
     results = {}
+
+    # Auto-detect device if not specified
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
 
     print("=" * 60)
     print("Direct Inference Mapping (Aligned Space)")
@@ -786,9 +794,11 @@ def map_to_reference_direct(
 
     model_adata_path = luca_model_dir / "adata.h5ad"
     if model_adata_path.exists():
-        print(f"  Loading model with bundled adata...")
+        print(f"  Loading model with bundled adata on {device}...")
         model_adata = ad.read_h5ad(model_adata_path)
-        luca_model = SCANVI.load(str(luca_model_dir), adata=model_adata)
+        # Use accelerator param for scvi-tools device control
+        use_gpu = device == "cuda"
+        luca_model = SCANVI.load(str(luca_model_dir), adata=model_adata, accelerator="gpu" if use_gpu else "cpu")
     else:
         raise FileNotFoundError(f"Model adata.h5ad not found at {model_adata_path}")
 
@@ -815,9 +825,10 @@ def map_to_reference_direct(
 
         hlca_adata_path = hlca_model_dir / "adata.h5ad"
         if hlca_adata_path.exists():
-            print(f"  Loading model with bundled adata...")
+            print(f"  Loading model with bundled adata on {device}...")
             hlca_adata = ad.read_h5ad(hlca_adata_path)
-            hlca_model = SCANVI.load(str(hlca_model_dir), adata=hlca_adata)
+            use_gpu = device == "cuda"
+            hlca_model = SCANVI.load(str(hlca_model_dir), adata=hlca_adata, accelerator="gpu" if use_gpu else "cpu")
         else:
             raise FileNotFoundError(f"Model adata.h5ad not found at {hlca_adata_path}")
 

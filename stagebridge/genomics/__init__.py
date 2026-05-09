@@ -23,6 +23,15 @@ from stagebridge.genomics.schemas import (
     SpatialVariantEvidence,
     TransitionGenomicEnrichment,
 )
+from stagebridge.genomics.feature_extraction import (
+    create_wes_features,
+    create_clonal_features,
+    create_evolution_features,
+)
+from stagebridge.genomics.wes_integration import (
+    merge_wes_into_cells,
+    validate_wes_coverage,
+)
 
 __all__ = [
     # Schemas
@@ -32,4 +41,11 @@ __all__ = [
     "ClonalityEstimate",
     "SpatialVariantEvidence",
     "TransitionGenomicEnrichment",
+    # Feature extraction
+    "create_wes_features",
+    "create_clonal_features",
+    "create_evolution_features",
+    # WES integration
+    "merge_wes_into_cells",
+    "validate_wes_coverage",
 ]

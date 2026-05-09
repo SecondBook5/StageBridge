@@ -52,6 +52,18 @@ SASP_GENES = [
     "SERPINE1", "SERPINE2",
 ]
 
+AP1_TF_GENES = [
+    "FOS", "FOSB", "FOSL1", "FOSL2",  # FOS family
+    "JUN", "JUNB", "JUND",             # JUN family
+    "ATF3", "ATF4", "ATF6",            # ATF family (AP-1 related)
+    "BATF", "BATF2", "BATF3",          # BATF family
+]
+
+AP1_TARGET_GENES = [
+    "MMP1", "MMP9", "IL6", "IL8", "CXCL8", "VEGFA",
+    "CCND1", "BCL2", "FAS", "TP53", "CDKN1A",
+]
+
 
 # =============================================================================
 # Score Computation
@@ -112,6 +124,34 @@ def compute_sasp_score(adata: "ad.AnnData") -> np.ndarray:
     return _score_signature(adata, SASP_GENES)
 
 
+def compute_ap1_score(adata: "ad.AnnData") -> np.ndarray:
+    """Compute AP-1 transcription factor activity score.
+
+    AP-1 is a stress-response TF family implicated in cellular plasticity
+    and drug resistance. High AP-1 in inflammatory niches supports the
+    stress-induced plasticity hypothesis.
+
+    Args:
+        adata: AnnData with normalized log expression
+
+    Returns:
+        AP-1 TF activity scores per cell
+    """
+    return _score_signature(adata, AP1_TF_GENES)
+
+
+def compute_ap1_target_score(adata: "ad.AnnData") -> np.ndarray:
+    """Compute AP-1 downstream target score (functional readout).
+
+    Args:
+        adata: AnnData with normalized log expression
+
+    Returns:
+        AP-1 target expression scores per cell
+    """
+    return _score_signature(adata, AP1_TARGET_GENES)
+
+
 def compute_all_signatures(adata: "ad.AnnData") -> pd.DataFrame:
     """Compute all biological signature scores.
 
@@ -126,6 +166,8 @@ def compute_all_signatures(adata: "ad.AnnData") -> pd.DataFrame:
         "emt_score": compute_emt_score(adata),
         "senescence_score": compute_senescence_score(adata),
         "sasp_score": compute_sasp_score(adata),
+        "ap1_tf_score": compute_ap1_score(adata),
+        "ap1_target_score": compute_ap1_target_score(adata),
     })
 
 

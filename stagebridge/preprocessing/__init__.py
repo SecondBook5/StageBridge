@@ -25,6 +25,10 @@ from stagebridge.preprocessing.qc import (
     compute_qc_metrics,
     run_qc,
 )
+from stagebridge.preprocessing.celltype_assignment import (
+    assign_celltypes_from_gamma,
+    run_celltype_assignment,
+)
 
 __all__ = [
     # Spatial stats
@@ -47,4 +51,7 @@ __all__ = [
     # QC
     "compute_qc_metrics",
     "run_qc",
+    # Cell type assignment
+    "assign_celltypes_from_gamma",
+    "run_celltype_assignment",
 ]
