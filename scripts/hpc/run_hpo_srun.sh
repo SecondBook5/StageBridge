@@ -21,9 +21,11 @@ echo "  Output: ${OUTPUT_DIR}"
 echo "  Trials: ${N_TRIALS}"
 echo "  Workers: 4 (1 GPU each)"
 
-# Activate environment
-source ~/.bashrc
-conda activate stagebridge_env
+# Activate environment (skip if already active)
+if [[ "$CONDA_DEFAULT_ENV" != "stagebridge_env" ]]; then
+    source ~/.bashrc
+    conda activate stagebridge_env 2>/dev/null || true
+fi
 
 # Launch 4 workers in parallel, each pinned to 1 GPU
 for gpu in 0 1 2 3; do
