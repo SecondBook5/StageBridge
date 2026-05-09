@@ -734,6 +734,9 @@ def _direct_inference(
     model.module.eval()
     latents = []
 
+    # Check if model expects continuous covariates
+    n_cont_cov = getattr(model.module, 'n_continuous_cov', 0)
+
     with torch.no_grad():
         for i in range(0, len(X), batch_size):
             batch_X = torch.tensor(X[i:i+batch_size], device=device)
@@ -746,8 +749,18 @@ def _direct_inference(
             unknown_idx = ref_label_cats.index("Unknown") if "Unknown" in ref_label_cats else 0
             label_idx = torch.full((batch_size_actual,), unknown_idx, dtype=torch.long, device=device)
 
+            # Handle continuous covariates if model expects them
+            cont_covs = None
+            if n_cont_cov > 0:
+                cont_covs = torch.zeros(batch_size_actual, n_cont_cov, device=device)
+
             # Get latent representation from the encoder
-            inference_outputs = model.module.inference(batch_X, batch_idx, label_idx)
+            inference_outputs = model.module.inference(
+                x=batch_X,
+                batch_index=batch_idx,
+                y=label_idx,
+                cont_covs=cont_covs,
+            )
             z = inference_outputs["z"]
             latents.append(z.cpu().numpy())
 
