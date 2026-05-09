@@ -1,16 +1,21 @@
-"""scArches mapping for spatial-to-reference alignment.
+"""Reference mapping for spatial and snRNA alignment.
 
-Maps spatial expression directly through HLCA/LuCA reference models via scArches surgery,
-putting spatial spots in the SAME latent space as snRNA cells.
+Two modes:
+1. Surgery mode: Fine-tunes model on query data (good for single modality)
+2. Direct mode: Uses frozen model (required for multi-modality alignment)
+
+For aligning spatial and snRNA in the SAME space, use direct inference mode.
+Surgery creates separate adapted spaces for each query.
 
 Usage:
-    from stagebridge.reference.scarches_mapper import map_spatial_to_reference
+    from stagebridge.reference.scarches_mapper import map_to_reference_direct
 
-    result = map_spatial_to_reference(
-        spatial_path="/path/to/spatial_merged.h5ad",
-        output_dir="/path/to/output",
-        hlca_model_dir="/path/to/hlca/model",
+    # Map both modalities with same frozen model
+    spatial_emb, snrna_emb = map_to_reference_direct(
+        spatial_path="/path/to/spatial.h5ad",
+        snrna_path="/path/to/snrna.h5ad",
         luca_model_dir="/path/to/luca/model",
+        output_dir="/path/to/output",
     )
 """
 
@@ -655,3 +660,241 @@ def _map_to_reference(
         "confidence": confidence,
         "history": history,
     }
+
+
+def _align_genes_to_model(
+    adata: ad.AnnData,
+    model_var_names: list[str],
+    model_adata: ad.AnnData | None = None,
+) -> ad.AnnData:
+    """Align query genes to model's gene space."""
+    query = adata.copy()
+    query_genes = set(query.var_names)
+    model_genes = set(model_var_names)
+
+    overlap = query_genes & model_genes
+    if len(overlap) < 100 and model_adata is not None and "feature_name" in model_adata.var.columns:
+        symbol_to_ensembl = dict(zip(model_adata.var["feature_name"], model_adata.var_names))
+        new_names = [symbol_to_ensembl.get(g, g) for g in query.var_names]
+        query.var_names = pd.Index(new_names)
+        overlap = set(query.var_names) & model_genes
+
+    common = [g for g in model_var_names if g in query.var_names]
+
+    if len(common) < len(model_var_names):
+        query = query[:, common].copy()
+        missing = [g for g in model_var_names if g not in common]
+        from scipy import sparse
+        zeros = sparse.csr_matrix((query.n_obs, len(missing)))
+        missing_adata = ad.AnnData(X=zeros, obs=query.obs.copy(), var=pd.DataFrame(index=missing))
+        query = ad.concat([query, missing_adata], axis=1)
+
+    query = query[:, model_var_names].copy()
+    return query
+
+
+def _direct_inference(
+    adata: ad.AnnData,
+    model,
+    model_var_names: list[str],
+    model_adata: ad.AnnData | None = None,
+    batch_key: str = "dataset",
+    batch_size: int = 1024,
+) -> dict[str, Any]:
+    """Map adata through model using direct inference (no surgery)."""
+    ref_batch_cats = list(
+        model.adata_manager.registry["field_registries"]["batch"]["state_registry"]["categorical_mapping"]
+    )
+
+    query = _align_genes_to_model(adata, model_var_names, model_adata)
+    query.obs[batch_key] = pd.Categorical(
+        [ref_batch_cats[0]] * query.n_obs,
+        categories=ref_batch_cats
+    )
+
+    latent = model.get_latent_representation(query, batch_size=batch_size)
+    latent = np.asarray(latent, dtype=np.float32)
+
+    try:
+        predictions = model.predict(query, batch_size=batch_size)
+        if isinstance(predictions, pd.DataFrame):
+            labels = predictions.iloc[:, 0].values
+        else:
+            labels = np.asarray(predictions)
+        labels = labels.astype(str)
+
+        probs = model.predict(query, soft=True, batch_size=batch_size)
+        if isinstance(probs, pd.DataFrame):
+            probs = probs.values
+        confidence = np.asarray(probs, dtype=np.float32).max(axis=1)
+    except Exception:
+        labels = None
+        confidence = None
+
+    return {"latent": latent, "labels": labels, "confidence": confidence}
+
+
+def map_to_reference_direct(
+    spatial_path: Path | str,
+    snrna_path: Path | str,
+    luca_model_dir: Path | str,
+    hlca_model_dir: Path | str | None = None,
+    output_dir: Path | str | None = None,
+    batch_size: int = 1024,
+) -> dict[str, Any]:
+    """Map spatial and snRNA through references using direct inference.
+
+    Uses the SAME frozen model for both modalities so they end up in the
+    same latent space. This is required for proper alignment.
+
+    Args:
+        spatial_path: Path to spatial h5ad
+        snrna_path: Path to snRNA h5ad
+        luca_model_dir: Path to LuCA scANVI model
+        hlca_model_dir: Path to HLCA scANVI model (optional)
+        output_dir: Output directory for embeddings (optional)
+        batch_size: Inference batch size
+
+    Returns:
+        dict with spatial_luca, snrna_luca, spatial_hlca, snrna_hlca embeddings
+    """
+    try:
+        from scvi.model import SCANVI
+    except ImportError:
+        raise ImportError("scvi-tools required")
+
+    luca_model_dir = Path(luca_model_dir)
+    results = {}
+
+    print("=" * 60)
+    print("Direct Inference Mapping (Aligned Space)")
+    print("=" * 60)
+
+    # Load data
+    print(f"\nLoading spatial from {spatial_path}...")
+    spatial = ad.read_h5ad(spatial_path)
+    print(f"  {spatial.n_obs:,} spots, {spatial.n_vars:,} genes")
+
+    print(f"\nLoading snRNA from {snrna_path}...")
+    snrna = ad.read_h5ad(snrna_path)
+    print(f"  {snrna.n_obs:,} cells, {snrna.n_vars:,} genes")
+
+    # LuCA mapping
+    print(f"\n{'='*60}")
+    print("Mapping through LuCA (direct inference)")
+    print("=" * 60)
+
+    model_adata_path = luca_model_dir / "adata.h5ad"
+    if model_adata_path.exists():
+        print(f"  Loading model with bundled adata...")
+        model_adata = ad.read_h5ad(model_adata_path)
+        luca_model = SCANVI.load(str(luca_model_dir), adata=model_adata)
+    else:
+        raise FileNotFoundError(f"Model adata.h5ad not found at {model_adata_path}")
+
+    model_var_names = list(model_adata.var_names)
+    print(f"  Model: {luca_model.module.n_latent}d latent, {len(model_var_names)} genes")
+
+    print(f"\n  Mapping spatial...")
+    spatial_luca = _direct_inference(spatial, luca_model, model_var_names, model_adata, batch_size=batch_size)
+    print(f"    Shape: {spatial_luca['latent'].shape}")
+
+    print(f"\n  Mapping snRNA...")
+    snrna_luca = _direct_inference(snrna, luca_model, model_var_names, model_adata, batch_size=batch_size)
+    print(f"    Shape: {snrna_luca['latent'].shape}")
+
+    results["spatial_luca"] = spatial_luca["latent"]
+    results["snrna_luca"] = snrna_luca["latent"]
+
+    # HLCA mapping (optional)
+    if hlca_model_dir:
+        hlca_model_dir = Path(hlca_model_dir)
+        print(f"\n{'='*60}")
+        print("Mapping through HLCA (direct inference)")
+        print("=" * 60)
+
+        hlca_adata_path = hlca_model_dir / "adata.h5ad"
+        if hlca_adata_path.exists():
+            print(f"  Loading model with bundled adata...")
+            hlca_adata = ad.read_h5ad(hlca_adata_path)
+            hlca_model = SCANVI.load(str(hlca_model_dir), adata=hlca_adata)
+        else:
+            raise FileNotFoundError(f"Model adata.h5ad not found at {hlca_adata_path}")
+
+        hlca_var_names = list(hlca_adata.var_names)
+        print(f"  Model: {hlca_model.module.n_latent}d latent, {len(hlca_var_names)} genes")
+
+        print(f"\n  Mapping spatial...")
+        spatial_hlca = _direct_inference(spatial, hlca_model, hlca_var_names, hlca_adata, batch_size=batch_size)
+        print(f"    Shape: {spatial_hlca['latent'].shape}")
+
+        print(f"\n  Mapping snRNA...")
+        snrna_hlca = _direct_inference(snrna, hlca_model, hlca_var_names, hlca_adata, batch_size=batch_size)
+        print(f"    Shape: {snrna_hlca['latent'].shape}")
+
+        results["spatial_hlca"] = spatial_hlca["latent"]
+        results["snrna_hlca"] = snrna_hlca["latent"]
+
+    # Save outputs
+    if output_dir:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # LuCA embeddings
+        spatial_luca_df = pd.DataFrame(
+            results["spatial_luca"],
+            index=spatial.obs_names,
+            columns=[f"luca_latent_{i}" for i in range(results["spatial_luca"].shape[1])]
+        )
+        spatial_luca_df.to_parquet(output_dir / "spatial_luca_direct.parquet")
+        print(f"\nSaved: {output_dir / 'spatial_luca_direct.parquet'}")
+
+        snrna_luca_df = pd.DataFrame(
+            results["snrna_luca"],
+            index=snrna.obs_names,
+            columns=[f"luca_latent_{i}" for i in range(results["snrna_luca"].shape[1])]
+        )
+        snrna_luca_df.to_parquet(output_dir / "snrna_luca_direct.parquet")
+        print(f"Saved: {output_dir / 'snrna_luca_direct.parquet'}")
+
+        if "spatial_hlca" in results:
+            spatial_hlca_df = pd.DataFrame(
+                results["spatial_hlca"],
+                index=spatial.obs_names,
+                columns=[f"hlca_latent_{i}" for i in range(results["spatial_hlca"].shape[1])]
+            )
+            spatial_hlca_df.to_parquet(output_dir / "spatial_hlca_direct.parquet")
+            print(f"Saved: {output_dir / 'spatial_hlca_direct.parquet'}")
+
+            snrna_hlca_df = pd.DataFrame(
+                results["snrna_hlca"],
+                index=snrna.obs_names,
+                columns=[f"hlca_latent_{i}" for i in range(results["snrna_hlca"].shape[1])]
+            )
+            snrna_hlca_df.to_parquet(output_dir / "snrna_hlca_direct.parquet")
+            print(f"Saved: {output_dir / 'snrna_hlca_direct.parquet'}")
+
+        # Fused embeddings (concat HLCA + LuCA)
+        if "spatial_hlca" in results:
+            spatial_fused = np.hstack([results["spatial_hlca"], results["spatial_luca"]])
+            snrna_fused = np.hstack([results["snrna_hlca"], results["snrna_luca"]])
+
+            fused_cols = (
+                [f"hlca_latent_{i}" for i in range(results["spatial_hlca"].shape[1])] +
+                [f"luca_latent_{i}" for i in range(results["spatial_luca"].shape[1])]
+            )
+
+            pd.DataFrame(spatial_fused, index=spatial.obs_names, columns=fused_cols).to_parquet(
+                output_dir / "spatial_fused_direct.parquet"
+            )
+            pd.DataFrame(snrna_fused, index=snrna.obs_names, columns=fused_cols).to_parquet(
+                output_dir / "snrna_fused_direct.parquet"
+            )
+            print(f"Saved fused: {output_dir / 'spatial_fused_direct.parquet'}")
+            print(f"Saved fused: {output_dir / 'snrna_fused_direct.parquet'}")
+
+    print("\n" + "=" * 60)
+    print("Done!")
+    print("=" * 60)
+
+    return results
