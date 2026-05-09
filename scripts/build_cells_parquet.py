@@ -174,6 +174,51 @@ def main():
     snrna_df['x'] = np.nan
     snrna_df['y'] = np.nan
 
+    # Cell cycle scores (for stats token)
+    for score_col in ['S_score', 'G2M_score']:
+        if score_col in snrna_obs.columns:
+            if len(common_idx) == len(snrna_emb):
+                snrna_df[score_col] = snrna_obs.loc[snrna_emb.index, score_col].values
+            else:
+                snrna_df[score_col] = snrna_obs[score_col].iloc[:len(snrna_emb)].values
+        else:
+            snrna_df[score_col] = 0.0
+
+    # Proliferation label (Ki67 or computed from cell cycle)
+    if 'Ki67' in snrna_obs.columns:
+        if len(common_idx) == len(snrna_emb):
+            snrna_df['proliferation_label'] = snrna_obs.loc[snrna_emb.index, 'Ki67'].values
+        else:
+            snrna_df['proliferation_label'] = snrna_obs['Ki67'].iloc[:len(snrna_emb)].values
+    elif 'proliferation_label' in snrna_obs.columns:
+        if len(common_idx) == len(snrna_emb):
+            snrna_df['proliferation_label'] = snrna_obs.loc[snrna_emb.index, 'proliferation_label'].values
+        else:
+            snrna_df['proliferation_label'] = snrna_obs['proliferation_label'].iloc[:len(snrna_emb)].values
+    else:
+        # Compute from cell cycle scores
+        snrna_df['proliferation_label'] = snrna_df['S_score'] + snrna_df['G2M_score']
+
+    # PROGENy pathway activities (14 pathways)
+    progeny_pathways = ['Androgen', 'EGFR', 'Estrogen', 'Hypoxia', 'JAK-STAT', 'MAPK',
+                        'NFkB', 'PI3K', 'TGFb', 'TNFa', 'Trail', 'VEGF', 'WNT', 'p53']
+    pathway_cols_found = []
+    for pathway in progeny_pathways:
+        # Try various naming conventions
+        for col_name in [pathway, f'progeny_{pathway}', f'PROGENy_{pathway}', pathway.lower()]:
+            if col_name in snrna_obs.columns:
+                if len(common_idx) == len(snrna_emb):
+                    snrna_df[f'pathway_{pathway}'] = snrna_obs.loc[snrna_emb.index, col_name].values
+                else:
+                    snrna_df[f'pathway_{pathway}'] = snrna_obs[col_name].iloc[:len(snrna_emb)].values
+                pathway_cols_found.append(pathway)
+                break
+        else:
+            snrna_df[f'pathway_{pathway}'] = 0.0
+
+    if pathway_cols_found:
+        print(f"  Found PROGENy pathways: {pathway_cols_found}")
+
     print(f"  Processed {len(snrna_df):,} snRNA cells")
 
     # =========================================================================
@@ -255,6 +300,49 @@ def main():
     else:
         spatial_df['x'] = np.nan
         spatial_df['y'] = np.nan
+
+    # Cell cycle scores (for stats token) - spatial may not have these
+    for score_col in ['S_score', 'G2M_score']:
+        if score_col in spatial_obs.columns:
+            if len(common_idx) == len(spatial_emb):
+                spatial_df[score_col] = spatial_obs.loc[spatial_emb.index, score_col].values
+            else:
+                spatial_df[score_col] = spatial_obs[score_col].iloc[:len(spatial_emb)].values
+        else:
+            spatial_df[score_col] = 0.0
+
+    # Proliferation label
+    if 'Ki67' in spatial_obs.columns:
+        if len(common_idx) == len(spatial_emb):
+            spatial_df['proliferation_label'] = spatial_obs.loc[spatial_emb.index, 'Ki67'].values
+        else:
+            spatial_df['proliferation_label'] = spatial_obs['Ki67'].iloc[:len(spatial_emb)].values
+    elif 'proliferation_label' in spatial_obs.columns:
+        if len(common_idx) == len(spatial_emb):
+            spatial_df['proliferation_label'] = spatial_obs.loc[spatial_emb.index, 'proliferation_label'].values
+        else:
+            spatial_df['proliferation_label'] = spatial_obs['proliferation_label'].iloc[:len(spatial_emb)].values
+    else:
+        spatial_df['proliferation_label'] = spatial_df['S_score'] + spatial_df['G2M_score']
+
+    # PROGENy pathway activities (14 pathways)
+    progeny_pathways = ['Androgen', 'EGFR', 'Estrogen', 'Hypoxia', 'JAK-STAT', 'MAPK',
+                        'NFkB', 'PI3K', 'TGFb', 'TNFa', 'Trail', 'VEGF', 'WNT', 'p53']
+    spatial_pathway_cols = []
+    for pathway in progeny_pathways:
+        for col_name in [pathway, f'progeny_{pathway}', f'PROGENy_{pathway}', pathway.lower()]:
+            if col_name in spatial_obs.columns:
+                if len(common_idx) == len(spatial_emb):
+                    spatial_df[f'pathway_{pathway}'] = spatial_obs.loc[spatial_emb.index, col_name].values
+                else:
+                    spatial_df[f'pathway_{pathway}'] = spatial_obs[col_name].iloc[:len(spatial_emb)].values
+                spatial_pathway_cols.append(pathway)
+                break
+        else:
+            spatial_df[f'pathway_{pathway}'] = 0.0
+
+    if spatial_pathway_cols:
+        print(f"  Found PROGENy pathways: {spatial_pathway_cols}")
 
     print(f"  Processed {len(spatial_df):,} spatial spots")
 

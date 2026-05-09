@@ -146,9 +146,27 @@ def build_neighborhoods_amici(
         if 'cell_type_luca' in cells_df.columns:
             record['cell_type_luca'] = row['cell_type_luca']
 
-        # Optional features for training targets
+        # Training targets
         if 'proliferation_label' in cells_df.columns:
-            record['proliferation_label'] = row.get('proliferation_label', 0.0)
+            record['proliferation_label'] = float(row.get('proliferation_label', 0.0))
+
+        # Cell cycle scores (for stats token)
+        if 'S_score' in cells_df.columns:
+            record['S_score'] = float(row.get('S_score', 0.0))
+        if 'G2M_score' in cells_df.columns:
+            record['G2M_score'] = float(row.get('G2M_score', 0.0))
+
+        # PROGENy pathway targets (14 pathways as a list)
+        progeny_pathways = ['Androgen', 'EGFR', 'Estrogen', 'Hypoxia', 'JAK-STAT', 'MAPK',
+                            'NFkB', 'PI3K', 'TGFb', 'TNFa', 'Trail', 'VEGF', 'WNT', 'p53']
+        pathway_values = []
+        for pathway in progeny_pathways:
+            col = f'pathway_{pathway}'
+            if col in cells_df.columns:
+                pathway_values.append(float(row.get(col, 0.0)))
+            else:
+                pathway_values.append(0.0)
+        record['pathway_targets'] = pathway_values
 
         records.append(record)
 
