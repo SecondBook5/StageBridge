@@ -138,9 +138,11 @@ class StageBridgeConfig:
     n_pathways: int = 14  # PROGENy pathways
     use_proliferation_head: bool = True
 
-    # Biological conditioning (stats token features)
+    # Biological conditioning (stats and pathway token features)
+    # Dimensions detected from data - set to None to use input_dim as fallback
     use_stats_conditioning: bool = True
-    stats_dim: int = STATS_TOKEN_DIM  # from contracts
+    stats_dim: int = STATS_TOKEN_DIM  # from contracts (5 features)
+    pathway_dim: int | None = None  # Auto-detect from data, or use input_dim if None
 
     # Learned ring pooling (individual cells per ring with ISAB+PMA)
     # DEPRECATED: Use AMICI-style continuous attention instead
@@ -394,6 +396,10 @@ class StageBridge(nn.Module):
         super().__init__()
         self.config = config
 
+        # Resolve pathway_dim: if None, use input_dim as fallback
+        if config.pathway_dim is None:
+            config.pathway_dim = config.input_dim
+
         # Hierarchical Set Transformer: ISAB → ISAB(spatial_rpe) → SAB → PMA
         self.context_refiner: HierarchicalSetTransformer | None = None
         if config.use_context_refiner:
@@ -550,7 +556,7 @@ class StageBridge(nn.Module):
             self.amici_hlca_proj = nn.Linear(30, config.hidden_dim)
             self.amici_luca_proj = nn.Linear(10, config.hidden_dim)
             self.amici_stats_proj = nn.Linear(config.stats_dim, config.hidden_dim)
-            self.amici_pathway_proj = nn.Linear(config.input_dim, config.hidden_dim)
+            self.amici_pathway_proj = nn.Linear(config.pathway_dim, config.hidden_dim)
 
         # Learned ring pooling (DEPRECATED - use AMICI instead)
         self.niche_tokenizer: NicheTokenizer | None = None
@@ -563,6 +569,7 @@ class StageBridge(nn.Module):
                 num_inducing=config.ring_pooler_num_inducing,
                 dropout=config.dropout,
                 stats_dim=config.stats_dim,
+                pathway_dim=config.pathway_dim,
                 use_fused_reference=config.use_gw_fusion,
                 fused_ref_dim=config.gw_output_dim if config.use_gw_fusion else None,
             )
@@ -572,6 +579,7 @@ class StageBridge(nn.Module):
             self.simple_hlca_proj = nn.Linear(30, config.hidden_dim)  # HLCA dim
             self.simple_luca_proj = nn.Linear(10, config.hidden_dim)  # LuCA dim
             self.simple_stats_proj = nn.Linear(config.stats_dim, config.hidden_dim)
+            self.simple_pathway_proj = nn.Linear(config.pathway_dim, config.hidden_dim)
             # Simple reconstruction head for SSL (when NicheTokenizer not used)
             self.simple_reconstruction_head = nn.Linear(config.hidden_dim, config.input_dim)
 
@@ -670,13 +678,13 @@ class StageBridge(nn.Module):
             if self.niche_tokenizer is not None:
                 token_list.append(self.niche_tokenizer.hlca_proj(hlca) if self.config.use_hlca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
                 token_list.append(self.niche_tokenizer.luca_proj(luca) if self.config.use_luca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
-                token_list.append(self.niche_tokenizer.token_proj(pathway) if pathway is not None else torch.zeros(B, self.config.hidden_dim, device=device))
+                token_list.append(self.niche_tokenizer.pathway_proj(pathway) if pathway is not None else torch.zeros(B, self.config.hidden_dim, device=device))
                 stats_input = stats[:, :self.config.stats_dim] if stats is not None and stats.shape[-1] > self.config.stats_dim else stats
                 token_list.append(self.niche_tokenizer.stats_proj(stats_input) if stats is not None else torch.zeros(B, self.config.hidden_dim, device=device))
             else:
                 token_list.append(self.simple_hlca_proj(hlca) if self.config.use_hlca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
                 token_list.append(self.simple_luca_proj(luca) if self.config.use_luca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
-                token_list.append(self.simple_token_proj(pathway) if pathway is not None else torch.zeros(B, self.config.hidden_dim, device=device))
+                token_list.append(self.simple_pathway_proj(pathway) if pathway is not None else torch.zeros(B, self.config.hidden_dim, device=device))
                 stats_input = stats[:, :self.config.stats_dim] if stats is not None and stats.shape[-1] > self.config.stats_dim else stats
                 token_list.append(self.simple_stats_proj(stats_input) if stats is not None else torch.zeros(B, self.config.hidden_dim, device=device))
 
@@ -731,7 +739,7 @@ class StageBridge(nn.Module):
 
             # Pathway token (use projection if provided, else zeros)
             if pathway is not None:
-                token_list.append(self.simple_token_proj(pathway))
+                token_list.append(self.simple_pathway_proj(pathway))
             else:
                 token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
 

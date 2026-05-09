@@ -54,6 +54,7 @@ class TestStageBridgeModel:
             num_encoder_layers=2,
             use_learned_ring_pooling=True,
             use_context_refiner=True,
+            # pathway_dim=None -> auto-fallback to input_dim (40)
         )
         return StageBridge(config)
 
@@ -61,13 +62,14 @@ class TestStageBridgeModel:
     def batch(self) -> dict:
         batch_size = 4
         max_cells = 10
+        # pathway uses input_dim (40) when pathway_dim not explicitly set
         return {
             "receiver": torch.randn(batch_size, LATENT_DIM),
             "ring_cells": [torch.randn(batch_size, max_cells, LATENT_DIM) for _ in range(4)],
             "ring_masks": [torch.ones(batch_size, max_cells, dtype=torch.bool) for _ in range(4)],
             "hlca": torch.randn(batch_size, HLCA_DIM),
             "luca": torch.randn(batch_size, LUCA_DIM),
-            "pathway": torch.randn(batch_size, LATENT_DIM),
+            "pathway": torch.randn(batch_size, LATENT_DIM),  # matches default pathway_dim
             "stats": torch.randn(batch_size, STATS_TOKEN_DIM),
         }
 

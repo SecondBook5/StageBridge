@@ -225,6 +225,44 @@ class StageBridgeDataset(Dataset):
 
         self.neighborhoods = self.neighborhoods.reset_index(drop=True)
 
+        # Detect feature dimensions from data
+        self._pathway_dim: int | None = None
+        self._stats_dim: int | None = None
+        self._evolution_dim: int | None = None
+        self._detect_feature_dims()
+
+    def _detect_feature_dims(self) -> None:
+        """Detect feature dimensions from first valid row."""
+        if len(self.neighborhoods) == 0:
+            return
+
+        # Sample first row with data
+        row = self.neighborhoods.iloc[0]
+
+        if "pathway_z" in row and row["pathway_z"] is not None:
+            self._pathway_dim = len(row["pathway_z"])
+
+        if "stats_z" in row and row["stats_z"] is not None:
+            self._stats_dim = len(row["stats_z"])
+
+        if "evolution_features" in row and row["evolution_features"] is not None:
+            self._evolution_dim = len(row["evolution_features"])
+
+    @property
+    def pathway_dim(self) -> int | None:
+        """Pathway feature dimension detected from data."""
+        return self._pathway_dim
+
+    @property
+    def stats_dim(self) -> int | None:
+        """Stats feature dimension detected from data."""
+        return self._stats_dim
+
+    @property
+    def evolution_dim(self) -> int | None:
+        """Evolution feature dimension detected from data."""
+        return self._evolution_dim
+
     def __len__(self) -> int:
         return len(self.neighborhoods)
 

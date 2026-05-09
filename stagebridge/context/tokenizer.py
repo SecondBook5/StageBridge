@@ -52,6 +52,7 @@ class NicheTokenizer(nn.Module):
         num_inducing: int = 4,
         dropout: float = 0.1,
         stats_dim: int = 5,  # caf_fraction, immune_fraction, diversity, S_score, G2M_score
+        pathway_dim: int | None = None,  # Auto-detect from data, or use input_dim if None
         use_fused_reference: bool = False,
         fused_ref_dim: int | None = None,
     ) -> None:
@@ -60,11 +61,15 @@ class NicheTokenizer(nn.Module):
         self.hidden_dim = hidden_dim
         self.num_rings = num_rings
         self.stats_dim = stats_dim
+        self.pathway_dim = pathway_dim if pathway_dim is not None else input_dim
         self.use_fused_reference = use_fused_reference
         self.fused_ref_dim = fused_ref_dim or input_dim
 
-        # Projection for receiver and pathway (40d = HLCA+LuCA concat)
+        # Projection for receiver (40d = HLCA+LuCA concat)
         self.token_proj = nn.Linear(input_dim, hidden_dim)
+
+        # Separate projection for pathway features (detected from data or fallback to input_dim)
+        self.pathway_proj = nn.Linear(self.pathway_dim, hidden_dim)
 
         # Separate projections for HLCA (30d) and LuCA (10d) reference tokens
         self.hlca_proj = nn.Linear(self.HLCA_DIM, hidden_dim)
@@ -135,7 +140,7 @@ class NicheTokenizer(nn.Module):
         receiver_token = self.token_proj(receiver)
 
         if pathway is not None:
-            pathway_token = self.token_proj(pathway)
+            pathway_token = self.pathway_proj(pathway)
         else:
             pathway_token = torch.zeros(B, self.hidden_dim, device=device)
 
@@ -149,7 +154,7 @@ class NicheTokenizer(nn.Module):
         ring_attention = []
         for i, pooler in enumerate(self.ring_poolers):
             cells = ring_cells[i]  # [B, max_cells, D]
-            mask = ring_masks[i] if ring_masks else None
+            mask = ring_masks[i] if ring_masks is not None else None
 
             ring_token = pooler(cells, mask=mask)  # [B, hidden_dim]
             ring_tokens.append(ring_token)
