@@ -34,6 +34,7 @@ from stagebridge.contracts import (
     HLCA_DIM, LUCA_DIM, LATENT_DIM, MAX_NEIGHBORS,
     STAGE_TO_IDX, STAGES_3, STAGE_5_TO_3,
     N_PROGENY_PATHWAYS, CELLS_SCHEMA, NEIGHBORHOODS_SCHEMA,
+    WES_COLS, CLONAL_COLS, EVOLUTION_COLS, EVOLUTION_DIM,
 )
 
 
@@ -229,9 +230,6 @@ def step2_enrich_features(
     return snrna_features, spatial_features
 
 
-from stagebridge.contracts import WES_COLS
-
-
 def step3_build_cells_parquet(
     snrna_path: Path,
     spatial_path: Path,
@@ -242,6 +240,7 @@ def step3_build_cells_parquet(
     output_path: Path,
     destvi_fractions: pd.DataFrame = None,
     wes_df: pd.DataFrame = None,
+    clonal_df: pd.DataFrame = None,
 ) -> pd.DataFrame:
     """Build unified cells.parquet with embeddings and features."""
     print("\n" + "="*60)
@@ -270,6 +269,16 @@ def step3_build_cells_parquet(
             wes_lookup[key] = {col: float(row.get(col, 0.0)) for col in WES_COLS if col in wes_df.columns}
         print(f"  WES lookup: {len(wes_lookup)} patient-stage combinations")
 
+    # Build clonal lookup by cell_id (cell-level features from inferCNV)
+    clonal_lookup = {}
+    if clonal_df is not None:
+        id_col = 'cell_id' if 'cell_id' in clonal_df.columns else clonal_df.index.name
+        if id_col == 'cell_id':
+            clonal_df = clonal_df.set_index('cell_id')
+        for cell_id in clonal_df.index:
+            clonal_lookup[cell_id] = {col: float(clonal_df.loc[cell_id, col]) if col in clonal_df.columns and not pd.isna(clonal_df.loc[cell_id, col]) else 0.0 for col in CLONAL_COLS}
+        print(f"  Clonal lookup: {len(clonal_lookup)} cells")
+
     def get_wes_features(donor_id: str, stage: str) -> dict:
         """Get WES features for a donor-stage combination."""
         # Try exact match first
@@ -284,6 +293,12 @@ def step3_build_cells_parquet(
                 return wes_lookup[key]
         # Return zeros if not found
         return {col: 0.0 for col in WES_COLS}
+
+    def get_clonal_features(cell_id: str) -> dict:
+        """Get clonal features for a cell."""
+        if cell_id in clonal_lookup:
+            return clonal_lookup[cell_id]
+        return {col: 0.0 for col in CLONAL_COLS}
 
     print(f"  Processing snRNA cells...")
     for cell_id in tqdm(snrna.obs_names, desc="  snRNA"):
@@ -329,6 +344,11 @@ def step3_build_cells_parquet(
         wes_feats = get_wes_features(str(donor_id), stage)
         for col in WES_COLS:
             record[col] = wes_feats.get(col, 0.0)
+
+        # Clonal features (cell-level from inferCNV)
+        clonal_feats = get_clonal_features(cell_id)
+        for col in CLONAL_COLS:
+            record[col] = clonal_feats.get(col, 0.0)
 
         records.append(record)
 
@@ -395,6 +415,11 @@ def step3_build_cells_parquet(
         wes_feats = get_wes_features(str(donor_id), stage)
         for col in WES_COLS:
             record[col] = wes_feats.get(col, 0.0)
+
+        # Clonal features (cell-level - spatial usually won't have these but include for completeness)
+        clonal_feats = get_clonal_features(cell_id)
+        for col in CLONAL_COLS:
+            record[col] = clonal_feats.get(col, 0.0)
 
         records.append(record)
 
@@ -483,6 +508,9 @@ def step4_build_neighborhoods_parquet(
 
             pathway_values = [float(row.get(f'pathway_{p}', 0.0)) for p in PROGENY_PATHWAYS]
 
+            # Evolution features (WES + clonal) for the evolution branch
+            evolution_values = [float(row.get(col, 0.0)) if not pd.isna(row.get(col, 0.0)) else 0.0 for col in EVOLUTION_COLS]
+
             record = {
                 'cell_id': row['cell_id'],
                 'donor_id': row['donor_id'],
@@ -496,6 +524,7 @@ def step4_build_neighborhoods_parquet(
                 'G2M_score': float(row.get('G2M_score', 0.0)),
                 'proliferation_label': float(row.get('proliferation_label', 0.0)),
                 'pathway_targets': pathway_values,
+                'evolution_features': evolution_values,
             }
 
             all_records.append(record)
@@ -543,6 +572,7 @@ def main():
     parser.add_argument("--destvi-luca", type=Path, help="DestVI LuCA cell_type_proportions.parquet for CAF/immune fractions")
     parser.add_argument("--progression", type=Path, help="Pre-computed progression_scores.parquet (cytotrace, pseudotime)")
     parser.add_argument("--wes", type=Path, help="WES features parquet (patient_id, stage, tmb, mutations)")
+    parser.add_argument("--clonal", type=Path, help="Clonal features parquet (cell_id, cnv_score, clone_*, etc.)")
     parser.add_argument("--force", action="store_true", help="Recompute even if outputs exist")
 
     args = parser.parse_args()
@@ -660,6 +690,18 @@ def main():
         wes_cols = [c for c in wes_df.columns if c not in ['patient_id', 'donor_id', 'stage']]
         print(f"    WES features: {wes_cols}")
 
+    # Load clonal features (cell-level from inferCNV)
+    clonal_df = None
+    if args.clonal and args.clonal.exists():
+        print("\n  Loading clonal features...")
+        clonal_df = pd.read_parquet(args.clonal)
+        print(f"    Clonal data: {len(clonal_df):,} cells")
+        clonal_cols_present = [c for c in CLONAL_COLS if c in clonal_df.columns]
+        clonal_cols_missing = [c for c in CLONAL_COLS if c not in clonal_df.columns]
+        print(f"    Clonal features present: {len(clonal_cols_present)}/{len(CLONAL_COLS)}")
+        if clonal_cols_missing:
+            print(f"    Clonal features missing (will be zeroed): {clonal_cols_missing}")
+
     cells_path = args.output_dir / "cells.parquet"
     cells_df = step3_build_cells_parquet(
         args.snrna, args.spatial,
@@ -668,6 +710,7 @@ def main():
         cells_path,
         destvi_fractions=destvi_fractions,
         wes_df=wes_df,
+        clonal_df=clonal_df,
     )
 
     neighborhoods_path = args.output_dir / "neighborhoods.parquet"
