@@ -1,0 +1,22 @@
+# Data preparation config for prepare_training_data.py
+# Usage: python scripts/prepare_training_data.py --config workflow/data_prep_config.yaml
+
+snrna: /data1/chaunzt1/stagebridge/processed/luad_evo/snrna_with_celltypes.h5ad
+spatial: /data1/chaunzt1/stagebridge/processed/luad_evo/spatial_merged.h5ad
+
+snrna_embeddings: /data1/chaunzt1/stagebridge/processed/luad_evo/reference_embeddings/snrna_fused_direct.parquet
+spatial_embeddings: /data1/chaunzt1/stagebridge/processed/luad_evo/reference_embeddings/spatial_fused_direct.parquet
+
+progeny_parquet: /data1/chaunzt1/stagebridge/processed/luad_evo/canonical/activity/pathway_activity_progeny.parquet
+biological_features: /data1/chaunzt1/stagebridge/processed/luad_evo/canonical/biological_features.parquet
+progression: /data1/chaunzt1/stagebridge/processed/luad_evo/canonical/progression/progression_scores.parquet
+
+destvi_luca: /data1/chaunzt1/stagebridge/runs/spatial_benchmark/luca/destvi/cell_type_proportions.parquet
+destvi_hlca: /data1/chaunzt1/stagebridge/runs/spatial_benchmark/hlca/destvi/cell_type_proportions.parquet
+
+wes: /data1/chaunzt1/stagebridge/processed/luad_evo/wes_features.parquet
+clonal: /data1/chaunzt1/stagebridge/processed/luad_evo/clonal_features.parquet
+
+output_dir: /data1/chaunzt1/stagebridge/processed/luad_evo/canonical
+max_distance: 5000
+max_neighbors: 100

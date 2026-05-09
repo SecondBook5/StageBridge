@@ -556,8 +556,9 @@ def extract_stage(cell_id: str, donor_id: str) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Unified data preparation for StageBridge")
 
-    parser.add_argument("--snrna", type=Path, required=True, help="Path to snRNA h5ad")
-    parser.add_argument("--spatial", type=Path, required=True, help="Path to spatial h5ad")
+    parser.add_argument("--config", type=Path, help="YAML config file (all paths in one place)")
+    parser.add_argument("--snrna", type=Path, help="Path to snRNA h5ad")
+    parser.add_argument("--spatial", type=Path, help="Path to spatial h5ad")
     parser.add_argument("--hlca-model", type=Path, help="Path to HLCA scArches model")
     parser.add_argument("--luca-model", type=Path, help="Path to LuCA scArches model")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
@@ -570,12 +571,38 @@ def main():
     parser.add_argument("--progeny-parquet", type=Path, help="Pre-computed PROGENy pathway_activity_progeny.parquet")
     parser.add_argument("--biological-features", type=Path, help="Pre-computed biological_features.parquet (EMT, senescence, SASP)")
     parser.add_argument("--destvi-luca", type=Path, help="DestVI LuCA cell_type_proportions.parquet for CAF/immune fractions")
+    parser.add_argument("--destvi-hlca", type=Path, help="DestVI HLCA cell_type_proportions.parquet (kept separate from LuCA)")
     parser.add_argument("--progression", type=Path, help="Pre-computed progression_scores.parquet (cytotrace, pseudotime)")
     parser.add_argument("--wes", type=Path, help="WES features parquet (patient_id, stage, tmb, mutations)")
     parser.add_argument("--clonal", type=Path, help="Clonal features parquet (cell_id, cnv_score, clone_*, etc.)")
     parser.add_argument("--force", action="store_true", help="Recompute even if outputs exist")
 
     args = parser.parse_args()
+
+    # Load config file if provided
+    if args.config and args.config.exists():
+        import yaml
+        with open(args.config) as f:
+            config = yaml.safe_load(f)
+        # Map config keys to args (config overrides CLI unless CLI explicitly set)
+        key_map = {
+            'snrna': 'snrna', 'spatial': 'spatial', 'output_dir': 'output_dir',
+            'snrna_embeddings': 'snrna_embeddings', 'spatial_embeddings': 'spatial_embeddings',
+            'hlca_model': 'hlca_model', 'luca_model': 'luca_model',
+            'progeny_parquet': 'progeny_parquet', 'biological_features': 'biological_features',
+            'destvi_luca': 'destvi_luca', 'destvi_hlca': 'destvi_hlca',
+            'progression': 'progression', 'wes': 'wes', 'clonal': 'clonal',
+            'max_neighbors': 'max_neighbors', 'max_distance': 'max_distance',
+        }
+        for cfg_key, arg_key in key_map.items():
+            if cfg_key in config and getattr(args, arg_key, None) is None:
+                val = config[cfg_key]
+                if val is not None and arg_key not in ('max_neighbors', 'max_distance'):
+                    val = Path(val)
+                setattr(args, arg_key, val)
+
+    if not args.spatial or not args.output_dir:
+        parser.error("--spatial and --output-dir required (or use --config)")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -650,36 +677,75 @@ def main():
             print(f"    Matched CytoTRACE for {n_matched:,} snRNA cells")
 
     # Merge DestVI CAF/immune fractions for spatial cells
+    # HLCA and LuCA have different cell type ontologies - keep both separate
+    # Stats token uses LuCA fractions (disease-aware) for conditioning
+    # GW fusion operates on latent embeddings, not deconvolution outputs
     destvi_fractions = None
+
+    # Cell type groupings for each reference (different ontologies)
+    CAF_TYPES_LUCA = ['fibroblast of lung', 'bronchus fibroblast of lung', 'stromal cell']
+    CAF_TYPES_HLCA = ['fibroblast', 'myofibroblast', 'stromal cell']
+    IMMUNE_TYPES_LUCA = [
+        'B cell', 'CD4-positive, alpha-beta T cell', 'CD8-positive, alpha-beta T cell',
+        'regulatory T cell', 'natural killer cell', 'alveolar macrophage', 'macrophage',
+        'classical monocyte', 'non-classical monocyte', 'myeloid cell', 'neutrophil',
+        'dendritic cell', 'mast cell', 'plasma cell'
+    ]
+    IMMUNE_TYPES_HLCA = [
+        'B cell', 'T cell', 'NK cell', 'macrophage', 'monocyte',
+        'dendritic cell', 'mast cell', 'plasma cell', 'neutrophil'
+    ]
+
+    def compute_destvi_fractions(destvi_df, caf_types, immune_types, source_name):
+        """Compute CAF/immune fractions from DestVI proportions."""
+        type_cols = [c for c in destvi_df.columns if c not in ['sample', 'cell_id', 'spot_id']]
+        caf_cols = [c for c in type_cols if c in caf_types]
+        immune_cols = [c for c in type_cols if c in immune_types]
+
+        fractions = pd.DataFrame(index=destvi_df.index)
+        fractions[f'caf_fraction_{source_name}'] = destvi_df[caf_cols].sum(axis=1) if caf_cols else 0.0
+        fractions[f'immune_fraction_{source_name}'] = destvi_df[immune_cols].sum(axis=1) if immune_cols else 0.0
+        fractions[f'diversity_{source_name}'] = (destvi_df[type_cols] > 0.01).sum(axis=1)
+        fractions[f'cell_type_{source_name}'] = destvi_df[type_cols].idxmax(axis=1)
+
+        print(f"    {source_name.upper()} - CAF: {fractions[f'caf_fraction_{source_name}'].mean():.3f}, Immune: {fractions[f'immune_fraction_{source_name}'].mean():.3f}")
+        return fractions
+
+    luca_fractions = None
+    hlca_fractions = None
+
     if args.destvi_luca and args.destvi_luca.exists():
         print("\n  Loading DestVI LuCA fractions...")
-        destvi_df = pd.read_parquet(args.destvi_luca)
-        print(f"    DestVI data: {len(destvi_df):,} spots")
+        destvi_luca_df = pd.read_parquet(args.destvi_luca)
+        print(f"    DestVI LuCA: {len(destvi_luca_df):,} spots")
+        luca_fractions = compute_destvi_fractions(destvi_luca_df, CAF_TYPES_LUCA, IMMUNE_TYPES_LUCA, 'luca')
 
-        # Define cell type groupings
-        CAF_TYPES = ['fibroblast of lung', 'bronchus fibroblast of lung', 'stromal cell']
-        IMMUNE_TYPES = [
-            'B cell', 'CD4-positive, alpha-beta T cell', 'CD8-positive, alpha-beta T cell',
-            'regulatory T cell', 'natural killer cell', 'alveolar macrophage', 'macrophage',
-            'classical monocyte', 'non-classical monocyte', 'myeloid cell', 'neutrophil',
-            'dendritic cell', 'mast cell', 'plasma cell'
-        ]
+    if args.destvi_hlca and args.destvi_hlca.exists():
+        print("\n  Loading DestVI HLCA fractions...")
+        destvi_hlca_df = pd.read_parquet(args.destvi_hlca)
+        print(f"    DestVI HLCA: {len(destvi_hlca_df):,} spots")
+        hlca_fractions = compute_destvi_fractions(destvi_hlca_df, CAF_TYPES_HLCA, IMMUNE_TYPES_HLCA, 'hlca')
 
-        # Compute fractions
-        type_cols = [c for c in destvi_df.columns if c not in ['sample', 'cell_id', 'spot_id']]
-        caf_cols = [c for c in type_cols if c in CAF_TYPES]
-        immune_cols = [c for c in type_cols if c in IMMUNE_TYPES]
-
-        destvi_fractions = pd.DataFrame(index=destvi_df.index)
-        destvi_fractions['caf_fraction'] = destvi_df[caf_cols].sum(axis=1) if caf_cols else 0.0
-        destvi_fractions['immune_fraction'] = destvi_df[immune_cols].sum(axis=1) if immune_cols else 0.0
-        destvi_fractions['diversity'] = (destvi_df[type_cols] > 0.01).sum(axis=1)  # Number of cell types > 1%
-
-        # Get dominant cell type
-        destvi_fractions['cell_type_luca'] = destvi_df[type_cols].idxmax(axis=1)
-
-        print(f"    CAF fraction: {destvi_fractions['caf_fraction'].mean():.3f} mean")
-        print(f"    Immune fraction: {destvi_fractions['immune_fraction'].mean():.3f} mean")
+    # Keep both separate as _luca/_hlca columns
+    # Stats token uses LuCA (disease-aware) as primary via caf_fraction/immune_fraction/diversity
+    if luca_fractions is not None and hlca_fractions is not None:
+        destvi_fractions = luca_fractions.join(hlca_fractions)
+        # Primary stats token columns come from LuCA (disease-aware)
+        destvi_fractions['caf_fraction'] = destvi_fractions['caf_fraction_luca']
+        destvi_fractions['immune_fraction'] = destvi_fractions['immune_fraction_luca']
+        destvi_fractions['diversity'] = destvi_fractions['diversity_luca']
+        destvi_fractions['cell_type_luca'] = luca_fractions['cell_type_luca']
+    elif luca_fractions is not None:
+        destvi_fractions = luca_fractions
+        destvi_fractions['caf_fraction'] = destvi_fractions['caf_fraction_luca']
+        destvi_fractions['immune_fraction'] = destvi_fractions['immune_fraction_luca']
+        destvi_fractions['diversity'] = destvi_fractions['diversity_luca']
+    elif hlca_fractions is not None:
+        destvi_fractions = hlca_fractions
+        destvi_fractions['caf_fraction'] = destvi_fractions['caf_fraction_hlca']
+        destvi_fractions['immune_fraction'] = destvi_fractions['immune_fraction_hlca']
+        destvi_fractions['diversity'] = destvi_fractions['diversity_hlca']
+        destvi_fractions['cell_type_luca'] = destvi_fractions['cell_type_hlca']
 
     # Load WES features (patient-stage level, will be broadcasted to cells)
     wes_df = None
