@@ -9,17 +9,12 @@ default-resources:
   mem_mb: 256000
   runtime: 360  # 6 hours default (in minutes)
   nodes: 1  # Always request single node (multi-GPU on same node)
+  slurm_extra: "'--gres=gpu:1'"  # Default 1 GPU
 
-# GPU constraint (comment out for any GPU, uncomment for H100)
-# set-resources:
-#   train_full:
-#     constraint: "h100"
-#   train_baseline:
-#     constraint: "h100"
-#   run_ablation:
-#     constraint: "h100"
-#   infer_full:
-#     constraint: "h100"
+# Override GPU count per rule
+set-resources:
+  train_full:
+    slurm_extra: "'--gres=gpu:4'"
 
 jobs: 20
 latency-wait: 120
@@ -27,5 +22,3 @@ keep-going: true
 printshellcmds: true
 rerun-incomplete: true
 local-cores: 1
-
-# Note: GPU requests are in Snakefile rule resources (gpu=1)
