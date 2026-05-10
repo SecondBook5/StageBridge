@@ -111,10 +111,11 @@ def is_ablation_redundant(
         if not hpo_params.get("use_cross_attn_drift", True):
             return True, "HPO already chose use_cross_attn_drift=False"
 
-    # AMICI attention
-    if ablation == "no_distance":
-        if not hpo_params.get("use_amici_attention", False):
-            return True, "HPO chose use_amici_attention=False (no distance encoding)"
+    # AMICI attention - always enabled now (hardcoded in trainer/ablation)
+    # no_distance ablation is always valid since we always use AMICI
+    # if ablation == "no_distance":
+    #     if not hpo_params.get("use_amici_attention", True):
+    #         return True, "HPO chose use_amici_attention=False (no distance encoding)"
 
     return False, ""
 
