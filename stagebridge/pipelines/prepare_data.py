@@ -18,6 +18,8 @@ Original description:
 Builds neighborhoods with raw cells for learned ring pooling from existing cells.parquet.
 Uses LuCA DestVI deconvolution results for CAF/immune fractions.
 """
+from __future__ import annotations
+
 import warnings
 warnings.warn(
     "stagebridge.pipelines.prepare_data is deprecated. "
@@ -25,8 +27,6 @@ warnings.warn(
     DeprecationWarning,
     stacklevel=2,
 )
-
-from __future__ import annotations
 
 import argparse
 import json
