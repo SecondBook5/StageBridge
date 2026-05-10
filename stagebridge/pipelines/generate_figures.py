@@ -635,8 +635,10 @@ def generate_biological_figure(
 
     Panel A: IL1B expression by stage
     Panel B: Cell type composition per stage
-    Panel C: Attention weights highlighting key interactions
-    Panel D: Transition probabilities
+    Panel C: EMT score by stage (epithelial → mesenchymal transition)
+    Panel D: EMT score vs predicted displacement (key validation)
+    Panel E: Attention patterns
+    Panel F: Transition probabilities
     """
     output_dir = output.parent
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -654,7 +656,7 @@ def generate_biological_figure(
     from stagebridge.contracts import STAGES_5
     stage_colors = {'Normal': '#2ecc71', 'AAH': '#f1c40f', 'AIS': '#e67e22', 'MIA': '#e74c3c', 'LUAD': '#9b59b6'}
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
 
     # Panel A: IL1B by stage
     ax = axes[0, 0]
@@ -697,15 +699,73 @@ def generate_biological_figure(
         ax.text(0.5, 0.5, "Cell type data not found", ha='center', va='center', transform=ax.transAxes)
         ax.set_title("B. Cell Type Composition")
 
-    # Panel C: Attention patterns
+    # Panel C: EMT score by stage (KEY BIOLOGICAL VALIDATION)
+    ax = axes[0, 2]
+    # EMT markers
+    emt_mes = ['VIM', 'FN1', 'CDH2', 'SNAI1', 'ZEB1']  # mesenchymal
+    emt_epi = ['CDH1', 'EPCAM', 'KRT8', 'KRT18']  # epithelial
+
+    mes_cols = [c for c in cells.columns if c in emt_mes or c.upper() in emt_mes]
+    epi_cols = [c for c in cells.columns if c in emt_epi or c.upper() in emt_epi]
+
+    if mes_cols and epi_cols:
+        mes_score = cells[mes_cols].mean(axis=1)
+        epi_score = cells[epi_cols].mean(axis=1)
+        emt_score = mes_score - epi_score
+        cells_plot = cells.copy()
+        cells_plot['emt_score'] = emt_score
+
+        import seaborn as sns
+        sns.boxplot(data=cells_plot, x='stage', y='emt_score', order=STAGES_5, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in STAGES_5])
+        ax.set_ylabel("EMT Score (Mes - Epi)")
+        ax.set_title("C. EMT Score by Stage")
+        ax.axhline(0, color='gray', linestyle='--', alpha=0.5)
+    else:
+        ax.text(0.5, 0.5, "EMT markers not found\n(need VIM/CDH1/etc)",
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("C. EMT Score by Stage")
+
+    # Panel D: EMT vs predicted displacement (KEY VALIDATION)
     ax = axes[1, 0]
+    if 'displacement' in embeddings.columns or 'predicted_displacement' in embeddings.columns:
+        disp_col = 'displacement' if 'displacement' in embeddings.columns else 'predicted_displacement'
+        displacement = embeddings[disp_col].values
+
+        if mes_cols and epi_cols:
+            from scipy.stats import spearmanr
+            mask = ~np.isnan(displacement) & ~np.isnan(emt_score.values)
+            if mask.sum() > 100:
+                r, p = spearmanr(displacement[mask], emt_score.values[mask])
+                ax.scatter(displacement[mask], emt_score.values[mask], alpha=0.1, s=1, c='steelblue')
+                ax.set_xlabel("Predicted Displacement")
+                ax.set_ylabel("EMT Score")
+                ax.set_title(f"D. EMT vs Displacement (r={r:.3f}, p={p:.2e})")
+                # Add trend line
+                z = np.polyfit(displacement[mask], emt_score.values[mask], 1)
+                p_line = np.poly1d(z)
+                x_line = np.linspace(displacement[mask].min(), displacement[mask].max(), 100)
+                ax.plot(x_line, p_line(x_line), 'r-', linewidth=2, label=f'r={r:.3f}')
+            else:
+                ax.text(0.5, 0.5, "Insufficient data", ha='center', va='center', transform=ax.transAxes)
+                ax.set_title("D. EMT vs Displacement")
+        else:
+            ax.text(0.5, 0.5, "EMT markers not in data", ha='center', va='center', transform=ax.transAxes)
+            ax.set_title("D. EMT vs Displacement")
+    else:
+        ax.text(0.5, 0.5, "Displacement not computed\n(need inference output)",
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("D. EMT vs Displacement")
+
+    # Panel E: Attention patterns
+    ax = axes[1, 1]
     if 'attention_matrix' in attention.files:
         attn = attention['attention_matrix']
         if attn.ndim == 3:
             attn = attn.mean(axis=0)  # Average over samples
         im = ax.imshow(attn, cmap='viridis', aspect='auto')
         plt.colorbar(im, ax=ax, label='Attention Weight')
-        ax.set_title("C. Attention Pattern")
+        ax.set_title("E. Attention Pattern")
         from stagebridge.contracts import TOKEN_NAMES
         if attn.shape[0] == len(TOKEN_NAMES):
             ax.set_xticks(range(len(TOKEN_NAMES)))
@@ -714,15 +774,15 @@ def generate_biological_figure(
             ax.set_yticklabels(TOKEN_NAMES, fontsize=8)
     else:
         ax.text(0.5, 0.5, "Attention data format unexpected", ha='center', va='center', transform=ax.transAxes)
-        ax.set_title("C. Attention Pattern")
+        ax.set_title("E. Attention Pattern")
 
-    # Panel D: Transition probabilities
-    ax = axes[1, 1]
+    # Panel F: Transition probabilities
+    ax = axes[1, 2]
     if 'transition_probs' in attention.files:
         trans = attention['transition_probs']
         im = ax.imshow(trans, cmap='Blues', vmin=0, vmax=1)
         plt.colorbar(im, ax=ax, label='Probability')
-        ax.set_title("D. Stage Transitions")
+        ax.set_title("F. Stage Transitions")
         n = trans.shape[0]
         if n == len(STAGES_5):
             ax.set_xticks(range(n))
@@ -733,7 +793,7 @@ def generate_biological_figure(
         # Compute from predictions if available
         ax.text(0.5, 0.5, "Transition probabilities\n(computed from stage predictions)",
                ha='center', va='center', transform=ax.transAxes)
-        ax.set_title("D. Stage Transitions")
+        ax.set_title("F. Stage Transitions")
 
     plt.tight_layout()
     fig.savefig(output, dpi=300, bbox_inches='tight')
@@ -1122,6 +1182,438 @@ def generate_novel_biology_figure(
         ax.text(0.5, 0.5, "Continuous progression\nscore not available",
                ha='center', va='center', transform=ax.transAxes)
         ax.set_title("D. Continuous vs Discrete")
+
+    plt.tight_layout()
+    fig.savefig(output, dpi=300, bbox_inches='tight')
+    fig.savefig(output.with_suffix('.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+    print(f"  Saved: {output}")
+    return {"status": "completed", "output": str(output)}
+
+
+# =============================================================================
+# INDIVIDUAL BIOLOGY PANELS (for poster/presentation)
+# =============================================================================
+
+def generate_emt_panel(
+    cells_path: Path,
+    embeddings_path: Path,
+    output: Path,
+) -> dict:
+    """Generate EMT validation panel.
+
+    Shows:
+    - EMT score by stage (boxplot)
+    - EMT vs predicted displacement (scatter with correlation)
+    """
+    from scipy.stats import spearmanr
+    import seaborn as sns
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    cells = pd.read_parquet(cells_path)
+    embeddings = pd.read_parquet(embeddings_path)
+
+    from stagebridge.contracts import STAGES_5
+    stage_colors = {'Normal': '#2ecc71', 'AAH': '#f1c40f', 'AIS': '#e67e22', 'MIA': '#e74c3c', 'LUAD': '#9b59b6'}
+
+    # EMT markers
+    emt_mes = ['VIM', 'FN1', 'CDH2', 'SNAI1', 'ZEB1', 'TWIST1']
+    emt_epi = ['CDH1', 'EPCAM', 'KRT8', 'KRT18', 'KRT19']
+
+    mes_cols = [c for c in cells.columns if c in emt_mes or c.upper() in emt_mes]
+    epi_cols = [c for c in cells.columns if c in emt_epi or c.upper() in emt_epi]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    if mes_cols and epi_cols:
+        mes_score = cells[mes_cols].mean(axis=1)
+        epi_score = cells[epi_cols].mean(axis=1)
+        emt_score = mes_score - epi_score
+        cells['emt_score'] = emt_score
+
+        # Panel A: EMT by stage
+        ax = axes[0]
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.boxplot(data=cells, x='stage', y='emt_score', order=stages_present, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("EMT Score (Mesenchymal - Epithelial)")
+        ax.set_xlabel("Stage")
+        ax.set_title("EMT Score by Disease Stage")
+        ax.axhline(0, color='gray', linestyle='--', alpha=0.5)
+
+        # Panel B: EMT vs displacement
+        ax = axes[1]
+        disp_col = None
+        for col in ['displacement', 'predicted_displacement', 'displacement_magnitude']:
+            if col in embeddings.columns:
+                disp_col = col
+                break
+
+        if disp_col:
+            displacement = embeddings[disp_col].values
+            mask = ~np.isnan(displacement) & ~np.isnan(emt_score.values)
+            if mask.sum() > 100:
+                r, p = spearmanr(displacement[mask], emt_score.values[mask])
+                ax.scatter(displacement[mask], emt_score.values[mask], alpha=0.1, s=1, c='steelblue')
+                # Trend line
+                z = np.polyfit(displacement[mask], emt_score.values[mask], 1)
+                p_line = np.poly1d(z)
+                x_line = np.linspace(np.percentile(displacement[mask], 5),
+                                    np.percentile(displacement[mask], 95), 100)
+                ax.plot(x_line, p_line(x_line), 'r-', linewidth=2)
+                ax.set_xlabel("Predicted Displacement")
+                ax.set_ylabel("EMT Score")
+                ax.set_title(f"EMT vs Predicted Transition\n(Spearman r={r:.3f}, p={p:.2e})")
+            else:
+                ax.text(0.5, 0.5, "Insufficient data", ha='center', va='center', transform=ax.transAxes)
+        else:
+            ax.text(0.5, 0.5, "Displacement not in embeddings", ha='center', va='center', transform=ax.transAxes)
+    else:
+        for ax in axes:
+            ax.text(0.5, 0.5, f"EMT markers not found\nNeed: {emt_mes[:3]}... / {emt_epi[:3]}...",
+                   ha='center', va='center', transform=ax.transAxes)
+
+    plt.tight_layout()
+    fig.savefig(output, dpi=300, bbox_inches='tight')
+    fig.savefig(output.with_suffix('.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+    print(f"  Saved: {output}")
+    return {"status": "completed", "output": str(output)}
+
+
+def generate_senescence_panel(
+    cells_path: Path,
+    embeddings_path: Path,
+    output: Path,
+) -> dict:
+    """Generate senescence/SASP validation panel."""
+    import seaborn as sns
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    cells = pd.read_parquet(cells_path)
+    embeddings = pd.read_parquet(embeddings_path)
+
+    from stagebridge.contracts import STAGES_5
+    stage_colors = {'Normal': '#2ecc71', 'AAH': '#f1c40f', 'AIS': '#e67e22', 'MIA': '#e74c3c', 'LUAD': '#9b59b6'}
+
+    # Senescence markers
+    senescence_markers = ['CDKN1A', 'CDKN2A', 'TP53', 'RB1', 'GLB1']
+    sasp_markers = ['IL6', 'IL8', 'CXCL1', 'MMP3', 'SERPINE1', 'CCL2']
+
+    sen_cols = [c for c in cells.columns if c in senescence_markers or c.upper() in senescence_markers]
+    sasp_cols = [c for c in cells.columns if c in sasp_markers or c.upper() in sasp_markers]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    # Panel A: Senescence by stage
+    ax = axes[0]
+    if sen_cols:
+        cells['senescence_score'] = cells[sen_cols].mean(axis=1)
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.boxplot(data=cells, x='stage', y='senescence_score', order=stages_present, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("Senescence Score")
+        ax.set_xlabel("Stage")
+        ax.set_title("Senescence by Stage")
+    else:
+        ax.text(0.5, 0.5, f"Senescence markers not found\n({senescence_markers[:3]}...)",
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("Senescence by Stage")
+
+    # Panel B: SASP by stage
+    ax = axes[1]
+    if sasp_cols:
+        cells['sasp_score'] = cells[sasp_cols].mean(axis=1)
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.boxplot(data=cells, x='stage', y='sasp_score', order=stages_present, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("SASP Score")
+        ax.set_xlabel("Stage")
+        ax.set_title("SASP (Secretory Phenotype) by Stage")
+    else:
+        ax.text(0.5, 0.5, f"SASP markers not found\n({sasp_markers[:3]}...)",
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("SASP by Stage")
+
+    plt.tight_layout()
+    fig.savefig(output, dpi=300, bbox_inches='tight')
+    fig.savefig(output.with_suffix('.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+    print(f"  Saved: {output}")
+    return {"status": "completed", "output": str(output)}
+
+
+def generate_ap1_panel(
+    cells_path: Path,
+    embeddings_path: Path,
+    output: Path,
+) -> dict:
+    """Generate AP-1 transcription factor activity panel."""
+    from scipy.stats import spearmanr
+    import seaborn as sns
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    cells = pd.read_parquet(cells_path)
+    embeddings = pd.read_parquet(embeddings_path)
+
+    from stagebridge.contracts import STAGES_5
+    stage_colors = {'Normal': '#2ecc71', 'AAH': '#f1c40f', 'AIS': '#e67e22', 'MIA': '#e74c3c', 'LUAD': '#9b59b6'}
+
+    # AP-1 TFs and targets
+    ap1_tfs = ['JUN', 'JUNB', 'JUND', 'FOS', 'FOSB', 'FOSL1', 'FOSL2', 'ATF3']
+    ap1_targets = ['MMP1', 'MMP9', 'VEGFA', 'IL6', 'CCND1', 'BCL2']
+
+    tf_cols = [c for c in cells.columns if c in ap1_tfs or c.upper() in ap1_tfs]
+    target_cols = [c for c in cells.columns if c in ap1_targets or c.upper() in ap1_targets]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    # Panel A: AP-1 TF activity by stage
+    ax = axes[0]
+    if tf_cols:
+        cells['ap1_tf_score'] = cells[tf_cols].mean(axis=1)
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.boxplot(data=cells, x='stage', y='ap1_tf_score', order=stages_present, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("AP-1 TF Activity")
+        ax.set_xlabel("Stage")
+        ax.set_title("AP-1 Transcription Factor Activity")
+    else:
+        ax.text(0.5, 0.5, f"AP-1 TFs not found\n({ap1_tfs[:4]}...)",
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("AP-1 TF Activity")
+
+    # Panel B: AP-1 targets by stage
+    ax = axes[1]
+    if target_cols:
+        cells['ap1_target_score'] = cells[target_cols].mean(axis=1)
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.boxplot(data=cells, x='stage', y='ap1_target_score', order=stages_present, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("AP-1 Target Expression")
+        ax.set_xlabel("Stage")
+        ax.set_title("AP-1 Target Gene Expression")
+    else:
+        ax.text(0.5, 0.5, f"AP-1 targets not found\n({ap1_targets[:4]}...)",
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("AP-1 Targets")
+
+    plt.tight_layout()
+    fig.savefig(output, dpi=300, bbox_inches='tight')
+    fig.savefig(output.with_suffix('.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+    print(f"  Saved: {output}")
+    return {"status": "completed", "output": str(output)}
+
+
+def generate_cell_cycle_panel(
+    cells_path: Path,
+    embeddings_path: Path,
+    output: Path,
+) -> dict:
+    """Generate cell cycle analysis panel."""
+    import seaborn as sns
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    cells = pd.read_parquet(cells_path)
+    embeddings = pd.read_parquet(embeddings_path)
+
+    from stagebridge.contracts import STAGES_5
+    stage_colors = {'Normal': '#2ecc71', 'AAH': '#f1c40f', 'AIS': '#e67e22', 'MIA': '#e74c3c', 'LUAD': '#9b59b6'}
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    # Panel A: S phase score by stage
+    ax = axes[0]
+    s_col = None
+    for col in ['S_score', 's_score', 'S.Score']:
+        if col in cells.columns:
+            s_col = col
+            break
+
+    if s_col:
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.boxplot(data=cells, x='stage', y=s_col, order=stages_present, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("S Phase Score")
+        ax.set_xlabel("Stage")
+        ax.set_title("S Phase (DNA Replication) by Stage")
+    else:
+        ax.text(0.5, 0.5, "S_score not found", ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("S Phase Score")
+
+    # Panel B: G2M score by stage
+    ax = axes[1]
+    g2m_col = None
+    for col in ['G2M_score', 'g2m_score', 'G2M.Score']:
+        if col in cells.columns:
+            g2m_col = col
+            break
+
+    if g2m_col:
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.boxplot(data=cells, x='stage', y=g2m_col, order=stages_present, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("G2/M Phase Score")
+        ax.set_xlabel("Stage")
+        ax.set_title("G2/M Phase (Mitosis) by Stage")
+    else:
+        ax.text(0.5, 0.5, "G2M_score not found", ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("G2/M Phase Score")
+
+    plt.tight_layout()
+    fig.savefig(output, dpi=300, bbox_inches='tight')
+    fig.savefig(output.with_suffix('.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+    print(f"  Saved: {output}")
+    return {"status": "completed", "output": str(output)}
+
+
+def generate_plasticity_panel(
+    cells_path: Path,
+    embeddings_path: Path,
+    output: Path,
+) -> dict:
+    """Generate cellular plasticity panel.
+
+    Plasticity = partial EMT state where cells co-express epithelial and mesenchymal markers.
+    """
+    import seaborn as sns
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    cells = pd.read_parquet(cells_path)
+    embeddings = pd.read_parquet(embeddings_path)
+
+    from stagebridge.contracts import STAGES_5
+    stage_colors = {'Normal': '#2ecc71', 'AAH': '#f1c40f', 'AIS': '#e67e22', 'MIA': '#e74c3c', 'LUAD': '#9b59b6'}
+
+    # Plasticity markers (co-expression)
+    epi_markers = ['CDH1', 'EPCAM', 'KRT8']
+    mes_markers = ['VIM', 'CDH2', 'FN1']
+
+    epi_cols = [c for c in cells.columns if c in epi_markers or c.upper() in epi_markers]
+    mes_cols = [c for c in cells.columns if c in mes_markers or c.upper() in mes_markers]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    if epi_cols and mes_cols:
+        epi_score = cells[epi_cols].mean(axis=1)
+        mes_score = cells[mes_cols].mean(axis=1)
+
+        # Plasticity = geometric mean of both scores (high when both are expressed)
+        cells['plasticity_score'] = np.sqrt(np.maximum(epi_score, 0) * np.maximum(mes_score, 0))
+
+        # Panel A: Plasticity by stage
+        ax = axes[0]
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.boxplot(data=cells, x='stage', y='plasticity_score', order=stages_present, ax=ax,
+                   palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("Plasticity Score")
+        ax.set_xlabel("Stage")
+        ax.set_title("Cellular Plasticity (E/M Co-expression)")
+
+        # Panel B: Scatter of epithelial vs mesenchymal colored by stage
+        ax = axes[1]
+        for stage in stages_present:
+            mask = cells['stage'] == stage
+            ax.scatter(epi_score[mask], mes_score[mask], alpha=0.3, s=5,
+                      c=stage_colors.get(stage, 'gray'), label=stage)
+        ax.set_xlabel("Epithelial Score")
+        ax.set_ylabel("Mesenchymal Score")
+        ax.set_title("E/M State Space by Stage")
+        ax.legend(fontsize=8)
+        # Add diagonal for reference
+        lims = [min(ax.get_xlim()[0], ax.get_ylim()[0]), max(ax.get_xlim()[1], ax.get_ylim()[1])]
+        ax.plot(lims, lims, 'k--', alpha=0.3)
+    else:
+        for ax in axes:
+            ax.text(0.5, 0.5, "E/M markers not found", ha='center', va='center', transform=ax.transAxes)
+
+    plt.tight_layout()
+    fig.savefig(output, dpi=300, bbox_inches='tight')
+    fig.savefig(output.with_suffix('.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+    print(f"  Saved: {output}")
+    return {"status": "completed", "output": str(output)}
+
+
+def generate_il1b_panel(
+    cells_path: Path,
+    embeddings_path: Path,
+    output: Path,
+) -> dict:
+    """Generate IL1B-IL1R1 signaling axis panel."""
+    from scipy.stats import spearmanr
+    import seaborn as sns
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    cells = pd.read_parquet(cells_path)
+    embeddings = pd.read_parquet(embeddings_path)
+
+    from stagebridge.contracts import STAGES_5
+    stage_colors = {'Normal': '#2ecc71', 'AAH': '#f1c40f', 'AIS': '#e67e22', 'MIA': '#e74c3c', 'LUAD': '#9b59b6'}
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    # Find IL1B column
+    il1b_col = None
+    for col in ['IL1B', 'il1b', 'Il1b']:
+        if col in cells.columns:
+            il1b_col = col
+            break
+
+    il1r1_col = None
+    for col in ['IL1R1', 'il1r1', 'Il1r1']:
+        if col in cells.columns:
+            il1r1_col = col
+            break
+
+    # Panel A: IL1B by stage
+    ax = axes[0]
+    if il1b_col:
+        stages_present = [s for s in STAGES_5 if s in cells['stage'].unique()]
+        sns.violinplot(data=cells, x='stage', y=il1b_col, order=stages_present, ax=ax,
+                      palette=[stage_colors.get(s, 'gray') for s in stages_present])
+        ax.set_ylabel("IL1B Expression")
+        ax.set_xlabel("Stage")
+        ax.set_title("IL1B Expression by Stage")
+    else:
+        ax.text(0.5, 0.5, "IL1B not found", ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("IL1B Expression")
+
+    # Panel B: IL1B vs IL1R1 (ligand-receptor)
+    ax = axes[1]
+    if il1b_col and il1r1_col:
+        mask = ~cells[il1b_col].isna() & ~cells[il1r1_col].isna()
+        if mask.sum() > 100:
+            r, p = spearmanr(cells.loc[mask, il1b_col], cells.loc[mask, il1r1_col])
+            for stage in STAGES_5:
+                stage_mask = mask & (cells['stage'] == stage)
+                if stage_mask.sum() > 0:
+                    ax.scatter(cells.loc[stage_mask, il1b_col], cells.loc[stage_mask, il1r1_col],
+                              alpha=0.3, s=5, c=stage_colors.get(stage, 'gray'), label=stage)
+            ax.set_xlabel("IL1B (Ligand)")
+            ax.set_ylabel("IL1R1 (Receptor)")
+            ax.set_title(f"IL1B-IL1R1 Axis (r={r:.3f})")
+            ax.legend(fontsize=8)
+    elif il1b_col:
+        ax.text(0.5, 0.5, "IL1R1 not found", ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("IL1B-IL1R1 Axis")
+    else:
+        ax.text(0.5, 0.5, "IL1B/IL1R1 not found", ha='center', va='center', transform=ax.transAxes)
+        ax.set_title("IL1B-IL1R1 Axis")
 
     plt.tight_layout()
     fig.savefig(output, dpi=300, bbox_inches='tight')
