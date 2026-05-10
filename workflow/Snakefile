@@ -399,6 +399,7 @@ rule train_full:
         runtime=1440,  # 24 hours
         slurm_partition="gpu",
         gpu=2,
+        tasks=1,  # Single task sees both GPUs for DataParallel
     shell:
         """
         python -m stagebridge.training.trainer \

@@ -11,12 +11,13 @@ default-resources:
   nodes: 1
   tasks: 1
   cpus_per_task: 4
-  slurm_extra: "'--gres=gpu:1'"
+  gpu: 1
 
 # Override GPU count per rule - 2 GPUs for train_full
 set-resources:
   train_full:
-    slurm_extra: "'--gres=gpu:2'"
+    gpu: 2
+    tasks: 1
     runtime: 1440  # 24 hours
 
 jobs: 20
