@@ -394,7 +394,6 @@ rule train_full:
         ssl_epochs=config["trainer"]["ssl_epochs"],
         transition_epochs=config["trainer"]["transition_epochs"],
         batch_size=config["trainer"]["batch_size"],
-        gw_checkpoint_dir=GW_ALIGNMENT_DIR if USE_PRETRAINED_GW else "",
     resources:
         mem_mb=256000,
         runtime=1440,  # 24 hours
@@ -411,8 +410,7 @@ rule train_full:
             --transition-epochs {params.transition_epochs} \
             --batch-size {params.batch_size} \
             --hpo-params {input.hpo_params} \
-            --data-parallel \
-            $([ -n "{params.gw_checkpoint_dir}" ] && echo "--gw-checkpoint-dir {params.gw_checkpoint_dir}")
+            --data-parallel
         """
 
 
