@@ -42,7 +42,7 @@ ABLATION_CONFIGS = {
 
     # Niche ablations: test core novelty (receiver-centered niche context)
     "no_niche": {"use_niche_context": False},
-    "no_distance": {"refiner_use_spatial_rpe": False},
+    "no_distance": {"amici_use_distance_modulation": False, "refiner_use_spatial_rpe": False},
     "no_gate": {"use_cross_attn_drift": False},  # Falls back to MLP drift
     "random_niche": {"_shuffle_rings": True},  # Handled at data level via dataloader
 

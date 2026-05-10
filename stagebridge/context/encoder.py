@@ -168,6 +168,7 @@ class ReceiverCenteredAttention(nn.Module):
         use_empty_token: bool = True,
         empty_token_score: float = 3.0,
         distance_scale: float = 50.0,
+        use_distance_modulation: bool = True,
     ):
         super().__init__()
         self.dim = dim
@@ -179,6 +180,7 @@ class ReceiverCenteredAttention(nn.Module):
         self.use_empty_token = use_empty_token
         self.empty_token_score = empty_token_score
         self.distance_scale = distance_scale
+        self.use_distance_modulation = use_distance_modulation
 
         self.q_proj = nn.Linear(dim, dim)
         self.k_proj = nn.Linear(dim, dim)
@@ -219,14 +221,20 @@ class ReceiverCenteredAttention(nn.Module):
 
         phenotype_score = torch.matmul(q, k.transpose(-2, -1)) * self.scale
 
-        distance_coef_raw = self.distance_coef_mlp(receiver) + self.distance_coef_offset
-        distance_coef = F.softplus(distance_coef_raw)
+        # Distance modulation: attention decreases with distance (AMICI core feature)
+        # For no_distance ablation, skip this to test value of distance weighting
+        if self.use_distance_modulation:
+            distance_coef_raw = self.distance_coef_mlp(receiver) + self.distance_coef_offset
+            distance_coef = F.softplus(distance_coef_raw)
 
-        normalized_dist = distances / self.distance_scale
-        distance_penalty = distance_coef.unsqueeze(-1) * normalized_dist.unsqueeze(1)
-        distance_penalty = distance_penalty.unsqueeze(2)
+            normalized_dist = distances / self.distance_scale
+            distance_penalty = distance_coef.unsqueeze(-1) * normalized_dist.unsqueeze(1)
+            distance_penalty = distance_penalty.unsqueeze(2)
 
-        attn_logits = phenotype_score - distance_penalty
+            attn_logits = phenotype_score - distance_penalty
+        else:
+            # Uniform attention over neighbors (no distance weighting)
+            attn_logits = phenotype_score
 
         if neighbor_mask is not None:
             mask = neighbor_mask.unsqueeze(1).unsqueeze(2)
@@ -332,6 +340,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         use_empty_token: bool = True,
         empty_token_score: float = 3.0,
         distance_scale: float = 50.0,
+        use_distance_modulation: bool = True,
     ):
         super().__init__()
         self.input_dim = input_dim
@@ -361,6 +370,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
                 use_empty_token=use_empty_token,
                 empty_token_score=empty_token_score,
                 distance_scale=distance_scale,
+                use_distance_modulation=use_distance_modulation,
             )
             for _ in range(num_layers)
         ])

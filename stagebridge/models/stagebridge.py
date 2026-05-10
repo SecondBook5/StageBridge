@@ -161,6 +161,7 @@ class StageBridgeConfig:
     amici_empty_token_score: float = 3.0  # Fixed score for empty token
     amici_sparsity_weight: float = 0.01  # Entropy regularization
     amici_value_l1_weight: float = 0.01  # L1 on values for sparsity
+    amici_use_distance_modulation: bool = True  # Distance-weighted attention (False for no_distance ablation)
 
     # Gromov-Wasserstein fusion (replaces concat for HLCA/LuCA)
     # Options:
@@ -551,6 +552,7 @@ class StageBridge(nn.Module):
                 use_empty_token=config.amici_use_empty_token,
                 empty_token_score=config.amici_empty_token_score,
                 distance_scale=config.amici_distance_scale,
+                use_distance_modulation=config.amici_use_distance_modulation,
             )
             # Projections for reference tokens (not part of AMICI attention)
             self.amici_hlca_proj = nn.Linear(30, config.hidden_dim)
