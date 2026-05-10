@@ -326,8 +326,7 @@ def run_ablation(
     model_kwargs = {
         # AMICI attention is required - data uses neighbor format, not ring format
         "use_amici_attention": True,
-        # Required for SSL pretraining (masked receiver reconstruction)
-        "use_reconstruction_head": True,
+        # Note: use_reconstruction_head=True is hardcoded in AMICI encoder (stagebridge.py:550)
     }
 
     # Apply HPO params (architecture)
