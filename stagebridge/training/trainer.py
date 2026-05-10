@@ -1370,6 +1370,8 @@ if __name__ == "__main__":
         use_amici_attention=True,
         amici_num_heads=hpo.get("amici_num_heads", 4),
         amici_distance_scale=hpo.get("amici_distance_scale", 100.0),
+        # Required for SSL pretraining (masked receiver reconstruction)
+        use_reconstruction_head=True,
     )
 
     trainer_config = TrainerConfig(
