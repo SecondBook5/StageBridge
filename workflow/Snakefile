@@ -249,9 +249,9 @@ GW_ITERS = config.get("gw_precompute", {}).get("gw_iters", 50)
 rule precompute_gw:
     """Precompute Gromov-Wasserstein alignment between HLCA and LuCA.
 
-    This is required for proper GW fusion (gw_fusion_type="pretrained").
-    GW finds structure-preserving alignment between reference atlases, then
-    trains a neural transport map for inference on new cells.
+    This is required for proper GW fusion (gw_fusion_type="precompute_gw").
+    GW finds structure-preserving alignment between reference atlases and
+    computes barycentric fusion for use during training.
 
     Can be run independently:
         snakemake precompute_gw --profile workflow/slurm
@@ -263,9 +263,9 @@ rule precompute_gw:
         cells=f"{DATA_DIR}/cells.parquet",
     output:
         coupling=f"{GW_ALIGNMENT_DIR}/gw_coupling.pt",
-        neural_map=f"{GW_ALIGNMENT_DIR}/neural_transport_map.pt",
-        config=f"{GW_ALIGNMENT_DIR}/gw_config.json",
-        summary=f"{GW_ALIGNMENT_DIR}/precompute_summary.json",
+        fusion=f"{GW_ALIGNMENT_DIR}/barycentric_fusion.pt",
+        metadata=f"{GW_ALIGNMENT_DIR}/gw_metadata.json",
+        reference=f"{GW_ALIGNMENT_DIR}/reference_data.npz",
     params:
         output_dir=GW_ALIGNMENT_DIR,
         n_reference_cells=GW_N_REFERENCE_CELLS,
@@ -333,7 +333,7 @@ rule hpo:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
         # Optional: GW precomputation (if use_pretrained=True in config)
-        gw_checkpoint=f"{GW_ALIGNMENT_DIR}/neural_transport_map.pt" if USE_PRETRAINED_GW else [],
+        gw_checkpoint=f"{GW_ALIGNMENT_DIR}/gw_coupling.pt" if USE_PRETRAINED_GW else [],
     output:
         best_params=f"{OUTPUT_DIR}/hpo/best_params.json",
         history=f"{OUTPUT_DIR}/hpo/optimization_history.json",
@@ -383,7 +383,7 @@ rule train_full:
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
         hpo_params=f"{OUTPUT_DIR}/hpo/best_params.json",
         # Optional: GW precomputation (if use_pretrained=True in config)
-        gw_checkpoint=f"{GW_ALIGNMENT_DIR}/neural_transport_map.pt" if USE_PRETRAINED_GW else [],
+        gw_checkpoint=f"{GW_ALIGNMENT_DIR}/gw_coupling.pt" if USE_PRETRAINED_GW else [],
     output:
         summary=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/training_summary.json",
         checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
