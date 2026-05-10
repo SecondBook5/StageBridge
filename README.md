@@ -63,18 +63,18 @@ Normal  ──>  Preinvasive  ──>  Invasive
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### 9-Token Niche Representation
+### Niche Representation (AMICI Format)
 
-Each cell's neighborhood is encoded as a sequence of 9 tokens:
+Each cell's neighborhood is encoded with **receiver-centered attention**:
 
-| Token | Source | Description |
-|-------|--------|-------------|
-| Receiver | Cell identity | Target cell embedding |
-| Ring 1-4 / Neighbors | Spatial neighborhood | AMICI continuous distance-weighted attention or discrete rings |
-| HLCA | Healthy atlas | Embedding relative to HLCA reference |
-| LuCA | Tumor atlas | Embedding relative to LuCA reference |
+| Component | Source | Description |
+|-----------|--------|-------------|
+| Receiver | Cell identity | Target cell embedding (40d dual-reference) |
+| Neighbors | K nearest neighbors | Distance-weighted attention (monotonic decay) |
+| HLCA | Healthy atlas | Embedding relative to HLCA reference (30d) |
+| LuCA | Tumor atlas | Embedding relative to LuCA reference (10d) |
 | Pathway | Gene programs | Pathway activity (14 PROGENy pathways) |
-| Stats | Conditioning | CAF/immune fractions, diversity, cell cycle |
+| Stats | Conditioning | CAF/immune fractions, diversity, cell cycle, evolution features |
 
 ### Two-Stage Training
 
