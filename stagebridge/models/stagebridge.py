@@ -679,14 +679,14 @@ class StageBridge(nn.Module):
                 token_list.append(self.niche_tokenizer.hlca_proj(hlca) if self.config.use_hlca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
                 token_list.append(self.niche_tokenizer.luca_proj(luca) if self.config.use_luca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
                 token_list.append(self.niche_tokenizer.pathway_proj(pathway) if pathway is not None else torch.zeros(B, self.config.hidden_dim, device=device))
-                stats_input = stats[:, :self.config.stats_dim] if stats is not None and stats.shape[-1] > self.config.stats_dim else stats
-                token_list.append(self.niche_tokenizer.stats_proj(stats_input) if stats is not None else torch.zeros(B, self.config.hidden_dim, device=device))
+                # Zero stats in no_niche ablation - stats contains niche composition (leakage)
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
             else:
                 token_list.append(self.simple_hlca_proj(hlca) if self.config.use_hlca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
                 token_list.append(self.simple_luca_proj(luca) if self.config.use_luca_reference else torch.zeros(B, self.config.hidden_dim, device=device))
                 token_list.append(self.simple_pathway_proj(pathway) if pathway is not None else torch.zeros(B, self.config.hidden_dim, device=device))
-                stats_input = stats[:, :self.config.stats_dim] if stats is not None and stats.shape[-1] > self.config.stats_dim else stats
-                token_list.append(self.simple_stats_proj(stats_input) if stats is not None else torch.zeros(B, self.config.hidden_dim, device=device))
+                # Zero stats in no_niche ablation - stats contains niche composition (leakage)
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
 
             tokens = torch.stack(token_list, dim=1)  # [B, 9, hidden_dim]
             receiver_reconstruction = None
@@ -892,7 +892,9 @@ class StageBridge(nn.Module):
             token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
 
         # Stats token
-        if stats is not None:
+        # NOTE: stats contains niche composition (caf_fraction, immune_fraction, diversity)
+        # For no_niche ablation, zero out stats to prevent leakage of niche info
+        if stats is not None and self.config.use_niche_context:
             stats_input = stats[:, :self.config.stats_dim] if stats.shape[-1] > self.config.stats_dim else stats
             token_list.append(self.amici_stats_proj(stats_input))
         else:

@@ -144,30 +144,27 @@ baselines:
 # =============================================================================
 
 ablations:
-  # Main model uses pretrained GW fusion.
-  # These ablations test component contributions by removing them.
+  # Key ablations for publication
+  # Full ablation list preserved in comments for future runs
 
   # Core novelty: does niche context help?
   - no_niche             # Remove niche context entirely (receiver only)
-  - no_distance          # Remove distance-based attention
-  - no_gate              # Remove cross-attention drift (use MLP)
-  - random_niche         # Shuffle niche assignments to test spatial structure
+  - no_distance          # Remove distance-weighted attention (uniform over neighbors)
 
   # Dual reference: do we need both HLCA and LuCA?
   - hlca_only            # Only HLCA reference (zero out LuCA token)
   - luca_only            # Only LuCA reference (zero out HLCA token)
 
-  # Architecture components
-  - frozen_encoder       # Freeze encoder during transition training
-  - no_ring_pooling      # Mean pooling instead of ISAB+PMA
-  - no_context_refiner   # Remove HierarchicalSetTransformer
-
-  # GW fusion ablations
-  - no_gw_fusion         # Concat only (no GW)
-  - gw_learned           # Learned projection (no precomputed GW)
-
-  # Evolution branch
-  - no_evolution         # Remove WES/clonal features
+  # Additional ablations (commented out - HPO/other evidence covers these):
+  # - no_gw_fusion       # HPO proved learned_gw > concat (Trial 11, loss 0.00345)
+  # - no_distance        # Remove distance-based attention
+  # - no_gate            # Remove cross-attention drift (use MLP)
+  # - random_niche       # Shuffle niche assignments to test spatial structure
+  # - frozen_encoder     # Freeze encoder during transition training
+  # - no_ring_pooling    # Mean pooling instead of ISAB+PMA
+  # - no_context_refiner # Remove HierarchicalSetTransformer
+  # - gw_learned         # Learned projection (no precomputed GW)
+  # - no_evolution       # Remove WES/clonal features
 
 # =============================================================================
 # SLURM Resources
