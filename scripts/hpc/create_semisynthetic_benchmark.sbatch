@@ -40,7 +40,7 @@ mkdir -p /home/booka/StageBridge/logs
 # Small (for quick local testing)
 echo ""
 echo "[1/3] Creating small benchmark (1000 cells)..."
-python scripts/create_semisynthetic_benchmark.py \
+python scripts/benchmarks/create_semisynthetic_benchmark.py \
     --h5ad "$SNRNA" \
     --output "${OUTPUT}_small" \
     --n-cells 1000 \
@@ -50,7 +50,7 @@ python scripts/create_semisynthetic_benchmark.py \
 # Medium (for development)
 echo ""
 echo "[2/3] Creating medium benchmark (5000 cells)..."
-python scripts/create_semisynthetic_benchmark.py \
+python scripts/benchmarks/create_semisynthetic_benchmark.py \
     --h5ad "$SNRNA" \
     --output "${OUTPUT}_medium" \
     --n-cells 5000 \
@@ -60,7 +60,7 @@ python scripts/create_semisynthetic_benchmark.py \
 # Large (for full evaluation)
 echo ""
 echo "[3/3] Creating large benchmark (20000 cells)..."
-python scripts/create_semisynthetic_benchmark.py \
+python scripts/benchmarks/create_semisynthetic_benchmark.py \
     --h5ad "$SNRNA" \
     --output "${OUTPUT}_large" \
     --n-cells 20000 \

@@ -21,6 +21,6 @@ conda activate /scratch/chaunzt1/envs/stagebridge_env
 
 cd /home/booka/StageBridge
 
-python scripts/compute_entropy.py
+python scripts/analysis/compute_entropy.py
 
 echo "Done: $(date)"

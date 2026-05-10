@@ -12,6 +12,14 @@ Design principles (aligned with AMICI - Hong et al., bioRxiv 2025):
 4. Sparsity regularization: entropy penalty + L1 on value matrix
 5. Neighbor ablation for interpretability
 6. Masked receiver reconstruction as self-supervised signal
+
+Reference:
+    Hong J, Desai K, Nguyen TD, Nazaret A, Levy N, Ergen C, Plitas G, Azizi E.
+    AMICI: Attention Mechanism Interpretation of Cell-cell Interactions.
+    bioRxiv 2025. doi:10.1101/2025.09.22.677860
+    https://github.com/azizilab/amici
+
+    License: CC BY-NC-ND 4.0. Patent pending (U.S. Serial No. 63/884,704).
 """
 
 from __future__ import annotations

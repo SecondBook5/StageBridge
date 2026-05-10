@@ -5,6 +5,13 @@ Adapted from AMICI (Hong et al., bioRxiv 2025) for:
 - Ring-based niche structure (not raw k-NN neighbors)
 - Stage progression context (not static snapshot)
 
+Reference:
+    Hong J, Desai K, Nguyen TD, Nazaret A, Levy N, Ergen C, Plitas G, Azizi E.
+    AMICI: Attention Mechanism Interpretation of Cell-cell Interactions.
+    bioRxiv 2025. doi:10.1101/2025.09.22.677860
+    https://github.com/azizilab/amici
+    License: CC BY-NC-ND 4.0. Patent pending (U.S. Serial No. 63/884,704).
+
 Key modules:
 - ablation: Token ablation analysis (ring, reference, pathway ablation)
 - attention: Attention pattern extraction and visualization

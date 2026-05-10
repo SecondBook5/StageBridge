@@ -14,9 +14,7 @@
 
 ## Overview
 
-StageBridge learns **cell-state transitions conditioned on local microenvironment (niche) context**. The framework models progression at the cell and niche level, not as patient classification.
-
-Primary application: lung adenocarcinoma (LUAD) progression
+StageBridge learns **cell-state transitions conditioned on local microenvironment (niche) context**. The framework models lung adenocarcinoma (LUAD) progression at the cell and niche level.
 
 ```
 Normal  ──>  Preinvasive  ──>  Invasive
@@ -27,59 +25,6 @@ Normal  ──>  Preinvasive  ──>  Invasive
 | **Normal** | Normal alveolar | Healthy tissue reference |
 | **Preinvasive** | AAH, AIS, MIA | Pre-malignant lesions |
 | **Invasive** | LUAD | Invasive adenocarcinoma |
-
-### Core Principles
-
-- **Cell-level transitions**: Scientific object is cell-state change, not patient classification
-- **Niche conditioning**: Transitions depend on local neighborhood context
-- **Dual-reference geometry**: Cells embedded relative to healthy (HLCA) and tumor (LuCA) atlases
-- **OT-CFM dynamics**: Optimal transport conditional flow matching for transition fields
-- **AMICI attention**: Continuous distance-weighted attention (monotonic decay with distance)
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        StageBridge Pipeline                          │
-│                                                                      │
-│  ┌─────────────┐   ┌──────────────────┐   ┌────────────────────┐    │
-│  │  Dual-Ref   │──>│  9-Token Niche   │──>│  Set Transformer   │    │
-│  │   Latent    │   │    Encoder       │   │  (ISAB/SAB/PMA)    │    │
-│  └─────────────┘   └──────────────────┘   └────────────────────┘    │
-│        │                                            │                │
-│        v                                            v                │
-│  ┌─────────────┐                          ┌────────────────────┐    │
-│  │ HLCA + LuCA │                          │    OT-CFM Flow     │    │
-│  │  Reference  │                          │     Matching       │    │
-│  │  Alignment  │                          └────────────────────┘    │
-│  └─────────────┘                                    │                │
-│                                                     v                │
-│                                           ┌────────────────────┐    │
-│                                           │  Cell Transition   │    │
-│                                           │   Trajectories     │    │
-│                                           └────────────────────┘    │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### Niche Representation (AMICI Format)
-
-Each cell's neighborhood is encoded with **receiver-centered attention**:
-
-| Component | Source | Description |
-|-----------|--------|-------------|
-| Receiver | Cell identity | Target cell embedding (40d dual-reference) |
-| Neighbors | K nearest neighbors | Distance-weighted attention (monotonic decay) |
-| HLCA | Healthy atlas | Embedding relative to HLCA reference (30d) |
-| LuCA | Tumor atlas | Embedding relative to LuCA reference (10d) |
-| Pathway | Gene programs | Pathway activity (14 PROGENy pathways) |
-| Stats | Conditioning | CAF/immune fractions, diversity, cell cycle, evolution features |
-
-### Two-Stage Training
-
-1. **SSL Pretraining**: Learn niche-aware representations via masked receiver reconstruction
-2. **OT-CFM Transition**: Learn stage transitions conditioned on niche context
 
 ---
 
@@ -121,7 +66,7 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-### Python API (Recommended)
+### Python API
 
 ```python
 import stagebridge as sb
@@ -129,8 +74,8 @@ import stagebridge as sb
 # Load pretrained model
 model = sb.StageBridge.from_pretrained("checkpoint.pt")
 
-# Prepare neighborhoods from AnnData
-sb.prepare_neighborhoods(adata, ring_radii=[50, 100, 150, 200])
+# Prepare AMICI neighborhoods from AnnData (K nearest neighbors with distances)
+sb.prepare_neighborhoods(adata, k_neighbors=50)
 
 # Get niche-aware embeddings
 embeddings = model.embed_niches(adata.uns["X_neighborhoods"])
@@ -241,20 +186,37 @@ paths:
 stagebridge/
 ├── baselines/       # DeepSets, SetTransformer, GraphSAGE
 ├── biology/         # L-R scoring, intervention targets
-├── context/         # NicheTokenizer, HierarchicalSetTransformer
+├── context/         # AMICI encoder, Set Transformer layers
 ├── contracts.py     # Data schemas and validation
 ├── evaluation/      # Metrics, ablations
 ├── loaders/         # DataLoader, batching
 ├── models/          # StageBridge model
-├── pipelines/       # prepare_data, infer
+├── pipelines/       # prepare_data, infer, HPO
+├── reference/       # HLCA/LuCA mapping, GW fusion
 ├── training/        # Two-stage trainer
 └── transition/      # OT-CFM drift networks
+
+scripts/
+├── data/            # Data preparation pipeline
+├── benchmarks/      # Benchmark and baseline scripts
+├── analysis/        # Post-training analysis
+├── figures/         # Publication figures
+└── hpc/             # SLURM job scripts
 
 workflow/
 ├── Snakefile        # Pipeline definition
 ├── config.yaml      # HPC paths and parameters
 └── slurm/           # SLURM profile
 ```
+
+**Documentation:**
+- [scripts/](scripts/README.md) - Data prep, benchmarks, analysis, figures
+- [stagebridge/context/](stagebridge/context/README.md) - AMICI attention, Set Transformer
+- [stagebridge/reference/](stagebridge/reference/README.md) - Atlas fusion, learned GW
+- [stagebridge/transition/](stagebridge/transition/README.md) - OT-CFM, drift networks
+- [stagebridge/training/](stagebridge/training/README.md) - Two-stage training
+- [stagebridge/models/](stagebridge/models/README.md) - Core model architecture
+- [stagebridge/interpretation/](stagebridge/interpretation/README.md) - Interpretability tools
 
 ---
 
@@ -276,13 +238,64 @@ model = get_baseline("graphsage")        # Graph structure
 | Ablation | Tests |
 |----------|-------|
 | `no_niche` | Remove all niche context |
-| `no_distance` | Remove distance-based attention |
-| `no_gate` | Remove biological baseline gate |
+| `no_distance` | Remove distance-based attention decay |
 | `hlca_only` | Only healthy reference |
 | `luca_only` | Only tumor reference |
-| `no_ring_pooling` | Mean pooling vs learned ISAB+PMA |
-| `no_context_refiner` | Remove hierarchical set transformer |
 | `frozen_encoder` | Freeze encoder during transition training |
+
+---
+
+## Architecture
+
+StageBridge uses **receiver-centered AMICI attention** where each cell attends to its K nearest neighbors with continuous distance-weighted attention (monotonic decay). Dual-reference embeddings (HLCA + LuCA) are fused via **learned Gromov-Wasserstein alignment**.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                        StageBridge Pipeline                          │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                   Preprocessing (scArches)                   │    │
+│  │  ┌──────────┐     ┌──────────┐     ┌─────────────────────┐  │    │
+│  │  │   HLCA   │     │   LuCA   │     │  Learned GW Fusion  │  │    │
+│  │  │  (30d)   │────>│  (10d)   │────>│      (40d out)      │  │    │
+│  │  └──────────┘     └──────────┘     └─────────────────────┘  │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                              │                                       │
+│                              v                                       │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                    AMICI Niche Encoder                       │    │
+│  │  ┌──────────┐     ┌───────────────┐     ┌───────────────┐   │    │
+│  │  │ Receiver │────>│ K Neighbors   │────>│ Distance-     │   │    │
+│  │  │  (40d)   │     │ + distances   │     │ weighted Attn │   │    │
+│  │  └──────────┘     └───────────────┘     └───────────────┘   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                              │                                       │
+│                              v                                       │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                    OT-CFM Transition                         │    │
+│  │         Stage transitions via optimal transport flow         │    │
+│  │              Normal ──> Preinvasive ──> Invasive             │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Components:**
+
+| Component | Description |
+|-----------|-------------|
+| Learned GW Fusion | Aligns HLCA (30d) + LuCA (10d) via Gromov-Wasserstein |
+| Receiver | Target cell's fused embedding (40d) |
+| Neighbors | K nearest spatial neighbors with continuous distances |
+| Distance Attention | Monotonic decay weighting (AMICI-style) |
+| OT-CFM | Optimal transport conditional flow matching |
+
+**Two-Stage Training:**
+1. **SSL Pretraining**: Learn niche-aware representations via masked receiver reconstruction
+2. **OT-CFM Transition**: Learn stage transitions conditioned on niche context
+
+**Technical Documentation:**
+- [Model Architecture](docs/architecture/MODEL_ARCHITECTURE.md) - Complete architectural specification with code references
+- [Key Equations](docs/presentation/EQUATIONS.md) - All equations with derivations, variable tables, and Q&A
 
 ---
 
@@ -296,6 +309,23 @@ model = get_baseline("graphsage")        # Graph structure
   year = {2026}
 }
 ```
+
+**Key methodological references:**
+
+Our receiver-centered attention mechanism is adapted from AMICI:
+
+```bibtex
+@article{Hong2025.09.22.677860,
+  title = {AMICI: Attention Mechanism Interpretation of Cell-cell Interactions},
+  author = {Hong, Justin and Desai, Khushi and Nguyen, Tu Duyen and Nazaret, Achille and Levy, Nathan and Ergen, Can and Plitas, George and Azizi, Elham},
+  doi = {10.1101/2025.09.22.677860},
+  journal = {bioRxiv},
+  publisher = {Cold Spring Harbor Laboratory},
+  year = {2025},
+}
+```
+
+AMICI is available at https://github.com/azizilab/amici under CC BY-NC-ND 4.0 license. Patent pending (U.S. Serial No. 63/884,704).
 
 ## License
 

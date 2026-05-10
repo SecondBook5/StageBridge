@@ -39,7 +39,7 @@ echo "  Output: $OUTPUT"
 echo ""
 
 # Run the labeler on all available data
-python scripts/create_ground_truth.py \
+python scripts/benchmarks/create_ground_truth.py \
     --snrna "$SNRNA" \
     --spatial "$SPATIAL" \
     --cells "$CELLS" \

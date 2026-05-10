@@ -39,7 +39,7 @@ mkdir -p $OUTPUT
 # ============================================
 echo ""
 echo "Part 1: Computing general paper numbers..."
-python scripts/compute_paper_numbers.py \
+python scripts/analysis/compute_paper_numbers.py \
     --data-dir $DATA \
     --results-dir $RESULTS \
     --output $OUTPUT/paper_numbers.json

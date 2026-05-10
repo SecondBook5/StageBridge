@@ -142,7 +142,7 @@ print("\n" + "=" * 60)
 print("DONE!")
 print("=" * 60)
 print(f"\nTo generate figures locally:")
-print(f"  python scripts/generate_liana_figures.py --input data/liana_interactions_luca.parquet")
+print(f"  python scripts/figures/generate_liana_figures.py --input data/liana_interactions_luca.parquet")
 PYTHON_SCRIPT
 
 echo ""

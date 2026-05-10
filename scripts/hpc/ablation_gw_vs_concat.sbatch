@@ -41,7 +41,7 @@ echo "Output dir: $OUTPUT_DIR"
 echo ""
 
 # Run both arms
-python scripts/ablation_gw_vs_concat.py \
+python scripts/benchmarks/ablation_gw_vs_concat.py \
     --data-dir "$DATA_DIR" \
     --output-dir "$OUTPUT_DIR" \
     --fold-idx 0 \

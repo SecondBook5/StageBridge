@@ -1,11 +1,11 @@
 """Benchmark modules for StageBridge evaluation.
 
 This package provides tools for creating benchmarks with ground-truth
-interaction rules, following the AMICI methodology (Yuan & Bhargava 2024).
+interaction rules.
 
 Two approaches:
 1. **GroundTruthLabeler**: Apply ground truth labels to REAL data (h5ad, parquet)
-2. **AMICISemiSyntheticGenerator**: Generate fully synthetic data with ground truth
+2. **SemiSyntheticGenerator**: Generate fully synthetic data with ground truth
 """
 
 from stagebridge.benchmarks.ground_truth_labeler import (
@@ -15,8 +15,8 @@ from stagebridge.benchmarks.ground_truth_labeler import (
     DEFAULT_LUAD_RULES,
 )
 
-from stagebridge.benchmarks.amici_semisynthetic import (
-    AMICISemiSyntheticGenerator,
+from stagebridge.benchmarks.semisynthetic import (
+    SemiSyntheticGenerator,
     SemiSyntheticConfig,
     SemiSyntheticGroundTruth,
     InteractionRule as SemiSyntheticInteractionRule,
@@ -30,7 +30,7 @@ __all__ = [
     "InteractionRule",
     "DEFAULT_LUAD_RULES",
     # Semi-synthetic (fallback/testing)
-    "AMICISemiSyntheticGenerator",
+    "SemiSyntheticGenerator",
     "SemiSyntheticConfig",
     "SemiSyntheticGroundTruth",
     "create_demo_semisynthetic",

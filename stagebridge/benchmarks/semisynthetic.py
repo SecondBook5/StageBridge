@@ -1,21 +1,22 @@
-"""AMICI-style semi-synthetic data generator with ground-truth interaction rules.
+"""Semi-synthetic data generator with ground-truth interaction rules.
 
-This module generates semi-synthetic data following the approach from AMICI
-(Hong biorxiv 2025):
+This module generates semi-synthetic data for benchmarking:
 - Real single-cell expression profiles (or realistic synthetic)
 - Explicit sender-receiver interaction rules with distance thresholds
 - "Interacting" subpopulations with distinct DE gene signatures
 - Spatial layouts with gradients creating interacting vs non-interacting zones
 - Full ground truth labels for benchmarking
 
-The key insight from AMICI: we can validate cell-cell communication methods
-by creating a semi-synthetic benchmark where:
+The key insight: we can validate cell-cell communication methods by creating
+a semi-synthetic benchmark where:
 1. Spatial proximity between sender and receiver is explicitly controlled
 2. Downstream gene activation occurs ONLY when cells are within interaction range
 3. Ground truth is known: which cells interact, what genes are activated
 
 This allows rigorous evaluation of StageBridge's niche-aware attention:
 does the model learn to weight nearby senders appropriately?
+
+Methodology adapted from AMICI (Hong et al., bioRxiv 2025).
 """
 
 from __future__ import annotations
@@ -115,7 +116,7 @@ class SemiSyntheticGroundTruth:
     expected_attention_ring: np.ndarray  # [n_cells] int - ring idx with relevant sender
 
 
-class AMICISemiSyntheticGenerator:
+class SemiSyntheticGenerator:
     """Generates semi-synthetic data following AMICI methodology.
 
     Key design choices from AMICI:
@@ -126,7 +127,7 @@ class AMICISemiSyntheticGenerator:
     5. Provide complete ground truth for evaluation
 
     Usage:
-        generator = AMICISemiSyntheticGenerator(config)
+        generator = SemiSyntheticGenerator(config)
         generator.add_interaction_rule(InteractionRule(...))
         data, ground_truth = generator.generate()
     """
@@ -136,12 +137,12 @@ class AMICISemiSyntheticGenerator:
         self.interaction_rules: list[InteractionRule] = []
         self.rng = np.random.default_rng(self.config.seed)
 
-    def add_interaction_rule(self, rule: InteractionRule) -> "AMICISemiSyntheticGenerator":
+    def add_interaction_rule(self, rule: InteractionRule) -> "SemiSyntheticGenerator":
         """Add an interaction rule. Chainable."""
         self.interaction_rules.append(rule)
         return self
 
-    def add_default_rules(self) -> "AMICISemiSyntheticGenerator":
+    def add_default_rules(self) -> "SemiSyntheticGenerator":
         """Add default IL1B-IL1R1 and CXCL12-CXCR4 interactions.
 
         These mirror the biological interactions we expect StageBridge to capture:
@@ -553,7 +554,7 @@ def create_demo_semisynthetic(
         spatial_pattern="gradient",
     )
 
-    generator = AMICISemiSyntheticGenerator(config)
+    generator = SemiSyntheticGenerator(config)
     generator.add_default_rules()
 
     neighborhoods, ground_truth = generator.generate()
