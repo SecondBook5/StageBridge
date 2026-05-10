@@ -292,6 +292,11 @@ class StageBridgeDataset(Dataset):
         # Neighbors and distances (already sorted by distance in prep)
         neighbor_list = row["neighbor_cells"]
         distance_list = row["neighbor_distances"]
+
+        # Handle None from fastparquet for empty lists
+        if neighbor_list is None or distance_list is None:
+            neighbor_list = []
+            distance_list = []
         n_neighbors = len(neighbor_list)
 
         # Pad to max_neighbors
