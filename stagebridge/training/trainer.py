@@ -19,7 +19,7 @@ from contextlib import nullcontext
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from stagebridge.loaders.dataset import NicheBatch
+from stagebridge.loaders.dataset import NicheBatch, AMICIBatch
 from stagebridge.models.stagebridge import StageBridge, StageBridgeConfig
 from stagebridge.training.checkpoint import CheckpointManager
 from stagebridge.training.metrics import MetricsLogger
@@ -228,6 +228,38 @@ class StageBridgeTrainer:
                 "params": self.sb_module.parameters(),
                 "lr": config.learning_rate,
             })
+
+    def _encode_batch(
+        self,
+        batch: NicheBatch | AMICIBatch,
+        return_reconstruction: bool = False,
+    ):
+        """Encode batch using appropriate method based on batch type."""
+        if isinstance(batch, AMICIBatch):
+            return self.model.encode_niche_amici(
+                receiver=batch.receiver,
+                neighbors=batch.neighbors,
+                distances=batch.distances,
+                neighbor_mask=batch.neighbor_mask,
+                hlca=batch.hlca,
+                luca=batch.luca,
+                pathway=batch.pathway,
+                stats=batch.stats,
+                evolution_features=batch.evolution_features,
+                return_reconstruction=return_reconstruction,
+            )
+        else:
+            return self.model.encode_niche(
+                receiver=batch.receiver,
+                ring_cells=batch.ring_cells,
+                ring_masks=batch.ring_masks,
+                hlca=batch.hlca,
+                luca=batch.luca,
+                pathway=batch.pathway,
+                stats=batch.stats,
+                evolution_features=batch.evolution_features,
+                return_reconstruction=return_reconstruction,
+            )
 
     def _print_training_info(
         self,
@@ -686,21 +718,11 @@ class StageBridgeTrainer:
             "train_loss_entropy": epoch_entropy_loss / max(n_batches, 1),
         }
 
-    def _ssl_step(self, batch: NicheBatch) -> tuple[Tensor, dict[str, float]]:
+    def _ssl_step(self, batch: NicheBatch | AMICIBatch) -> tuple[Tensor, dict[str, float]]:
         """Single SSL training step: masked receiver reconstruction."""
         amp_context = torch.amp.autocast("cuda") if self.config.mixed_precision and self.device.type == "cuda" else nullcontext()
         with amp_context:
-            niche_output = self.model.encode_niche(
-                receiver=batch.receiver,
-                ring_cells=batch.ring_cells,
-                ring_masks=batch.ring_masks,
-                hlca=batch.hlca,
-                luca=batch.luca,
-                pathway=batch.pathway,
-                stats=batch.stats,
-                evolution_features=batch.evolution_features,
-                return_reconstruction=True,
-            )
+            niche_output = self._encode_batch(batch, return_reconstruction=True)
 
             if niche_output.receiver_reconstruction is not None:
                 loss_reconstruction = F.mse_loss(
@@ -745,17 +767,7 @@ class StageBridgeTrainer:
         for batch in val_loader:
             batch = batch.to(self.device)
 
-            niche_output = self.model.encode_niche(
-                receiver=batch.receiver,
-                ring_cells=batch.ring_cells,
-                ring_masks=batch.ring_masks,
-                hlca=batch.hlca,
-                luca=batch.luca,
-                pathway=batch.pathway,
-                stats=batch.stats,
-                evolution_features=batch.evolution_features,
-                return_reconstruction=True,
-            )
+            niche_output = self._encode_batch(batch, return_reconstruction=True)
 
             loss = F.mse_loss(niche_output.receiver_reconstruction, batch.receiver)
 
@@ -844,22 +856,13 @@ class StageBridgeTrainer:
             "train_loss_entropy": epoch_entropy_loss / max(n_batches, 1),
         }
 
-    def _transition_step(self, batch: NicheBatch) -> tuple[Tensor, dict[str, float]]:
+    def _transition_step(self, batch: NicheBatch | AMICIBatch) -> tuple[Tensor, dict[str, float]]:
         """Single transition training step (OT-CFM flow matching)."""
         amp_context = torch.amp.autocast("cuda") if self.config.mixed_precision and self.device.type == "cuda" else nullcontext()
         with amp_context:
             stage_src, stage_tgt = self._sample_stage_pair(batch)
 
-            niche_output = self.model.encode_niche(
-                receiver=batch.receiver,
-                ring_cells=batch.ring_cells,
-                ring_masks=batch.ring_masks,
-                hlca=batch.hlca,
-                luca=batch.luca,
-                pathway=batch.pathway,
-                stats=batch.stats,
-                evolution_features=batch.evolution_features,
-            )
+            niche_output = self._encode_batch(batch, return_reconstruction=False)
 
             context = niche_output.context
             context_tokens = niche_output.context_tokens
@@ -925,16 +928,7 @@ class StageBridgeTrainer:
 
             stage_src, stage_tgt = self._sample_stage_pair(batch)
 
-            niche_output = self.model.encode_niche(
-                receiver=batch.receiver,
-                ring_cells=batch.ring_cells,
-                ring_masks=batch.ring_masks,
-                hlca=batch.hlca,
-                luca=batch.luca,
-                pathway=batch.pathway,
-                stats=batch.stats,
-                evolution_features=batch.evolution_features,
-            )
+            niche_output = self._encode_batch(batch, return_reconstruction=False)
 
             x0 = batch.receiver
             x1 = self._sample_targets(batch, stage_tgt)
