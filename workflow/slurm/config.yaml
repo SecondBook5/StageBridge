@@ -1,4 +1,4 @@
-# Snakemake 8+ SLURM Profile for StageBridge
+# Snakemake 9.17 SLURM Profile for StageBridge
 # Usage: snakemake --profile workflow/slurm
 
 executor: slurm
@@ -8,13 +8,13 @@ default-resources:
   slurm_partition: gpu
   mem_mb: 256000
   runtime: 360  # 6 hours default (in minutes)
-  nodes: 1  # Always request single node (multi-GPU on same node)
-  slurm_extra: "'--gres=gpu:1'"  # Default 1 GPU
+  nodes: 1
+  gpu: 1  # Native GPU resource
 
 # Override GPU count per rule
 set-resources:
   train_full:
-    slurm_extra: "'--gres=gpu:4'"
+    gpu: 2
 
 jobs: 20
 latency-wait: 120
