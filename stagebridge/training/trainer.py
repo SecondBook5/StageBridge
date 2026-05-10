@@ -140,9 +140,11 @@ class StageBridgeTrainer:
         config: TrainerConfig,
         device: torch.device | str = "cuda",
         use_ddp: bool = False,
+        use_data_parallel: bool = False,
     ):
         self.config = config
         self.use_ddp = use_ddp
+        self.use_data_parallel = use_data_parallel
 
         # Handle device for DDP (local_rank) vs single GPU
         if use_ddp:
@@ -159,6 +161,11 @@ class StageBridgeTrainer:
             from torch.nn.parallel import DistributedDataParallel as DDP
             self.model = DDP(model, device_ids=[self.device.index])
             self._raw_model = model  # Keep reference for checkpointing
+        elif use_data_parallel and torch.cuda.device_count() > 1:
+            from torch.nn import DataParallel
+            self.model = DataParallel(model)
+            self._raw_model = model
+            print(f"Using DataParallel with {torch.cuda.device_count()} GPUs")
         else:
             self.model = model
             self._raw_model = model
@@ -1218,6 +1225,7 @@ def train_stagebridge(
     device: str = "cuda",
     resume_from: Path | str | None = None,
     use_ddp: bool = False,
+    use_data_parallel: bool = False,
     batch_size: int = 64,
     num_workers: int = 4,
 ) -> dict[str, Any]:
@@ -1232,6 +1240,7 @@ def train_stagebridge(
         device: Device to train on
         resume_from: Optional checkpoint path to resume from
         use_ddp: Enable DistributedDataParallel for multi-GPU training
+        use_data_parallel: Enable DataParallel for multi-GPU (single process)
         batch_size: Per-GPU batch size
         num_workers: DataLoader workers per GPU
 
@@ -1276,6 +1285,7 @@ def train_stagebridge(
         config=trainer_config,
         device=device,
         use_ddp=use_ddp,
+        use_data_parallel=use_data_parallel,
     )
 
     return trainer.train(train_loader, val_loader, resume_from=resume_from)
@@ -1313,9 +1323,11 @@ if __name__ == "__main__":
     # Resume from checkpoint
     parser.add_argument("--resume", type=Path, default=None,
                         help="Path to checkpoint to resume from (or 'auto' to find best)")
-    # DDP for multi-GPU training
+    # Multi-GPU training
     parser.add_argument("--ddp", action="store_true",
                         help="Enable DistributedDataParallel (use with torchrun)")
+    parser.add_argument("--data-parallel", action="store_true",
+                        help="Enable DataParallel for multi-GPU (single process)")
     parser.add_argument("--num-workers", type=int, default=4,
                         help="DataLoader workers per GPU")
     args = parser.parse_args()
@@ -1421,6 +1433,7 @@ if __name__ == "__main__":
         fold_idx=args.fold_idx,
         resume_from=resume_from,
         use_ddp=args.ddp,
+        use_data_parallel=args.data_parallel,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
     )

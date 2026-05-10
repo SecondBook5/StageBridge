@@ -399,7 +399,7 @@ rule train_full:
         mem_mb=256000,
         runtime=1440,  # 24 hours
         slurm_partition="gpu",
-        gpu=1,
+        gpu=2,
     shell:
         """
         python -m stagebridge.training.trainer \
@@ -411,6 +411,7 @@ rule train_full:
             --transition-epochs {params.transition_epochs} \
             --batch-size {params.batch_size} \
             --hpo-params {input.hpo_params} \
+            --data-parallel \
             $([ -n "{params.gw_checkpoint_dir}" ] && echo "--gw-checkpoint-dir {params.gw_checkpoint_dir}")
         """
 
