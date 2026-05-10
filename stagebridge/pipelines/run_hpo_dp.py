@@ -379,6 +379,8 @@ def run_hpo(
             use_proliferation_head=True,
             use_evolution_branch=evolution_dim > 0,
             evolution_dim=evolution_dim,
+            # Required for SSL pretraining
+            use_reconstruction_head=True,
         )
 
         model = StageBridge(config).to(device)
