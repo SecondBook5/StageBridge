@@ -557,6 +557,14 @@ class StageBridge(nn.Module):
             self.amici_luca_proj = nn.Linear(10, config.hidden_dim)
             self.amici_stats_proj = nn.Linear(config.stats_dim, config.hidden_dim)
             self.amici_pathway_proj = nn.Linear(config.pathway_dim, config.hidden_dim)
+            # Fallback reconstruction head for no_niche ablation (when AMICI encoder is skipped)
+            # This allows SSL training to proceed, but the model will perform poorly
+            # without niche context, demonstrating the value of spatial information
+            self.no_niche_reconstruction_head = nn.Sequential(
+                nn.Linear(config.hidden_dim, config.hidden_dim),
+                nn.GELU(),
+                nn.Linear(config.hidden_dim, config.input_dim),
+            )
 
         # Learned ring pooling (DEPRECATED - use AMICI instead)
         self.niche_tokenizer: NicheTokenizer | None = None
@@ -848,8 +856,14 @@ class StageBridge(nn.Module):
 
         # no_niche ablation: SKIP encoder entirely, use zero niche context
         # This is a clean ablation - no learnable parameters from niche processing
+        # We still provide a reconstruction (from zero context) so SSL can run,
+        # but it will perform poorly, demonstrating the value of niche info
         if not self.config.use_niche_context:
             niche_context = torch.zeros(B, self.config.hidden_dim, device=device)
+            # Reconstruction from zero context (will be bad - proves niche is needed)
+            reconstruction = None
+            if return_reconstruction and self.no_niche_reconstruction_head is not None:
+                reconstruction = self.no_niche_reconstruction_head(niche_context)
             amici_output = ReceiverNicheOutput(
                 context=niche_context,
                 context_tokens=None,
@@ -857,7 +871,7 @@ class StageBridge(nn.Module):
                 entropy_loss=None,
                 value_l1_loss=None,
                 empty_attention=None,
-                receiver_reconstruction=None,
+                receiver_reconstruction=reconstruction,
             )
         else:
             # Run AMICI encoder (receiver-centered attention with distance decay)
