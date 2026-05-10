@@ -436,7 +436,7 @@ def validate_contract_for_cancer(
 
     # Validate neighborhoods
     if neighborhoods_path.exists():
-        neighborhoods = pd.read_parquet(neighborhoods_path)
+        neighborhoods = pd.read_parquet(neighborhoods_path, engine='fastparquet')
 
         for col in NEIGHBORHOODS_REQUIRED_COLS:
             if col not in neighborhoods.columns:

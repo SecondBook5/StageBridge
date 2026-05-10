@@ -447,7 +447,8 @@ class ContractValidator:
 
     def validate_neighborhoods(self) -> pd.DataFrame:
         """Validate neighborhoods.parquet."""
-        neighborhoods = pd.read_parquet(self.data_dir / "neighborhoods.parquet")
+        # Use fastparquet to avoid pyarrow int32 overflow on large nested lists
+        neighborhoods = pd.read_parquet(self.data_dir / "neighborhoods.parquet", engine='fastparquet')
 
         for col in NEIGHBORHOODS_REQUIRED_COLS:
             if col not in neighborhoods.columns:
@@ -507,7 +508,8 @@ class ContractValidator:
     def _validate_alignment(self):
         """Validate cells and neighborhoods alignment."""
         cells = pd.read_parquet(self.data_dir / "cells.parquet")
-        neighborhoods = pd.read_parquet(self.data_dir / "neighborhoods.parquet")
+        # Use fastparquet to avoid pyarrow int32 overflow on large nested lists
+        neighborhoods = pd.read_parquet(self.data_dir / "neighborhoods.parquet", engine='fastparquet')
 
         cell_ids = set(cells["cell_id"])
         neighborhood_ids = set(neighborhoods["cell_id"])

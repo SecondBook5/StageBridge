@@ -60,7 +60,7 @@ def run_summary_stats(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading {neighborhoods_path}...")
-    df = pd.read_parquet(neighborhoods_path)
+    df = pd.read_parquet(neighborhoods_path, engine='fastparquet')
     print(f"  {len(df)} cells")
 
     outputs = {}

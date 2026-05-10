@@ -61,7 +61,7 @@ def run_moscot(
     print(f"Running moscot (epsilon={epsilon}, tau_a={tau_a}, tau_b={tau_b})")
 
     # Load data
-    df = pd.read_parquet(neighborhoods_path)
+    df = pd.read_parquet(neighborhoods_path, engine='fastparquet')
 
     # Build AnnData from receiver embeddings
     # Handle both formats: receiver_z (list/array column) or receiver_z_* (multiple columns)
@@ -204,7 +204,7 @@ def run_cellrank(
     # Ensure stage column exists
     if "stage" not in adata.obs.columns:
         # Try to get from neighborhoods
-        df = pd.read_parquet(neighborhoods_path)
+        df = pd.read_parquet(neighborhoods_path, engine='fastparquet')
         if "cell_id" in df.columns:
             stage_map = df.set_index("cell_id")["stage"].to_dict()
             adata.obs["stage"] = adata.obs.index.map(stage_map)
@@ -310,7 +310,7 @@ def run_commot(
     print(f"Running COMMOT (database={database})")
 
     # Load neighborhoods for cell IDs and stage mapping
-    df = pd.read_parquet(neighborhoods_path)
+    df = pd.read_parquet(neighborhoods_path, engine='fastparquet')
 
     # Load spatial h5ad with gene expression
     if spatial_h5ad_path is None:

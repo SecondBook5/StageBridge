@@ -226,7 +226,7 @@ def load_data_stats(data_dir: Path) -> dict:
     neighborhoods_path = data_dir / "neighborhoods.parquet"
     if neighborhoods_path.exists() and "n_cells" not in stats:
         try:
-            nhoods = pd.read_parquet(neighborhoods_path, columns=["stage"])
+            nhoods = pd.read_parquet(neighborhoods_path, columns=["stage"], engine="fastparquet")
             stats["n_cells"] = len(nhoods)
             stats["stage_distribution"] = nhoods["stage"].value_counts().to_dict()
         except Exception:
