@@ -398,12 +398,12 @@ rule train_full:
         gw_checkpoint_dir=GW_ALIGNMENT_DIR if USE_PRETRAINED_GW else "",
     resources:
         mem_mb=256000,
-        runtime=720,  # 12 hours (4 GPU DDP is ~4x faster)
+        runtime=1440,  # 24 hours (2 GPU DDP is ~2x faster)
         slurm_partition="gpu",
-        gpu=4,
+        gpu=2,
     shell:
         """
-        torchrun --nproc_per_node=4 -m stagebridge.training.trainer \
+        torchrun --nproc_per_node=2 -m stagebridge.training.trainer \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
             --fold-idx {params.fold} \
