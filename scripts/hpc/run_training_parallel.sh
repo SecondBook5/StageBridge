@@ -36,35 +36,54 @@ for fold in $(seq 0 $((N_FOLDS - 1))); do
     done
 done
 
-# Process jobs in batches of N_GPUS
-job_idx=0
-while [ $job_idx -lt ${#JOBS[@]} ]; do
-    # Launch up to N_GPUS jobs
+# Track which GPU is running which PID
+declare -a GPU_PIDS=()
+for gpu in $(seq 0 $((N_GPUS - 1))); do
+    GPU_PIDS[$gpu]=0
+done
+
+# Function to find a free GPU (PID finished or never started)
+find_free_gpu() {
     for gpu in $(seq 0 $((N_GPUS - 1))); do
-        if [ $job_idx -lt ${#JOBS[@]} ]; then
-            IFS=':' read -r fold seed <<< "${JOBS[$job_idx]}"
-            run_dir="${OUTPUT_DIR}/fold_${fold}/seed_${seed}"
-
-            echo "  GPU ${gpu}: fold=${fold} seed=${seed}"
-
-            CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
-                --data-dir "${DATA_DIR}" \
-                --output-dir "${run_dir}" \
-                --fold-idx "${fold}" \
-                --seed "${seed}" \
-                --ssl-epochs "${SSL_EPOCHS}" \
-                --transition-epochs "${TRANSITION_EPOCHS}" \
-                --hpo-params "${HPO_PARAMS}" \
-                --batch-size 64 &
-
-            job_idx=$((job_idx + 1))
+        if [ ${GPU_PIDS[$gpu]} -eq 0 ] || ! kill -0 ${GPU_PIDS[$gpu]} 2>/dev/null; then
+            echo $gpu
+            return
         fi
     done
+    echo -1
+}
 
-    echo "Waiting for batch to complete..."
-    wait
-    echo "Batch complete."
+# Process all jobs, keeping GPUs busy
+job_idx=0
+while [ $job_idx -lt ${#JOBS[@]} ]; do
+    free_gpu=$(find_free_gpu)
+
+    if [ $free_gpu -ge 0 ]; then
+        IFS=':' read -r fold seed <<< "${JOBS[$job_idx]}"
+        run_dir="${OUTPUT_DIR}/fold_${fold}/seed_${seed}"
+
+        echo "  GPU ${free_gpu}: fold=${fold} seed=${seed} (job $((job_idx + 1))/${#JOBS[@]})"
+
+        CUDA_VISIBLE_DEVICES=$free_gpu python -m stagebridge.training.trainer \
+            --data-dir "${DATA_DIR}" \
+            --output-dir "${run_dir}" \
+            --fold-idx "${fold}" \
+            --seed "${seed}" \
+            --ssl-epochs "${SSL_EPOCHS}" \
+            --transition-epochs "${TRANSITION_EPOCHS}" \
+            --hpo-params "${HPO_PARAMS}" \
+            --batch-size 64 &
+
+        GPU_PIDS[$free_gpu]=$!
+        job_idx=$((job_idx + 1))
+    else
+        # All GPUs busy, wait a bit
+        sleep 10
+    fi
 done
+
+echo "All jobs launched. Waiting for completion..."
+wait
 
 echo "All training complete."
 echo "Results in: ${OUTPUT_DIR}"
