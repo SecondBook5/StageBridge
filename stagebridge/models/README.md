@@ -6,28 +6,29 @@ Core StageBridge model and prediction heads.
 
 The main model in `stagebridge.py` combines:
 
-1. **Niche Encoding**: AMICI-style receiver-centered attention
-2. **Context Refinement**: HierarchicalSetTransformer (ISAB -> SAB -> PMA)
-3. **Drift Prediction**: CrossAttentionDrift for velocity fields
-4. **Auxiliary Heads**: Pathway and proliferation prediction
+1. **Niche Encoding**: Receiver-centered attention with monotonic distance decay
+2. **Reference Fusion**: HLCA-LuCA alignment (concat or learned GW)
+3. **Context Refinement**: Set Transformer layers (ISAB -> SAB -> PMA)
+4. **Drift Prediction**: CrossAttentionDrift for velocity fields
+5. **Auxiliary Heads**: Pathway and proliferation prediction
 
-### Data Formats
+### Input Format
 
-**AMICI Format** (recommended):
+**K-Nearest Neighbors** (continuous distances):
 ```python
-# Continuous neighbors with distances
+# Receiver + neighbors with distances
 output = model.encode_niche_amici(
-    receiver,      # [B, 40]
-    neighbors,     # [B, K, 40]
-    distances,     # [B, K]
-    neighbor_mask, # [B, K]
+    receiver,      # [B, 40] - focal cell embedding
+    neighbors,     # [B, K, 40] - K nearest neighbor embeddings
+    distances,     # [B, K] - distances in microns
+    neighbor_mask, # [B, K] - valid neighbor mask
     hlca, luca, pathway, stats,
 )
 ```
 
-**Ring Format** (legacy):
+**Legacy Ring Format** (discrete binning):
 ```python
-# Discrete ring binning
+# Binned into concentric rings
 output = model.encode_niche(
     receiver,    # [B, 40]
     ring_cells,  # List of 4 [B, max_cells, 40]
