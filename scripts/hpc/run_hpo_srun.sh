@@ -11,7 +11,7 @@ GW_CHECKPOINT="${DATA_DIR}/gw_alignment"
 STUDY_NAME="stagebridge_hpo_$(date +%Y%m%d)"
 OPTUNA_DB="sqlite:///${OUTPUT_DIR}/optuna.db"
 N_TRIALS=30
-N_EPOCHS=15
+N_EPOCHS=10
 
 mkdir -p "${OUTPUT_DIR}"
 
