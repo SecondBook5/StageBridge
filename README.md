@@ -34,6 +34,7 @@ Normal  ──>  Preinvasive  ──>  Invasive
 - **Niche conditioning**: Transitions depend on local neighborhood context
 - **Dual-reference geometry**: Cells embedded relative to healthy (HLCA) and tumor (LuCA) atlases
 - **OT-CFM dynamics**: Optimal transport conditional flow matching for transition fields
+- **AMICI attention**: Continuous distance-weighted attention (monotonic decay with distance)
 
 ---
 
@@ -69,7 +70,7 @@ Each cell's neighborhood is encoded as a sequence of 9 tokens:
 | Token | Source | Description |
 |-------|--------|-------------|
 | Receiver | Cell identity | Target cell embedding |
-| Ring 1-4 | Spatial neighborhood | Neighbors at increasing radii (learned ISAB+PMA pooling) |
+| Ring 1-4 / Neighbors | Spatial neighborhood | AMICI continuous distance-weighted attention or discrete rings |
 | HLCA | Healthy atlas | Embedding relative to HLCA reference |
 | LuCA | Tumor atlas | Embedding relative to LuCA reference |
 | Pathway | Gene programs | Pathway activity (14 PROGENy pathways) |
@@ -225,12 +226,12 @@ paths:
                      publication_figures
 ```
 
-**Job counts (5-fold CV):**
-- Full model: 5 jobs
-- Baselines (4 types): 20 jobs
-- Ablations (9 types): 45 jobs
+**Job counts (5-fold x 3 seeds CV):**
+- Full model: 15 jobs (5 folds x 3 seeds)
+- Baselines (4 types): 60 jobs (4 x 5 x 3)
+- Ablations: 45 jobs (3 key ablations x 5 x 3)
 - Figures: 9 jobs
-- **Total: ~80 jobs**
+- **Total: ~130 jobs**
 
 ---
 
