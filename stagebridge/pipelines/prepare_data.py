@@ -201,10 +201,13 @@ def build_neighborhoods(df: pd.DataFrame, config: PrepConfig) -> pd.DataFrame:
     - AMICI format: neighbor_cells + neighbor_distances (continuous attention)
     """
     # Only use cells with spatial coordinates
-    spatial_mask = df['x_spatial'].notna() & df['y_spatial'].notna()
+    # Support both 'x'/'y' and 'x_spatial'/'y_spatial' column names
+    x_col = 'x_spatial' if 'x_spatial' in df.columns else 'x'
+    y_col = 'y_spatial' if 'y_spatial' in df.columns else 'y'
+    spatial_mask = df[x_col].notna() & df[y_col].notna()
     spatial_df = df[spatial_mask].reset_index(drop=True)
 
-    coords = spatial_df[['x_spatial', 'y_spatial']].values
+    coords = spatial_df[[x_col, y_col]].values
     tree = KDTree(coords)
 
     n_cells = len(spatial_df)
@@ -484,10 +487,12 @@ def generate_qc_figures(nhood_df: pd.DataFrame, output_dir: Path):
     fig, axes = plt.subplots(2, 2, figsize=(10, 10))
     spatial_features = ['caf_fraction', 'immune_fraction', 'diversity']
 
+    x_col = 'x_spatial' if 'x_spatial' in donor_df.columns else 'x'
+    y_col = 'y_spatial' if 'y_spatial' in donor_df.columns else 'y'
     for ax, feat in zip(axes.flat, spatial_features):
         if feat in donor_df.columns:
             vals = donor_df[feat].fillna(0)
-            sc = ax.scatter(donor_df['x_spatial'], donor_df['y_spatial'],
+            sc = ax.scatter(donor_df[x_col], donor_df[y_col],
                            c=vals, s=1, cmap='viridis')
             ax.set_title(f'{feat} ({sample_donor})')
             plt.colorbar(sc, ax=ax)
