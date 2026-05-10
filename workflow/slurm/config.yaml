@@ -9,12 +9,15 @@ default-resources:
   mem_mb: 256000
   runtime: 360  # 6 hours default (in minutes)
   nodes: 1
-  gpu: 1
+  tasks: 1
+  cpus_per_task: 4
+  slurm_extra: "'--gres=gpu:1'"
 
-# Override GPU count per rule
+# Override GPU count per rule - 2 GPUs for train_full
 set-resources:
   train_full:
-    gpu: 2
+    slurm_extra: "'--gres=gpu:2'"
+    runtime: 1440  # 24 hours
 
 jobs: 20
 latency-wait: 120
