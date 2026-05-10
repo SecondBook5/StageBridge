@@ -459,20 +459,15 @@ rule train_baseline:
 rule run_ablation:
     """Run an ablation experiment.
 
-    Depends on train_full completing first so we can compare against the full model.
     Uses the same HPO params as train_full for fair comparison.
-    Each fold x seed ablation waits only for that fold x seed full model.
-
-    For frozen_encoder ablation, passes the pretrained checkpoint path.
+    Only frozen_encoder ablation requires the full model checkpoint.
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
         neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
         hpo_params=f"{OUTPUT_DIR}/hpo/best_params.json",
-        # Wait for this fold x seed full model to complete before running ablation
-        full_model=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/training_summary.json",
-        # Checkpoint needed for frozen_encoder ablation
-        full_checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
+        # Only frozen_encoder needs the checkpoint; others can run in parallel with full training
+        full_checkpoint=lambda w: f"{OUTPUT_DIR}/full/fold_{w.fold}/seed_{w.seed}/checkpoints/best_checkpoint.pt" if w.ablation == "frozen_encoder" else [],
     output:
         result=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/ablation_{{ablation}}.json",
         checkpoint=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
