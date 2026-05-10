@@ -323,7 +323,10 @@ def run_ablation(
 
     # Build model config: HPO params first, then ablation overrides
     # This ensures ablation-specific settings (like use_gw_fusion) take precedence
-    model_kwargs = {}
+    model_kwargs = {
+        # AMICI attention is required - data uses neighbor format, not ring format
+        "use_amici_attention": True,
+    }
 
     # Apply HPO params (architecture)
     if "hidden_dim" in hpo_params:
@@ -332,6 +335,10 @@ def run_ablation(
         model_kwargs["num_heads"] = hpo_params["num_heads"]
     if "dropout" in hpo_params:
         model_kwargs["dropout"] = hpo_params["dropout"]
+    if "amici_num_heads" in hpo_params:
+        model_kwargs["amici_num_heads"] = hpo_params["amici_num_heads"]
+    if "amici_distance_scale" in hpo_params:
+        model_kwargs["amici_distance_scale"] = hpo_params["amici_distance_scale"]
     # Note: use_gw_fusion from HPO is ignored - ablation controls this
 
     # Apply ablation config (overrides HPO where specified)

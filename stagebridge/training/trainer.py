@@ -1366,6 +1366,10 @@ if __name__ == "__main__":
         use_cross_attn_drift=True,
         use_evolution_branch=evolution_dim > 0,
         evolution_dim=evolution_dim,
+        # AMICI attention required - data uses neighbor format
+        use_amici_attention=True,
+        amici_num_heads=hpo.get("amici_num_heads", 4),
+        amici_distance_scale=hpo.get("amici_distance_scale", 100.0),
     )
 
     trainer_config = TrainerConfig(
