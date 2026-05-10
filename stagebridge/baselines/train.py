@@ -92,6 +92,10 @@ def train_baseline(
     # Stage pair for flow matching (use 0->1 as default)
     default_stage_pair = 0 * N_STAGES + 1  # Normal -> Preinvasive
 
+    # Detect data format from first batch
+    sample_batch = next(iter(train_loader))
+    is_amici_format = hasattr(sample_batch, "neighbors")
+
     for epoch in range(epochs):
         # Training
         model.train()
@@ -100,10 +104,16 @@ def train_baseline(
             batch = batch.to(device)
             optimizer.zero_grad()
 
-            # Convert ring format to flat neighbors format for baselines
-            neighbors, neighbor_mask = _convert_rings_to_neighbors(
-                batch.ring_cells, batch.ring_masks
-            )
+            # Get neighbors based on data format
+            if is_amici_format:
+                # AMICI format: neighbors already flat
+                neighbors = batch.neighbors
+                neighbor_mask = batch.neighbor_mask
+            else:
+                # Ring format: convert to flat neighbors
+                neighbors, neighbor_mask = _convert_rings_to_neighbors(
+                    batch.ring_cells, batch.ring_masks
+                )
 
             # Get context from baseline model
             if hasattr(model, "encode_context"):
@@ -152,10 +162,14 @@ def train_baseline(
             for batch in val_loader:
                 batch = batch.to(device)
 
-                # Convert ring format to flat neighbors format
-                neighbors, neighbor_mask = _convert_rings_to_neighbors(
-                    batch.ring_cells, batch.ring_masks
-                )
+                # Get neighbors based on data format
+                if is_amici_format:
+                    neighbors = batch.neighbors
+                    neighbor_mask = batch.neighbor_mask
+                else:
+                    neighbors, neighbor_mask = _convert_rings_to_neighbors(
+                        batch.ring_cells, batch.ring_masks
+                    )
 
                 if hasattr(model, "encode_context"):
                     context = model.encode_context(

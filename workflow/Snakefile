@@ -57,8 +57,7 @@ BASE_SEED = config["experiment"]["seed"]  # Base seed, actual seeds are BASE_SEE
 
 FOLDS = list(range(N_FOLDS))
 SEEDS = [BASE_SEED + i for i in range(N_SEEDS)]  # e.g., [42, 43, 44] for 3 seeds
-# BASELINES = config.get("baselines", ["pooling", "deepsets", "set_transformer", "graphsage"])
-BASELINES = []  # Disabled - baselines already run in v1-core, no need to rerun
+BASELINES = config.get("baselines", ["pooling", "deepsets", "set_transformer", "graphsage"])
 
 # External competing methods (OT-based, trajectory methods)
 # These use external packages and have different training loops
