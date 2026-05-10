@@ -398,20 +398,21 @@ rule train_full:
         gw_checkpoint_dir=GW_ALIGNMENT_DIR if USE_PRETRAINED_GW else "",
     resources:
         mem_mb=256000,
-        runtime=2880,  # 48 hours
+        runtime=720,  # 12 hours (4 GPU DDP is ~4x faster)
         slurm_partition="gpu",
-        gpu=1,
+        gpu=4,
     shell:
         """
-        python -m stagebridge.training.trainer \
+        torchrun --nproc_per_node=4 -m stagebridge.training.trainer \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
             --fold-idx {params.fold} \
             --seed {params.seed} \
             --ssl-epochs {params.ssl_epochs} \
             --transition-epochs {params.transition_epochs} \
-            --batch-size {params.batch_size} \
+            --batch-size 256 \
             --hpo-params {input.hpo_params} \
+            --ddp \
             $([ -n "{params.gw_checkpoint_dir}" ] && echo "--gw-checkpoint-dir {params.gw_checkpoint_dir}")
         """
 
