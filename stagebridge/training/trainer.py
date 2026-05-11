@@ -234,9 +234,13 @@ class StageBridgeTrainer:
         batch: NicheBatch | AMICIBatch,
         return_reconstruction: bool = False,
     ):
-        """Encode batch using appropriate method based on batch type."""
+        """Encode batch using appropriate method based on batch type.
+
+        Uses _raw_model to avoid DataParallel/DDP wrapper issues with
+        methods not in forward().
+        """
         if isinstance(batch, AMICIBatch):
-            return self.model.encode_niche_amici(
+            return self._raw_model.encode_niche_amici(
                 receiver=batch.receiver,
                 neighbors=batch.neighbors,
                 distances=batch.distances,
@@ -249,7 +253,7 @@ class StageBridgeTrainer:
                 return_reconstruction=return_reconstruction,
             )
         else:
-            return self.model.encode_niche(
+            return self._raw_model.encode_niche(
                 receiver=batch.receiver,
                 ring_cells=batch.ring_cells,
                 ring_masks=batch.ring_masks,
