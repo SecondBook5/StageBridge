@@ -82,9 +82,12 @@ def run_inference(
     predictions = []
     embeddings = []
     attention_weights = []
+    displacements = []
 
+    batch_count = 0
     with torch.no_grad():
         for batch in test_loader:
+            batch_count += 1
             batch = batch.to(device)
 
             # Encode niche - use appropriate method based on architecture
@@ -138,7 +141,24 @@ def run_inference(
                 embeddings.append(niche_output.context.cpu().numpy())
 
             if save_attention and niche_output.attention_weights is not None:
-                attention_weights.append(niche_output.attention_weights.cpu().numpy())
+                attn = niche_output.attention_weights.cpu().numpy()
+                attention_weights.append(attn)
+                # Print attention stats for first batch
+                if batch_count == 1:
+                    print(f"  Attention shape: {attn.shape}, range: [{attn.min():.4f}, {attn.max():.4f}], mean: {attn.mean():.4f}")
+
+            # Get displacement/drift if model has sample heads
+            if hasattr(model, 'sample_heads') and model.sample_heads is not None:
+                try:
+                    head_output = model.sample_heads(niche_output.context)
+                    if head_output.get('displacement') is not None:
+                        displacements.append(head_output['displacement'].cpu().numpy())
+                        if batch_count == 1:
+                            disp = head_output['displacement'].cpu().numpy()
+                            print(f"  Displacement shape: {disp.shape}, range: [{disp.min():.4f}, {disp.max():.4f}]")
+                except Exception as e:
+                    if batch_count == 1:
+                        print(f"  Note: Could not get displacement: {e}")
 
     # Save predictions
     pred_df = pd.concat(predictions, ignore_index=True)
@@ -156,11 +176,16 @@ def run_inference(
         if attention_weights:
             attn_arr = np.concatenate(attention_weights, axis=0)
             np.savez(output_dir / "attention_weights.npz", attention=attn_arr)
-            print(f"Saved attention: {attn_arr.shape} -> {output_dir / 'attention_weights.npz'}")
+            print(f"Saved attention: {attn_arr.shape}, range: [{attn_arr.min():.4f}, {attn_arr.max():.4f}] -> {output_dir / 'attention_weights.npz'}")
         else:
             # Create empty attention file to satisfy Snakefile output requirement
             np.savez(output_dir / "attention_weights.npz", attention=np.array([]))
             print("Warning: No attention weights available, saved empty file")
+
+    if displacements:
+        disp_arr = np.concatenate(displacements, axis=0)
+        np.save(output_dir / "displacements.npy", disp_arr)
+        print(f"Saved displacements: {disp_arr.shape}, range: [{disp_arr.min():.4f}, {disp_arr.max():.4f}] -> {output_dir / 'displacements.npy'}")
 
 
 def main():

@@ -10,11 +10,6 @@ NUM_GPUS=4
 jobs=()
 for fold in 0 1 2 3 4; do
   for seed in 42 43 44; do
-    # Skip fold_0/seed_44 if still training (remove this line when done)
-    if [[ "$fold" == "0" && "$seed" == "44" ]]; then
-      echo "Skipping fold_${fold}/seed_${seed} (still training)"
-      continue
-    fi
     jobs+=("${fold}:${seed}")
   done
 done
