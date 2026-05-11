@@ -398,7 +398,7 @@ def run_ablation(
     # Save results
     result = {
         "ablation": ablation,
-        "ablation_config": ablation_kwargs,
+        "ablation_config": ablation_config,
         "model_config": model_kwargs,
         "hpo_params": hpo_params if hpo_params else None,
         "fold_idx": fold_idx,
