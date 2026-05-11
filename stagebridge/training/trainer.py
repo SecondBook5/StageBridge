@@ -27,6 +27,107 @@ from stagebridge.training.scheduler import create_lr_scheduler
 from stagebridge.training.distributed import is_main_process
 
 
+class TransitionStepWrapper(torch.nn.Module):
+    """Wrapper for DataParallel that puts transition step in forward().
+
+    DataParallel only distributes forward() calls, so we need to wrap
+    the encode + loss computation in a module. Returns per-sample loss
+    so DataParallel can gather across GPUs.
+    """
+
+    def __init__(self, model: "StageBridge"):
+        super().__init__()
+        self.model = model
+
+    def forward(
+        self,
+        # AMICI batch fields
+        receiver: Tensor,
+        neighbors: Tensor,
+        distances: Tensor,
+        neighbor_mask: Tensor,
+        hlca: Tensor,
+        luca: Tensor,
+        pathway: Tensor,
+        stats: Tensor,
+        evolution_features: Tensor | None,
+        # Transition targets
+        x1: Tensor,
+        t: Tensor,
+        stage_pair_id: Tensor,
+    ) -> Tensor:
+        """Forward returns per-sample MSE loss."""
+        # Encode niche
+        niche_output = self.model.encode_niche_amici(
+            receiver=receiver,
+            neighbors=neighbors,
+            distances=distances,
+            neighbor_mask=neighbor_mask,
+            hlca=hlca,
+            luca=luca,
+            pathway=pathway,
+            stats=stats,
+            evolution_features=evolution_features,
+            return_reconstruction=False,
+        )
+
+        # Interpolate for CFM
+        x0 = receiver
+        x_t = (1 - t.unsqueeze(1)) * x0 + t.unsqueeze(1) * x1
+        u_t = x1 - x0
+
+        # Predict velocity
+        v_t = self.model.forward_vector_field(
+            x_t=x_t,
+            t=t,
+            context=niche_output.context,
+            stage_pair_id=stage_pair_id,
+            context_tokens=niche_output.context_tokens,
+        )
+
+        # Per-sample MSE loss (DataParallel will gather)
+        loss = F.mse_loss(v_t, u_t, reduction='none').mean(dim=-1)
+        return loss
+
+
+class SSLStepWrapper(torch.nn.Module):
+    """Wrapper for DataParallel that puts SSL step in forward()."""
+
+    def __init__(self, model: "StageBridge"):
+        super().__init__()
+        self.model = model
+
+    def forward(
+        self,
+        # AMICI batch fields
+        receiver: Tensor,
+        neighbors: Tensor,
+        distances: Tensor,
+        neighbor_mask: Tensor,
+        hlca: Tensor,
+        luca: Tensor,
+        pathway: Tensor,
+        stats: Tensor,
+        evolution_features: Tensor | None,
+    ) -> Tensor:
+        """Forward returns per-sample MSE loss for reconstruction."""
+        niche_output = self.model.encode_niche_amici(
+            receiver=receiver,
+            neighbors=neighbors,
+            distances=distances,
+            neighbor_mask=neighbor_mask,
+            hlca=hlca,
+            luca=luca,
+            pathway=pathway,
+            stats=stats,
+            evolution_features=evolution_features,
+            return_reconstruction=True,
+        )
+        # Per-sample MSE loss
+        loss = F.mse_loss(niche_output.receiver_reconstruction, receiver, reduction='none').mean(dim=-1)
+        return loss
+
+
 @dataclass
 class TrainerConfig:
     """Configuration for StageBridge two-stage training.
@@ -165,10 +266,18 @@ class StageBridgeTrainer:
             from torch.nn import DataParallel
             self.model = DataParallel(model)
             self._raw_model = model
-            print(f"Using DataParallel with {torch.cuda.device_count()} GPUs")
+            n_gpus = torch.cuda.device_count()
+            print(f"Using DataParallel with {n_gpus} GPUs")
+            print(f"NOTE: Training uses _raw_model for encode methods (OT coupling requires full batch)")
+            print(f"TIP: Use larger batch_size (e.g., {64 * n_gpus}) to better utilize GPU memory")
         else:
             self.model = model
             self._raw_model = model
+
+        # DP wrappers (only set when using DataParallel)
+        if not hasattr(self, '_transition_wrapper'):
+            self._transition_wrapper = None
+            self._ssl_wrapper = None
 
         # If run_name is empty or ".", use output_dir directly
         if config.run_name and config.run_name != ".":
