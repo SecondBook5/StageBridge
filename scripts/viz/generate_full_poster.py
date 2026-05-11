@@ -147,6 +147,19 @@ def load_all_data(data_dir: Path, model_dir: Path) -> Dict:
         data['rare_cells'] = pd.read_parquet(rare_path)
         print(f"[+] rare_cell_signatures.parquet: {data['rare_cells'].shape}")
 
+    # --- OT dynamics (flux, curl, divergence) ---
+    for ot_name in ['ot_dynamics.parquet', 'velocity_field.parquet', 'flow_analysis.parquet']:
+        ot_path = data_dir / ot_name
+        if ot_path.exists():
+            data['ot_dynamics'] = pd.read_parquet(ot_path)
+            print(f"[+] {ot_name}: {data['ot_dynamics'].shape}")
+            break
+    # Also check in progression folder
+    ot_path = data_dir / 'progression' / 'ot_dynamics.parquet'
+    if ot_path.exists() and 'ot_dynamics' not in data:
+        data['ot_dynamics'] = pd.read_parquet(ot_path)
+        print(f"[+] progression/ot_dynamics.parquet: {data['ot_dynamics'].shape}")
+
     # --- Model metrics ---
     if model_dir.exists():
         data['model_metrics'] = load_model_metrics(model_dir)
@@ -823,7 +836,150 @@ def fig7_fold_changes(df: pd.DataFrame, output_dir: Path):
     print("Saved: fig7_fold_changes")
 
 
-def fig8_spatial_showcase(df: pd.DataFrame, output_dir: Path, n_examples: int = 3):
+def fig8_cell_cycle(df: pd.DataFrame, umap: np.ndarray, output_dir: Path):
+    """Figure 8: Cell cycle analysis."""
+    print("\n=== Figure 8: Cell Cycle ===")
+
+    stage_order, colors = get_stage_order(df)
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+
+    # A: UMAP by S score
+    ax = axes[0]
+    if 'S_score' in df.columns:
+        vals = df['S_score'].values
+        vmin, vmax = np.nanpercentile(vals[~np.isnan(vals)], [2, 98])
+        scatter = ax.scatter(umap[:, 0], umap[:, 1], c=vals,
+                            cmap='YlOrRd', s=0.3, alpha=0.5,
+                            vmin=vmin, vmax=vmax, rasterized=True)
+        plt.colorbar(scatter, ax=ax, shrink=0.6)
+    ax.set_title('A. S Phase Score', fontsize=12, fontweight='bold')
+    ax.set_xticks([]); ax.set_yticks([])
+    for spine in ax.spines.values(): spine.set_visible(False)
+
+    # B: UMAP by G2M score
+    ax = axes[1]
+    if 'G2M_score' in df.columns:
+        vals = df['G2M_score'].values
+        vmin, vmax = np.nanpercentile(vals[~np.isnan(vals)], [2, 98])
+        scatter = ax.scatter(umap[:, 0], umap[:, 1], c=vals,
+                            cmap='YlGnBu', s=0.3, alpha=0.5,
+                            vmin=vmin, vmax=vmax, rasterized=True)
+        plt.colorbar(scatter, ax=ax, shrink=0.6)
+    ax.set_title('B. G2/M Phase Score', fontsize=12, fontweight='bold')
+    ax.set_xticks([]); ax.set_yticks([])
+    for spine in ax.spines.values(): spine.set_visible(False)
+
+    # C: Violin by stage
+    ax = axes[2]
+    if 'S_score' in df.columns and 'G2M_score' in df.columns:
+        # Combined proliferation
+        df['prolif_combined'] = df['S_score'] + df['G2M_score']
+
+        data_by_stage = []
+        stage_colors = []
+        for stage in stage_order:
+            mask = df['stage'] == stage
+            v = df.loc[mask, 'prolif_combined'].dropna().values
+            if len(v) > 0:
+                data_by_stage.append(v)
+                stage_colors.append(colors.get(stage, 'gray'))
+
+        if data_by_stage:
+            all_v = np.concatenate(data_by_stage)
+            ymin, ymax = np.percentile(all_v, [1, 99])
+            margin = (ymax - ymin) * 0.15
+
+            parts = ax.violinplot(data_by_stage, showmeans=True)
+            for pc, c in zip(parts['bodies'], stage_colors):
+                pc.set_facecolor(c)
+                pc.set_alpha(0.7)
+            parts['cmeans'].set_color('black')
+            parts['cmeans'].set_linewidth(2)
+
+            ax.set_ylim(ymin - margin, ymax + margin)
+
+        ax.set_xticks(range(1, len(stage_order)+1))
+        ax.set_xticklabels(stage_order, fontsize=10)
+        ax.set_ylabel('S + G2M Score')
+    ax.set_title('C. Proliferation by Stage', fontsize=12, fontweight='bold')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+    fig.savefig(output_dir / 'fig8_cell_cycle.png', dpi=300, bbox_inches='tight')
+    fig.savefig(output_dir / 'fig8_cell_cycle.pdf', bbox_inches='tight')
+    plt.close(fig)
+    print("Saved: fig8_cell_cycle")
+
+
+def fig9_ot_dynamics(data: Dict, df: pd.DataFrame, umap: np.ndarray, output_dir: Path):
+    """Figure 9: OT dynamics - flux, curl, divergence."""
+    print("\n=== Figure 9: OT Dynamics ===")
+
+    # Check for OT data - could be in various places
+    ot_cols = ['flux', 'curl', 'divergence', 'velocity_x', 'velocity_y',
+               'flow_magnitude', 'irreversibility']
+
+    found_cols = [c for c in ot_cols if c in df.columns]
+
+    # Also check for separate OT file
+    if 'ot_dynamics' in data:
+        ot_df = data['ot_dynamics']
+        for c in ot_cols:
+            if c in ot_df.columns and c not in df.columns:
+                if len(ot_df) == len(df):
+                    df[c] = ot_df[c].values
+                    found_cols.append(c)
+
+    if not found_cols:
+        print("No OT dynamics columns found")
+        print("Expected columns like: flux, curl, divergence, velocity_x/y")
+        print(f"Available columns: {[c for c in df.columns if 'vel' in c.lower() or 'flux' in c.lower() or 'div' in c.lower() or 'curl' in c.lower()]}")
+        return
+
+    n_cols = min(len(found_cols), 4)
+    fig, axes = plt.subplots(1, n_cols, figsize=(5*n_cols, 4.5))
+    if n_cols == 1:
+        axes = [axes]
+
+    cmaps = {'flux': 'coolwarm', 'curl': 'PiYG', 'divergence': 'RdBu_r',
+             'flow_magnitude': 'viridis', 'irreversibility': 'magma'}
+
+    for idx, col in enumerate(found_cols[:n_cols]):
+        ax = axes[idx]
+        vals = df[col].values
+        valid = ~np.isnan(vals)
+
+        if valid.sum() == 0:
+            ax.text(0.5, 0.5, f'{col}\n(no data)', ha='center', va='center', transform=ax.transAxes)
+            continue
+
+        vmin, vmax = np.nanpercentile(vals[valid], [2, 98])
+
+        # Symmetric colormap for curl/divergence
+        if col in ['curl', 'divergence', 'flux']:
+            vabs = max(abs(vmin), abs(vmax))
+            vmin, vmax = -vabs, vabs
+
+        cmap = cmaps.get(col, 'viridis')
+        scatter = ax.scatter(umap[:, 0], umap[:, 1], c=vals,
+                            cmap=cmap, s=0.3, alpha=0.5,
+                            vmin=vmin, vmax=vmax, rasterized=True)
+        plt.colorbar(scatter, ax=ax, shrink=0.6)
+
+        ax.set_title(col.replace('_', ' ').title(), fontsize=12, fontweight='bold')
+        ax.set_xticks([]); ax.set_yticks([])
+        for spine in ax.spines.values(): spine.set_visible(False)
+
+    plt.tight_layout()
+    fig.savefig(output_dir / 'fig9_ot_dynamics.png', dpi=300, bbox_inches='tight')
+    fig.savefig(output_dir / 'fig9_ot_dynamics.pdf', bbox_inches='tight')
+    plt.close(fig)
+    print("Saved: fig9_ot_dynamics")
+
+
+def fig10_spatial_showcase(df: pd.DataFrame, output_dir: Path, n_examples: int = 3):
     """Figure 8: Spatial data examples."""
     print("\n=== Figure 8: Spatial Showcase ===")
 
@@ -961,7 +1117,9 @@ def main():
         fig6_attention_analysis(data['inference'], df, args.output_dir)
 
     fig7_fold_changes(df, args.output_dir)
-    fig8_spatial_showcase(df_all, args.output_dir)  # Use all cells for spatial
+    fig8_cell_cycle(df, umap, args.output_dir)
+    fig9_ot_dynamics(data, df, umap, args.output_dir)
+    fig10_spatial_showcase(df_all, args.output_dir)  # Use all cells for spatial
 
     print("\n" + "="*60)
     print(f"COMPLETE - Figures saved to: {args.output_dir}")
