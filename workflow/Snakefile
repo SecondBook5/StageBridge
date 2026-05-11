@@ -674,6 +674,78 @@ rule evaluate_full:
 
 
 # =============================================================================
+# ABLATION INFERENCE
+# =============================================================================
+
+rule infer_ablation:
+    """Run inference with ablation model.
+
+    Runs per ablation x fold x seed.
+    """
+    input:
+        checkpoint=f"{OUTPUT_DIR}/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        predictions=f"{OUTPUT_DIR}/inference/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/predictions.parquet",
+    params:
+        fold=lambda w: w.fold,
+        seed=lambda w: w.seed,
+        run_dir=lambda w: f"{OUTPUT_DIR}/inference/ablations/{w.ablation}/fold_{w.fold}/seed_{w.seed}",
+    resources:
+        mem_mb=256000,
+        runtime=240,  # 4 hours
+        slurm_partition="gpu",
+        gpu=1,
+    shell:
+        """
+        python -m stagebridge.pipelines.infer \
+            --checkpoint {input.checkpoint} \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold}
+        """
+
+
+rule evaluate_ablation:
+    """Evaluate ablation model predictions on held-out test set."""
+    input:
+        predictions=f"{OUTPUT_DIR}/inference/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/predictions.parquet",
+        neighborhoods=f"{DATA_DIR}/neighborhoods.parquet",
+    output:
+        evaluation=f"{OUTPUT_DIR}/evaluation/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/evaluation.json",
+    params:
+        fold=lambda w: w.fold,
+        run_dir=lambda w: f"{OUTPUT_DIR}/evaluation/ablations/{w.ablation}/fold_{w.fold}/seed_{w.seed}",
+    resources:
+        mem_mb=128000,
+        runtime=60,  # 1 hour
+        slurm_partition="gpu",
+        gpu=1,
+    shell:
+        """
+        python -m stagebridge.evaluation.evaluate \
+            --predictions {input.predictions} \
+            --data-dir {DATA_DIR} \
+            --output-dir {params.run_dir} \
+            --fold-idx {params.fold}
+        """
+
+
+rule run_all_ablation_inference:
+    """Run inference for all ablations across all folds and seeds."""
+    input:
+        expand(f"{OUTPUT_DIR}/inference/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/predictions.parquet",
+               ablation=ABLATIONS, fold=FOLDS, seed=SEEDS),
+
+
+rule run_all_ablation_evaluation:
+    """Evaluate all ablations across all folds and seeds."""
+    input:
+        expand(f"{OUTPUT_DIR}/evaluation/ablations/{{ablation}}/fold_{{fold}}/seed_{{seed}}/evaluation.json",
+               ablation=ABLATIONS, fold=FOLDS, seed=SEEDS),
+
+
+# =============================================================================
 # COMPARISON REPORT
 # =============================================================================
 
