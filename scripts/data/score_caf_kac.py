@@ -18,18 +18,29 @@ CAF_SIGNATURES = {
     'apCAF': ['CD74', 'HLA-DRA', 'HLA-DRB1', 'HLA-DPA1', 'HLA-DPB1', 'SLPI'],  # antigen-presenting CAF
 }
 
-# KAC (Kadara Alveolar Cell) - reactive pneumocyte-like progenitors
-# From Kadara/Peng papers on LUAD precursors
+# KAC (KRT8+ Alveolar intermediate Cells) from Han et al. 2024 Nature
+# "An atlas of epithelial cell states and plasticity in lung adenocarcinoma"
+# KACs are intermediary in AT2-to-tumor transition, enriched in premalignant lesions
 KAC_SIGNATURE = {
-    'KAC': ['SOX9', 'KRT8', 'KRT18', 'LGALS3', 'CLDN4', 'CLDN7', 'NAPSA', 'SLC34A2', 'MUC1', 'CEACAM6'],
-    'AT2_progenitor': ['SFTPC', 'SFTPA1', 'SFTPA2', 'SFTPB', 'ABCA3', 'LAMP3', 'NKX2-1'],
+    # Core KAC markers from Fig 2b - defines the KAC population
+    'KAC': ['KRT8', 'CLDN4', 'CDKN1A', 'CDKN2A', 'PLAUR'],
+    # Extended KAC/damage-associated markers (ADI-like)
+    'KAC_extended': ['KRT8', 'CLDN4', 'LGALS3', 'AREG', 'CLDN7', 'KRT18', 'SFN', 'TACSTD2'],
+    # AT2 progenitor (differentiated state KACs transition from)
+    'AT2': ['SFTPC', 'SFTPA1', 'SFTPA2', 'SFTPB', 'ABCA3', 'LAMP3', 'NKX2-1'],
+    # AT1 (alternative differentiation endpoint)
     'AT1': ['AGER', 'HOPX', 'PDPN', 'CAV1', 'AQP5'],
+    # AIC (alveolar intermediate cells - broader category containing KACs)
+    'AIC': ['KRT8', 'CLDN4', 'SFN', 'KRT18', 'TACSTD2', 'MMP7'],
 }
 
 # Additional relevant signatures
 EXTRA_SIGNATURES = {
     'IL1_response': ['IL1B', 'IL1R1', 'IL1R2', 'IL1RAP', 'IL1RN', 'CASP1', 'NLRP3', 'PYCARD'],
-    'alveolar_damage': ['KRT8', 'CLDN4', 'LGALS3', 'AREG', 'TP63', 'KRT5'],  # ADI/damage-associated
+    # KRAS signature - Han et al. derived, correlated with KAC
+    'KRAS_sig': ['DUSP6', 'SPRY2', 'SPRY4', 'ETV4', 'ETV5', 'PHLDA1', 'EREG', 'AREG'],
+    # p53 pathway - activated in KACs per Han et al.
+    'p53_pathway': ['CDKN1A', 'MDM2', 'BAX', 'BBC3', 'PUMA', 'GADD45A', 'TP53I3'],
 }
 
 
