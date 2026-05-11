@@ -11,11 +11,22 @@ import numpy as np
 from pathlib import Path
 
 
-# CAF subtypes from Elyada et al. 2019 / Ohlund et al. 2017
+# Spatial CAF subtypes from Liu et al. 2025 Cancer Cell
+# "Conserved spatial subtypes and cellular neighborhoods of CAFs"
+# Four subtypes conserved across cancer types with distinct neighborhoods
 CAF_SIGNATURES = {
-    'myCAF': ['ACTA2', 'TAGLN', 'MYL9', 'TPM1', 'TPM2', 'MMP11', 'POSTN', 'TNC', 'COL11A1', 'COMP'],
-    'iCAF': ['IL6', 'CXCL1', 'CXCL2', 'CXCL12', 'CCL2', 'PDGFRA', 'HAS1', 'CFD', 'LMNA', 'DPT'],
-    'apCAF': ['CD74', 'HLA-DRA', 'HLA-DRB1', 'HLA-DPA1', 'HLA-DPB1', 'SLPI'],  # antigen-presenting CAF
+    # s1-CAF: tumor-adjacent, myCAF-like, ECM remodeling
+    's1_CAF_tumor': ['ACTA2', 'TAGLN', 'MYL9', 'TPM2', 'MYH11', 'COL1A1', 'COL3A1', 'MMP7', 'MMP14', 'TGFB1'],
+    # s2-CAF: stromal niche, iCAF-like, cytokine-secreting
+    's2_CAF_stromal': ['LIF', 'IL6', 'COL1A1', 'COL4A1', 'FAP', 'FN1'],
+    # s3-CAF: myeloid-enriched, growth factor receptors, complement
+    's3_CAF_myeloid': ['PDGFRA', 'PDGFRB', 'MMP2', 'CXCL14', 'CFD', 'C1QA', 'MT1X', 'HSPA1A'],
+    # s4-CAF: TLS-associated, chemokine-rich, apCAF-like
+    's4_CAF_TLS': ['CCL19', 'CCL21', 'CXCL9', 'CCL2', 'CD74', 'HLA-DRA', 'STAT3'],
+    # Classic subtypes for comparison
+    'myCAF': ['ACTA2', 'TAGLN', 'MYL9', 'TPM1', 'TPM2', 'MMP11', 'POSTN', 'TNC'],
+    'iCAF': ['IL6', 'CXCL1', 'CXCL2', 'CXCL12', 'CCL2', 'PDGFRA', 'HAS1', 'CFD'],
+    'apCAF': ['CD74', 'HLA-DRA', 'HLA-DRB1', 'HLA-DPA1', 'HLA-DPB1', 'SLPI'],
 }
 
 # KAC (KRT8+ Alveolar intermediate Cells) from Han et al. 2024 Nature
@@ -48,6 +59,17 @@ NICHE_SIGNATURES = {
     'IL1B_mac': ['IL1B', 'CCL2', 'IL18', 'NFKB1', 'CSF1', 'TNF', 'IL6'],
 }
 
+# T cell signatures from Chu et al. 2023 Nature Medicine
+# "Pan-cancer T cell atlas links cellular stress response to ICB resistance"
+T_CELL_SIGNATURES = {
+    # TSTR: stress response T cells - linked to immunotherapy resistance
+    'Tstr': ['HSPA1A', 'HSPA1B', 'HSPA6', 'HSP90AA1', 'DNAJB1', 'BAG3'],
+    # Exhausted T cells
+    'Tex': ['HAVCR2', 'LAG3', 'TIGIT', 'PDCD1', 'CTLA4', 'TOX', 'ENTPD1'],
+    # Effector T cells
+    'Teff': ['GZMB', 'PRF1', 'GNLY', 'IFNG', 'NKG7', 'FGFBP2'],
+}
+
 # Additional relevant signatures
 EXTRA_SIGNATURES = {
     # KRAS signature - Han et al. derived, correlated with KAC
@@ -56,6 +78,8 @@ EXTRA_SIGNATURES = {
     'p53_pathway': ['CDKN1A', 'MDM2', 'BAX', 'BBC3', 'PUMA', 'GADD45A', 'TP53I3'],
     # Interferon signaling (elevated in KRAS-mutant precursors per Peng)
     'IFN_response': ['ISG15', 'IFIT1', 'IFIT3', 'MX1', 'OAS1', 'STAT1', 'IRF7'],
+    # TLS/lymphoid aggregate markers (from multiple Kadara papers)
+    'TLS': ['CXCL13', 'CCL19', 'CCL21', 'CR2', 'CXCR5', 'MS4A1', 'CD79A'],
 }
 
 
@@ -98,6 +122,7 @@ def main():
     all_sigs.update(CAF_SIGNATURES)
     all_sigs.update(KAC_SIGNATURE)
     all_sigs.update(NICHE_SIGNATURES)
+    all_sigs.update(T_CELL_SIGNATURES)
     all_sigs.update(EXTRA_SIGNATURES)
 
     print('Scoring signatures...')
