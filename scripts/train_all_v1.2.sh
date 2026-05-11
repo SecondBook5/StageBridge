@@ -41,24 +41,42 @@ run_job() {
     local infdir="${OUTPUT_BASE}/inference/full/fold_${fold}/seed_${seed}"
     local logfile="${OUTPUT_BASE}/logs/fold_${fold}_seed_${seed}.log"
     local checkpoint="${outdir}/checkpoints/best_checkpoint.pt"
+    local figpath="${OUTPUT_BASE}/figures/attention_fold_${fold}_seed_${seed}.png"
 
-    echo "[GPU $gpu] fold_${fold}/seed_${seed}: Starting train..."
+    # RESUME CHECK: Skip if attention figure exists (means job completed)
+    if [[ -f "$figpath" ]]; then
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: SKIP (already complete)"
+        return 0
+    fi
 
-    # 1. Train
-    CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
-        --data-dir "$DATA_DIR" \
-        --output-dir "$outdir" \
-        --fold-idx $fold \
-        --seed $seed \
-        --ssl-epochs 50 \
-        --transition-epochs 100 \
-        --batch-size 64 \
-        >> "$logfile" 2>&1
-
-    echo "[GPU $gpu] fold_${fold}/seed_${seed}: Train done. Starting inference..."
-
-    # 2. Inference
+    # RESUME CHECK: Skip training if checkpoint exists
     if [[ -f "$checkpoint" ]]; then
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Checkpoint exists, skipping train..."
+    else
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Starting train..."
+
+        mkdir -p "$outdir"
+
+        # 1. Train
+        CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
+            --data-dir "$DATA_DIR" \
+            --output-dir "$outdir" \
+            --fold-idx $fold \
+            --seed $seed \
+            --ssl-epochs 50 \
+            --transition-epochs 100 \
+            --batch-size 64 \
+            >> "$logfile" 2>&1
+
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Train done."
+    fi
+
+    # 2. Inference (if checkpoint exists)
+    if [[ -f "$checkpoint" ]]; then
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Starting inference..."
+
+        mkdir -p "$infdir"
+
         CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.pipelines.infer \
             --checkpoint "$checkpoint" \
             --data-dir "$DATA_DIR" \
@@ -71,7 +89,6 @@ run_job() {
         echo "[GPU $gpu] fold_${fold}/seed_${seed}: Inference done. Making attention figure..."
 
         # 3. Attention figure
-        local figpath="${OUTPUT_BASE}/figures/attention_fold_${fold}_seed_${seed}.png"
         python scripts/quick_attention_fig.py "$infdir" "$figpath" >> "$logfile" 2>&1
 
     else
