@@ -233,6 +233,13 @@ class StageBridgeConfig:
         if has_gw_fusion and not config_dict.get("use_gw_fusion"):
             config_dict["use_gw_fusion"] = True
 
+        # Infer AMICI attention (receiver-centered niche encoder)
+        has_amici = any(k.startswith("amici_encoder.") for k in state_dict)
+        if has_amici and not config_dict.get("use_amici_attention"):
+            config_dict["use_amici_attention"] = True
+            # Also need to disable niche_tokenizer since AMICI replaces it
+            config_dict["use_learned_ring_pooling"] = False
+
         return cls(**config_dict)
 
 
