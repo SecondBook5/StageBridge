@@ -612,6 +612,7 @@ rule infer_full:
     """Run inference with full model.
 
     Runs per fold x seed. Predictions are later aggregated for evaluation.
+    Saves embeddings and attention weights for downstream analysis.
     """
     input:
         checkpoint=f"{OUTPUT_DIR}/full/fold_{{fold}}/seed_{{seed}}/checkpoints/best_checkpoint.pt",
@@ -633,7 +634,9 @@ rule infer_full:
             --checkpoint {input.checkpoint} \
             --data-dir {DATA_DIR} \
             --output-dir {params.run_dir} \
-            --fold-idx {params.fold}
+            --fold-idx {params.fold} \
+            --save-embeddings \
+            --save-attention
         """
 
 

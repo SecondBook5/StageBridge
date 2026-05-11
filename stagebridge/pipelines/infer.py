@@ -45,15 +45,18 @@ def run_inference(
 
     print(f"Model config: use_amici_attention={config.use_amici_attention}")
 
-    # Load data first to detect evolution_dim
+    # Load data - we'll peek at the first batch to detect settings, then reload
     print(f"Loading test data from fold {fold_idx}...")
     _, _, test_loader = create_dataloaders(data_dir, fold_idx=fold_idx, batch_size=64)
 
     if test_loader is None:
         raise RuntimeError(f"No test data found for fold {fold_idx}")
 
-    # Detect evolution_dim from data and validate against checkpoint config
+    # Peek at first batch to detect evolution_dim and batch type
+    # We need to reload the dataloader after this to not skip the first batch
     sample_batch = next(iter(test_loader))
+    is_amici = isinstance(sample_batch, AMICIBatch)
+
     if sample_batch.evolution_features is not None:
         data_evolution_dim = sample_batch.evolution_features.shape[-1]
         if config.use_evolution_branch and config.evolution_dim != data_evolution_dim:
@@ -61,26 +64,24 @@ def run_inference(
                 f"WARNING: Checkpoint has evolution_dim={config.evolution_dim} but data has "
                 f"evolution_dim={data_evolution_dim}. This may cause dimension mismatches."
             )
-            # Update config to match data - this will help detect errors early
-            # If checkpoint weights don't match, load_state_dict will fail with clear error
             config = StageBridgeConfig(
                 **{k: v for k, v in config.__dict__.items() if k != 'evolution_dim'},
                 evolution_dim=data_evolution_dim,
             )
+
+    # Reload dataloader so we don't skip the first batch
+    _, _, test_loader = create_dataloaders(data_dir, fold_idx=fold_idx, batch_size=64)
 
     model = StageBridge(config).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
     print(f"Running inference on {len(test_loader.dataset)} test samples...")
+    print(f"Batch type: {'AMICIBatch' if is_amici else 'NicheBatch'}")
 
     predictions = []
     embeddings = []
     attention_weights = []
-
-    # Detect batch type from first batch
-    is_amici = isinstance(sample_batch, AMICIBatch)
-    print(f"Batch type: {'AMICIBatch' if is_amici else 'NicheBatch'}")
 
     with torch.no_grad():
         for batch in test_loader:
@@ -121,6 +122,7 @@ def run_inference(
                 "donor_id": batch.donor_ids,
                 "stage_idx": batch.stage_idx.cpu().numpy(),
                 "context_z": niche_output.context.cpu().numpy().tolist(),
+                "gt_receiver": batch.receiver.cpu().numpy().tolist(),  # Ground truth for evaluation
             }
 
             # Add reconstruction (required for SSL evaluation - must be 40d to match gt_receivers)
