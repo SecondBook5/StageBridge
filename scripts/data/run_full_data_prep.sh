@@ -350,7 +350,9 @@ if 'stage' in liana.columns:
 
 # IL1B-specific interactions
 print('IL1B interactions...')
-il1b = liana[liana['ligand'].str.contains('IL1', na=False) | liana['receptor'].str.contains('IL1R', na=False)]
+ligand_col = 'ligand_complex' if 'ligand_complex' in liana.columns else 'ligand'
+receptor_col = 'receptor_complex' if 'receptor_complex' in liana.columns else 'receptor'
+il1b = liana[liana[ligand_col].str.contains('IL1', na=False) | liana[receptor_col].str.contains('IL1R', na=False)]
 if len(il1b) > 0:
     il1b.to_parquet(out / 'il1b_interactions.parquet')
     print(f'  {len(il1b)} IL1B-related interactions')
