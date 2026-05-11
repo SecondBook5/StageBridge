@@ -2,11 +2,9 @@
 # Train all 15 models (5 folds x 3 seeds) on 4 GPUs
 # v1.2: Fixed stats token shortcut
 #
-# Each job runs on 1 GPU. 4 jobs run in parallel.
+# Each GPU runs: train -> inference -> attention figure, then next job
 #
 # Usage: bash scripts/train_all_v1.2.sh
-#
-# Estimated time: ~12 hours total (4 batches, ~3h each)
 
 set -e
 
@@ -15,7 +13,7 @@ OUTPUT_BASE="/data1/chaunzt1/stagebridge/outputs/v1.2"
 NUM_GPUS=4
 
 # All 15 jobs: fold:seed pairs
-jobs=(
+all_jobs=(
     "0:42" "1:42" "2:42" "3:42"
     "4:42" "0:43" "1:43" "2:43"
     "3:43" "4:43" "0:44" "1:44"
@@ -26,63 +24,113 @@ echo "=============================================="
 echo "StageBridge v1.2 Full Training"
 echo "=============================================="
 echo "Fix: Stats token removed from context refiner"
-echo "Data: $DATA_DIR"
-echo "Output: $OUTPUT_BASE"
-echo "Jobs: ${#jobs[@]} (5 folds x 3 seeds)"
-echo "GPUs: $NUM_GPUS (1 job per GPU)"
+echo "Each GPU: train -> inference -> attention figure"
+echo "Jobs: ${#all_jobs[@]} | GPUs: $NUM_GPUS"
 echo "=============================================="
-echo ""
 
 mkdir -p "$OUTPUT_BASE/logs"
+mkdir -p "$OUTPUT_BASE/figures"
 
-# Process in batches of NUM_GPUS
-batch_num=0
-for ((i=0; i<${#jobs[@]}; i+=NUM_GPUS)); do
-    batch_num=$((batch_num + 1))
-    pids=()
+# Function to run one complete job on one GPU
+run_job() {
+    local gpu=$1
+    local fold=$2
+    local seed=$3
 
-    echo "========== Batch $batch_num / $(( (${#jobs[@]} + NUM_GPUS - 1) / NUM_GPUS )) =========="
+    local outdir="${OUTPUT_BASE}/full/fold_${fold}/seed_${seed}"
+    local infdir="${OUTPUT_BASE}/inference/full/fold_${fold}/seed_${seed}"
+    local logfile="${OUTPUT_BASE}/logs/fold_${fold}_seed_${seed}.log"
+    local checkpoint="${outdir}/checkpoints/best_checkpoint.pt"
 
-    for ((j=0; j<NUM_GPUS && i+j<${#jobs[@]}; j++)); do
-        job=${jobs[i+j]}
-        fold=${job%:*}
-        seed=${job#*:}
-        gpu=$j
+    echo "[GPU $gpu] fold_${fold}/seed_${seed}: Starting train..."
 
-        outdir="${OUTPUT_BASE}/full/fold_${fold}/seed_${seed}"
-        logfile="${OUTPUT_BASE}/logs/fold_${fold}_seed_${seed}.log"
+    # 1. Train
+    CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
+        --data-dir "$DATA_DIR" \
+        --output-dir "$outdir" \
+        --fold-idx $fold \
+        --seed $seed \
+        --ssl-epochs 50 \
+        --transition-epochs 100 \
+        --batch-size 64 \
+        >> "$logfile" 2>&1
 
-        mkdir -p "$outdir"
+    echo "[GPU $gpu] fold_${fold}/seed_${seed}: Train done. Starting inference..."
 
-        echo "  GPU $gpu: fold_${fold}/seed_${seed}"
-
-        CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
+    # 2. Inference
+    if [[ -f "$checkpoint" ]]; then
+        CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.pipelines.infer \
+            --checkpoint "$checkpoint" \
             --data-dir "$DATA_DIR" \
-            --output-dir "$outdir" \
+            --output-dir "$infdir" \
             --fold-idx $fold \
-            --seed $seed \
-            --ssl-epochs 50 \
-            --transition-epochs 100 \
-            --batch-size 64 \
-            > "$logfile" 2>&1 &
+            --save-embeddings \
+            --save-attention \
+            >> "$logfile" 2>&1
 
-        pids+=($!)
-    done
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Inference done. Checking attention..."
 
-    echo ""
-    echo "  Logs: tail -f ${OUTPUT_BASE}/logs/*.log"
-    echo "  Waiting..."
-    echo ""
+        # 3. Quick attention check
+        python -c "
+import numpy as np
+attn = np.load('${infdir}/attention_weights.npz')['attention']
+print(f'Attention: shape={attn.shape}, range=[{attn.min():.4f}, {attn.max():.4f}], mean={attn.mean():.4f}')
+if attn.max() > 0.001:
+    print('SUCCESS: Attention is non-zero!')
+else:
+    print('WARNING: Attention still near zero')
+" >> "$logfile" 2>&1
 
-    # Wait for this batch
-    for pid in "${pids[@]}"; do
-        wait $pid || echo "  Process $pid failed"
-    done
+    else
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: No checkpoint found!" >> "$logfile"
+    fi
 
-    echo "  Batch $batch_num complete"
-    echo ""
+    echo "[GPU $gpu] fold_${fold}/seed_${seed}: Complete"
+}
+
+# Distribute jobs across GPUs
+# GPU 0 gets jobs 0,4,8,12
+# GPU 1 gets jobs 1,5,9,13
+# GPU 2 gets jobs 2,6,10,14
+# GPU 3 gets jobs 3,7,11
+
+gpu_jobs=()
+for ((g=0; g<NUM_GPUS; g++)); do
+    gpu_jobs[$g]=""
 done
 
+for ((i=0; i<${#all_jobs[@]}; i++)); do
+    gpu=$((i % NUM_GPUS))
+    gpu_jobs[$gpu]+="${all_jobs[$i]} "
+done
+
+# Launch one process per GPU that runs its jobs sequentially
+pids=()
+for ((gpu=0; gpu<NUM_GPUS; gpu++)); do
+    (
+        for job in ${gpu_jobs[$gpu]}; do
+            fold=${job%:*}
+            seed=${job#*:}
+            run_job $gpu $fold $seed
+        done
+    ) &
+    pids+=($!)
+    echo "Launched GPU $gpu with jobs: ${gpu_jobs[$gpu]}"
+done
+
+echo ""
+echo "All GPUs running. Logs: tail -f ${OUTPUT_BASE}/logs/*.log"
+echo ""
+
+# Wait for all GPUs to finish
+for pid in "${pids[@]}"; do
+    wait $pid
+done
+
+echo ""
 echo "=============================================="
 echo "All training complete!"
 echo "=============================================="
+echo ""
+echo "Check attention results:"
+echo "  grep -r 'Attention:' ${OUTPUT_BASE}/logs/*.log"
