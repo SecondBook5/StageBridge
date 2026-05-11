@@ -398,7 +398,6 @@ rule train_full:
         mem_mb=256000,
         runtime=1440,  # 24 hours
         slurm_partition="gpu",
-        slurm_extra="--gpus=1",
     shell:
         """
         python -m stagebridge.training.trainer \

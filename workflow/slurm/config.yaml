@@ -13,10 +13,10 @@ default-resources:
   cpus_per_task: 4
   gpu: 1
 
-# Override GPU count per rule - 2 GPUs for train_full
+# Override GPU count per rule
 set-resources:
   train_full:
-    gpu: 2
+    gpu: 1
     tasks: 1
     runtime: 1440  # 24 hours
 
