@@ -34,13 +34,28 @@ KAC_SIGNATURE = {
     'AIC': ['KRT8', 'CLDN4', 'SFN', 'KRT18', 'TACSTD2', 'MMP7'],
 }
 
+# Proinflammatory niche signatures from Peng et al. 2026 Cancer Cell
+# "Multimodal spatial-omics reveal co-evolution of alveolar progenitors
+# and proinflammatory niches in progression of lung precursor lesions"
+NICHE_SIGNATURES = {
+    # IL1B-IL1R1 axis - key L-R interaction in KAC niches
+    'IL1_axis': ['IL1B', 'IL1R1', 'IL1R2', 'IL1RAP', 'IL1RN'],
+    # NF-kB pathway - upregulated in KACs and precursor lesions
+    'NFkB': ['RELA', 'RELB', 'NFKB1', 'NFKB2', 'NFKBIA', 'NFKBIZ'],
+    # Inflamed AT2 markers (from Peng et al. Xenium)
+    'inflamed_AT2': ['CXCL2', 'NFKBIA', 'NFKBIZ', 'CXCL1', 'CXCL3', 'IL6'],
+    # IL1B-high macrophage markers (proinflammatory niche)
+    'IL1B_mac': ['IL1B', 'CCL2', 'IL18', 'NFKB1', 'CSF1', 'TNF', 'IL6'],
+}
+
 # Additional relevant signatures
 EXTRA_SIGNATURES = {
-    'IL1_response': ['IL1B', 'IL1R1', 'IL1R2', 'IL1RAP', 'IL1RN', 'CASP1', 'NLRP3', 'PYCARD'],
     # KRAS signature - Han et al. derived, correlated with KAC
     'KRAS_sig': ['DUSP6', 'SPRY2', 'SPRY4', 'ETV4', 'ETV5', 'PHLDA1', 'EREG', 'AREG'],
     # p53 pathway - activated in KACs per Han et al.
     'p53_pathway': ['CDKN1A', 'MDM2', 'BAX', 'BBC3', 'PUMA', 'GADD45A', 'TP53I3'],
+    # Interferon signaling (elevated in KRAS-mutant precursors per Peng)
+    'IFN_response': ['ISG15', 'IFIT1', 'IFIT3', 'MX1', 'OAS1', 'STAT1', 'IRF7'],
 }
 
 
@@ -82,6 +97,7 @@ def main():
     all_sigs = {}
     all_sigs.update(CAF_SIGNATURES)
     all_sigs.update(KAC_SIGNATURE)
+    all_sigs.update(NICHE_SIGNATURES)
     all_sigs.update(EXTRA_SIGNATURES)
 
     print('Scoring signatures...')
