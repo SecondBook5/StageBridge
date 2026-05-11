@@ -70,6 +70,17 @@ T_CELL_SIGNATURES = {
     'Teff': ['GZMB', 'PRF1', 'GNLY', 'IFNG', 'NKG7', 'FGFBP2'],
 }
 
+# AP1 transcription factor complex - stress response, proliferation, inflammation
+# FOS/JUN heterodimers activated in KACs and inflammatory contexts
+AP1_SIGNATURES = {
+    # Core AP1 components
+    'AP1': ['FOS', 'FOSB', 'FOSL1', 'FOSL2', 'JUN', 'JUNB', 'JUND'],
+    # ATF family (AP1-related)
+    'ATF': ['ATF3', 'ATF4', 'ATF5', 'ATF6'],
+    # AP1 target genes (inflammatory/stress)
+    'AP1_targets': ['IL6', 'IL8', 'MMP1', 'MMP9', 'VEGFA', 'CCND1', 'BCL2'],
+}
+
 # TP53-associated signatures from Tsankov et al. 2025 Nature Cancer
 # "A cellular and spatial atlas of TP53-associated tissue remodeling"
 TP53_SIGNATURES = {
@@ -138,6 +149,7 @@ def main():
     all_sigs.update(KAC_SIGNATURE)
     all_sigs.update(NICHE_SIGNATURES)
     all_sigs.update(T_CELL_SIGNATURES)
+    all_sigs.update(AP1_SIGNATURES)
     all_sigs.update(TP53_SIGNATURES)
     all_sigs.update(EXTRA_SIGNATURES)
 
