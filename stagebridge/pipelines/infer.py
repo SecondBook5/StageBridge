@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from stagebridge.loaders import create_dataloaders
+from stagebridge.loaders import create_dataloaders, AMICIBatch
 from stagebridge.models import StageBridge, StageBridgeConfig
 
 
@@ -42,6 +42,8 @@ def run_inference(
 
     # Extract config, inferring architecture settings from state_dict
     config = StageBridgeConfig.from_checkpoint(checkpoint)
+
+    print(f"Model config: use_amici_attention={config.use_amici_attention}")
 
     # Load data first to detect evolution_dim
     print(f"Loading test data from fold {fold_idx}...")
@@ -76,22 +78,42 @@ def run_inference(
     embeddings = []
     attention_weights = []
 
+    # Detect batch type from first batch
+    is_amici = isinstance(sample_batch, AMICIBatch)
+    print(f"Batch type: {'AMICIBatch' if is_amici else 'NicheBatch'}")
+
     with torch.no_grad():
         for batch in test_loader:
             batch = batch.to(device)
 
-            # Encode niche to get context embeddings
-            niche_output = model.encode_niche(
-                receiver=batch.receiver,
-                ring_cells=batch.ring_cells,
-                ring_masks=batch.ring_masks,
-                hlca=batch.hlca,
-                luca=batch.luca,
-                pathway=batch.pathway,
-                stats=batch.stats,
-                evolution_features=batch.evolution_features,
-                return_reconstruction=True,
-            )
+            # Encode niche - use appropriate method based on architecture
+            if is_amici:
+                # AMICI batch has neighbors/distances instead of ring_cells/ring_masks
+                niche_output = model.encode_niche_amici(
+                    receiver=batch.receiver,
+                    neighbors=batch.neighbors,
+                    distances=batch.distances,
+                    neighbor_mask=batch.neighbor_mask,
+                    hlca=batch.hlca,
+                    luca=batch.luca,
+                    pathway=batch.pathway,
+                    stats=batch.stats,
+                    evolution_features=batch.evolution_features,
+                    return_reconstruction=True,
+                )
+            else:
+                # Standard NicheBatch with ring structure
+                niche_output = model.encode_niche(
+                    receiver=batch.receiver,
+                    ring_cells=batch.ring_cells,
+                    ring_masks=batch.ring_masks,
+                    hlca=batch.hlca,
+                    luca=batch.luca,
+                    pathway=batch.pathway,
+                    stats=batch.stats,
+                    evolution_features=batch.evolution_features,
+                    return_reconstruction=True,
+                )
 
             # Collect predictions
             pred_dict = {
