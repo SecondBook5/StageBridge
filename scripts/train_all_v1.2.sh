@@ -69,7 +69,7 @@ run_job() {
             --seed $seed \
             --ssl-epochs 50 \
             --transition-epochs 100 \
-            --batch-size 64 \
+            --batch-size 256 \
             >> "$logfile" 2>&1; then
             echo "[GPU $gpu] fold_${fold}/seed_${seed}: TRAIN FAILED - see $logfile" | tee -a "$logfile"
             echo "FAILED" > "${outdir}/FAILED"

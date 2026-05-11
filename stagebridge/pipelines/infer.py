@@ -47,7 +47,7 @@ def run_inference(
 
     # Load data - we'll peek at the first batch to detect settings, then reload
     print(f"Loading test data from fold {fold_idx}...")
-    _, _, test_loader = create_dataloaders(data_dir, fold_idx=fold_idx, batch_size=64)
+    _, _, test_loader = create_dataloaders(data_dir, fold_idx=fold_idx, batch_size=512)
 
     if test_loader is None:
         raise RuntimeError(f"No test data found for fold {fold_idx}")
@@ -70,7 +70,7 @@ def run_inference(
             )
 
     # Reload dataloader so we don't skip the first batch
-    _, _, test_loader = create_dataloaders(data_dir, fold_idx=fold_idx, batch_size=64)
+    _, _, test_loader = create_dataloaders(data_dir, fold_idx=fold_idx, batch_size=512)
 
     model = StageBridge(config).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
