@@ -394,22 +394,38 @@ rule train_full:
         ssl_epochs=config["trainer"]["ssl_epochs"],
         transition_epochs=config["trainer"]["transition_epochs"],
         batch_size=config["trainer"]["batch_size"],
+        ssl_checkpoint=lambda w: f"{OUTPUT_DIR}/full/fold_{w.fold}/seed_{w.seed}/checkpoints/ssl_pretrained.pt",
     resources:
         mem_mb=256000,
         runtime=1440,  # 24 hours
         slurm_partition="gpu",
     shell:
         """
-        python -m stagebridge.training.trainer \
-            --data-dir {DATA_DIR} \
-            --output-dir {params.run_dir} \
-            --fold-idx {params.fold} \
-            --seed {params.seed} \
-            --ssl-epochs {params.ssl_epochs} \
-            --transition-epochs {params.transition_epochs} \
-            --batch-size {params.batch_size} \
-            --hpo-params {input.hpo_params} \
-            --data-parallel
+        if [ -f "{params.ssl_checkpoint}" ]; then
+            echo "Resuming from SSL checkpoint: {params.ssl_checkpoint}"
+            python -m stagebridge.training.trainer \
+                --data-dir {DATA_DIR} \
+                --output-dir {params.run_dir} \
+                --fold-idx {params.fold} \
+                --seed {params.seed} \
+                --ssl-epochs {params.ssl_epochs} \
+                --transition-epochs {params.transition_epochs} \
+                --batch-size {params.batch_size} \
+                --hpo-params {input.hpo_params} \
+                --resume {params.ssl_checkpoint}
+        else
+            echo "No SSL checkpoint found, training from scratch"
+            python -m stagebridge.training.trainer \
+                --data-dir {DATA_DIR} \
+                --output-dir {params.run_dir} \
+                --fold-idx {params.fold} \
+                --seed {params.seed} \
+                --ssl-epochs {params.ssl_epochs} \
+                --transition-epochs {params.transition_epochs} \
+                --batch-size {params.batch_size} \
+                --hpo-params {input.hpo_params} \
+                --data-parallel
+        fi
         """
 
 
