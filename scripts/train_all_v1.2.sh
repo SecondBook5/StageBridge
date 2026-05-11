@@ -68,18 +68,11 @@ run_job() {
             --save-attention \
             >> "$logfile" 2>&1
 
-        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Inference done. Checking attention..."
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Inference done. Making attention figure..."
 
-        # 3. Quick attention check
-        python -c "
-import numpy as np
-attn = np.load('${infdir}/attention_weights.npz')['attention']
-print(f'Attention: shape={attn.shape}, range=[{attn.min():.4f}, {attn.max():.4f}], mean={attn.mean():.4f}')
-if attn.max() > 0.001:
-    print('SUCCESS: Attention is non-zero!')
-else:
-    print('WARNING: Attention still near zero')
-" >> "$logfile" 2>&1
+        # 3. Attention figure
+        local figpath="${OUTPUT_BASE}/figures/attention_fold_${fold}_seed_${seed}.png"
+        python scripts/quick_attention_fig.py "$infdir" "$figpath" >> "$logfile" 2>&1
 
     else
         echo "[GPU $gpu] fold_${fold}/seed_${seed}: No checkpoint found!" >> "$logfile"
