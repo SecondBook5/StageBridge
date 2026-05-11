@@ -492,8 +492,8 @@ rule run_ablation:
         run_dir=lambda w: f"{OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}/seed_{w.seed}",
         # Pass checkpoint arg only for frozen_encoder
         checkpoint_arg=lambda w: f"--pretrained-checkpoint {OUTPUT_DIR}/full/fold_{w.fold}/seed_{w.seed}/checkpoints/best_checkpoint.pt" if w.ablation == "frozen_encoder" else "",
-        # Resume from ssl_pretrained.pt if it exists
-        resume_arg=lambda w: f"--resume {OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}/seed_{w.seed}/checkpoints/ssl_pretrained.pt",
+        # Path to ssl_pretrained.pt for conditional resume
+        ssl_checkpoint=lambda w: f"{OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}/seed_{w.seed}/checkpoints/ssl_pretrained.pt",
     resources:
         mem_mb=256000,
         runtime=1440,  # 24 hours (transition only, not full training)
@@ -501,15 +501,28 @@ rule run_ablation:
         gpu=1,
     shell:
         """
-        python -m stagebridge.evaluation.ablation \
-            --ablation {params.ablation} \
-            --data-dir {DATA_DIR} \
-            --output-dir {params.run_dir} \
-            --fold-idx {params.fold} \
-            --seed {params.seed} \
-            --hpo-params {input.hpo_params} \
-            {params.checkpoint_arg} \
-            {params.resume_arg}
+        if [ -f "{params.ssl_checkpoint}" ]; then
+            echo "Resuming from SSL checkpoint: {params.ssl_checkpoint}"
+            python -m stagebridge.evaluation.ablation \
+                --ablation {params.ablation} \
+                --data-dir {DATA_DIR} \
+                --output-dir {params.run_dir} \
+                --fold-idx {params.fold} \
+                --seed {params.seed} \
+                --hpo-params {input.hpo_params} \
+                {params.checkpoint_arg} \
+                --resume {params.ssl_checkpoint}
+        else
+            echo "No SSL checkpoint found, training from scratch"
+            python -m stagebridge.evaluation.ablation \
+                --ablation {params.ablation} \
+                --data-dir {DATA_DIR} \
+                --output-dir {params.run_dir} \
+                --fold-idx {params.fold} \
+                --seed {params.seed} \
+                --hpo-params {input.hpo_params} \
+                {params.checkpoint_arg}
+        fi
         """
 
 
