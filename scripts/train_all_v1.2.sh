@@ -86,10 +86,10 @@ run_job() {
             --save-attention \
             >> "$logfile" 2>&1
 
-        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Inference done. Making attention figure..."
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Inference done. Making figures..."
 
-        # 3. Attention figure
-        python scripts/quick_attention_fig.py "$infdir" "$figpath" >> "$logfile" 2>&1
+        # 3. Attention + drift figures
+        python scripts/quick_attention_fig.py "$infdir" "$figpath" "$DATA_DIR" >> "$logfile" 2>&1
 
     else
         echo "[GPU $gpu] fold_${fold}/seed_${seed}: No checkpoint found!" >> "$logfile"
