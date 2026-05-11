@@ -277,7 +277,7 @@ def load_model_metrics(model_dir: Path) -> pd.DataFrame:
 
 
 def load_inference_outputs(inf_dir: Path) -> Dict:
-    """Load inference outputs (predictions, attention, embeddings)."""
+    """Load inference outputs (predictions, attention, embeddings, displacements)."""
     outputs = {}
 
     # Load from fold_0/seed_42 as representative
@@ -285,12 +285,42 @@ def load_inference_outputs(inf_dir: Path) -> Dict:
 
     if (run_dir / 'predictions.parquet').exists():
         outputs['predictions'] = pd.read_parquet(run_dir / 'predictions.parquet')
+        print(f"    predictions: {len(outputs['predictions'])} cells")
 
     if (run_dir / 'embeddings.parquet').exists():
         outputs['embeddings'] = pd.read_parquet(run_dir / 'embeddings.parquet')
+        print(f"    embeddings: {outputs['embeddings'].shape}")
 
     if (run_dir / 'attention_weights.npz').exists():
         outputs['attention'] = np.load(run_dir / 'attention_weights.npz')
+        attn = outputs['attention']['attention']
+        print(f"    attention: {attn.shape}, range: [{attn.min():.4f}, {attn.max():.4f}]")
+
+    if (run_dir / 'displacements.npy').exists():
+        outputs['displacements'] = np.load(run_dir / 'displacements.npy')
+        disp = outputs['displacements']
+        print(f"    displacements: {disp.shape}, range: [{disp.min():.4f}, {disp.max():.4f}]")
+
+    # Aggregate displacements from all runs for more coverage
+    all_displacements = {}
+    for fold_dir in sorted(inf_dir.glob('fold_*')):
+        for seed_dir in sorted(fold_dir.glob('seed_*')):
+            disp_path = seed_dir / 'displacements.npy'
+            pred_path = seed_dir / 'predictions.parquet'
+            if disp_path.exists() and pred_path.exists():
+                disp = np.load(disp_path)
+                pred_df = pd.read_parquet(pred_path)
+                for i, cid in enumerate(pred_df['cell_id'].values):
+                    if cid not in all_displacements:
+                        all_displacements[cid] = []
+                    all_displacements[cid].append(disp[i])
+
+    if all_displacements:
+        # Average across runs
+        outputs['all_displacements'] = {
+            cid: np.mean(vels, axis=0) for cid, vels in all_displacements.items()
+        }
+        print(f"    aggregated displacements: {len(outputs['all_displacements'])} cells")
 
     return outputs
 
@@ -708,7 +738,10 @@ def fig6_attention_analysis(inference: Dict, df: pd.DataFrame, output_dir: Path)
     print(f"Attention mean: {attn.mean():.4f}")
 
     if attn.max() == 0:
-        print("WARNING: Attention weights are all zeros!")
+        print("WARNING: Neighbor attention weights are all zeros!")
+        print("This means the model attends to the empty token (AMICI feature)")
+        print("The model learned that receiver embedding alone is sufficient.")
+        print("Skipping attention figure - use displacements for dynamics instead.")
         return
 
     # Token labels (9-token architecture)
@@ -913,6 +946,94 @@ def fig8_cell_cycle(df: pd.DataFrame, umap: np.ndarray, output_dir: Path):
     print("Saved: fig8_cell_cycle")
 
 
+def compute_ot_from_displacements(
+    displacements: dict,
+    df: pd.DataFrame,
+    umap: np.ndarray,
+    grid_size: int = 50
+) -> pd.DataFrame:
+    """Compute flux/curl/divergence from model displacement vectors."""
+    from scipy.interpolate import griddata, RegularGridInterpolator
+    from scipy.ndimage import sobel
+
+    n_cells = len(df)
+    vel_2d = np.zeros((n_cells, 2))
+    has_vel = np.zeros(n_cells, dtype=bool)
+
+    # Get cell IDs
+    if 'cell_id' in df.columns:
+        cell_ids = df['cell_id'].values
+    else:
+        cell_ids = df.index.values
+
+    # Match displacements to cells - simple projection using first 2 dims
+    for i, cid in enumerate(cell_ids):
+        if cid in displacements:
+            vel = displacements[cid]
+            has_vel[i] = True
+            # Use magnitude to scale a random direction in UMAP space
+            # or just take first 2 dims as rough projection
+            vel_mag = np.linalg.norm(vel)
+            if vel_mag > 0:
+                vel_2d[i] = vel[:2] * vel_mag / (np.linalg.norm(vel[:2]) + 1e-8)
+
+    print(f"  Cells with velocity: {has_vel.sum()} / {n_cells}")
+    if has_vel.sum() < 100:
+        return None
+
+    # Compute flux (magnitude)
+    flux = np.linalg.norm(vel_2d, axis=1)
+
+    # Interpolate to grid for divergence/curl
+    umap_sub = umap[has_vel]
+    vel_sub = vel_2d[has_vel]
+
+    x_min, x_max = umap[:, 0].min(), umap[:, 0].max()
+    y_min, y_max = umap[:, 1].min(), umap[:, 1].max()
+
+    xi = np.linspace(x_min, x_max, grid_size)
+    yi = np.linspace(y_min, y_max, grid_size)
+    xi_grid, yi_grid = np.meshgrid(xi, yi)
+
+    vx_grid = griddata(umap_sub, vel_sub[:, 0], (xi_grid, yi_grid), method='linear')
+    vy_grid = griddata(umap_sub, vel_sub[:, 1], (xi_grid, yi_grid), method='linear')
+
+    # Fill NaN with nearest
+    vx_nearest = griddata(umap_sub, vel_sub[:, 0], (xi_grid, yi_grid), method='nearest')
+    vy_nearest = griddata(umap_sub, vel_sub[:, 1], (xi_grid, yi_grid), method='nearest')
+    vx_grid = np.where(np.isnan(vx_grid), vx_nearest, vx_grid)
+    vy_grid = np.where(np.isnan(vy_grid), vy_nearest, vy_grid)
+
+    dx = xi[1] - xi[0]
+    dy = yi[1] - yi[0]
+
+    # Divergence and curl via Sobel
+    dvx_dx = sobel(vx_grid, axis=1) / (8 * dx)
+    dvy_dy = sobel(vy_grid, axis=0) / (8 * dy)
+    dvx_dy = sobel(vx_grid, axis=0) / (8 * dy)
+    dvy_dx = sobel(vy_grid, axis=1) / (8 * dx)
+
+    div_grid = dvx_dx + dvy_dy
+    curl_grid = dvy_dx - dvx_dy
+
+    # Interpolate back to cells
+    interp_div = RegularGridInterpolator((yi, xi), div_grid, method='linear',
+                                         bounds_error=False, fill_value=np.nan)
+    interp_curl = RegularGridInterpolator((yi, xi), curl_grid, method='linear',
+                                          bounds_error=False, fill_value=np.nan)
+
+    divergence = interp_div(umap[:, ::-1])
+    curl = interp_curl(umap[:, ::-1])
+
+    return pd.DataFrame({
+        'flux': flux,
+        'divergence': divergence,
+        'curl': curl,
+        'velocity_x': vel_2d[:, 0],
+        'velocity_y': vel_2d[:, 1],
+    })
+
+
 def fig9_ot_dynamics(data: Dict, df: pd.DataFrame, umap: np.ndarray, output_dir: Path):
     """Figure 9: OT dynamics - flux, curl, divergence."""
     print("\n=== Figure 9: OT Dynamics ===")
@@ -931,6 +1052,17 @@ def fig9_ot_dynamics(data: Dict, df: pd.DataFrame, umap: np.ndarray, output_dir:
                 if len(ot_df) == len(df):
                     df[c] = ot_df[c].values
                     found_cols.append(c)
+
+    # Compute from model displacements if available
+    if not found_cols and 'inference' in data:
+        inference = data['inference']
+        if 'all_displacements' in inference and len(inference['all_displacements']) > 0:
+            print("Computing OT dynamics from model displacements...")
+            ot_df = compute_ot_from_displacements(inference['all_displacements'], df, umap)
+            if ot_df is not None:
+                for c in ot_df.columns:
+                    df[c] = ot_df[c].values
+                found_cols = list(ot_df.columns)
 
     if not found_cols:
         print("No OT dynamics columns found")

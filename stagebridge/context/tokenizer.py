@@ -15,14 +15,17 @@ from stagebridge.context.layers import RingPooler, PMA
 
 
 class NicheTokenizer(nn.Module):
-    """Convert raw neighborhood data to 9-token structure with learned pooling.
+    """Convert raw neighborhood data to 8-token structure with learned pooling.
 
     Takes individual cells per ring and pools them using learned attention,
-    then assembles the 9-token sequence:
-    [receiver, ring_1, ring_2, ring_3, ring_4, hlca, luca, pathway, stats]
+    then assembles the 8-token sequence:
+    [receiver, ring_1, ring_2, ring_3, ring_4, hlca, luca, pathway]
 
-    When use_fused_reference=True (for GW fusion), uses 8 tokens:
-    [receiver, ring_1, ring_2, ring_3, ring_4, fused_ref, pathway, stats]
+    NOTE: Stats is NOT a token - it conditions AFTER context refinement
+    via stats_conditioner. This prevents shortcutting.
+
+    When use_fused_reference=True (for GW fusion), uses 7 tokens:
+    [receiver, ring_1, ring_2, ring_3, ring_4, fused_ref, pathway]
 
     Args:
         input_dim: Raw cell embedding dimension
@@ -36,8 +39,8 @@ class NicheTokenizer(nn.Module):
     """
 
     NUM_RINGS = 4
-    NUM_TOKENS = 9  # receiver + 4 rings + hlca + luca + pathway + stats
-    NUM_TOKENS_FUSED = 8  # receiver + 4 rings + fused_ref + pathway + stats
+    NUM_TOKENS = 8  # receiver + 4 rings + hlca + luca + pathway (no stats - it conditions after)
+    NUM_TOKENS_FUSED = 7  # receiver + 4 rings + fused_ref + pathway
 
     # Fixed dimensions from contracts
     HLCA_DIM = 30
@@ -144,10 +147,8 @@ class NicheTokenizer(nn.Module):
         else:
             pathway_token = torch.zeros(B, self.hidden_dim, device=device)
 
-        if stats is not None:
-            stats_token = self.stats_proj(stats)
-        else:
-            stats_token = torch.zeros(B, self.hidden_dim, device=device)
+        # NOTE: Stats is NOT a token - it conditions AFTER context refinement
+        # via stats_conditioner in the main model. This prevents shortcutting.
 
         # Pool each ring with learned attention
         ring_tokens = []
@@ -159,9 +160,9 @@ class NicheTokenizer(nn.Module):
             ring_token = pooler(cells, mask=mask)  # [B, hidden_dim]
             ring_tokens.append(ring_token)
 
-        # Assemble token sequence
+        # Assemble token sequence (NO stats - it conditions after refinement)
         if self.use_fused_reference and fused_ref is not None:
-            # 8-token sequence with single fused reference
+            # 7-token sequence with single fused reference
             fused_ref_token = self.fused_ref_proj(fused_ref)
             tokens = torch.stack([
                 receiver_token,
@@ -171,8 +172,7 @@ class NicheTokenizer(nn.Module):
                 ring_tokens[3],
                 fused_ref_token,
                 pathway_token,
-                stats_token,
-            ], dim=1)  # [B, 8, hidden_dim]
+            ], dim=1)  # [B, 7, hidden_dim]
 
             # Context tokens WITHOUT receiver for SSL reconstruction
             context_only_tokens = torch.stack([
@@ -182,10 +182,9 @@ class NicheTokenizer(nn.Module):
                 ring_tokens[3],
                 fused_ref_token,
                 pathway_token,
-                stats_token,
-            ], dim=1)  # [B, 7, hidden_dim]
+            ], dim=1)  # [B, 6, hidden_dim]
         else:
-            # Standard 9-token sequence with separate HLCA/LuCA projections
+            # Standard 8-token sequence with separate HLCA/LuCA projections
             hlca_token = self.hlca_proj(hlca)  # 30d -> hidden_dim
             luca_token = self.luca_proj(luca)  # 10d -> hidden_dim
             tokens = torch.stack([
@@ -197,8 +196,7 @@ class NicheTokenizer(nn.Module):
                 hlca_token,
                 luca_token,
                 pathway_token,
-                stats_token,
-            ], dim=1)  # [B, 9, hidden_dim]
+            ], dim=1)  # [B, 8, hidden_dim]
 
             # Context tokens WITHOUT receiver for SSL reconstruction
             context_only_tokens = torch.stack([
@@ -209,8 +207,7 @@ class NicheTokenizer(nn.Module):
                 hlca_token,
                 luca_token,
                 pathway_token,
-                stats_token,
-            ], dim=1)  # [B, 8, hidden_dim]
+            ], dim=1)  # [B, 7, hidden_dim]
 
         # SSL Reconstruction: predict receiver from CONTEXT ONLY (no receiver leakage)
         # Use learned PMA pooling over context tokens (more expressive than mean)

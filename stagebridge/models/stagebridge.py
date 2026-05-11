@@ -767,14 +767,10 @@ class StageBridge(nn.Module):
             else:
                 token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
 
-            # Stats token
-            if stats is not None:
-                stats_input = stats[:, :self.config.stats_dim] if stats.shape[-1] > self.config.stats_dim else stats
-                token_list.append(self.simple_stats_proj(stats_input))
-            else:
-                token_list.append(torch.zeros(B, self.config.hidden_dim, device=receiver.device))
+            # NOTE: Stats is NOT a token - it conditions AFTER context refinement
+            # via stats_conditioner. This prevents shortcutting.
 
-            tokens = torch.stack(token_list, dim=1)  # [B, 9, hidden_dim]
+            tokens = torch.stack(token_list, dim=1)  # [B, 8, hidden_dim]
 
             # SSL reconstruction from context (skip receiver token at index 0)
             context_tokens = tokens[:, 1:, :]  # [B, 8, hidden_dim]
@@ -921,16 +917,12 @@ class StageBridge(nn.Module):
         else:
             token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
 
-        # Stats token
-        # NOTE: stats contains niche composition (caf_fraction, immune_fraction, diversity)
-        # For no_niche ablation, zero out stats to prevent leakage of niche info
-        if stats is not None and self.config.use_niche_context:
-            stats_input = stats[:, :self.config.stats_dim] if stats.shape[-1] > self.config.stats_dim else stats
-            token_list.append(self.amici_stats_proj(stats_input))
-        else:
-            token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
+        # NOTE: Stats is NOT a token - it conditions AFTER context refinement
+        # This prevents the model from shortcutting by attending to pre-computed
+        # niche composition instead of learning from neighbor attention.
+        # Stats conditioning happens at line ~959 via stats_conditioner.
 
-        tokens = torch.stack(token_list, dim=1)  # [B, 5, hidden_dim]
+        tokens = torch.stack(token_list, dim=1)  # [B, 4, hidden_dim]
 
         # Context refinement (optional)
         entropy_loss = None

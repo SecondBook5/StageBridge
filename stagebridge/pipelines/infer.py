@@ -146,6 +146,12 @@ def run_inference(
                 # Print attention stats for first batch
                 if batch_count == 1:
                     print(f"  Attention shape: {attn.shape}, range: [{attn.min():.4f}, {attn.max():.4f}], mean: {attn.mean():.4f}")
+                    # Also check empty attention if available
+                    if niche_output.empty_attention is not None:
+                        empty_attn = niche_output.empty_attention.cpu().numpy()
+                        print(f"  Empty attention: range: [{empty_attn.min():.4f}, {empty_attn.max():.4f}], mean: {empty_attn.mean():.4f}")
+                        if empty_attn.mean() > 0.9:
+                            print("  WARNING: Model is attending mostly to empty token - neighbors may not be informative")
 
             # Get displacement/drift if model has sample heads
             if hasattr(model, 'sample_heads') and model.sample_heads is not None:
