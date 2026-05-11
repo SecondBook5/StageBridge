@@ -146,7 +146,11 @@ def main(inf_dir: Path, out_path: Path, data_dir: Path = None):
     print(f"Attention: shape={attn.shape}, range=[{attn.min():.4f}, {attn.max():.4f}], mean={attn.mean():.4f}")
 
     if attn.max() < 0.001:
-        print("WARNING: Attention near zero, skipping figure")
+        print("WARNING: Attention near zero, skipping attention figure")
+        # Still make drift figure
+        if data_dir is not None:
+            drift_path = out_path.parent / out_path.name.replace('attention_', 'drift_')
+            make_drift_figure(inf_dir, data_dir, drift_path)
         return
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
