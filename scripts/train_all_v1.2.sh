@@ -2,11 +2,12 @@
 # Train all 15 models (5 folds x 3 seeds) on 4 GPUs
 # v1.2: Fixed stats token shortcut
 #
-# Each GPU runs: train -> inference -> attention figure, then next job
+# Each GPU runs: train -> inference -> figures, then next job
+# Resumable: re-run to continue from where it stopped
 #
 # Usage: bash scripts/train_all_v1.2.sh
 
-set -e
+# Don't use set -e - we handle errors ourselves to continue on failure
 
 DATA_DIR="/data1/chaunzt1/stagebridge/processed/luad_evo/canonical"
 OUTPUT_BASE="/data1/chaunzt1/stagebridge/outputs/v1.2"
