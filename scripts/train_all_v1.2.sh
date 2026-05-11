@@ -43,22 +43,25 @@ run_job() {
     local checkpoint="${outdir}/checkpoints/best_checkpoint.pt"
     local figpath="${OUTPUT_BASE}/figures/attention_fold_${fold}_seed_${seed}.png"
 
-    # RESUME CHECK: Skip if attention figure exists (means job completed)
+    # RESUME LOGIC:
+    # - Figure exists -> fully complete, skip everything
+    # - Checkpoint exists -> skip train, run inference + figures
+    # - Neither -> run everything
+
     if [[ -f "$figpath" ]]; then
-        echo "[GPU $gpu] fold_${fold}/seed_${seed}: SKIP (already complete)"
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: SKIP (figure exists)"
         return 0
     fi
 
-    # RESUME CHECK: Skip training if checkpoint exists
     if [[ -f "$checkpoint" ]]; then
-        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Checkpoint exists, skipping train..."
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: Checkpoint exists, skipping to inference..."
     else
         echo "[GPU $gpu] fold_${fold}/seed_${seed}: Starting train..."
 
         mkdir -p "$outdir"
 
-        # 1. Train
-        CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
+        # 1. Train (with error handling - continue on failure)
+        if ! CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
             --data-dir "$DATA_DIR" \
             --output-dir "$outdir" \
             --fold-idx $fold \
@@ -66,7 +69,11 @@ run_job() {
             --ssl-epochs 50 \
             --transition-epochs 100 \
             --batch-size 64 \
-            >> "$logfile" 2>&1
+            >> "$logfile" 2>&1; then
+            echo "[GPU $gpu] fold_${fold}/seed_${seed}: TRAIN FAILED - see $logfile" | tee -a "$logfile"
+            echo "FAILED" > "${outdir}/FAILED"
+            return 1
+        fi
 
         echo "[GPU $gpu] fold_${fold}/seed_${seed}: Train done."
     fi
@@ -77,22 +84,27 @@ run_job() {
 
         mkdir -p "$infdir"
 
-        CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.pipelines.infer \
+        if ! CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.pipelines.infer \
             --checkpoint "$checkpoint" \
             --data-dir "$DATA_DIR" \
             --output-dir "$infdir" \
             --fold-idx $fold \
             --save-embeddings \
             --save-attention \
-            >> "$logfile" 2>&1
+            >> "$logfile" 2>&1; then
+            echo "[GPU $gpu] fold_${fold}/seed_${seed}: INFERENCE FAILED - see $logfile" | tee -a "$logfile"
+            return 1
+        fi
 
         echo "[GPU $gpu] fold_${fold}/seed_${seed}: Inference done. Making figures..."
 
-        # 3. Attention + drift figures
-        python scripts/quick_attention_fig.py "$infdir" "$figpath" "$DATA_DIR" >> "$logfile" 2>&1
+        # 3. Attention + drift figures (non-fatal if fails)
+        python scripts/quick_attention_fig.py "$infdir" "$figpath" "$DATA_DIR" >> "$logfile" 2>&1 || \
+            echo "[GPU $gpu] fold_${fold}/seed_${seed}: Figure generation failed (non-fatal)" | tee -a "$logfile"
 
     else
-        echo "[GPU $gpu] fold_${fold}/seed_${seed}: No checkpoint found!" >> "$logfile"
+        echo "[GPU $gpu] fold_${fold}/seed_${seed}: No checkpoint found!" | tee -a "$logfile"
+        return 1
     fi
 
     echo "[GPU $gpu] fold_${fold}/seed_${seed}: Complete"
@@ -115,13 +127,14 @@ for ((i=0; i<${#all_jobs[@]}; i++)); do
 done
 
 # Launch one process per GPU that runs its jobs sequentially
+# Jobs continue even if one fails
 pids=()
 for ((gpu=0; gpu<NUM_GPUS; gpu++)); do
     (
         for job in ${gpu_jobs[$gpu]}; do
             fold=${job%:*}
             seed=${job#*:}
-            run_job $gpu $fold $seed
+            run_job $gpu $fold $seed || true  # Continue even if job fails
         done
     ) &
     pids+=($!)
@@ -141,6 +154,10 @@ echo ""
 echo "=============================================="
 echo "All training complete!"
 echo "=============================================="
+echo ""
+echo "Check for failures:"
+echo "  find ${OUTPUT_BASE} -name 'FAILED'"
+echo "  grep -l 'FAILED\|Error\|Exception' ${OUTPUT_BASE}/logs/*.log"
 echo ""
 echo "Check attention results:"
 echo "  grep -r 'Attention:' ${OUTPUT_BASE}/logs/*.log"
