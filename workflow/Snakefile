@@ -459,6 +459,7 @@ rule run_ablation:
 
     Uses the same HPO params as train_full for fair comparison.
     Only frozen_encoder ablation requires the full model checkpoint.
+    Resumes from ssl_pretrained.pt if it exists (skips SSL phase).
     """
     input:
         validated=f"{OUTPUT_DIR}/.data_validated",
@@ -476,9 +477,11 @@ rule run_ablation:
         run_dir=lambda w: f"{OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}/seed_{w.seed}",
         # Pass checkpoint arg only for frozen_encoder
         checkpoint_arg=lambda w: f"--pretrained-checkpoint {OUTPUT_DIR}/full/fold_{w.fold}/seed_{w.seed}/checkpoints/best_checkpoint.pt" if w.ablation == "frozen_encoder" else "",
+        # Resume from ssl_pretrained.pt if it exists
+        resume_arg=lambda w: f"--resume {OUTPUT_DIR}/ablations/{w.ablation}/fold_{w.fold}/seed_{w.seed}/checkpoints/ssl_pretrained.pt",
     resources:
         mem_mb=256000,
-        runtime=2880,  # 48 hours (GW fusion is expensive)
+        runtime=1440,  # 24 hours (transition only, not full training)
         slurm_partition="gpu",
         gpu=1,
     shell:
@@ -490,7 +493,8 @@ rule run_ablation:
             --fold-idx {params.fold} \
             --seed {params.seed} \
             --hpo-params {input.hpo_params} \
-            {params.checkpoint_arg}
+            {params.checkpoint_arg} \
+            {params.resume_arg}
         """
 
 
