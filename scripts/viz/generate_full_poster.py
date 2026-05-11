@@ -634,11 +634,28 @@ def fig6_attention_analysis(inference: Dict, df: pd.DataFrame, output_dir: Path)
     # Get attention array - handle different formats
     if isinstance(attn_data, np.lib.npyio.NpzFile):
         keys = list(attn_data.keys())
-        attn = attn_data[keys[0]]
+        print(f"NPZ keys: {keys}")
+        for k in keys:
+            print(f"  {k}: shape={attn_data[k].shape}, dtype={attn_data[k].dtype}")
+        # Use first key or look for specific ones
+        if 'attention' in keys:
+            attn = attn_data['attention']
+        elif 'attn' in keys:
+            attn = attn_data['attn']
+        elif 'weights' in keys:
+            attn = attn_data['weights']
+        else:
+            attn = attn_data[keys[0]]
     else:
         attn = attn_data
 
     print(f"Attention shape: {attn.shape}")
+    print(f"Attention range: [{attn.min():.4f}, {attn.max():.4f}]")
+    print(f"Attention mean: {attn.mean():.4f}")
+
+    if attn.max() == 0:
+        print("WARNING: Attention weights are all zeros!")
+        return
 
     # Token labels (9-token architecture)
     if attn.shape[-1] == 9:
