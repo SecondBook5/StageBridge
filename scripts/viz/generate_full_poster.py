@@ -161,6 +161,24 @@ def load_all_data(data_dir: Path, model_dir: Path) -> Dict:
     return data
 
 
+def extract_val_loss(m: dict) -> float:
+    """Extract validation loss from metrics dict, handling various formats."""
+    # Try different keys
+    for key in ['best_val_loss', 'val_loss', 'best_loss', 'validation_loss']:
+        if key in m and m[key] is not None:
+            val = m[key]
+            # Handle if it's a list (take last or min)
+            if isinstance(val, list):
+                return min(val) if val else None
+            return val
+    # Check nested structure
+    if 'metrics' in m:
+        return extract_val_loss(m['metrics'])
+    if 'history' in m and 'val_loss' in m['history']:
+        return min(m['history']['val_loss'])
+    return None
+
+
 def load_model_metrics(model_dir: Path) -> pd.DataFrame:
     """Load all model training metrics."""
     results = []
@@ -172,12 +190,15 @@ def load_model_metrics(model_dir: Path) -> pd.DataFrame:
             if path.exists():
                 with open(path) as f:
                     m = json.load(f)
-                results.append({
-                    'model': 'StageBridge',
-                    'fold': fold, 'seed': seed,
-                    'val_loss': m.get('best_val_loss', m.get('val_loss')),
-                    'train_loss': m.get('train_loss'),
-                })
+                val_loss = extract_val_loss(m)
+                if val_loss is not None:
+                    results.append({
+                        'model': 'StageBridge',
+                        'fold': fold, 'seed': seed,
+                        'val_loss': val_loss,
+                    })
+                else:
+                    print(f"  Warning: No val_loss in {path}, keys: {list(m.keys())}")
 
     # Ablations
     ablation_names = {
@@ -195,12 +216,13 @@ def load_model_metrics(model_dir: Path) -> pd.DataFrame:
                 if path.exists():
                     with open(path) as f:
                         m = json.load(f)
-                    results.append({
-                        'model': name,
-                        'fold': fold, 'seed': seed,
-                        'val_loss': m.get('best_val_loss', m.get('val_loss')),
-                        'train_loss': m.get('train_loss'),
-                    })
+                    val_loss = extract_val_loss(m)
+                    if val_loss is not None:
+                        results.append({
+                            'model': name,
+                            'fold': fold, 'seed': seed,
+                            'val_loss': val_loss,
+                        })
 
     # Baselines
     baseline_names = {
@@ -217,12 +239,26 @@ def load_model_metrics(model_dir: Path) -> pd.DataFrame:
                 if path.exists():
                     with open(path) as f:
                         m = json.load(f)
-                    results.append({
-                        'model': name,
-                        'fold': fold, 'seed': seed,
-                        'val_loss': m.get('val_loss'),
-                        'train_loss': m.get('train_loss'),
-                    })
+                    val_loss = extract_val_loss(m)
+                    if val_loss is not None:
+                        results.append({
+                            'model': name,
+                            'fold': fold, 'seed': seed,
+                            'val_loss': val_loss,
+                        })
+
+    if results:
+        print(f"  Loaded {len(results)} metric records")
+    else:
+        print("  Warning: No metrics found, checking first file structure...")
+        # Debug: show what's in a metrics file
+        sample_path = model_dir / 'full' / 'fold_0' / 'seed_42' / 'logs' / 'metrics.json'
+        if sample_path.exists():
+            with open(sample_path) as f:
+                m = json.load(f)
+            print(f"  Sample keys: {list(m.keys())}")
+            for k, v in m.items():
+                print(f"    {k}: {type(v).__name__} = {str(v)[:100]}")
 
     return pd.DataFrame(results)
 
@@ -533,8 +569,10 @@ def fig5_il1b_niche(data: Dict, output_dir: Path):
     """Figure 5: IL1B-macrophage niche interactions."""
     print("\n=== Figure 5: IL1B Niche ===")
 
-    il1b = data.get('il1b') or data.get('liana')
-    if il1b is None:
+    il1b = data.get('il1b')
+    if il1b is None or (hasattr(il1b, 'empty') and il1b.empty):
+        il1b = data.get('liana')
+    if il1b is None or (hasattr(il1b, 'empty') and il1b.empty):
         print("No interaction data available")
         return
 
