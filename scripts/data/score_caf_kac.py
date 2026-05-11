@@ -70,14 +70,18 @@ T_CELL_SIGNATURES = {
     'Teff': ['GZMB', 'PRF1', 'GNLY', 'IFNG', 'NKG7', 'FGFBP2'],
 }
 
-# AP1 transcription factor complex - stress response, proliferation, inflammation
-# FOS/JUN heterodimers activated in KACs and inflammatory contexts
+# AP1 transcription factor complex - stress response, plasticity, drug resistance
+# From Franca & Yanai 2026 Nature: AP1 enables adaptive genome regulation
+# FOS/JUN heterodimers create combinatorial diversity for stress adaptation
 AP1_SIGNATURES = {
-    # Core AP1 components
+    # Core AP1 components (stress-like state markers)
     'AP1': ['FOS', 'FOSB', 'FOSL1', 'FOSL2', 'JUN', 'JUNB', 'JUND'],
-    # ATF family (AP1-related)
+    # ATF family (AP1-related, stress response)
     'ATF': ['ATF3', 'ATF4', 'ATF5', 'ATF6'],
-    # AP1 target genes (inflammatory/stress)
+    # Stress-like state (pan-cancer, associated with plasticity/drug tolerance)
+    # From Franca & Yanai: recurrent feature in drug-tolerant/adaptive cells
+    'stress_like': ['FOS', 'JUN', 'FOSB', 'ATF3', 'HSPA5', 'DNAJB9', 'SQSTM1', 'TXNIP'],
+    # AP1 target genes (inflammatory/proliferative)
     'AP1_targets': ['IL6', 'IL8', 'MMP1', 'MMP9', 'VEGFA', 'CCND1', 'BCL2'],
 }
 
