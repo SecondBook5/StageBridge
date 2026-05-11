@@ -282,33 +282,74 @@ def load_inference_outputs(inf_dir: Path) -> Dict:
     return outputs
 
 
-def merge_all_scores(data: Dict) -> pd.DataFrame:
-    """Merge all scores into the cells dataframe."""
+def merge_all_scores(data: Dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Merge all scores into the cells dataframe.
+
+    Returns:
+        df_all: Full dataframe (all cells)
+        df_snrna: snRNA-only dataframe with signatures merged
+    """
     df = data['cells'].copy()
     n_cells = len(df)
 
-    # Signatures
-    if 'signatures' in data and len(data['signatures']) == n_cells:
-        for col in data['signatures'].columns:
-            if col not in df.columns:
-                df[col] = data['signatures'][col].values
-        print(f"Merged signatures: {list(data['signatures'].columns)}")
+    # Separate snRNA for signature analysis
+    df_snrna = df[df['data_type'] == 'snrna'].copy().reset_index(drop=True)
+    n_snrna = len(df_snrna)
+    print(f"Total cells: {n_cells}, snRNA: {n_snrna}")
 
-    # Progression
-    if 'progression' in data and len(data['progression']) == n_cells:
-        for col in data['progression'].columns:
-            if col not in df.columns:
-                df[col] = data['progression'][col].values
-        print(f"Merged progression: {list(data['progression'].columns)}")
+    # Signatures - likely snRNA only
+    if 'signatures' in data:
+        sig_len = len(data['signatures'])
+        print(f"Signatures length: {sig_len}")
+
+        if sig_len == n_cells:
+            # Full match
+            for col in data['signatures'].columns:
+                if col not in df.columns:
+                    df[col] = data['signatures'][col].values
+            print(f"Merged signatures to all cells: {list(data['signatures'].columns)}")
+        elif sig_len == n_snrna:
+            # snRNA only - merge to snrna subset
+            for col in data['signatures'].columns:
+                if col not in df_snrna.columns:
+                    df_snrna[col] = data['signatures'][col].values
+            print(f"Merged signatures to snRNA only: {list(data['signatures'].columns)}")
+        else:
+            print(f"WARNING: Signatures length {sig_len} doesn't match cells ({n_cells}) or snRNA ({n_snrna})")
+
+    # Progression - likely snRNA only
+    if 'progression' in data:
+        prog_len = len(data['progression'])
+        print(f"Progression length: {prog_len}")
+
+        if prog_len == n_cells:
+            for col in data['progression'].columns:
+                if col not in df.columns:
+                    df[col] = data['progression'][col].values
+            print(f"Merged progression to all cells")
+        elif prog_len == n_snrna:
+            for col in data['progression'].columns:
+                if col not in df_snrna.columns:
+                    df_snrna[col] = data['progression'][col].values
+            print(f"Merged progression to snRNA only")
 
     # Trajectories
-    if 'trajectories' in data and len(data['trajectories']) == n_cells:
-        for col in data['trajectories'].columns:
-            if col not in df.columns:
-                df[col] = data['trajectories'][col].values
-        print(f"Merged trajectories: {list(data['trajectories'].columns)}")
+    if 'trajectories' in data:
+        traj_len = len(data['trajectories'])
+        print(f"Trajectories length: {traj_len}")
 
-    return df
+        if traj_len == n_cells:
+            for col in data['trajectories'].columns:
+                if col not in df.columns:
+                    df[col] = data['trajectories'][col].values
+            print(f"Merged trajectories to all cells")
+        elif traj_len == n_snrna:
+            for col in data['trajectories'].columns:
+                if col not in df_snrna.columns:
+                    df_snrna[col] = data['trajectories'][col].values
+            print(f"Merged trajectories to snRNA only")
+
+    return df, df_snrna
 
 
 # =============================================================================
@@ -876,24 +917,28 @@ def main():
     print("\n" + "="*60)
     print("MERGING DATA")
     print("="*60)
-    df = merge_all_scores(data)
-    print(f"Final dataframe: {df.shape}")
-    print(f"Score columns: {[c for c in df.columns if 'score' in c.lower()]}")
+    df_all, df_snrna = merge_all_scores(data)
+    print(f"All cells: {df_all.shape}")
+    print(f"snRNA cells: {df_snrna.shape}")
+    print(f"snRNA score columns: {[c for c in df_snrna.columns if 'score' in c.lower() or 'KAC' in c or 'IL1' in c or 'AP1' in c]}")
 
-    # Get UMAP
+    # Get UMAP - this is likely snRNA only
     if 'umap' in data:
         umap = data['umap']
+        print(f"Pre-computed UMAP: {umap.shape}")
     else:
-        print("Computing UMAP from z_fused...")
-        z_fused = np.stack(df['z_fused'].values)
+        print("Computing UMAP from z_fused (snRNA)...")
+        z_fused = np.stack(df_snrna['z_fused'].values)
         import umap as umap_lib
         reducer = umap_lib.UMAP(n_neighbors=30, min_dist=0.3, random_state=42, n_jobs=-1)
         umap = reducer.fit_transform(z_fused)
         np.save(args.output_dir / 'umap_computed.npy', umap)
 
-    # Ensure lengths match
+    # Use snRNA dataframe for UMAP-based figures
+    df = df_snrna
     if len(umap) != len(df):
-        print(f"UMAP length ({len(umap)}) != cells ({len(df)}), truncating")
+        print(f"UMAP length ({len(umap)}) != snRNA ({len(df)})")
+        # If UMAP matches snRNA, good. Otherwise truncate
         n = min(len(umap), len(df))
         umap = umap[:n]
         df = df.iloc[:n].reset_index(drop=True)
@@ -916,7 +961,7 @@ def main():
         fig6_attention_analysis(data['inference'], df, args.output_dir)
 
     fig7_fold_changes(df, args.output_dir)
-    fig8_spatial_showcase(df, args.output_dir)
+    fig8_spatial_showcase(df_all, args.output_dir)  # Use all cells for spatial
 
     print("\n" + "="*60)
     print(f"COMPLETE - Figures saved to: {args.output_dir}")
