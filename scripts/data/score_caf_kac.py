@@ -70,16 +70,31 @@ T_CELL_SIGNATURES = {
     'Teff': ['GZMB', 'PRF1', 'GNLY', 'IFNG', 'NKG7', 'FGFBP2'],
 }
 
+# TP53-associated signatures from Tsankov et al. 2025 Nature Cancer
+# "A cellular and spatial atlas of TP53-associated tissue remodeling"
+TP53_SIGNATURES = {
+    # SPP1+ macrophages - key component of TP53mut tumor niche
+    'SPP1_mac': ['SPP1', 'APOE', 'TREM2', 'C1QA', 'C1QB', 'GPNMB', 'FABP5'],
+    # Entropic/dedifferentiated program (TP53mut malignant cells)
+    'entropic': ['TOP2A', 'MKI67', 'PCNA', 'CDK1', 'CCNB1', 'UBE2C'],
+    # Alveolar identity loss (downregulated in TP53mut)
+    'alveolar_identity': ['SFTPC', 'SFTPA1', 'SFTPB', 'NKX2-1', 'NAPSA', 'SLC34A2'],
+}
+
 # Additional relevant signatures
 EXTRA_SIGNATURES = {
     # KRAS signature - Han et al. derived, correlated with KAC
     'KRAS_sig': ['DUSP6', 'SPRY2', 'SPRY4', 'ETV4', 'ETV5', 'PHLDA1', 'EREG', 'AREG'],
     # p53 pathway - activated in KACs per Han et al.
     'p53_pathway': ['CDKN1A', 'MDM2', 'BAX', 'BBC3', 'PUMA', 'GADD45A', 'TP53I3'],
-    # Interferon signaling (elevated in KRAS-mutant precursors per Peng)
+    # Interferon signaling (elevated in KRAS-mutant precursors per Peng, decreased in progressive PMLs)
     'IFN_response': ['ISG15', 'IFIT1', 'IFIT3', 'MX1', 'OAS1', 'STAT1', 'IRF7'],
     # TLS/lymphoid aggregate markers (from multiple Kadara papers)
     'TLS': ['CXCL13', 'CCL19', 'CCL21', 'CR2', 'CXCR5', 'MS4A1', 'CD79A'],
+    # Antigen presentation (decreased in progressive lesions per Beane et al.)
+    'antigen_presentation': ['HLA-A', 'HLA-B', 'HLA-C', 'B2M', 'TAP1', 'TAP2', 'PSMB8', 'PSMB9'],
+    # Hypoxia (enriched in TP53mut niches)
+    'hypoxia': ['HIF1A', 'VEGFA', 'LDHA', 'PGK1', 'ENO1', 'SLC2A1', 'CA9'],
 }
 
 
@@ -123,6 +138,7 @@ def main():
     all_sigs.update(KAC_SIGNATURE)
     all_sigs.update(NICHE_SIGNATURES)
     all_sigs.update(T_CELL_SIGNATURES)
+    all_sigs.update(TP53_SIGNATURES)
     all_sigs.update(EXTRA_SIGNATURES)
 
     print('Scoring signatures...')
