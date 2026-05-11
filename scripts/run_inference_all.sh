@@ -57,3 +57,22 @@ for ((i=0; i<${#jobs[@]}; i+=NUM_GPUS)); do
 done
 
 echo "All inference complete"
+
+# Generate figures
+echo ""
+echo "=============================================="
+echo "Generating figures..."
+echo "=============================================="
+
+FIGURES_DIR="/data1/chaunzt1/stagebridge/figures"
+CANONICAL_DIR="/data1/chaunzt1/stagebridge/processed/luad_evo/canonical"
+
+# Generate publication panels
+python scripts/viz/generate_all_panels.py \
+  --data_dir "$CANONICAL_DIR" \
+  --output_dir "$FIGURES_DIR/panels"
+
+echo ""
+echo "=============================================="
+echo "All done! Figures saved to: $FIGURES_DIR"
+echo "=============================================="
