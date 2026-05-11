@@ -459,7 +459,7 @@ if destvi_path.exists():
     # Summary by stage
     if 'stage' in adata.obs.columns:
         props['stage'] = adata.obs['stage'].values
-        prop_cols = [c for c in props.columns if c not in ['stage', 'spot_id', 'cell_id']]
+        prop_cols = [c for c in props.columns if c not in ['stage', 'spot_id', 'cell_id', 'sample_id']]
         summary = props.groupby('stage')[prop_cols].mean()
         summary.to_parquet(out / 'spot_deconvolution_summary.parquet')
         print(f'  Saved spot_deconvolution_summary.parquet')
@@ -505,7 +505,7 @@ destvi_path = Path('/data1/chaunzt1/stagebridge/results/spatial_benchmark/luca/d
 if destvi_path.exists():
     print('Loading deconvolution...')
     props = pd.read_parquet(destvi_path)
-    prop_cols = [c for c in props.columns if c not in ['stage', 'spot_id', 'cell_id']]
+    prop_cols = [c for c in props.columns if c not in ['stage', 'spot_id', 'cell_id', 'sample_id']]
 
     if prop_cols:
         print('Clustering niches...')
