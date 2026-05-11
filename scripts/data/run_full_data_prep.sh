@@ -230,7 +230,8 @@ if sample_col:
 
     print(f'  Aggregating by {sample_col}...')
     pdata = dc.pp.pseudobulk(adata=adata, sample_col=sample_col,
-                             groups_col='stage' if 'stage' in adata.obs.columns else None, mode='sum')
+                             groups_col='stage' if 'stage' in adata.obs.columns else None, mode='sum',
+                             skip_checks=True)
     dc.pp.filter_samples(pdata, min_cells=10, min_counts=1000)
     print(f'  {pdata.n_obs} pseudobulk samples')
 
