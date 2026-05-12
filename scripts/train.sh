@@ -5,13 +5,65 @@
 # Each GPU runs: train -> inference -> figures, then next job
 # Resumable: re-run to continue from where it stopped
 #
-# Usage: bash scripts/train.sh
+# Usage: bash scripts/train.sh [--hpo-params path/to/best_params.json]
+#        bash scripts/train.sh [--hpo-db path/to/optuna.db]
 
 # Don't use set -e - we handle errors ourselves to continue on failure
 
 DATA_DIR="/data1/chaunzt1/stagebridge/processed/luad_evo/canonical"
 OUTPUT_BASE="/data1/chaunzt1/stagebridge/outputs/v1.2"
+HPO_DIR="/data1/chaunzt1/stagebridge/outputs/v1.2/hpo"
 NUM_GPUS=4
+HPO_PARAMS=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --hpo-params)
+            HPO_PARAMS="$2"
+            shift 2
+            ;;
+        --hpo-dir)
+            HPO_DIR="$2"
+            shift 2
+            ;;
+        --data-dir)
+            DATA_DIR="$2"
+            shift 2
+            ;;
+        --output-dir)
+            OUTPUT_BASE="$2"
+            shift 2
+            ;;
+        --num-gpus)
+            NUM_GPUS="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# Use best_params.json from HPO dir if not explicitly specified
+if [[ -z "$HPO_PARAMS" && -f "${HPO_DIR}/best_params.json" ]]; then
+    HPO_PARAMS="${HPO_DIR}/best_params.json"
+fi
+
+# Validate HPO params exist
+if [[ -n "$HPO_PARAMS" && ! -f "$HPO_PARAMS" ]]; then
+    echo "ERROR: HPO params file not found: $HPO_PARAMS"
+    exit 1
+fi
+
+if [[ -n "$HPO_PARAMS" ]]; then
+    echo "Using HPO params: $HPO_PARAMS"
+    cat "$HPO_PARAMS"
+    echo ""
+else
+    echo "WARNING: No HPO params found, using trainer defaults"
+fi
 
 # All 15 jobs: fold:seed pairs
 all_jobs=(
@@ -24,9 +76,11 @@ all_jobs=(
 echo "=============================================="
 echo "StageBridge v1.2 Full Training"
 echo "=============================================="
-echo "Fix: Stats token removed from context refiner"
-echo "Each GPU: train -> inference -> attention figure"
+echo "Data: $DATA_DIR"
+echo "Output: $OUTPUT_BASE"
+echo "HPO params: ${HPO_PARAMS:-'(using defaults)'}"
 echo "Jobs: ${#all_jobs[@]} | GPUs: $NUM_GPUS"
+echo "Each GPU: train -> inference -> attention figure"
 echo "=============================================="
 
 mkdir -p "$OUTPUT_BASE/logs"
@@ -61,16 +115,23 @@ run_job() {
 
         mkdir -p "$outdir"
 
-        # 1. Train (with error handling - continue on failure)
-        if ! CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
-            --data-dir "$DATA_DIR" \
-            --output-dir "$outdir" \
+        # Build trainer command
+        TRAIN_CMD="CUDA_VISIBLE_DEVICES=$gpu python -m stagebridge.training.trainer \
+            --data-dir $DATA_DIR \
+            --output-dir $outdir \
             --fold-idx $fold \
             --seed $seed \
             --ssl-epochs 50 \
             --transition-epochs 100 \
-            --batch-size 256 \
-            >> "$logfile" 2>&1; then
+            --batch-size 256"
+
+        # Add HPO params if provided
+        if [[ -n "$HPO_PARAMS" ]]; then
+            TRAIN_CMD="$TRAIN_CMD --hpo-params $HPO_PARAMS"
+        fi
+
+        # 1. Train (with error handling - continue on failure)
+        if ! eval $TRAIN_CMD >> "$logfile" 2>&1; then
             echo "[GPU $gpu] fold_${fold}/seed_${seed}: TRAIN FAILED - see $logfile" | tee -a "$logfile"
             echo "FAILED" > "${outdir}/FAILED"
             return 1
