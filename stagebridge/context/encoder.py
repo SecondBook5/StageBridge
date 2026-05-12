@@ -166,6 +166,7 @@ class ReceiverCenteredAttention(nn.Module):
         dim: int,
         num_heads: int = 4,
         dropout: float = 0.1,
+        neighbor_dropout: float = 0.1,  # AMICI-style: randomly mask neighbors during training
         distance_encoding: DistanceEncoding | str = DistanceEncoding.RBF,
         sparsity_type: SparsityType | str = SparsityType.ENTROPY,
         topk: int = 5,
@@ -190,6 +191,7 @@ class ReceiverCenteredAttention(nn.Module):
         self.distance_scale = distance_scale
         self.use_distance_modulation = use_distance_modulation
         self.add_res_connection = add_res_connection
+        self.neighbor_dropout = neighbor_dropout
 
         self.q_proj = nn.Linear(dim, dim)
         self.k_proj = nn.Linear(dim, dim)
@@ -269,6 +271,12 @@ class ReceiverCenteredAttention(nn.Module):
         if neighbor_mask is not None:
             mask = neighbor_mask.unsqueeze(1).unsqueeze(2)  # [B, 1, 1, K]
             attn_logits = attn_logits.masked_fill(~mask, float("-inf"))
+
+        # AMICI-style neighbor dropout: randomly mask neighbors during training
+        if self.training and self.neighbor_dropout > 0.0:
+            dropout_mask = torch.rand((B, K), device=attn_logits.device) > self.neighbor_dropout
+            dropout_mask = dropout_mask.unsqueeze(1).unsqueeze(2)  # [B, 1, 1, K]
+            attn_logits = attn_logits.masked_fill(~dropout_mask, float("-inf"))
 
         # Empty token: gets base dummy score + 0 pos_attn (no distance penalty)
         if self.use_empty_token:
@@ -379,6 +387,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         value_l1_weight: float = 0.01,
         topk: int = 5,
         dropout: float = 0.1,
+        neighbor_dropout: float = 0.1,  # AMICI-style neighbor dropout
         use_reconstruction_head: bool = True,
         use_token_type_embeddings: bool = True,
         use_empty_token: bool = True,
@@ -396,6 +405,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         self.use_token_type_embeddings = use_token_type_embeddings
         self.use_empty_token = use_empty_token
         self.ssl_noise_scale = ssl_noise_scale
+        self.neighbor_dropout = neighbor_dropout
 
         self.receiver_proj = nn.Linear(input_dim, hidden_dim)
         self.neighbor_proj = nn.Linear(input_dim, hidden_dim)
@@ -410,6 +420,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
                 dim=hidden_dim,
                 num_heads=num_heads,
                 dropout=dropout,
+                neighbor_dropout=neighbor_dropout,  # AMICI-style
                 distance_encoding=distance_encoding,
                 sparsity_type=sparsity_type,
                 topk=topk,
