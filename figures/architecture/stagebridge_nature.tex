@@ -1,0 +1,342 @@
+\documentclass[border=3pt]{standalone}
+
+\usepackage{tikz}
+\usetikzlibrary{
+    positioning, arrows.meta, calc, backgrounds,
+    decorations.markings, decorations.pathmorphing,
+    decorations.pathreplacing,
+    fit, shapes.geometric, patterns, matrix,
+    shadows.blur, fadings
+}
+
+\usepackage{amsmath, amssymb}
+\usepackage{xcolor}
+\usepackage[T1]{fontenc}
+\usepackage{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+
+% ============================================
+% NATURE-STYLE PALETTE
+% ============================================
+\definecolor{nprimary}{HTML}{0077B6}
+\definecolor{nprimarylt}{HTML}{90E0EF}
+\definecolor{nprimarydk}{HTML}{023E8A}
+\definecolor{naccent}{HTML}{F77F00}
+\definecolor{naccentlt}{HTML}{FCBF49}
+\definecolor{naccentdk}{HTML}{D62828}
+\definecolor{ngreen}{HTML}{2D6A4F}
+\definecolor{ngreenlt}{HTML}{74C69D}
+\definecolor{npurple}{HTML}{7209B7}
+\definecolor{npurplelt}{HTML}{B5179E}
+\definecolor{ngray}{HTML}{6C757D}
+\definecolor{ngraylt}{HTML}{E9ECEF}
+\definecolor{ngrayd}{HTML}{343A40}
+\definecolor{nbg}{HTML}{FFFFFF}
+\definecolor{ntext}{HTML}{212529}
+\definecolor{ntextsub}{HTML}{6C757D}
+
+% ============================================
+% ADVANCED TIKZ STYLES
+% ============================================
+\tikzset{
+    module3d/.style={
+        rectangle, rounded corners=4pt,
+        minimum height=10mm, minimum width=26mm,
+        draw=#1!70, line width=0.6pt,
+        top color=#1!20, bottom color=#1!40,
+        font=\fontsize{8}{9}\selectfont\sffamily,
+        drop shadow={shadow xshift=0.8mm, shadow yshift=-0.8mm, opacity=0.25}
+    },
+    modulebig/.style={
+        rectangle, rounded corners=5pt,
+        minimum height=12mm, minimum width=32mm,
+        draw=#1!80, line width=0.8pt,
+        top color=#1!15, bottom color=#1!35,
+        font=\fontsize{9}{10}\selectfont\sffamily\bfseries,
+        drop shadow={shadow xshift=1mm, shadow yshift=-1mm, opacity=0.3}
+    },
+    cell3d/.style={
+        circle, minimum size=5mm,
+        inner color=#1!40, outer color=#1!80,
+        draw=#1!90, line width=0.5pt,
+        drop shadow={shadow xshift=0.5mm, shadow yshift=-0.5mm, opacity=0.2}
+    },
+    cellsm/.style={
+        circle, minimum size=3.5mm,
+        inner color=#1!30, outer color=#1!70,
+        draw=#1!80, line width=0.4pt
+    },
+    recvcell/.style={
+        circle, minimum size=7mm,
+        inner color=naccent!50, outer color=naccent!90,
+        draw=naccentdk, line width=0.8pt,
+        drop shadow={shadow xshift=0.6mm, shadow yshift=-0.6mm, opacity=0.35}
+    },
+    panel/.style={
+        rectangle, rounded corners=6pt,
+        fill=white, draw=ngraylt!80, line width=0.5pt,
+        drop shadow={shadow xshift=1.2mm, shadow yshift=-1.2mm, opacity=0.12}
+    },
+    subpanel/.style={
+        rectangle, rounded corners=4pt,
+        top color=ngraylt!30, bottom color=ngraylt!60,
+        draw=ngraylt, line width=0.4pt
+    },
+    flowarrow/.style={
+        -{Stealth[length=3mm, width=2mm, round]},
+        line width=0.9pt, draw=#1,
+        shorten >=1pt, shorten <=1pt
+    },
+    flowthick/.style={
+        -{Stealth[length=3.5mm, width=2.5mm, round]},
+        line width=1.2pt, draw=#1,
+        shorten >=1pt, shorten <=1pt
+    },
+    flowdash/.style={
+        -{Stealth[length=2.5mm, width=1.8mm, round]},
+        line width=0.7pt, draw=#1, dashed, dash pattern=on 3pt off 2pt
+    },
+    heading/.style={font=\fontsize{11}{12}\selectfont\bfseries\sffamily, text=ntext},
+    subhead/.style={font=\fontsize{9}{10}\selectfont\sffamily, text=ntextsub},
+    caption/.style={font=\fontsize{7}{8}\selectfont\sffamily, text=ntextsub},
+    dimbadge/.style={
+        rectangle, rounded corners=2pt,
+        fill=#1!15, draw=#1!50, line width=0.3pt,
+        font=\fontsize{6.5}{7}\selectfont\sffamily,
+        inner xsep=3pt, inner ysep=1.5pt
+    },
+    eqbox/.style={
+        rectangle, rounded corners=3pt,
+        fill=ngraylt!50, draw=ngraylt, line width=0.4pt,
+        inner sep=4pt, font=\fontsize{7.5}{8.5}\selectfont
+    },
+    secletter/.style={
+        circle, minimum size=6mm,
+        fill=#1!20, draw=#1!60, line width=0.5pt,
+        font=\fontsize{9}{10}\selectfont\bfseries\sffamily, text=#1!80
+    },
+}
+
+\begin{document}
+
+% ============================================
+% PUBLICATION-READY ARCHITECTURE FIGURE
+% ============================================
+\begin{tikzpicture}[x=1mm, y=1mm]
+
+% Background
+\fill[nbg] (-2, -2) rectangle (232, 148);
+
+% Title bar
+\shade[top color=nprimary!8, bottom color=nbg] (-2, 140) rectangle (232, 148);
+\node[font=\fontsize{12}{13}\selectfont\bfseries\sffamily, text=nprimarydk, anchor=west] at (2, 144) {StageBridge};
+\node[font=\fontsize{8}{9}\selectfont\sffamily, text=ntextsub, anchor=west] at (42, 144) {Receiver-Centered Niche Encoding for Cell State Transitions};
+
+% ============================================
+% PANEL A: SPATIAL NICHE INPUT
+% ============================================
+\begin{scope}[shift={(2, 90)}]
+    \node[panel, minimum width=70mm, minimum height=48mm] at (35, 0) {};
+    \node[secletter=nprimary] at (6, 22) {a};
+    \node[heading, anchor=west] at (11, 22) {Spatial niche};
+
+    \begin{scope}[shift={(35, -2)}]
+        \shade[inner color=nprimary!5, outer color=nprimary!15] (0,0) circle (20mm);
+        \shade[inner color=white, outer color=nprimary!8] (0,0) circle (14mm);
+        \shade[inner color=white, outer color=nprimary!5] (0,0) circle (8mm);
+
+        \draw[nprimary!40, line width=0.3pt] (14, 0) -- (22, 0);
+        \node[caption, nprimary, anchor=west] at (22, 0) {Ring 2};
+        \draw[nprimary!40, line width=0.3pt] (0, 20) -- (0, 24);
+        \node[caption, nprimary, anchor=south] at (0, 24) {Ring 3 (100$\mu$m)};
+
+        \node[cellsm=nprimary, opacity=0.9] at (-8, 6) {};
+        \node[cellsm=nprimary, opacity=0.85] at (6, 8) {};
+        \node[cellsm=nprimary, opacity=0.7] at (-12, -4) {};
+        \node[cellsm=nprimary, opacity=0.65] at (10, -6) {};
+        \node[cellsm=nprimary, opacity=0.5] at (-6, -14) {};
+        \node[cellsm=nprimary, opacity=0.45] at (4, -12) {};
+        \node[cellsm=nprimary, opacity=0.4] at (16, 4) {};
+        \node[cellsm=nprimary, opacity=0.35] at (-16, 8) {};
+
+        \node[recvcell] at (0, 0) {};
+        \node[font=\fontsize{5}{6}\selectfont\sffamily, text=white] at (0, 0) {$i$};
+
+        \draw[naccent, line width=0.5pt, <->] (0.5, 0.5) -- (5.5, 5.5);
+        \node[caption, naccent] at (5, 1) {$d_j$};
+    \end{scope}
+
+    \node[eqbox] at (35, -20) {$\alpha_j \propto e^{-d_j/\sigma_h} \cdot \mathrm{softmax}(QK^\top/\sqrt{d})$};
+\end{scope}
+
+% ============================================
+% PANEL B: REFERENCE EMBEDDINGS
+% ============================================
+\begin{scope}[shift={(76, 90)}]
+    \node[panel, minimum width=45mm, minimum height=48mm] at (22.5, 0) {};
+    \node[secletter=ngreen] at (6, 22) {b};
+    \node[heading, anchor=west] at (11, 22) {References};
+
+    \begin{scope}[shift={(14, 6)}]
+        \shade[inner color=ngreen!10, outer color=ngreen!25, rounded corners=3pt]
+            (-8, -8) rectangle (8, 8);
+        \draw[ngreen!50, line width=0.4pt, rounded corners=3pt] (-8, -8) rectangle (8, 8);
+        \foreach \x/\y in {-4/4, 0/5, 4/3, -3/0, 3/-1, -2/-4, 2/-5} {
+            \fill[ngreen!70] (\x, \y) circle (1mm);
+        }
+        \node[caption, ngreen] at (0, -12) {HLCA};
+        \node[dimbadge=ngreen] at (0, -16) {30d};
+    \end{scope}
+
+    \begin{scope}[shift={(32, 6)}]
+        \shade[inner color=npurple!10, outer color=npurple!25, rounded corners=3pt]
+            (-8, -8) rectangle (8, 8);
+        \draw[npurple!50, line width=0.4pt, rounded corners=3pt] (-8, -8) rectangle (8, 8);
+        \foreach \x/\y in {-3/4, 2/5, 5/2, -4/-1, 1/-2, -1/-5} {
+            \fill[npurple!70] (\x, \y) circle (1mm);
+        }
+        \node[caption, npurple] at (0, -12) {LuCA};
+        \node[dimbadge=npurple] at (0, -16) {10d};
+    \end{scope}
+\end{scope}
+
+% ============================================
+% PANEL C: AMICI ENCODER
+% ============================================
+\begin{scope}[shift={(125, 90)}]
+    \node[panel, minimum width=50mm, minimum height=48mm] at (25, 0) {};
+    \node[secletter=nprimary] at (6, 22) {c};
+    \node[heading, anchor=west] at (11, 22) {AMICI Encoder};
+
+    \node[module3d=nprimary, minimum width=38mm] (proj) at (25, 10) {Input Projection};
+    \node[modulebig=nprimary, minimum width=38mm] (attn) at (25, -2) {Distance-Attention};
+    \node[module3d=naccent, minimum width=38mm] (ssl) at (25, -14) {SSL: Reconstruct $\hat{x}_i$};
+
+    \draw[flowarrow=nprimary] (proj) -- (attn);
+    \draw[flowdash=naccent] (attn) -- (ssl);
+
+    \node[caption, anchor=west] at (46, -2) {Multi-head};
+    \node[caption, anchor=west] at (46, -6) {learned $\sigma_h$};
+\end{scope}
+
+% ============================================
+% PANEL D: GW FUSION + CONTEXT REFINER
+% ============================================
+\begin{scope}[shift={(179, 90)}]
+    \node[panel, minimum width=50mm, minimum height=48mm] at (25, 0) {};
+    \node[secletter=naccent] at (6, 22) {d};
+    \node[heading, anchor=west] at (11, 22) {Context};
+
+    \node[module3d=naccent, minimum width=38mm] (gw) at (25, 12) {Learned GW Fusion};
+    \node[caption] at (25, 5) {$\mathcal{L}_{\mathrm{struct}} = \|D_H - D_L\|_F^2$};
+
+    \node[subpanel, minimum width=42mm, minimum height=22mm] at (25, -8) {};
+    \node[caption, ntextsub] at (25, 0) {Set Transformer};
+
+    \node[module3d=nprimary, minimum width=16mm, minimum height=6mm] (isab) at (17, -6) {ISAB};
+    \node[module3d=nprimary, minimum width=16mm, minimum height=6mm] (sab) at (33, -6) {SAB};
+    \node[module3d=nprimary, minimum width=16mm, minimum height=6mm] (pma) at (25, -14) {PMA};
+
+    \draw[flowarrow=nprimary] (isab) -- (sab);
+    \draw[flowarrow=nprimary] (sab) -- (28, -6) -- (28, -11) -- (pma);
+    \draw[flowarrow=nprimary] (isab) -- (22, -6) -- (22, -11) -- (pma);
+
+    \node[dimbadge=nprimary, anchor=north] at (25, -20) {$\mathbf{c} \in \mathbb{R}^{256}$};
+\end{scope}
+
+% ============================================
+% PANEL E: TRANSITION DYNAMICS
+% ============================================
+\begin{scope}[shift={(2, 8)}]
+    \node[panel, minimum width=228mm, minimum height=42mm] at (114, 0) {};
+    \node[secletter=naccent] at (6, 18) {e};
+    \node[heading, anchor=west] at (11, 18) {OT-CFM Transition Dynamics};
+
+    % Source
+    \begin{scope}[shift={(35, -2)}]
+        \shade[inner color=ngreen!15, outer color=ngreen!30, rounded corners=4pt]
+            (-15, -12) rectangle (15, 12);
+        \draw[ngreen!50, line width=0.5pt, rounded corners=4pt] (-15, -12) rectangle (15, 12);
+        \foreach \x/\y in {-8/6, -2/8, 4/5, -10/0, -4/1, 3/-1, 9/2, -7/-6, 0/-7, 6/-5} {
+            \node[cellsm=ngreen] at (\x, \y) {};
+        }
+        \node[subhead, ngreen] at (0, -16) {Source $\rho_0$};
+        \node[caption] at (0, -20) {Stage $s$};
+    \end{scope}
+
+    % Target
+    \begin{scope}[shift={(195, -2)}]
+        \shade[inner color=naccent!15, outer color=naccent!30, rounded corners=4pt]
+            (-15, -12) rectangle (15, 12);
+        \draw[naccent!50, line width=0.5pt, rounded corners=4pt] (-15, -12) rectangle (15, 12);
+        \foreach \x/\y in {-8/6, -2/8, 4/5, -10/0, -4/1, 3/-1, 9/2, -7/-6, 0/-7, 6/-5} {
+            \node[cellsm=naccent] at (\x, \y) {};
+        }
+        \node[subhead, naccent] at (0, -16) {Target $\rho_1$};
+        \node[caption] at (0, -20) {Stage $s{+}1$};
+    \end{scope}
+
+    % Flow
+    \begin{scope}
+        \draw[line width=2pt, naccent!80,
+            postaction={decorate, decoration={markings,
+                mark=at position 0.25 with {\arrow[naccent, scale=0.8]{Stealth}},
+                mark=at position 0.5 with {\arrow[naccent, scale=0.9]{Stealth}},
+                mark=at position 0.75 with {\arrow[naccent, scale=0.8]{Stealth}}
+            }}
+        ] (52, -2) to[out=5, in=175] (178, -2);
+        \draw[line width=1pt, naccent!50] (52, 4) to[out=8, in=172] (178, 5);
+        \draw[line width=1pt, naccent!50] (52, -8) to[out=-5, in=185] (178, -9);
+    \end{scope}
+
+    % Drift box
+    \begin{scope}[shift={(115, -2)}]
+        \node[subpanel, minimum width=50mm, minimum height=24mm] at (0, 0) {};
+        \node[subhead, ntextsub] at (0, 10) {CrossAttentionDrift};
+
+        \node[module3d=nprimary, minimum width=18mm, minimum height=6mm] (qkv) at (-12, 2) {Q,KV};
+        \node[module3d=nprimary, minimum width=18mm, minimum height=6mm] (att) at (0, 2) {Attn};
+        \node[module3d=naccent, minimum width=12mm, minimum height=6mm] (gate) at (12, 2) {$g$};
+
+        \draw[flowarrow=nprimary] (qkv) -- (att);
+        \draw[flowarrow=nprimary] (att) -- (gate);
+
+        \node[cell3d=naccent] at (0, -6) {};
+        \draw[flowarrow=naccent, line width=0.6pt] (2, -6) -- (8, -5);
+        \node[caption] at (0, -12) {$v_\theta(x_t, t | \mathbf{c})$};
+    \end{scope}
+
+    \draw[flowdash=nprimary] (115, 45) -- (115, 22);
+    \node[dimbadge=nprimary] at (115, 48) {$\mathbf{c}$};
+
+    \node[eqbox, anchor=west] at (155, -18) {$\mathcal{L} = \mathbb{E}_{t}\|v_\theta - (x_1 - x_0)\|^2$};
+\end{scope}
+
+% ============================================
+% CONNECTIONS
+% ============================================
+\draw[flowthick=nprimary] (70, 90) -- (125, 90);
+\draw[flowthick=ngreen] (121, 96) -- (179, 96);
+\draw[flowthick=npurple] (121, 84) -- (179, 84);
+\draw[flowthick=nprimary] (175, 88) -- (179, 88);
+\draw[flowthick=nprimary] (204, 66) -- (204, 50);
+
+% ============================================
+% LEGEND
+% ============================================
+\begin{scope}[shift={(5, 55)}]
+    \node[cellsm=naccent] at (0, 0) {};
+    \node[caption, anchor=west] at (3, 0) {Receiver};
+    \node[cellsm=nprimary] at (25, 0) {};
+    \node[caption, anchor=west] at (28, 0) {Neighbor};
+    \node[dimbadge=ngreen] at (55, 0) {HLCA};
+    \node[dimbadge=npurple] at (72, 0) {LuCA};
+    \draw[flowarrow=nprimary] (92, 0) -- (102, 0);
+    \node[caption, anchor=west] at (104, 0) {Data flow};
+    \draw[flowdash=naccent] (130, 0) -- (140, 0);
+    \node[caption, anchor=west] at (142, 0) {SSL path};
+\end{scope}
+
+\end{tikzpicture}
+
+\end{document}

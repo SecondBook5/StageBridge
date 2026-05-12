@@ -1,374 +1,393 @@
-\documentclass[border=3pt, tikz]{standalone}
+\documentclass[border=5pt, tikz]{standalone}
 
 \usetikzlibrary{
     positioning, arrows.meta, calc, backgrounds,
     decorations.markings, decorations.pathmorphing,
-    fit, shapes.geometric, patterns, matrix
+    fit, shapes.geometric, patterns, matrix,
+    shadows.blur, fadings
 }
 
 \usepackage{amsmath, amssymb, bm}
 \usepackage{xcolor}
 
 % ============================================
-% PALETTE
+% MODERN PALETTE
 % ============================================
-\definecolor{teal}{HTML}{008080}
-\definecolor{coral}{HTML}{E07A5F}
-\definecolor{navy}{HTML}{1B365D}
-\definecolor{slate}{HTML}{4A5568}
-\definecolor{gold}{HTML}{D4A017}
-\definecolor{sage}{HTML}{4A7C59}
-\definecolor{plum}{HTML}{6B4984}
-\definecolor{cream}{HTML}{FDFCFB}
-\definecolor{bgpanel}{HTML}{F7F8FA}
-\definecolor{txtsub}{HTML}{6B7280}
-\definecolor{gridline}{HTML}{E5E7EB}
+\definecolor{primary}{HTML}{2563EB}
+\definecolor{secondary}{HTML}{7C3AED}
+\definecolor{accent}{HTML}{F59E0B}
+\definecolor{success}{HTML}{10B981}
+\definecolor{danger}{HTML}{EF4444}
+\definecolor{neutral}{HTML}{6B7280}
+
+\definecolor{bg}{HTML}{FAFBFC}
+\definecolor{bgdark}{HTML}{F1F5F9}
+\definecolor{border}{HTML}{E2E8F0}
+\definecolor{text}{HTML}{1E293B}
+\definecolor{textsub}{HTML}{64748B}
+
+\definecolor{receiver}{HTML}{DC2626}
+\definecolor{neighbor}{HTML}{0891B2}
+\definecolor{hlca}{HTML}{059669}
+\definecolor{luca}{HTML}{7C3AED}
+\definecolor{context}{HTML}{2563EB}
+\definecolor{drift}{HTML}{F59E0B}
+\definecolor{flow}{HTML}{EC4899}
 
 % ============================================
-% STYLES - SCALED UP
+% STYLES
 % ============================================
 \tikzset{
-    rcell/.style={circle, minimum size=6mm, fill=coral, draw=coral!60!black, line width=0.6pt},
-    ncell/.style={circle, minimum size=4mm, fill=teal!70, draw=teal!50!black, line width=0.5pt},
-    flow/.style={-{Stealth[length=2.5mm, width=1.5mm]}, line width=0.7pt, draw=slate},
-    flowbold/.style={-{Stealth[length=3mm, width=1.8mm]}, line width=0.9pt, draw=#1},
-    module/.style={rectangle, rounded corners=4pt, minimum height=10mm, minimum width=24mm,
-        draw=#1!70, line width=0.7pt, fill=#1!12, font=\fontsize{9}{10}\selectfont\sffamily},
-    moduleB/.style={rectangle, rounded corners=4pt, minimum height=12mm, minimum width=28mm,
-        draw=#1!80, line width=0.8pt, top color=#1!8, bottom color=#1!22,
-        font=\fontsize{10}{11}\selectfont\sffamily\bfseries},
-    embed/.style={circle, minimum size=10mm, draw=#1!60, line width=0.7pt, fill=#1!15,
-        font=\fontsize{10}{11}\selectfont\sffamily},
-    embedsm/.style={circle, minimum size=8mm, draw=#1!50, line width=0.6pt, fill=#1!12,
-        font=\fontsize{8}{9}\selectfont\sffamily},
-    dimbox/.style={rectangle, rounded corners=2pt, fill=#1!10, draw=#1!40, line width=0.4pt,
-        font=\fontsize{8}{9}\selectfont\sffamily, inner xsep=4pt, inner ysep=3pt},
-    eqbox/.style={rectangle, rounded corners=3pt, fill=#1!6, draw=#1!30, line width=0.4pt,
-        inner sep=5pt, font=\fontsize{9}{10}\selectfont},
-    panel/.style={rectangle, rounded corners=5pt, fill=bgpanel, draw=gridline, line width=0.5pt},
-    ptitle/.style={font=\fontsize{11}{12}\selectfont\bfseries\sffamily, text=#1},
-    plabel/.style={font=\fontsize{8}{9}\selectfont\sffamily, text=txtsub},
-    tiertitle/.style={font=\fontsize{12}{13}\selectfont\bfseries\sffamily, text=navy},
+    cell/.style={circle, minimum size=4mm, fill=#1!70, draw=#1!90, line width=0.5pt,
+        blur shadow={shadow blur steps=5, shadow xshift=0.3mm, shadow yshift=-0.3mm}},
+    cellsm/.style={circle, minimum size=3mm, fill=#1!60, draw=#1!80, line width=0.4pt},
+    rcell/.style={circle, minimum size=6mm, fill=receiver!80, draw=receiver!90, line width=0.8pt,
+        blur shadow={shadow blur steps=8, shadow xshift=0.5mm, shadow yshift=-0.5mm}},
+    module/.style={rectangle, rounded corners=3pt, minimum height=8mm, minimum width=22mm,
+        fill=#1!15, draw=#1!60, line width=0.6pt, font=\fontsize{8}{9}\selectfont\sffamily,
+        blur shadow={shadow blur steps=5, shadow xshift=0.3mm, shadow yshift=-0.3mm}},
+    modulelg/.style={rectangle, rounded corners=4pt, minimum height=10mm, minimum width=30mm,
+        fill=#1!12, draw=#1!50, line width=0.7pt, font=\fontsize{9}{10}\selectfont\sffamily\bfseries,
+        blur shadow={shadow blur steps=6, shadow xshift=0.4mm, shadow yshift=-0.4mm}},
+    panel/.style={rectangle, rounded corners=6pt, fill=white, draw=border, line width=0.6pt,
+        blur shadow={shadow blur steps=8, shadow xshift=0.5mm, shadow yshift=-0.5mm, shadow opacity=0.15}},
+    subpanel/.style={rectangle, rounded corners=4pt, fill=bgdark, draw=border!70, line width=0.4pt},
+    flow/.style={-{Stealth[length=2.5mm, width=1.8mm]}, line width=0.7pt, draw=#1},
+    flowthick/.style={-{Stealth[length=3mm, width=2mm]}, line width=1pt, draw=#1},
+    flowdashed/.style={-{Stealth[length=2.5mm, width=1.8mm]}, line width=0.7pt, draw=#1, dashed},
+    heading/.style={font=\fontsize{11}{12}\selectfont\bfseries\sffamily, text=text},
+    subheading/.style={font=\fontsize{9}{10}\selectfont\sffamily, text=textsub},
+    label/.style={font=\fontsize{7}{8}\selectfont\sffamily, text=textsub},
+    mathlabel/.style={font=\fontsize{8}{9}\selectfont, text=text},
+    dim/.style={rectangle, rounded corners=2pt, fill=#1!10, draw=#1!40, line width=0.3pt,
+        font=\fontsize{7}{8}\selectfont\sffamily, inner sep=2pt},
+    eqbox/.style={rectangle, rounded corners=3pt, fill=bgdark, draw=border, line width=0.4pt,
+        inner sep=4pt, font=\fontsize{8}{9}\selectfont},
 }
 
 \begin{document}
 
 % ============================================
-% PAGE 1: ARCHITECTURE (LANDSCAPE, SCALED)
+% PAGE 1: ARCHITECTURE OVERVIEW
 % ============================================
 \begin{tikzpicture}[x=1mm, y=1mm]
 
-\useasboundingbox (0, 0) rectangle (280, 160);
-\fill[cream] (0, 0) rectangle (280, 160);
+\fill[bg] (-5, -5) rectangle (280, 165);
+
+% Header
+\node[font=\fontsize{14}{15}\selectfont\bfseries\sffamily, text=text, anchor=west] at (0, 160) {StageBridge v1.2};
+\node[font=\fontsize{9}{10}\selectfont\sffamily, text=textsub, anchor=west] at (55, 160) {Architecture Overview};
+\draw[primary, line width=2pt] (0, 154) -- (275, 154);
 
 % ============================================
-% HEADER
+% TIER 1: REFERENCE GEOMETRY (Left)
 % ============================================
-\node[font=\fontsize{14}{15}\selectfont\bfseries\sffamily, text=navy, anchor=west] at (4, 155) {StageBridge};
-\node[font=\fontsize{9}{10}\selectfont\sffamily, text=txtsub, anchor=west] at (50, 155) {Receiver-Centered Niche Modeling via Conditional Flow Matching};
-\draw[coral, line width=2pt] (4, 149) -- (276, 149);
+\node[panel, minimum width=85mm, minimum height=70mm] at (42.5, 115) {};
+\node[heading, anchor=west] at (3, 147) {1. Reference Geometry};
 
-% ============================================
-% LEFT: REFERENCE GEOMETRY (x=4-90)
-% ============================================
-\fill[navy!4, rounded corners=6pt] (4, 4) rectangle (90, 145);
-\node[tiertitle, anchor=west] at (8, 140) {Reference Geometry};
+% HLCA manifold
+\begin{scope}[shift={(10, 115)}]
+    \node[subpanel, minimum width=30mm, minimum height=28mm] at (0, 8) {};
+    \node[subheading] at (0, 20) {HLCA (Healthy)};
 
-% HLCA
-\begin{scope}[shift={(8, 78)}]
-    \fill[teal!8, rounded corners=5pt] (0, 0) rectangle (78, 55);
-    \draw[teal!45, line width=0.6pt, rounded corners=5pt] (0, 0) rectangle (78, 55);
-    \node[ptitle=teal] at (39, 50) {HLCA (Healthy)};
+    \draw[hlca!40, line width=1.2pt, fill=hlca!8]
+        plot[smooth cycle, tension=0.6] coordinates {(-10,12) (-4,16) (4,14) (10,10) (8,2) (2,-2) (-6,0) (-12,6)};
 
-    % Manifold
-    \draw[teal!35, line width=1.5pt, fill=teal!6]
-        plot[smooth cycle, tension=0.5] coordinates {(8,32) (20,42) (40,38) (60,40) (72,28) (58,12) (32,8) (14,16)};
-
-    \fill[teal] (20,36) circle (2mm);
-    \fill[teal] (39,34) circle (2mm);
-    \fill[teal] (58,32) circle (2mm);
-    \fill[teal!70] (28,25) circle (1.5mm);
-    \fill[teal!70] (48,22) circle (1.5mm);
-    \fill[teal!55] (16,22) circle (1.2mm);
-    \fill[teal!55] (66,20) circle (1.2mm);
-
-    \node[dimbox=teal] at (39, 4) {$z_H \in \mathbb{R}^{30}$};
-\end{scope}
-
-% LuCA
-\begin{scope}[shift={(8, 18)}]
-    \fill[sage!8, rounded corners=5pt] (0, 0) rectangle (78, 55);
-    \draw[sage!45, line width=0.6pt, rounded corners=5pt] (0, 0) rectangle (78, 55);
-    \node[ptitle=sage] at (39, 50) {LuCA (Cancer)};
-
-    % Manifold
-    \draw[sage!35, line width=1.5pt, fill=sage!6]
-        plot[smooth cycle, tension=0.5] coordinates {(10,30) (22,40) (42,36) (62,38) (70,26) (56,10) (30,8) (16,18)};
-
-    \fill[sage] (22,34) circle (2mm);
-    \fill[sage] (41,32) circle (2mm);
-    \fill[sage] (60,30) circle (2mm);
-    \fill[sage!70] (32,22) circle (1.5mm);
-    \fill[sage!70] (50,18) circle (1.5mm);
-
-    \node[dimbox=sage] at (39, 4) {$z_L \in \mathbb{R}^{10}$};
-\end{scope}
-
-% GW Transport arrow
-\draw[gold, line width=1.8pt, -{Stealth[length=5mm, width=3mm]}, densely dashed]
-    (47, 78) -- (47, 73);
-\node[eqbox=gold, anchor=west] at (55, 75.5) {\fontsize{8}{9}\selectfont $T_\phi: d_H \mapsto d_L$};
-
-% GW Equation at bottom
-\node[eqbox=gold, anchor=north west] at (8, 14) {\fontsize{8}{9}\selectfont $T_\phi^* = \arg\min_T \sum_{ij}|d_H^{ij} - d_L^{T(i),T(j)}|^2$};
-
-% ============================================
-% MIDDLE: NICHE ENCODING (x=94-186)
-% ============================================
-\fill[coral!3, rounded corners=6pt] (94, 4) rectangle (186, 145);
-\node[tiertitle, anchor=west] at (98, 140) {Niche Encoding};
-
-% Spatial Niche
-\begin{scope}[shift={(98, 78)}]
-    \node[panel, minimum width=84mm, minimum height=58mm] at (42, 29) {};
-    \node[ptitle=coral, anchor=north west] at (3, 55) {Spatial Niche};
-
-    % Distance field
-    \fill[coral!5] (42, 26) circle (24mm);
-    \fill[coral!10] (42, 26) circle (16mm);
-    \fill[coral!16] (42, 26) circle (8mm);
-
-    % Receiver
-    \node[rcell] (R) at (42, 26) {};
-    \node[font=\fontsize{8}{8}\selectfont\bfseries, text=white] at (42, 26) {$i$};
-
-    % Neighbors
-    \node[ncell, fill=teal!85] (n1) at (28, 40) {};
-    \node[ncell, fill=teal!70] (n2) at (56, 42) {};
-    \node[ncell, fill=teal!55] (n3) at (22, 18) {};
-    \node[ncell, fill=teal!50] (n4) at (62, 22) {};
-    \node[ncell, fill=teal!40] (n5) at (18, 30) {};
-    \node[ncell, fill=teal!35] (n6) at (66, 34) {};
-
-    \draw[teal!85, line width=1.4pt] (R) -- (n1);
-    \draw[teal!70, line width=1.1pt] (R) -- (n2);
-    \draw[teal!55, line width=0.9pt] (R) -- (n3);
-    \draw[teal!50, line width=0.8pt] (R) -- (n4);
-    \draw[teal!40, line width=0.65pt] (R) -- (n5);
-    \draw[teal!35, line width=0.55pt] (R) -- (n6);
-
-    \draw[coral!60, line width=0.5pt, <->] (42, 26) -- (28, 40);
-    \node[font=\fontsize{7}{7}\selectfont, text=coral!80] at (32, 31) {$d_j$};
-
-    \node[eqbox=coral, anchor=north] at (42, 2) {\fontsize{8}{9}\selectfont $\alpha_j \propto e^{-d_j/\sigma_d} \cdot e^{q^\top k_j/\sqrt{d}}$};
-\end{scope}
-
-% Encoder
-\begin{scope}[shift={(98, 8)}]
-    \node[panel, minimum width=84mm, minimum height=64mm] at (42, 32) {};
-    \node[ptitle=navy, anchor=north west] at (3, 60) {Niche Encoder};
-
-    % Token sequence
-    \fill[coral!80] (12, 52) circle (3mm);
-    \node[font=\fontsize{7}{7}\selectfont, text=white] at (12, 52) {$r$};
-    \foreach \x/\op in {22/75, 30/60, 38/48, 46/38} {
-        \fill[teal!\op] (\x, 52) circle (2.4mm);
+    \foreach \x/\y/\s in {-6/12/1.2, 0/13/1.4, 6/10/1.2, -4/6/1, 4/4/1, -2/0/0.8} {
+        \fill[hlca] (\x, \y) circle (\s mm);
     }
-    \fill[gold!70] (58, 52) circle (2.4mm);
-    \fill[plum!60] (68, 52) circle (2.4mm);
+    \node[dim=hlca] at (0, -6) {$z_H \in \mathbb{R}^{30}$};
+\end{scope}
 
-    \node[font=\fontsize{7}{8}\selectfont\sffamily, text=coral!70] at (12, 46) {recv};
-    \node[font=\fontsize{7}{8}\selectfont\sffamily, text=teal!70] at (34, 46) {neighbors};
-    \node[font=\fontsize{7}{8}\selectfont\sffamily, text=gold!70] at (63, 46) {ref};
+% LuCA manifold
+\begin{scope}[shift={(55, 115)}]
+    \node[subpanel, minimum width=30mm, minimum height=28mm] at (0, 8) {};
+    \node[subheading] at (0, 20) {LuCA (Cancer)};
 
-    % Layers
-    \node[moduleB=teal, minimum width=6cm] (attn) at (42, 32) {Dist-CrossAttn};
-    \node[module=slate, minimum width=4.5cm] (ffn) at (42, 16) {FFN};
+    \draw[luca!40, line width=1.2pt, fill=luca!8]
+        plot[smooth cycle, tension=0.6] coordinates {(-10,10) (-4,16) (6,14) (12,8) (6,0) (0,-2) (-8,2) (-12,6)};
 
-    \draw[flow] (42, 40) -- (attn);
-    \draw[flow] (attn) -- (ffn);
+    \foreach \x/\y/\s in {-4/12/1.2, 2/13/1.4, 8/9/1.2, -2/6/1, 4/3/1, 0/-1/0.8} {
+        \fill[luca] (\x, \y) circle (\s mm);
+    }
+    \node[dim=luca] at (0, -6) {$z_L \in \mathbb{R}^{10}$};
+\end{scope}
 
-    % Output
-    \node[embed=coral] (eout) at (78, 24) {$e_i$};
-    \draw[flowbold=coral] (ffn.east) -| (eout);
-    \node[dimbox=coral, anchor=west] at (82, 24) {$\mathbb{R}^{256}$};
+% Learned GW Fusion
+\begin{scope}[shift={(42.5, 82)}]
+    \node[modulelg=accent, minimum width=70mm] at (0, 0) {Learned GW Fusion};
+    \node[eqbox, anchor=north] at (0, -8) {%
+        \begin{minipage}{65mm}\centering
+        $\pi_H, \pi_L$: learned projections to metric space\\[2pt]
+        $\mathcal{L}_{\mathrm{struct}} = \|D_H - D_L\|_F^2$ (training only)\\[2pt]
+        Output: $[\alpha\pi_H(z_H) + (1{-}\alpha)\pi_L(z_L);\; \pi_H - \pi_L]$
+        \end{minipage}
+    };
+
+    \draw[flow=hlca] (-20, 15) -- (-20, 5);
+    \draw[flow=luca] (20, 15) -- (20, 5);
 \end{scope}
 
 % ============================================
-% RIGHT: TRANSPORT & DRIFT (x=190-276)
+% TIER 2: NICHE ENCODING (Middle)
 % ============================================
-\fill[sage!3, rounded corners=6pt] (190, 4) rectangle (276, 145);
-\node[tiertitle, anchor=west] at (194, 140) {Transport \& Drift};
+\node[panel, minimum width=85mm, minimum height=70mm] at (137.5, 115) {};
+\node[heading, anchor=west] at (98, 147) {2. Niche Encoding (AMICI)};
+
+% Spatial visualization
+\begin{scope}[shift={(115, 122)}]
+    \fill[neighbor!6] (0,0) circle (18mm);
+    \fill[neighbor!10] (0,0) circle (12mm);
+    \fill[neighbor!15] (0,0) circle (6mm);
+
+    \foreach \a/\r/\op in {30/14/40, 70/16/35, 120/13/45, 170/15/35, 220/14/40, 280/12/50, 330/16/35} {
+        \node[cellsm=neighbor, opacity=\op/100] at (\a:\r mm) {};
+    }
+
+    \node[rcell] at (0, 0) {};
+    \node[font=\fontsize{5}{6}\selectfont, text=white] at (0, 0) {recv};
+
+    \node[label] at (0, -22) {Spatial neighbors by distance};
+\end{scope}
+
+% Encoder stack
+\begin{scope}[shift={(157, 115)}]
+    \node[module=neighbor, minimum width=26mm] (proj) at (0, 18) {Input proj};
+    \node[modulelg=context, minimum width=26mm] (attn) at (0, 6) {Dist-Attn};
+    \node[module=context, minimum width=26mm] (ffn) at (0, -6) {FFN};
+    \node[module=receiver, minimum width=26mm] (ssl) at (0, -18) {SSL: $\hat{x}_i$};
+
+    \draw[flow=neighbor] (proj) -- (attn);
+    \draw[flow=context] (attn) -- (ffn);
+    \draw[flowdashed=receiver] (ffn) -- (ssl);
+
+    \node[eqbox, anchor=west] at (16, 6) {$\alpha_j \propto e^{-d_j/\sigma}$};
+\end{scope}
+
+% Token assembly
+\begin{scope}[shift={(137.5, 82)}]
+    \node[subheading] at (0, 10) {Context Refiner (Set Transformer)};
+
+    % Token circles
+    \fill[context!60] (-28, 0) circle (3mm);
+    \fill[hlca!50] (-18, 0) circle (2.5mm);
+    \fill[luca!50] (-10, 0) circle (2.5mm);
+    \fill[accent!50] (-2, 0) circle (2.5mm);
+
+    \node[label] at (-28, -6) {niche};
+    \node[label] at (-14, -6) {refs};
+    \node[label] at (-2, -6) {path};
+
+    \node[modulelg=context, minimum width=35mm] at (22, 0) {ISAB$\times$2 + SAB + PMA};
+
+    \draw[flow=context] (-28, 0) -- (2, 0);
+\end{scope}
+
+% ============================================
+% TIER 3: TRANSITION DYNAMICS (Right)
+% ============================================
+\node[panel, minimum width=85mm, minimum height=70mm] at (232.5, 115) {};
+\node[heading, anchor=west] at (193, 147) {3. Transition Dynamics};
 
 % CrossAttentionDrift
-\begin{scope}[shift={(194, 78)}]
-    \node[panel, minimum width=78mm, minimum height=58mm] at (39, 29) {};
-    \node[ptitle=slate, anchor=north west] at (3, 55) {CrossAttentionDrift};
+\begin{scope}[shift={(210, 122)}]
+    \node[subpanel, minimum width=40mm, minimum height=32mm] at (0, 0) {};
+    \node[subheading] at (0, 14) {CrossAttentionDrift};
 
-    % Inputs
-    \node[embedsm=coral] (xt) at (10, 45) {$x_t$};
-    \node[embedsm=plum] (tau) at (10, 32) {$\tau$};
-    \node[embedsm=teal] (ctx) at (10, 19) {$\mathbf{c}$};
+    \node[module=flow, minimum width=12mm, minimum height=6mm] (xt) at (-12, 4) {$x_t$};
+    \node[module=secondary, minimum width=12mm, minimum height=6mm] (tau) at (-12, -4) {$\tau$};
 
-    % Context path
-    \fill[teal!6, rounded corners=4pt] (18, 25) rectangle (54, 52);
-    \draw[teal!22, line width=0.5pt, rounded corners=4pt] (18, 25) rectangle (54, 52);
-    \node[module=slate, minimum width=1.2cm, minimum height=8mm] (Q) at (28, 44) {Q};
-    \node[module=slate, minimum width=1.2cm, minimum height=8mm] (KV) at (28, 32) {KV};
-    \node[moduleB=teal, minimum width=2cm] (xattn) at (46, 38) {Attn};
+    \node[module=context, minimum width=16mm] (attn) at (4, 0) {Attn};
+    \node[module=drift, minimum width=10mm] (gate) at (16, 0) {$g$};
 
-    \draw[flow] (xt) -- (Q);
-    \draw[flow] (tau) -- (20, 32) -- (20, 38) -- (Q);
-    \draw[flow] (ctx) -- (20, 19) -- (20, 32) -- (KV);
-    \draw[flow] (Q) -- (35, 44) -- (35, 40) -- (xattn);
-    \draw[flow] (KV) -- (35, 32) -- (35, 36) -- (xattn);
-    \node[embedsm=teal] (vc) at (58, 38) {$v_c$};
-    \draw[flow] (xattn) -- (vc);
+    \draw[flow=flow] (xt) -- (attn);
+    \draw[flow=secondary] (tau) -- (attn);
+    \draw[flow=context] (attn) -- (gate);
 
-    % Latent path
-    \fill[slate!5, rounded corners=4pt] (18, 6) rectangle (48, 20);
-    \draw[slate!18, line width=0.5pt, rounded corners=4pt] (18, 6) rectangle (48, 20);
-    \node[module=slate, minimum width=2.2cm] (mlp) at (33, 13) {MLP};
-    \draw[flow] (xt) -- (14, 45) -- (14, 13) -- (mlp);
-    \draw[flow] (tau) -- (22, 32) -- (22, 13) -- (mlp);
-    \node[embedsm=slate] (vl) at (58, 13) {$v_\ell$};
-    \draw[flow] (mlp) -- (vl);
-
-    % Gate + output
-    \node[moduleB=gold, minimum width=1.4cm, minimum height=2cm] (gate) at (68, 25.5) {$g$};
-    \draw[flowbold=teal] (vc) -- (64, 38) -- (64, 30) -- (gate.north);
-    \draw[flowbold=slate] (vl) -- (64, 13) -- (64, 21) -- (gate.south);
-    \node[embed=coral] (vout) at (74, 6) {$v_\theta$};
-    \draw[flowbold=coral] (gate.south) -- (68, 6) -- (vout);
-
-    \node[eqbox=coral, anchor=south] at (39, 1) {\fontsize{7.5}{8}\selectfont $v_\theta = g \odot v_c + (1{-}g) \odot v_\ell$};
+    \node[label] at (0, -18) {$v_\theta = g \cdot v_c + (1{-}g) \cdot v_\ell$};
 \end{scope}
 
-% OT-CFM + SB
-\begin{scope}[shift={(194, 8)}]
-    \node[panel, minimum width=78mm, minimum height=64mm] at (39, 32) {};
-    \node[ptitle=teal, anchor=north west] at (3, 60) {OT-CFM / Schr\"odinger Bridge};
+% OT-CFM
+\begin{scope}[shift={(255, 122)}]
+    \node[subpanel, minimum width=35mm, minimum height=32mm] at (0, 0) {};
+    \node[subheading] at (0, 14) {OT-CFM};
 
-    % Source
-    \fill[teal!22, rounded corners=3pt] (8, 30) rectangle (24, 50);
-    \foreach \x/\y in {12/46, 16/40, 13/34, 19/42, 11/38} {
-        \fill[teal] (\x, \y) circle (1.2mm);
+    % Source/target
+    \fill[success!30, rounded corners=2pt] (-12, -8) rectangle (-4, 8);
+    \fill[danger!30, rounded corners=2pt] (4, -8) rectangle (12, 8);
+
+    \foreach \y in {-4, 0, 4} {
+        \fill[success] (-8, \y) circle (1mm);
+        \fill[danger] (8, \y) circle (1mm);
     }
-    \node[font=\fontsize{8}{9}\selectfont\sffamily, text=teal] at (16, 26) {$\rho_0$};
 
-    % Target
-    \fill[coral!22, rounded corners=3pt] (50, 30) rectangle (66, 50);
-    \foreach \x/\y in {54/46, 58/40, 55/34, 61/42, 53/38} {
-        \fill[coral] (\x, \y) circle (1.2mm);
-    }
-    \node[font=\fontsize{8}{9}\selectfont\sffamily, text=coral] at (58, 26) {$\rho_1$};
+    \draw[flow, line width=0.8pt] (-4, 0) -- (4, 0);
 
-    % Deterministic (CFM)
-    \draw[navy, line width=1.1pt, -{Stealth[length=2.5mm]}] (24, 44) -- (50, 44);
-    \node[font=\fontsize{7}{8}\selectfont, text=navy] at (37, 48) {CFM};
-
-    % Stochastic (SB)
-    \draw[sage, line width=1pt, decorate, decoration={random steps, segment length=2.5mm, amplitude=0.6mm}, -{Stealth[length=2.2mm]}]
-        (24, 38) -- (50, 40);
-    \draw[plum, line width=0.7pt, decorate, decoration={random steps, segment length=2mm, amplitude=0.5mm}, {Stealth[length=2mm]}-]
-        (50, 32) -- (24, 34);
-    \node[font=\fontsize{7}{8}\selectfont, text=sage] at (37, 42) {SB fwd};
-    \node[font=\fontsize{7}{8}\selectfont, text=plum] at (37, 30) {SB bwd};
-
-    % Equations
-    \node[eqbox=navy, anchor=north west] at (3, 20) {\fontsize{7.5}{8}\selectfont $\mathcal{L}_{\mathrm{cfm}} = \|v_\theta - (x_1{-}x_0)\|^2$};
-    \node[eqbox=sage, anchor=north west] at (3, 8) {\fontsize{7.5}{8}\selectfont $\mathcal{L}_{\mathrm{sb}} = \|s_\psi - \nabla\log p_t\|^2$};
+    \node[label] at (-8, -12) {$\rho_0$};
+    \node[label] at (8, -12) {$\rho_1$};
 \end{scope}
 
-% Context flow arrow
-\draw[coral!55, line width=1.2pt, -{Stealth[length=3mm]}, rounded corners=5mm]
-    (183, 40) -- (188, 40) -- (188, 97) -- (204, 97);
-\node[font=\fontsize{7}{8}\selectfont\sffamily, text=coral!70, anchor=east] at (186, 68) {$\mathbf{c}{=}e_i$};
+% Stats conditioning
+\begin{scope}[shift={(232.5, 82)}]
+    \node[modulelg=accent, minimum width=70mm] at (0, 0) {FiLM: Stats Conditioning};
+    \node[eqbox, anchor=north] at (0, -8) {%
+        \begin{minipage}{60mm}\centering
+        Cell cycle, clonal, CAF features\\
+        Applied AFTER context refinement
+        \end{minipage}
+    };
+\end{scope}
+
+% ============================================
+% FLOW ARROWS BETWEEN TIERS
+% ============================================
+\draw[flowthick=accent] (85, 82) -- (95, 82);
+\draw[flowthick=context] (180, 82) -- (190, 82);
+
+% ============================================
+% BOTTOM: LOSS FUNCTIONS
+% ============================================
+\node[panel, minimum width=270mm, minimum height=38mm] at (137.5, 35) {};
+\node[heading, anchor=west] at (5, 52) {Training Objectives};
+
+\begin{scope}[shift={(5, 30)}]
+    % SSL
+    \node[modulelg=receiver, minimum width=55mm] at (30, 0) {SSL Reconstruction};
+    \node[eqbox, anchor=north] at (30, -8) {$\mathcal{L}_{\mathrm{ssl}} = \|x_i - \hat{x}_i\|^2$};
+    \node[label, anchor=north] at (30, -20) {Predict receiver from neighbors only};
+
+    % OT-CFM
+    \node[modulelg=drift, minimum width=55mm] at (100, 0) {Flow Matching};
+    \node[eqbox, anchor=north] at (100, -8) {$\mathcal{L}_{\mathrm{cfm}} = \|v_\theta(x_t, t | \mathbf{c}) - (x_1 - x_0)\|^2$};
+    \node[label, anchor=north] at (100, -20) {OT-coupled pairs, Sinkhorn};
+
+    % GW Structure
+    \node[modulelg=accent, minimum width=55mm] at (170, 0) {GW Structure};
+    \node[eqbox, anchor=north] at (170, -8) {$\mathcal{L}_{\mathrm{gw}} = \|D_H - D_L\|_F^2$};
+    \node[label, anchor=north] at (170, -20) {Distance matrices match};
+
+    % Auxiliary
+    \node[modulelg=secondary, minimum width=55mm] at (240, 0) {Auxiliary};
+    \node[eqbox, anchor=north] at (240, -8) {Pathway + Proliferation};
+    \node[label, anchor=north] at (240, -20) {PROGENy, Ki67};
+\end{scope}
 
 \end{tikzpicture}
 
 % ============================================
-% PAGE 2: EQUATIONS (LANDSCAPE, SCALED)
+% PAGE 2: EQUATIONS
 % ============================================
 \newpage
 \begin{tikzpicture}[x=1mm, y=1mm]
 
-\useasboundingbox (0, 0) rectangle (280, 160);
-\fill[cream] (0, 0) rectangle (280, 160);
+\fill[bg] (-5, -5) rectangle (280, 165);
 
 % Header
-\node[font=\fontsize{14}{15}\selectfont\bfseries\sffamily, text=navy, anchor=west] at (4, 155) {Mathematical Formulation};
-\draw[coral, line width=2pt] (4, 149) -- (276, 149);
+\node[font=\fontsize{14}{15}\selectfont\bfseries\sffamily, text=text, anchor=west] at (0, 160) {StageBridge v1.2};
+\node[font=\fontsize{9}{10}\selectfont\sffamily, text=textsub, anchor=west] at (55, 160) {Mathematical Formulation};
+\draw[primary, line width=2pt] (0, 154) -- (275, 154);
 
 % ============================================
-% LEFT: CORE EQUATIONS (x=4-138)
+% LEFT COLUMN: CORE EQUATIONS
 % ============================================
-\node[panel, minimum width=130mm, minimum height=140mm] at (69, 74) {};
-\node[font=\fontsize{11}{12}\selectfont\bfseries\sffamily, text=navy, anchor=west] at (8, 140) {Core Equations};
-\draw[navy!28, line width=0.5pt] (50, 140) -- (132, 140);
+\node[panel, minimum width=130mm, minimum height=145mm] at (67.5, 78) {};
+\node[heading, anchor=west] at (5, 147) {Core Equations};
 
-% 1. Distance Attention
-\node[font=\fontsize{10}{11}\selectfont\bfseries\sffamily, text=coral, anchor=west] at (10, 130) {1. Distance-Weighted Attention (AMICI)};
-\node[anchor=west] at (14, 118) {\fontsize{11}{12}\selectfont $\displaystyle\alpha_{ij} = \frac{\exp(-d_{ij}/\sigma_d) \cdot \exp(q_i^\top k_j / \sqrt{d})}{\sum_{k \in \mathcal{N}_i} \exp(-d_{ik}/\sigma_d) \cdot \exp(q_i^\top k_k / \sqrt{d})}$};
-\node[plabel, anchor=west] at (14, 106) {Spatial prior decays with distance; modulates standard scaled dot-product attention.};
+% 1. Distance-Weighted Attention
+\begin{scope}[shift={(10, 130)}]
+    \node[subheading, text=context, anchor=west] at (0, 0) {1. AMICI Distance-Weighted Attention};
+    \node[anchor=west] at (5, -12) {%
+        $\displaystyle\alpha_{ij} = \frac{\exp(-d_{ij}/\sigma_h) \cdot \exp(q_i^\top k_j / \sqrt{d})}%
+        {\sum_{k \in \mathcal{N}_i} \exp(-d_{ik}/\sigma_h) \cdot \exp(q_i^\top k_k / \sqrt{d})}$
+    };
+    \node[label, anchor=west] at (5, -24) {Each head $h$ learns its own distance scale $\sigma_h$};
+\end{scope}
 
-% 2. Niche Context
-\node[font=\fontsize{10}{11}\selectfont\bfseries\sffamily, text=teal, anchor=west] at (10, 94) {2. Niche Context Embedding};
-\node[anchor=west] at (14, 83) {\fontsize{11}{12}\selectfont $e_i = \mathrm{CrossAttn}(Q = r_i,\; KV = [\mathcal{N}_i, z_H, z_L, p]) \in \mathbb{R}^{256}$};
-\node[plabel, anchor=west] at (14, 72) {Receiver queries local neighbors, dual-atlas latents, and 14 PROGENy pathway activities.};
+% 2. SSL Reconstruction
+\begin{scope}[shift={(10, 95)}]
+    \node[subheading, text=receiver, anchor=west] at (0, 0) {2. SSL Receiver Reconstruction};
+    \node[anchor=west] at (5, -12) {%
+        $\hat{x}_i = f_\theta\Bigl(\sum_{j \in \mathcal{N}_i} \alpha_{ij} \cdot v_j\Bigr)$, \quad
+        $\mathcal{L}_{\mathrm{ssl}} = \|x_i - \hat{x}_i\|_2^2$
+    };
+    \node[label, anchor=west] at (5, -24) {Predict receiver from neighbor context only (no residuals)};
+\end{scope}
 
-% 3. GW Fusion
-\node[font=\fontsize{10}{11}\selectfont\bfseries\sffamily, text=gold, anchor=west] at (10, 60) {3. Gromov-Wasserstein Atlas Fusion};
-\node[anchor=west] at (14, 49) {\fontsize{11}{12}\selectfont $T_\phi^* = \arg\min_T \sum_{i,j} |d_H(x_i, x_j) - d_L(T_i, T_j)|^2$};
-\node[anchor=west] at (14, 37) {\fontsize{11}{12}\selectfont $z_f = [z_H \,\|\, T_\phi(z_H)] \in \mathbb{R}^{40}$};
+% 3. Learned GW Fusion
+\begin{scope}[shift={(10, 60)}]
+    \node[subheading, text=accent, anchor=west] at (0, 0) {3. Learned GW Fusion (Per-Cell)};
+    \node[anchor=west] at (5, -12) {%
+        $h = \pi_H(z_H)$, \quad $l = \pi_L(z_L)$, \quad $z_f = [\alpha h + (1{-}\alpha)l;\; h - l]$
+    };
+    \node[anchor=west] at (5, -24) {%
+        $\mathcal{L}_{\mathrm{struct}} = \|D_H - D_L\|_F^2$ where $D_H[i,j] = \|h_i - h_j\|$
+    };
+    \node[label, anchor=west] at (5, -36) {Structure loss guides training; inference is per-cell};
+\end{scope}
 
-% 4. CrossAttentionDrift
-\node[font=\fontsize{10}{11}\selectfont\bfseries\sffamily, text=slate, anchor=west] at (10, 24) {4. CrossAttentionDrift (Gated Velocity)};
-\node[anchor=west] at (14, 13) {\fontsize{11}{12}\selectfont $v_\theta(x_t, t \mid \mathbf{c}) = g \odot v_c + (1 - g) \odot v_\ell$, \quad $g = \sigma(W_g [x_t \| \tau \| \mathbf{c}])$};
+% 4. Context Refinement
+\begin{scope}[shift={(10, 22)}]
+    \node[subheading, text=context, anchor=west] at (0, 0) {4. Hierarchical Set Transformer};
+    \node[anchor=west] at (5, -12) {%
+        $\mathbf{c} = \mathrm{PMA}(\mathrm{SAB}(\mathrm{ISAB}(\mathrm{ISAB}([e_{\mathrm{niche}}, z_H, z_L, p]))))$
+    };
+    \node[anchor=west] at (5, -24) {%
+        FiLM: $\mathbf{c}' = \gamma(s) \odot \mathbf{c} + \beta(s)$ where $s$ = stats token
+    };
+    \node[label, anchor=west] at (5, -36) {Stats conditioning AFTER attention (prevents shortcut)};
+\end{scope}
 
 % ============================================
-% RIGHT TOP: TRANSPORT (x=142-276)
+% RIGHT COLUMN: DYNAMICS & SYMBOLS
 % ============================================
-\node[panel, minimum width=130mm, minimum height=68mm] at (207, 109) {};
-\node[font=\fontsize{11}{12}\selectfont\bfseries\sffamily, text=navy, anchor=west] at (146, 140) {Transport Dynamics};
-\draw[navy!28, line width=0.5pt] (198, 140) -- (272, 140);
+\node[panel, minimum width=130mm, minimum height=72mm] at (207.5, 114) {};
+\node[heading, anchor=west] at (145, 147) {Transition Dynamics};
+
+% CrossAttentionDrift
+\begin{scope}[shift={(150, 130)}]
+    \node[subheading, text=drift, anchor=west] at (0, 0) {CrossAttentionDrift (Gated)};
+    \node[anchor=west] at (5, -12) {%
+        $v_c = \mathrm{CrossAttn}(Q{=}[x_t, \tau], KV{=}\mathbf{c})$
+    };
+    \node[anchor=west] at (5, -24) {%
+        $v_\ell = \mathrm{MLP}([x_t, \tau])$
+    };
+    \node[anchor=west] at (5, -36) {%
+        $v_\theta = g \odot v_c + (1{-}g) \odot v_\ell$, \quad $g = \sigma(W_g[\cdot])$
+    };
+\end{scope}
 
 % OT-CFM
-\node[font=\fontsize{10}{11}\selectfont\bfseries\sffamily, text=teal, anchor=west] at (148, 130) {OT-CFM (Conditional Flow Matching)};
-\node[anchor=west] at (152, 120) {\fontsize{10.5}{11.5}\selectfont $x_t = (1-t)x_0 + tx_1$, \quad $(x_0, x_1) \sim \pi^*_{\mathrm{OT}}$};
-\node[anchor=west] at (152, 108) {\fontsize{10.5}{11.5}\selectfont $\mathcal{L}_{\mathrm{cfm}} = \mathbb{E}_{t}\bigl[\|v_\theta(x_t, t \mid \mathbf{c}) - (x_1 - x_0)\|^2\bigr]$};
+\begin{scope}[shift={(150, 90)}]
+    \node[subheading, text=flow, anchor=west] at (0, 0) {OT-CFM Loss};
+    \node[anchor=west] at (5, -12) {%
+        $(x_0, x_1) \sim \pi^*_{\mathrm{Sinkhorn}}$, \quad $x_t = (1{-}t)x_0 + tx_1$
+    };
+    \node[anchor=west] at (5, -24) {%
+        $\mathcal{L}_{\mathrm{cfm}} = \mathbb{E}_{t \sim U(0,1)}\bigl[\|v_\theta(x_t, t | \mathbf{c}) - (x_1 - x_0)\|^2\bigr]$
+    };
+\end{scope}
 
-% SB
-\node[font=\fontsize{10}{11}\selectfont\bfseries\sffamily, text=sage, anchor=west] at (148, 94) {Schr\"odinger Bridge};
-\node[anchor=west] at (152, 84) {\fontsize{10.5}{11.5}\selectfont Fwd: $\mathrm{d}x_t = v_\theta(x_t, t \mid \mathbf{c})\,\mathrm{d}t + \sigma\,\mathrm{d}W_t$};
-\node[anchor=west] at (152, 72) {\fontsize{10.5}{11.5}\selectfont Bwd: $\mathrm{d}x_t = (v_\theta - \sigma^2 s_\psi)\mathrm{d}t + \sigma\,\mathrm{d}\bar{W}_t$};
+% Symbol Reference
+\node[panel, minimum width=130mm, minimum height=68mm] at (207.5, 42) {};
+\node[heading, anchor=west] at (145, 73) {Symbol Reference};
 
-% ============================================
-% RIGHT BOTTOM: SYMBOLS (x=142-276)
-% ============================================
-\node[panel, minimum width=130mm, minimum height=68mm] at (207, 37) {};
-\node[font=\fontsize{11}{12}\selectfont\bfseries\sffamily, text=navy, anchor=west] at (146, 68) {Symbol Reference};
-\draw[navy!28, line width=0.5pt] (190, 68) -- (272, 68);
-
-% Headers
-\node[font=\fontsize{8.5}{9}\selectfont\sffamily\bfseries, text=slate] at (162, 61) {Symbol};
-\node[font=\fontsize{8.5}{9}\selectfont\sffamily\bfseries, text=slate] at (192, 61) {Dim};
-\node[font=\fontsize{8.5}{9}\selectfont\sffamily\bfseries, text=slate, anchor=west] at (212, 61) {Description};
-\draw[gridline, line width=0.5pt] (146, 56) -- (272, 56);
-
-\newcommand{\symr}[5]{
-    \node[font=\fontsize{10}{11}\selectfont] at (162, #1) {#2};
-    \node[dimbox=#5] at (192, #1) {#3};
-    \node[plabel, anchor=west, font=\fontsize{9}{10}\selectfont\sffamily, text=txtsub] at (212, #1) {#4};
-}
-
-\symr{50}{$x_0, x_1$}{$\mathbb{R}^{40}$}{Source/target cell states}{coral}
-\symr{43}{$d_{ij}$}{$\mathbb{R}^+$}{Receiver-neighbor distance}{coral}
-\symr{36}{$\mathcal{N}_i$}{set}{Spatial neighborhood of cell $i$}{teal}
-\symr{29}{$z_H, z_L$}{30, 10}{HLCA/LuCA atlas latents}{teal}
-\symr{22}{$p$}{$\mathbb{R}^{14}$}{PROGENy pathway activities}{sage}
-\symr{15}{$e_i, \mathbf{c}$}{$\mathbb{R}^{256}$}{Niche context embedding}{coral}
-\symr{8}{$v_\theta, s_\psi$}{$\mathbb{R}^{40}$}{Velocity / Score network}{slate}
+\begin{scope}[shift={(150, 60)}]
+    \node[anchor=west, font=\fontsize{8}{9}\selectfont\sffamily] at (0, 0) {%
+        \begin{tabular}{lll}
+        \textbf{Symbol} & \textbf{Dim} & \textbf{Description} \\[2pt]
+        $x_i$ & $\mathbb{R}^{40}$ & Cell embedding (HLCA 30 + LuCA 10) \\
+        $d_{ij}$ & $\mathbb{R}^+$ & Spatial distance (microns) \\
+        $\mathcal{N}_i$ & set & $K$-nearest neighbors of cell $i$ \\
+        $z_H, z_L$ & 30, 10 & HLCA/LuCA reference latents \\
+        $p$ & $\mathbb{R}^{14}$ & PROGENy pathway activities \\
+        $s$ & $\mathbb{R}^{5}$ & Stats token (cycle, clonal, CAF) \\
+        $\mathbf{c}$ & $\mathbb{R}^{256}$ & Niche context embedding \\
+        $v_\theta$ & $\mathbb{R}^{40}$ & Predicted velocity \\
+        $\tau$ & $\mathbb{R}^{32}$ & Sinusoidal time embedding \\
+        \end{tabular}
+    };
+\end{scope}
 
 \end{tikzpicture}
 
