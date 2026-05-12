@@ -1019,7 +1019,7 @@ class StageBridgeTrainer:
 
             if self.model.proliferation_head is not None and self.config.proliferation_weight > 0:
                 proliferation_logit = self.model.proliferation_head(context)
-                if hasattr(batch, "proliferation_targets") and batch.proliferation_target is not None:
+                if hasattr(batch, "proliferation_target") and batch.proliferation_target is not None:
                     loss_proliferation = F.binary_cross_entropy_with_logits(
                         proliferation_logit.squeeze(-1),
                         batch.proliferation_target.float(),
