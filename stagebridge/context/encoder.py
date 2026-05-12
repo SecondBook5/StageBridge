@@ -60,6 +60,7 @@ class ReceiverNicheOutput:
         empty_attention: [B] - How much attention went to empty token (interpretability)
         receiver_reconstruction: [B, D] - Reconstructed receiver (if decoder present)
         niche_prototype_composition: [B, K] - Soft assignment to niche archetypes (if prototypes enabled)
+        gw_structure_loss: Scalar - GW structure preservation loss (if learned GW fusion enabled)
     """
     context: Tensor
     context_tokens: Tensor | None = None
@@ -69,6 +70,7 @@ class ReceiverNicheOutput:
     empty_attention: Tensor | None = None
     receiver_reconstruction: Tensor | None = None
     niche_prototype_composition: Tensor | None = None
+    gw_structure_loss: Tensor | None = None
 
 
 def _rbf_distance_encoding(distances: Tensor, num_rbf: int = 16, max_dist: float = 100.0) -> Tensor:

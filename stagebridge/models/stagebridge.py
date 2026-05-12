@@ -527,15 +527,13 @@ class StageBridge(nn.Module):
                 # Baseline: no fusion module, just concatenate in forward pass
                 self.gw_fusion = None
             elif config.gw_fusion_type == "learned_gw":
-                # Learned GW fusion with differentiable coupling
+                # Learned GW fusion: per-cell with structure-preserving loss
                 gw_config = LearnedGWConfig(
                     hlca_dim=30,
                     luca_dim=10,
                     metric_dim=32,
                     output_dim=config.gw_output_dim,
-                    sinkhorn_reg=config.gw_sinkhorn_reg,
-                    sinkhorn_iters=config.gw_sinkhorn_iters,
-                    gw_iters=10,
+                    num_layers=2,
                     dropout=config.dropout,
                 )
                 self.gw_fusion = LearnedGWFusion(gw_config)
@@ -573,6 +571,9 @@ class StageBridge(nn.Module):
             self.amici_luca_proj = nn.Linear(10, config.hidden_dim)
             self.amici_stats_proj = nn.Linear(config.stats_dim, config.hidden_dim)
             self.amici_pathway_proj = nn.Linear(config.pathway_dim, config.hidden_dim)
+            # Projection for fused reference (when GW fusion enabled)
+            if config.use_gw_fusion:
+                self.amici_fused_ref_proj = nn.Linear(config.gw_output_dim, config.hidden_dim)
             # Fallback reconstruction head for no_niche ablation (when AMICI encoder is skipped)
             # This allows SSL training to proceed, but the model will perform poorly
             # without niche context, demonstrating the value of spatial information
@@ -633,7 +634,6 @@ class StageBridge(nn.Module):
         stats: Tensor | None = None,
         evolution_features: Tensor | None = None,
         return_reconstruction: bool = False,
-        return_gw_coupling: bool = False,
     ) -> ReceiverNicheOutput:
         """Encode niche with learned ring pooling.
 
@@ -641,8 +641,8 @@ class StageBridge(nn.Module):
         ISAB+PMA attention, then passes the 9-token structure through
         the hierarchical set transformer.
 
-        If use_gw_fusion is enabled, HLCA and LuCA embeddings are first
-        aligned via differentiable Gromov-Wasserstein before tokenization.
+        If use_gw_fusion is enabled, HLCA and LuCA embeddings are fused via
+        learned projections with GW structure-preserving loss.
 
         Args:
             receiver: [B, D] receiver cell embedding
@@ -654,22 +654,19 @@ class StageBridge(nn.Module):
             stats: [B, D] stats features (optional)
             evolution_features: [B, E] WES/genomic features (optional)
             return_reconstruction: Return receiver reconstruction for SSL
-            return_gw_coupling: Return GW transport plan (for visualization)
 
         Returns:
             ReceiverNicheOutput with context and attention weights
         """
-        # Optional: Gromov-Wasserstein fusion before tokenization
-        gw_coupling = None
-        gw_cost = None
+        # Optional: Learned GW fusion before tokenization
+        # New API: per-cell fusion with structure loss (no coupling/transport)
+        gw_structure_loss = None
         fused_ref = None
         if self.gw_fusion is not None:
-            if return_gw_coupling:
-                fused_ref, gw_coupling, gw_cost = self.gw_fusion(
-                    hlca, luca, return_coupling=True
-                )
-            else:
-                fused_ref = self.gw_fusion(hlca, luca)
+            fused_ref = self.gw_fusion(hlca, luca)
+            # Compute structure loss for training (GW principle as auxiliary loss)
+            if self.training:
+                gw_structure_loss = self.gw_fusion.compute_structure_loss(hlca, luca)
 
         receiver_reconstruction = None
         ring_attention = None
@@ -819,6 +816,7 @@ class StageBridge(nn.Module):
             empty_attention=None,
             receiver_reconstruction=receiver_reconstruction if return_reconstruction else None,
             niche_prototype_composition=niche_prototype_output.prototype_composition if niche_prototype_output else None,
+            gw_structure_loss=gw_structure_loss,
         )
 
     def encode_niche_amici(
@@ -866,6 +864,14 @@ class StageBridge(nn.Module):
         if not self.config.use_luca_reference:
             luca = torch.zeros_like(luca)
 
+        # Optional: Learned GW fusion
+        gw_structure_loss = None
+        fused_ref = None
+        if self.gw_fusion is not None:
+            fused_ref = self.gw_fusion(hlca, luca)
+            if self.training:
+                gw_structure_loss = self.gw_fusion.compute_structure_loss(hlca, luca)
+
         # no_niche ablation: SKIP encoder entirely, use zero niche context
         # This is a clean ablation - no learnable parameters from niche processing
         # We still provide a reconstruction (from zero context) so SSL can run,
@@ -896,20 +902,24 @@ class StageBridge(nn.Module):
             )
             niche_context = amici_output.context  # [B, hidden_dim]
 
-        # Build token sequence for context refiner (keep compatible with downstream)
-        # Tokens: [niche_context, hlca, luca, pathway, stats]
+        # Build token sequence for context refiner
         token_list = [niche_context]
 
-        # Reference tokens
-        if self.config.use_hlca_reference:
-            token_list.append(self.amici_hlca_proj(hlca))
+        # Reference tokens: use fused reference if GW enabled, else separate HLCA/LuCA
+        if fused_ref is not None:
+            # GW fusion: single fused reference token
+            token_list.append(self.amici_fused_ref_proj(fused_ref))
         else:
-            token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
+            # No GW: separate HLCA and LuCA tokens
+            if self.config.use_hlca_reference:
+                token_list.append(self.amici_hlca_proj(hlca))
+            else:
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
 
-        if self.config.use_luca_reference:
-            token_list.append(self.amici_luca_proj(luca))
-        else:
-            token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
+            if self.config.use_luca_reference:
+                token_list.append(self.amici_luca_proj(luca))
+            else:
+                token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
 
         # Pathway token
         if pathway is not None:
@@ -918,11 +928,10 @@ class StageBridge(nn.Module):
             token_list.append(torch.zeros(B, self.config.hidden_dim, device=device))
 
         # NOTE: Stats is NOT a token - it conditions AFTER context refinement
-        # This prevents the model from shortcutting by attending to pre-computed
-        # niche composition instead of learning from neighbor attention.
-        # Stats conditioning happens at line ~959 via stats_conditioner.
+        # Token count: 3 with GW fusion (niche, fused_ref, pathway)
+        #              4 without (niche, hlca, luca, pathway)
 
-        tokens = torch.stack(token_list, dim=1)  # [B, 4, hidden_dim]
+        tokens = torch.stack(token_list, dim=1)
 
         # Context refinement (optional)
         entropy_loss = None
@@ -963,6 +972,7 @@ class StageBridge(nn.Module):
             empty_attention=amici_output.empty_attention,
             receiver_reconstruction=amici_output.receiver_reconstruction if return_reconstruction else None,
             niche_prototype_composition=niche_prototype_output.prototype_composition if niche_prototype_output else None,
+            gw_structure_loss=gw_structure_loss,
         )
 
     def aggregate_niches(

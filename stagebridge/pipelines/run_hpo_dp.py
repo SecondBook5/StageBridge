@@ -331,16 +331,10 @@ def run_hpo(
         dropout = trial.suggest_float("dropout", 0.05, 0.3)
 
         # GW fusion hyperparameters
-        # Options: "concat" (baseline), "learned_gw" (recommended), "precompute_gw" (moscot-style)
-        # "precompute_gw" requires gw_checkpoint_dir with precomputed coupling
-        fusion_options = ["concat", "learned_gw"]
-        if gw_checkpoint_path and Path(gw_checkpoint_path).exists():
-            fusion_options.append("precompute_gw")
-
-        gw_fusion_type = trial.suggest_categorical("gw_fusion_type", fusion_options)
+        # learned_gw is default (proven better), concat as fallback option
+        gw_fusion_type = trial.suggest_categorical("gw_fusion_type", ["learned_gw", "concat"])
         use_gw_fusion = gw_fusion_type != "concat"
-        gw_checkpoint_dir = gw_checkpoint_path if gw_fusion_type == "precompute_gw" else None
-
+        gw_checkpoint_dir = None
         gw_output_dim = trial.suggest_categorical("gw_output_dim", [40, 64, 96]) if use_gw_fusion else 40
 
         # AMICI attention hyperparameters
