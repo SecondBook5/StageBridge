@@ -31,6 +31,8 @@ def main():
                         help="Path to UMAP coordinates (npy or parquet)")
     parser.add_argument("--spatial-file", type=Path, default=None,
                         help="Path to spatial coordinates (npy or parquet)")
+    parser.add_argument("--cells-file", type=Path, default=None,
+                        help="Path to cells.parquet with cell_id, cell_type, x, y")
     parser.add_argument("--data-dir", type=Path, default=None,
                         help="Data directory to load stage/spatial info")
     parser.add_argument("--fold-idx", type=int, default=0,
@@ -62,6 +64,44 @@ def main():
             spatial_coords = pd.read_parquet(args.spatial_file).values
         print(f"Loaded spatial coords: {spatial_coords.shape}")
 
+    # Load cell metadata from cells.parquet if provided
+    cell_types = None
+    if args.cells_file and args.cells_file.exists():
+        print(f"Loading cell metadata from {args.cells_file}")
+        cells_df = pd.read_parquet(args.cells_file, columns=["cell_id", "cell_type", "x", "y"])
+
+        # Merge with predictions on cell_id
+        pred_cell_ids = viz.predictions["cell_id"].values
+        cells_df = cells_df.set_index("cell_id")
+
+        # Get cell types for prediction cells
+        cell_types = []
+        spatial_x = []
+        spatial_y = []
+        for cid in pred_cell_ids:
+            if cid in cells_df.index:
+                row = cells_df.loc[cid]
+                cell_types.append(row["cell_type"])
+                spatial_x.append(row["x"])
+                spatial_y.append(row["y"])
+            else:
+                cell_types.append("")
+                spatial_x.append(np.nan)
+                spatial_y.append(np.nan)
+
+        cell_types = np.array(cell_types)
+        print(f"Matched {(cell_types != '').sum()} / {len(cell_types)} cells with cell types")
+        print(f"Cell types: {pd.Series(cell_types).value_counts().head(10).to_dict()}")
+
+        # Use spatial coords from cells.parquet if not provided separately
+        if spatial_coords is None:
+            spatial_x = np.array(spatial_x)
+            spatial_y = np.array(spatial_y)
+            valid_spatial = ~np.isnan(spatial_x)
+            if valid_spatial.sum() > 0:
+                spatial_coords = np.column_stack([spatial_x, spatial_y])
+                print(f"Loaded spatial coords: {valid_spatial.sum()} / {len(spatial_x)} cells have coordinates")
+
     # Try to load from data directory if provided
     if args.data_dir and spatial_coords is None:
         # Check for spatial coordinates in test split
@@ -88,6 +128,29 @@ def main():
     )
 
     print(f"\nSaved {len(figures)} figures to {args.output_dir}")
+
+    # Generate attention figures if we have cell types
+    if cell_types is not None and viz.attention_weights is not None:
+        attn_dir = args.output_dir / "attention"
+        attn_dir.mkdir(parents=True, exist_ok=True)
+
+        # Attention by cell type bar chart
+        # Note: This shows mean attention per cell, not per neighbor cell type
+        # (we'd need neighbor cell types for that, which requires neighborhoods data)
+        figures["attention_umap"] = viz.plot_attention_on_umap(
+            receiver_celltypes=cell_types,
+            umap_coords=umap_coords,
+            save_dir=attn_dir,
+        )
+
+        if spatial_coords is not None:
+            figures["attention_spatial"] = viz.plot_attention_on_spatial(
+                spatial_coords=spatial_coords,
+                receiver_celltypes=cell_types,
+                save_dir=attn_dir,
+            )
+
+        print(f"Saved attention figures to {attn_dir}")
 
     # Summary statistics
     print("\n=== Summary Statistics ===")

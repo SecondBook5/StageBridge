@@ -48,6 +48,34 @@ PATHWAY_NAMES = [
     "WNT", "p53", "Androgen", "Estrogen", "cGAS-STING"
 ]
 
+# Cell type colors (from scanpy default palette)
+CELLTYPE_COLORS = {
+    "AT1": "#1f77b4",
+    "AT2": "#ff7f0e",
+    "Basal": "#2ca02c",
+    "Club": "#d62728",
+    "Ciliated": "#9467bd",
+    "Goblet": "#8c564b",
+    "Neuroendocrine": "#e377c2",
+    "Fibroblast": "#7f7f7f",
+    "Myofibroblast": "#bcbd22",
+    "Smooth muscle": "#17becf",
+    "Endothelial": "#aec7e8",
+    "Lymphatic": "#ffbb78",
+    "Pericyte": "#98df8a",
+    "Macrophage": "#ff9896",
+    "Monocyte": "#c5b0d5",
+    "Dendritic": "#c49c94",
+    "Mast": "#f7b6d2",
+    "T cell": "#c7c7c7",
+    "NK": "#dbdb8d",
+    "B cell": "#9edae5",
+    "Plasma": "#393b79",
+    "Neutrophil": "#637939",
+    "Tumor": "#8c6d31",
+    "Cancer": "#843c39",
+}
+
 
 @dataclass
 class PlotConfig:
@@ -521,6 +549,270 @@ class StageBridgeVisualizer:
                 )
             fig.savefig(save_dir / "pathway_violins.png", dpi=self.config.dpi, bbox_inches="tight")
             print(f"Saved pathway violins to {save_dir}")
+
+        return fig
+
+    def plot_attention_by_celltype(
+        self,
+        neighbor_celltypes: np.ndarray,
+        receiver_celltypes: np.ndarray | None = None,
+        stages: np.ndarray | None = None,
+        save_path: Path | str | None = None,
+    ) -> plt.Figure | None:
+        """Plot mean attention to each neighbor cell type.
+
+        Shows which cell types receive the most attention as neighbors,
+        optionally stratified by receiver cell type or stage.
+
+        Args:
+            neighbor_celltypes: [N, K] cell types of neighbors for each receiver
+            receiver_celltypes: [N] cell type of each receiver (optional)
+            stages: [N] stage labels (optional)
+            save_path: Path to save figure
+
+        Returns:
+            Figure with attention heatmap
+        """
+        if self.attention_weights is None:
+            print("No attention weights available")
+            return None
+
+        attn = self.attention_weights  # [N, K]
+        N, K = attn.shape
+
+        if neighbor_celltypes.shape != (N, K):
+            print(f"Shape mismatch: attention {attn.shape} vs neighbor_celltypes {neighbor_celltypes.shape}")
+            return None
+
+        # Get unique cell types
+        unique_types = sorted(set(neighbor_celltypes.flatten()) - {""})  # Exclude empty
+
+        # Compute mean attention per cell type
+        attn_by_type = {}
+        for ct in unique_types:
+            mask = neighbor_celltypes == ct
+            if mask.sum() > 0:
+                attn_by_type[ct] = attn[mask].mean()
+
+        # Sort by attention
+        sorted_types = sorted(attn_by_type.keys(), key=lambda x: attn_by_type[x], reverse=True)
+        sorted_attn = [attn_by_type[ct] for ct in sorted_types]
+
+        fig, ax = plt.subplots(figsize=(10, 6), dpi=self.config.dpi)
+
+        colors = [CELLTYPE_COLORS.get(ct, "#95a5a6") for ct in sorted_types]
+        bars = ax.barh(range(len(sorted_types)), sorted_attn, color=colors)
+
+        ax.set_yticks(range(len(sorted_types)))
+        ax.set_yticklabels(sorted_types)
+        ax.set_xlabel("Mean Attention Weight")
+        ax.set_title("Attention to Neighbor Cell Types", fontsize=self.config.title_fontsize)
+        ax.invert_yaxis()
+
+        if save_path:
+            plt.savefig(save_path, dpi=self.config.dpi, bbox_inches="tight")
+            print(f"Saved: {save_path}")
+
+        return fig
+
+    def plot_attention_heatmap(
+        self,
+        neighbor_celltypes: np.ndarray,
+        receiver_celltypes: np.ndarray,
+        save_path: Path | str | None = None,
+    ) -> plt.Figure | None:
+        """Plot receiver->neighbor attention heatmap by cell type.
+
+        Shows which receiver cell types attend to which neighbor cell types.
+
+        Args:
+            neighbor_celltypes: [N, K] cell types of neighbors
+            receiver_celltypes: [N] cell types of receivers
+            save_path: Path to save figure
+
+        Returns:
+            Figure with attention heatmap
+        """
+        if self.attention_weights is None:
+            print("No attention weights available")
+            return None
+
+        attn = self.attention_weights  # [N, K]
+        N, K = attn.shape
+
+        # Get unique cell types
+        receiver_types = sorted(set(receiver_celltypes) - {""})
+        neighbor_types = sorted(set(neighbor_celltypes.flatten()) - {""})
+
+        # Build attention matrix
+        attn_matrix = np.zeros((len(receiver_types), len(neighbor_types)))
+
+        for i, recv_ct in enumerate(receiver_types):
+            recv_mask = receiver_celltypes == recv_ct
+            for j, neigh_ct in enumerate(neighbor_types):
+                neigh_mask = neighbor_celltypes[recv_mask] == neigh_ct
+                if neigh_mask.sum() > 0:
+                    attn_matrix[i, j] = attn[recv_mask][neigh_mask].mean()
+
+        fig, ax = plt.subplots(figsize=(12, 10), dpi=self.config.dpi)
+
+        im = ax.imshow(attn_matrix, cmap="YlOrRd", aspect="auto")
+        plt.colorbar(im, ax=ax, label="Mean Attention")
+
+        ax.set_xticks(range(len(neighbor_types)))
+        ax.set_xticklabels(neighbor_types, rotation=45, ha="right")
+        ax.set_yticks(range(len(receiver_types)))
+        ax.set_yticklabels(receiver_types)
+        ax.set_xlabel("Neighbor Cell Type")
+        ax.set_ylabel("Receiver Cell Type")
+        ax.set_title("Attention: Receiver -> Neighbor", fontsize=self.config.title_fontsize)
+
+        if save_path:
+            plt.savefig(save_path, dpi=self.config.dpi, bbox_inches="tight")
+            print(f"Saved: {save_path}")
+
+        return fig
+
+    def plot_attention_on_umap(
+        self,
+        receiver_celltypes: np.ndarray,
+        umap_coords: np.ndarray | None = None,
+        save_dir: Path | str | None = None,
+    ) -> plt.Figure | None:
+        """Plot mean attention received on UMAP, colored by cell type.
+
+        For each cell, shows the mean attention it receives when it's a neighbor.
+
+        Args:
+            receiver_celltypes: [N] cell types
+            umap_coords: [N, 2] UMAP coordinates
+            save_dir: Directory to save figures
+
+        Returns:
+            Figure
+        """
+        if self.attention_weights is None:
+            print("No attention weights available")
+            return None
+
+        if umap_coords is None:
+            if self.embeddings is None:
+                raise ValueError("No embeddings or UMAP coordinates provided")
+            umap_coords = self.embeddings[:, :2]
+
+        # Mean attention per cell (mean across neighbors)
+        mean_attn = self.attention_weights.mean(axis=1)
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6), dpi=self.config.dpi)
+
+        # Left: colored by attention
+        scatter1 = axes[0].scatter(
+            umap_coords[:, 0], umap_coords[:, 1],
+            c=mean_attn, cmap="viridis",
+            s=self.config.point_size, alpha=self.config.alpha,
+            rasterized=True,
+        )
+        plt.colorbar(scatter1, ax=axes[0], label="Mean Attention")
+        axes[0].set_title("Mean Attention Weight")
+        axes[0].set_xlabel("UMAP 1")
+        axes[0].set_ylabel("UMAP 2")
+        axes[0].set_aspect("equal")
+
+        # Right: colored by cell type
+        unique_types = sorted(set(receiver_celltypes) - {""})
+        for ct in unique_types:
+            mask = receiver_celltypes == ct
+            color = CELLTYPE_COLORS.get(ct, "#95a5a6")
+            axes[1].scatter(
+                umap_coords[mask, 0], umap_coords[mask, 1],
+                c=color, label=ct,
+                s=self.config.point_size, alpha=self.config.alpha,
+                rasterized=True,
+            )
+        axes[1].legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+        axes[1].set_title("Cell Types")
+        axes[1].set_xlabel("UMAP 1")
+        axes[1].set_ylabel("UMAP 2")
+        axes[1].set_aspect("equal")
+
+        plt.tight_layout()
+
+        if save_dir:
+            save_dir = Path(save_dir)
+            save_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_dir / "attention_umap.png", dpi=self.config.dpi, bbox_inches="tight")
+            print(f"Saved attention UMAP to {save_dir}")
+
+        return fig
+
+    def plot_attention_on_spatial(
+        self,
+        spatial_coords: np.ndarray,
+        receiver_celltypes: np.ndarray | None = None,
+        save_dir: Path | str | None = None,
+    ) -> plt.Figure | None:
+        """Plot attention weights on spatial coordinates.
+
+        Args:
+            spatial_coords: [N, 2] spatial coordinates
+            receiver_celltypes: [N] cell types (optional, for second panel)
+            save_dir: Directory to save figures
+
+        Returns:
+            Figure
+        """
+        if self.attention_weights is None:
+            print("No attention weights available")
+            return None
+
+        mean_attn = self.attention_weights.mean(axis=1)
+
+        if receiver_celltypes is not None:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6), dpi=self.config.dpi)
+        else:
+            fig, axes = plt.subplots(1, 1, figsize=(8, 6), dpi=self.config.dpi)
+            axes = [axes]
+
+        # Left: colored by attention
+        scatter1 = axes[0].scatter(
+            spatial_coords[:, 0], spatial_coords[:, 1],
+            c=mean_attn, cmap="viridis",
+            s=self.config.point_size, alpha=self.config.alpha,
+            rasterized=True,
+        )
+        plt.colorbar(scatter1, ax=axes[0], label="Mean Attention")
+        axes[0].set_title("Mean Attention Weight")
+        axes[0].set_xlabel("X")
+        axes[0].set_ylabel("Y")
+        axes[0].set_aspect("equal")
+        axes[0].invert_yaxis()
+
+        # Right: colored by cell type
+        if receiver_celltypes is not None and len(axes) > 1:
+            unique_types = sorted(set(receiver_celltypes) - {""})
+            for ct in unique_types:
+                mask = receiver_celltypes == ct
+                color = CELLTYPE_COLORS.get(ct, "#95a5a6")
+                axes[1].scatter(
+                    spatial_coords[mask, 0], spatial_coords[mask, 1],
+                    c=color, label=ct,
+                    s=self.config.point_size, alpha=self.config.alpha,
+                    rasterized=True,
+                )
+            axes[1].legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+            axes[1].set_title("Cell Types")
+            axes[1].set_xlabel("X")
+            axes[1].set_ylabel("Y")
+            axes[1].set_aspect("equal")
+            axes[1].invert_yaxis()
+
+        plt.tight_layout()
+
+        if save_dir:
+            save_dir = Path(save_dir)
+            save_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_dir / "attention_spatial.png", dpi=self.config.dpi, bbox_inches="tight")
+            print(f"Saved attention spatial to {save_dir}")
 
         return fig
 
