@@ -198,12 +198,15 @@ class ReceiverCenteredAttention(nn.Module):
 
         # AMICI: pos_coef_mlp takes [neighbor_embed, receiver_embed] concatenated
         # This makes distance coefficient PAIR-SPECIFIC
-        self.pos_coef_mlp = nn.Sequential(
+        # AMICI uses ResNetMLP with residual connections and NO final layer norm
+        # Their architecture: input -> (Linear -> LN -> ReLU) -> Linear -> (no LN) + input -> ReLU
+        # We approximate this with a simpler structure but NO final LayerNorm (critical for softplus)
+        self.pos_coef_hidden = nn.Sequential(
             nn.Linear(dim * 2, dim),
             nn.LayerNorm(dim),
             nn.ReLU(),
-            nn.Linear(dim, num_heads),
         )
+        self.pos_coef_out = nn.Linear(dim, num_heads)  # NO LayerNorm after this (AMICI style)
         self.pos_coef_offset = pos_coef_offset  # Fixed offset, not learned (like AMICI)
 
         self.norm_o = nn.LayerNorm(dim)
@@ -248,7 +251,9 @@ class ReceiverCenteredAttention(nn.Module):
             pair_features = torch.cat([neighbors, receiver_expanded], dim=-1)  # [B, K, 2D]
 
             # Compute pair-specific distance coefficients
-            pos_coefs = F.softplus(self.pos_coef_mlp(pair_features) + self.pos_coef_offset)  # [B, K, H]
+            # AMICI: hidden -> output (no final LayerNorm) -> +offset -> softplus
+            h = self.pos_coef_hidden(pair_features)
+            pos_coefs = F.softplus(self.pos_coef_out(h) + self.pos_coef_offset)  # [B, K, H]
 
             # Distance penalty (negative, subtracted from attention)
             normalized_dist = distances / self.distance_scale  # [B, K]
@@ -305,9 +310,12 @@ class ReceiverCenteredAttention(nn.Module):
         context = context.transpose(1, 2).contiguous().view(B, 1, self.dim)
         context = self.out_proj(context).squeeze(1)
 
-        # AMICI residual connection: output = attention_out + query
+        # AMICI residual connection: output = attention_out + q (projected query)
+        # AMICI adds the PROJECTED query (q), not raw receiver
+        # q shape after their einsum: [B, 1, H, head_dim] -> rearranged to [B, 1, H*head_dim]
         if self.add_res_connection:
-            context = context + receiver
+            q_flat = q.transpose(1, 2).contiguous().view(B, self.dim)  # [B, D]
+            context = context + q_flat
 
         # LayerNorm after residual (AMICI does this)
         context = self.norm_o(context)
