@@ -123,7 +123,7 @@ run_job() {
             --seed $seed \
             --ssl-epochs 50 \
             --transition-epochs 100 \
-            --batch-size 256"
+            --batch-size 1024"
 
         # Add HPO params if provided
         if [[ -n "$HPO_PARAMS" ]]; then
