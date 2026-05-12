@@ -200,17 +200,18 @@ class StageBridgeDataset(Dataset):
 
         # Detect format
         self.amici_format = "neighbor_cells" in self.neighborhoods.columns
+        self.amici_flat_format = "neighbor_cells_flat" in self.neighborhoods.columns
         self.ring_format = "ring_1_cells" in self.neighborhoods.columns
         self.tokenized_format = "tokens" in self.neighborhoods.columns
 
-        if not self.amici_format and not self.ring_format:
+        if not self.amici_format and not self.amici_flat_format and not self.ring_format:
             if self.tokenized_format:
                 raise ValueError(
                     "neighborhoods.parquet has tokenized format (pre-pooled z_pooled), "
                     "which is deprecated. Run data prep with use_continuous_attention=True"
                 )
             raise ValueError(
-                "neighborhoods.parquet must have either neighbor_cells (AMICI format) "
+                "neighborhoods.parquet must have either neighbor_cells/neighbor_cells_flat (AMICI format) "
                 "or ring_N_cells (legacy ring format)"
             )
 
@@ -276,12 +277,72 @@ class StageBridgeDataset(Dataset):
         stage = row["stage"]
         stage_idx = STAGE_TO_IDX.get(stage, 0)
 
-        if self.amici_format:
+        if self.amici_flat_format:
+            return self._getitem_amici_flat_format(row, cell_id, donor_id, stage_idx)
+        elif self.amici_format:
             return self._getitem_amici_format(row, cell_id, donor_id, stage_idx)
         elif self.tokenized_format:
             return self._getitem_tokenized(row, cell_id, donor_id, stage_idx)
         else:
             return self._getitem_ring_format(row, cell_id, donor_id, stage_idx)
+
+    def _getitem_amici_flat_format(self, row, cell_id, donor_id, stage_idx) -> dict:
+        """Handle flattened AMICI format (neighbor_cells_flat + neighbor_distances).
+
+        neighbor_cells_flat is [K*40] instead of [[40], [40], ...] to avoid parquet overflow.
+        """
+        receiver = np.array(row["receiver_z"], dtype=np.float32)
+        hlca = np.array(row["hlca_z"], dtype=np.float32)
+        luca = np.array(row["luca_z"], dtype=np.float32)
+
+        # Flattened neighbors: reshape from [K*40] to [K, 40]
+        flat_neighbors = np.array(row["neighbor_cells_flat"], dtype=np.float32)
+        neighbors = flat_neighbors.reshape(self.max_neighbors, self.latent_dim)
+
+        distances = np.array(row["neighbor_distances"], dtype=np.float32)
+
+        # Mask based on actual neighbor count
+        n_actual = int(row.get("n_neighbors", self.max_neighbors))
+        neighbor_mask = np.zeros(self.max_neighbors, dtype=bool)
+        neighbor_mask[:n_actual] = True
+
+        # Optional features
+        pathway = None
+        if "pathway_z" in row and row["pathway_z"] is not None:
+            pathway = np.array(row["pathway_z"], dtype=np.float32)
+
+        stats = None
+        if "stats_z" in row and row["stats_z"] is not None:
+            stats = np.array(row["stats_z"], dtype=np.float32)
+
+        pathway_targets = None
+        if "pathway_targets" in row and row["pathway_targets"] is not None:
+            pathway_targets = np.array(row["pathway_targets"], dtype=np.float32)
+
+        proliferation_target = None
+        if "proliferation_label" in row:
+            proliferation_target = float(row["proliferation_label"])
+
+        evolution_features = None
+        if "evolution_features" in row and row["evolution_features"] is not None:
+            evolution_features = np.array(row["evolution_features"], dtype=np.float32)
+
+        return {
+            "cell_id": cell_id,
+            "donor_id": donor_id,
+            "stage_idx": stage_idx,
+            "receiver": receiver,
+            "hlca": hlca,
+            "luca": luca,
+            "neighbors": neighbors,
+            "distances": distances,
+            "neighbor_mask": neighbor_mask,
+            "pathway": pathway,
+            "stats": stats,
+            "pathway_targets": pathway_targets,
+            "proliferation_target": proliferation_target,
+            "evolution_features": evolution_features,
+        }
 
     def _getitem_amici_format(self, row, cell_id, donor_id, stage_idx) -> dict:
         """Handle AMICI format (neighbor_cells + neighbor_distances)."""

@@ -502,9 +502,16 @@ def step4_build_neighborhoods_parquet(
             neighbor_indices = neighbor_indices[sort_idx][:max_neighbors]
             distances = distances[sort_idx][:max_neighbors]
 
-            neighbor_cells = []
+            # Flatten neighbor embeddings to avoid nested list overflow in parquet
+            # Shape: [max_neighbors * latent_dim] instead of [[latent_dim], [latent_dim], ...]
+            neighbor_embeddings = []
             for nidx in neighbor_indices:
-                neighbor_cells.append(donor_cells.iloc[nidx]['z_fused'])
+                neighbor_embeddings.extend(donor_cells.iloc[nidx]['z_fused'])
+            # Pad to fixed size (max_neighbors * 40)
+            latent_dim = 40
+            expected_len = max_neighbors * latent_dim
+            if len(neighbor_embeddings) < expected_len:
+                neighbor_embeddings.extend([0.0] * (expected_len - len(neighbor_embeddings)))
 
             pathway_values = [float(row.get(f'pathway_{p}', 0.0)) for p in PROGENY_PATHWAYS]
 
@@ -520,6 +527,11 @@ def step4_build_neighborhoods_parquet(
                 float(row.get('G2M_score', 0.0)),
             ]
 
+            # Pad distances to fixed size
+            dist_list = distances.tolist()
+            if len(dist_list) < max_neighbors:
+                dist_list.extend([0.0] * (max_neighbors - len(dist_list)))
+
             record = {
                 'cell_id': row['cell_id'],
                 'donor_id': row['donor_id'],
@@ -527,8 +539,9 @@ def step4_build_neighborhoods_parquet(
                 'receiver_z': row['z_fused'],
                 'hlca_z': row['z_hlca'],
                 'luca_z': row['z_luca'],
-                'neighbor_cells': neighbor_cells,
-                'neighbor_distances': distances.tolist(),
+                'neighbor_cells_flat': neighbor_embeddings,  # Flattened: [K*40]
+                'neighbor_distances': dist_list,
+                'n_neighbors': len(neighbor_indices),  # Actual count before padding
                 'proliferation_label': float(row.get('proliferation_label', 0.0)),
                 'pathway_targets': pathway_values,
                 'stats_z': stats_values,
