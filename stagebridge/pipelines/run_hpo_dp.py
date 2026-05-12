@@ -347,7 +347,7 @@ def run_hpo(
         amici_distance_scale = trial.suggest_float("amici_distance_scale", 50.0, 200.0) if use_amici else 100.0
 
         # Dynamics type: OT-CFM (deterministic) vs Schrödinger Bridge (stochastic)
-        dynamics_type = trial.suggest_categorical("dynamics_type", ["ot_cfm", "schrodinger_bridge"])
+        dynamics_type = "ot_cfm"  # SB has different loss scale, needs separate HPO
         sb_sigma = trial.suggest_float("sb_sigma", 0.05, 0.3) if dynamics_type == "schrodinger_bridge" else 0.1
 
         # Training weights
