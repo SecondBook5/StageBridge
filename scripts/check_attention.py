@@ -6,7 +6,7 @@ import json
 
 sys.path.insert(0, '/home/booka/StageBridge')
 
-from stagebridge.models.stagebridge import StageBridge, StageBridgeConfig
+from stagebridge.context.encoder import ReceiverCenteredNicheEncoder
 
 # Find checkpoint
 import os
@@ -23,30 +23,38 @@ print(f"Loading checkpoint: {ckpt_path}")
 with open(hpo_path) as f:
     hpo = json.load(f)
 
-# Create model
-config = StageBridgeConfig(
+# Create just the AMICI encoder (not full model)
+encoder = ReceiverCenteredNicheEncoder(
+    input_dim=40,  # z_fused dim
     hidden_dim=hpo['hidden_dim'],
-    num_heads=hpo['num_heads'],
-    dropout=hpo['dropout'],
-    amici_use_empty_token=True,
-    amici_empty_token_score=-3.0,
+    num_heads=hpo.get('amici_num_heads', 4),
+    use_empty_token=True,
+    empty_token_score=-3.0,
+    distance_scale=hpo.get('amici_distance_scale', 50.0),
 )
-model = StageBridge(config)
 
-# Load weights
+# Load just encoder weights from checkpoint
 ckpt = torch.load(ckpt_path, map_location='cpu')
-model.load_state_dict(ckpt['model_state_dict'])
-model.eval()
-print("Model loaded successfully!")
+state_dict = ckpt['model_state_dict']
+
+# Extract amici_encoder weights
+encoder_state = {k.replace('amici_encoder.', ''): v for k, v in state_dict.items() if k.startswith('amici_encoder.')}
+encoder.load_state_dict(encoder_state)
+encoder.eval()
+print("Encoder loaded successfully!")
 
 # Test with random data
 B, K = 4, 8
-receiver = torch.randn(B, config.input_dim)
-neighbors = torch.randn(B, K, config.input_dim)
+input_dim = 40
+hidden_dim = hpo['hidden_dim']
+
+# Input is raw features, encoder projects to hidden_dim internally
+receiver = torch.randn(B, input_dim)
+neighbors = torch.randn(B, K, input_dim)
 distances = torch.rand(B, K) * 50  # 0-50 microns
 
 with torch.no_grad():
-    out = model.amici_encoder(receiver, neighbors, distances)
+    out = encoder(receiver, neighbors, distances)
 
 neighbor_attn = out.attention_weights.sum(dim=-1).mean().item()
 empty_attn = out.empty_attention.mean().item()
