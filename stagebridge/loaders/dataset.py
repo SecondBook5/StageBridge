@@ -293,9 +293,19 @@ class StageBridgeDataset(Dataset):
         neighbor_list = row["neighbor_cells"]
         distance_list = row["neighbor_distances"]
 
-        # Handle None from fastparquet for empty lists
-        if neighbor_list is None or distance_list is None:
+        # Warn if neighbor_cells is None - likely a parquet engine issue
+        if neighbor_list is None:
+            if not hasattr(self, '_warned_null_neighbors'):
+                import warnings
+                warnings.warn(
+                    "neighbor_cells is None - this usually means fastparquet failed to read "
+                    "nested lists. Use engine='pyarrow' in pd.read_parquet(). "
+                    "Model will train on empty neighbors!",
+                    RuntimeWarning,
+                )
+                self._warned_null_neighbors = True
             neighbor_list = []
+        if distance_list is None:
             distance_list = []
         n_neighbors = len(neighbor_list)
 
