@@ -151,12 +151,14 @@ class DistanceEncoder(nn.Module):
 class ReceiverCenteredAttention(nn.Module):
     """Cross-attention with AMICI-style distance modulation and empty neighbor token.
 
-    Key AMICI features (Hong et al., bioRxiv 2025):
-    1. Distance coefficient enforced POSITIVE via Softplus, then SUBTRACTED
-       -> Guarantees attention monotonically decreases with distance
-    2. Empty neighbor token with fixed score allows attention to "escape"
-       -> Model can learn "no neighbor is informative here"
-    3. L1 penalty on value vectors for sparse influence patterns
+    Faithfully implements AMICI (Hong et al., bioRxiv 2025):
+    1. Distance coefficient is PAIR-SPECIFIC: depends on both receiver AND neighbor
+       pos_coef_mlp takes concatenated [neighbor_embed, receiver_embed]
+    2. pos_coef_offset = -2.0, then softplus -> small positive coefficients
+    3. pos_attn_score = -coef * distance (negative penalty, 0 for empty token)
+    4. dummy_attn_score added to BASE attention for all tokens
+    5. Final: neighbors = QK + dummy - penalty, empty = dummy + 0
+    6. Residual connection: output = attention_out + query
     """
 
     def __init__(
@@ -168,9 +170,12 @@ class ReceiverCenteredAttention(nn.Module):
         sparsity_type: SparsityType | str = SparsityType.ENTROPY,
         topk: int = 5,
         use_empty_token: bool = True,
-        empty_token_score: float = 3.0,
+        empty_token_score: float = 0.0,  # AMICI uses 3.0 but adds to all; we use 0 as baseline
+        dummy_attn_score: float = 3.0,  # Added to BASE scores for all tokens (AMICI default)
         distance_scale: float = 50.0,
         use_distance_modulation: bool = True,
+        pos_coef_offset: float = -2.0,  # AMICI default
+        add_res_connection: bool = True,  # AMICI uses residual connection
     ):
         super().__init__()
         self.dim = dim
@@ -181,19 +186,27 @@ class ReceiverCenteredAttention(nn.Module):
         self.topk = topk
         self.use_empty_token = use_empty_token
         self.empty_token_score = empty_token_score
+        self.dummy_attn_score = dummy_attn_score
         self.distance_scale = distance_scale
         self.use_distance_modulation = use_distance_modulation
+        self.add_res_connection = add_res_connection
 
         self.q_proj = nn.Linear(dim, dim)
         self.k_proj = nn.Linear(dim, dim)
         self.v_proj = nn.Linear(dim, dim)
         self.out_proj = nn.Linear(dim, dim)
 
-        self.distance_coef_mlp = nn.Sequential(
+        # AMICI: pos_coef_mlp takes [neighbor_embed, receiver_embed] concatenated
+        # This makes distance coefficient PAIR-SPECIFIC
+        self.pos_coef_mlp = nn.Sequential(
+            nn.Linear(dim * 2, dim),
+            nn.LayerNorm(dim),
+            nn.ReLU(),
             nn.Linear(dim, num_heads),
         )
-        self.distance_coef_offset = nn.Parameter(torch.full((num_heads,), -2.0))
+        self.pos_coef_offset = pos_coef_offset  # Fixed offset, not learned (like AMICI)
 
+        self.norm_o = nn.LayerNorm(dim)
         self.dropout = nn.Dropout(dropout)
 
     def forward(
@@ -207,45 +220,56 @@ class ReceiverCenteredAttention(nn.Module):
 
         Returns:
             context: [B, D] aggregated context
-            attn_weights: [B, K+1] attention weights (K neighbors + empty token)
+            attn_weights: [B, K] attention weights (neighbors only, empty excluded)
             empty_attention: [B] attention to empty token
             value_l1: scalar L1 norm of value vectors
         """
-        B, K, _ = neighbors.shape
+        B, K, D = neighbors.shape
 
-        q = self.q_proj(receiver).unsqueeze(1)
-        k = self.k_proj(neighbors)
-        v = self.v_proj(neighbors)
+        q = self.q_proj(receiver).unsqueeze(1)  # [B, 1, D]
+        k = self.k_proj(neighbors)  # [B, K, D]
+        v = self.v_proj(neighbors)  # [B, K, D]
 
-        q = q.view(B, 1, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.view(B, K, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.view(B, K, self.num_heads, self.head_dim).transpose(1, 2)
+        q = q.view(B, 1, self.num_heads, self.head_dim).transpose(1, 2)  # [B, H, 1, head_dim]
+        k = k.view(B, K, self.num_heads, self.head_dim).transpose(1, 2)  # [B, H, K, head_dim]
+        v = v.view(B, K, self.num_heads, self.head_dim).transpose(1, 2)  # [B, H, K, head_dim]
 
-        phenotype_score = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        # Base attention scores (QK^T / sqrt(d))
+        base_attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # [B, H, 1, K]
 
-        # Distance modulation: attention decreases with distance (AMICI core feature)
-        # For no_distance ablation, skip this to test value of distance weighting
+        # Add dummy score to ALL base scores (AMICI style)
+        base_attn_scores = base_attn_scores + self.dummy_attn_score
+
+        # Distance modulation: PAIR-SPECIFIC coefficients (AMICI core feature)
         if self.use_distance_modulation:
-            distance_coef_raw = self.distance_coef_mlp(receiver) + self.distance_coef_offset
-            distance_coef = F.softplus(distance_coef_raw)
+            # Expand receiver to match neighbors: [B, K, D]
+            receiver_expanded = receiver.unsqueeze(1).expand(-1, K, -1)
+            # Concatenate [neighbor, receiver] for each pair
+            pair_features = torch.cat([neighbors, receiver_expanded], dim=-1)  # [B, K, 2D]
 
-            normalized_dist = distances / self.distance_scale
-            distance_penalty = distance_coef.unsqueeze(-1) * normalized_dist.unsqueeze(1)
-            distance_penalty = distance_penalty.unsqueeze(2)
+            # Compute pair-specific distance coefficients
+            pos_coefs = F.softplus(self.pos_coef_mlp(pair_features) + self.pos_coef_offset)  # [B, K, H]
 
-            attn_logits = phenotype_score - distance_penalty
+            # Distance penalty (negative, subtracted from attention)
+            normalized_dist = distances / self.distance_scale  # [B, K]
+            pos_attn_score = -pos_coefs * normalized_dist.unsqueeze(-1)  # [B, K, H]
+
+            # Rearrange to match attention shape and add
+            pos_attn_score = pos_attn_score.permute(0, 2, 1).unsqueeze(2)  # [B, H, 1, K]
+            attn_logits = base_attn_scores + pos_attn_score
         else:
-            # Uniform attention over neighbors (no distance weighting)
-            attn_logits = phenotype_score
+            attn_logits = base_attn_scores
 
+        # Apply neighbor mask
         if neighbor_mask is not None:
-            mask = neighbor_mask.unsqueeze(1).unsqueeze(2)
+            mask = neighbor_mask.unsqueeze(1).unsqueeze(2)  # [B, 1, 1, K]
             attn_logits = attn_logits.masked_fill(~mask, float("-inf"))
 
+        # Empty token: gets base dummy score + 0 pos_attn (no distance penalty)
         if self.use_empty_token:
             empty_score = torch.full(
                 (B, self.num_heads, 1, 1),
-                self.empty_token_score,
+                self.dummy_attn_score + self.empty_token_score,  # dummy + empty offset
                 device=attn_logits.device,
                 dtype=attn_logits.dtype,
             )
@@ -273,10 +297,20 @@ class ReceiverCenteredAttention(nn.Module):
         else:
             attn_weights = F.softmax(attn_logits, dim=-1)
 
+        # Handle NaN in attention (AMICI does this)
+        attn_weights = torch.where(torch.isnan(attn_weights), torch.zeros_like(attn_weights), attn_weights)
+
         attn_weights_dropped = self.dropout(attn_weights)
         context = torch.matmul(attn_weights_dropped, v)
         context = context.transpose(1, 2).contiguous().view(B, 1, self.dim)
         context = self.out_proj(context).squeeze(1)
+
+        # AMICI residual connection: output = attention_out + query
+        if self.add_res_connection:
+            context = context + receiver
+
+        # LayerNorm after residual (AMICI does this)
+        context = self.norm_o(context)
 
         attn_weights_mean = attn_weights.squeeze(2).mean(dim=1)
 
@@ -373,8 +407,11 @@ class ReceiverCenteredNicheEncoder(nn.Module):
                 topk=topk,
                 use_empty_token=use_empty_token,
                 empty_token_score=empty_token_score,
+                dummy_attn_score=3.0,  # AMICI default
                 distance_scale=distance_scale,
                 use_distance_modulation=use_distance_modulation,
+                pos_coef_offset=-2.0,  # AMICI default
+                add_res_connection=True,  # AMICI uses residual
             )
             for _ in range(num_layers)
         ])
