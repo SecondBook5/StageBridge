@@ -239,10 +239,14 @@ class StageBridgeConfig:
             # Also need to disable niche_tokenizer since AMICI replaces it
             config_dict["use_learned_ring_pooling"] = False
 
-        # Infer amici_num_heads from distance_coef_offset shape
+        # Infer amici_num_heads from pos_coef_out weight shape (output dim = num_heads)
         if has_amici:
             for k, v in state_dict.items():
-                if "distance_coef_offset" in k:
+                if "pos_coef_out.weight" in k:
+                    config_dict["amici_num_heads"] = v.shape[0]
+                    break
+                # Fallback for old checkpoints with distance_coef_offset
+                elif "distance_coef_offset" in k:
                     config_dict["amici_num_heads"] = v.shape[0]
                     break
 
