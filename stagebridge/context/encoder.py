@@ -447,6 +447,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         all_attention_weights = []
         all_empty_attention = []
         all_value_l1 = []
+        all_neighbor_context = []  # Track pure neighbor info for SSL reconstruction
 
         for attn_layer, norm, ffn, ffn_norm in zip(
             self.attention_layers, self.receiver_norms, self.ffns, self.ffn_norms
@@ -457,6 +458,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
             all_attention_weights.append(attn_weights)
             all_empty_attention.append(empty_attn)
             all_value_l1.append(value_l1)
+            all_neighbor_context.append(attn_context)  # Pure neighbor-aggregated context
             h_receiver = norm(h_receiver + attn_context)
             h_receiver = ffn_norm(h_receiver + ffn(h_receiver))
 
@@ -479,9 +481,14 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         if self.training and self.value_l1_weight > 0:
             value_l1_loss = self.value_l1_weight * torch.stack(all_value_l1).mean()
 
+        # SSL RECONSTRUCTION: Use ONLY neighbor-aggregated context, NOT h_receiver
+        # h_receiver contains the original receiver via residual connections (trivial to reconstruct)
+        # all_neighbor_context contains pure attention-weighted neighbor info (hard to reconstruct)
         reconstruction = None
         if return_reconstruction and self.reconstruction_head is not None:
-            reconstruction = self.reconstruction_head(context)
+            # Mean-pool neighbor context across layers for reconstruction
+            neighbor_only_context = torch.stack(all_neighbor_context, dim=0).mean(dim=0)
+            reconstruction = self.reconstruction_head(neighbor_only_context)
 
         return ReceiverNicheOutput(
             context=context,
