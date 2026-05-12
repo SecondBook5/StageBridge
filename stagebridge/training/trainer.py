@@ -159,6 +159,7 @@ class TrainerConfig:
     ssl_reconstruction_weight: float = 1.0
     ssl_entropy_weight: float = 0.01
     ssl_value_l1_weight: float = 0.01
+    ssl_gw_structure_weight: float = 0.1  # GW structure-preserving loss (if learned GW fusion enabled)
 
     # Dynamics type: OT-CFM (deterministic) or Schrödinger Bridge (stochastic)
     dynamics_type: str = "ot_cfm"  # "ot_cfm" or "schrodinger_bridge"
@@ -860,11 +861,18 @@ class StageBridgeTrainer:
                 loss_value_l1 = niche_output.value_l1_loss
                 loss = loss + self.config.ssl_value_l1_weight * loss_value_l1
 
+            # GW structure loss (encourages distance structure preservation)
+            loss_gw_structure = torch.tensor(0.0, device=self.device)
+            if niche_output.gw_structure_loss is not None and self.config.ssl_gw_structure_weight > 0:
+                loss_gw_structure = niche_output.gw_structure_loss
+                loss = loss + self.config.ssl_gw_structure_weight * loss_gw_structure
+
         metrics = {
             "loss": loss.item(),
             "loss_reconstruction": loss_reconstruction.item(),
             "loss_entropy": loss_entropy.item() if torch.is_tensor(loss_entropy) else loss_entropy,
             "loss_value_l1": loss_value_l1.item() if torch.is_tensor(loss_value_l1) else loss_value_l1,
+            "loss_gw_structure": loss_gw_structure.item() if torch.is_tensor(loss_gw_structure) else loss_gw_structure,
         }
 
         return loss, metrics

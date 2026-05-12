@@ -172,8 +172,7 @@ class StageBridgeConfig:
     gw_fusion_type: str = "concat"  # "concat", "learned_gw", "precompute_gw"
     gw_checkpoint_dir: str | None = None  # Path to precomputed GW alignment (for precompute_gw)
     gw_output_dim: int = 40  # Output dim of fused representation
-    gw_sinkhorn_iters: int = 20  # Sinkhorn iterations for learned_gw
-    gw_sinkhorn_reg: float = 0.1  # Entropic regularization for learned_gw
+    gw_structure_loss_weight: float = 0.1  # Weight for GW structure-preserving loss
 
     # Reference ablations (for hlca_only / luca_only experiments)
     use_hlca_reference: bool = True  # Include HLCA token
@@ -535,6 +534,7 @@ class StageBridge(nn.Module):
                     output_dim=config.gw_output_dim,
                     num_layers=2,
                     dropout=config.dropout,
+                    structure_loss_weight=config.gw_structure_loss_weight,
                 )
                 self.gw_fusion = LearnedGWFusion(gw_config)
             elif config.gw_fusion_type == "precompute_gw":
