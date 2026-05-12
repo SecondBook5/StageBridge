@@ -1258,8 +1258,7 @@ class StageBridgeTrainer:
                 "use_gw_fusion": self._raw_model.config.use_gw_fusion,
                 "gw_fusion_type": self._raw_model.config.gw_fusion_type,
                 "gw_output_dim": self._raw_model.config.gw_output_dim,
-                "gw_sinkhorn_iters": self._raw_model.config.gw_sinkhorn_iters,
-                "gw_sinkhorn_reg": self._raw_model.config.gw_sinkhorn_reg,
+                "gw_structure_loss_weight": self._raw_model.config.gw_structure_loss_weight,
                 # Other model config
                 "use_learned_ring_pooling": self._raw_model.config.use_learned_ring_pooling,
                 "use_context_refiner": self._raw_model.config.use_context_refiner,
@@ -1481,7 +1480,6 @@ if __name__ == "__main__":
         use_gw_fusion=hpo.get("use_gw_fusion", args.use_gw_fusion),
         gw_fusion_type=hpo.get("gw_fusion_type", args.gw_fusion_type),
         gw_output_dim=hpo.get("gw_output_dim", args.gw_output_dim),
-        gw_sinkhorn_reg=hpo.get("gw_sinkhorn_reg", 0.1),
         use_learned_ring_pooling=True,
         use_context_refiner=True,
         use_cross_attn_drift=True,
