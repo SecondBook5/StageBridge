@@ -83,6 +83,8 @@ def run_inference(
     embeddings = []
     attention_weights = []
     displacements = []
+    pathway_scores = []
+    proliferation_scores = []
 
     batch_count = 0
     with torch.no_grad():
@@ -166,6 +168,20 @@ def run_inference(
                     if batch_count == 1:
                         print(f"  Note: Could not get displacement: {e}")
 
+            # Get pathway predictions (14 PROGENy pathways)
+            if hasattr(model, 'pathway_head') and model.pathway_head is not None:
+                pathway_pred = model.pathway_head(niche_output.context)
+                pathway_scores.append(pathway_pred.cpu().numpy())
+                if batch_count == 1:
+                    print(f"  Pathway scores shape: {pathway_pred.shape}")
+
+            # Get proliferation predictions
+            if hasattr(model, 'proliferation_head') and model.proliferation_head is not None:
+                prolif_pred = model.proliferation_head(niche_output.context)
+                proliferation_scores.append(prolif_pred.cpu().numpy())
+                if batch_count == 1:
+                    print(f"  Proliferation scores shape: {prolif_pred.shape}")
+
     # Save predictions
     pred_df = pd.concat(predictions, ignore_index=True)
     pred_df.to_parquet(output_dir / "predictions.parquet")
@@ -192,6 +208,28 @@ def run_inference(
         disp_arr = np.concatenate(displacements, axis=0)
         np.save(output_dir / "displacements.npy", disp_arr)
         print(f"Saved displacements: {disp_arr.shape}, range: [{disp_arr.min():.4f}, {disp_arr.max():.4f}] -> {output_dir / 'displacements.npy'}")
+
+    # Save pathway scores with column names
+    if pathway_scores:
+        pathway_arr = np.concatenate(pathway_scores, axis=0)
+        pathway_names = [
+            "EGFR", "Hypoxia", "JAK-STAT", "MAPK", "NFkB",
+            "PI3K", "TGFb", "TNFa", "Trail", "VEGF",
+            "WNT", "p53", "Androgen", "Estrogen"
+        ]
+        # Add cGAS-STING if 15 pathways
+        if pathway_arr.shape[1] == 15:
+            pathway_names.append("cGAS-STING")
+        pathway_df = pd.DataFrame(pathway_arr, columns=pathway_names[:pathway_arr.shape[1]])
+        pathway_df.to_parquet(output_dir / "pathway_scores.parquet")
+        print(f"Saved pathway scores: {pathway_arr.shape} -> {output_dir / 'pathway_scores.parquet'}")
+
+    # Save proliferation scores
+    if proliferation_scores:
+        prolif_arr = np.concatenate(proliferation_scores, axis=0)
+        prolif_df = pd.DataFrame({"proliferation_score": prolif_arr.flatten()})
+        prolif_df.to_parquet(output_dir / "proliferation_scores.parquet")
+        print(f"Saved proliferation scores: {prolif_arr.shape} -> {output_dir / 'proliferation_scores.parquet'}")
 
 
 def main():
