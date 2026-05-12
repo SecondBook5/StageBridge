@@ -17,6 +17,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 from stagebridge.analysis import StageBridgeVisualizer, FlowFieldAnalyzer
 from stagebridge.analysis.visualize import PlotConfig
 
@@ -66,9 +70,26 @@ def main():
 
     # Load cell metadata from cells.parquet if provided
     cell_types = None
+    cell_metadata = None
     if args.cells_file and args.cells_file.exists():
         print(f"Loading cell metadata from {args.cells_file}")
-        cells_df = pd.read_parquet(args.cells_file, columns=["cell_id", "cell_type", "x", "y"])
+        # Load key columns for visualization
+        cols_to_load = [
+            "cell_id", "cell_type", "x", "y", "stage", "stage_idx",
+            # Clonality
+            "clone_size", "clone_fraction", "clonal_entropy", "clonal_diversity",
+            "n_clones", "is_major_clone", "clonal_pattern_idx",
+            # Mutations
+            "tmb", "kras_mut", "egfr_mut", "tp53_mut", "stk11_mut",
+            # Scores
+            "emt_score", "senescence_score", "sasp_score", "cytotrace",
+            "S_score", "G2M_score", "proliferation_label",
+            "caf_fraction", "immune_fraction", "diversity",
+            # Pathways (ground truth from decoupleR)
+            "pathway_EGFR", "pathway_Hypoxia", "pathway_TGFb", "pathway_JAK-STAT",
+            "pathway_NFkB", "pathway_TNFa", "pathway_PI3K", "pathway_MAPK",
+        ]
+        cells_df = pd.read_parquet(args.cells_file, columns=cols_to_load)
 
         # Merge with predictions on cell_id
         pred_cell_ids = viz.predictions["cell_id"].values
@@ -92,6 +113,12 @@ def main():
         cell_types = np.array(cell_types)
         print(f"Matched {(cell_types != '').sum()} / {len(cell_types)} cells with cell types")
         print(f"Cell types: {pd.Series(cell_types).value_counts().head(10).to_dict()}")
+
+        # Build full metadata dataframe for matched cells
+        cell_metadata = cells_df.set_index("cell_id").loc[
+            [cid for cid in pred_cell_ids if cid in cells_df["cell_id"].values]
+        ].reset_index()
+        print(f"Cell metadata columns: {cell_metadata.columns.tolist()}")
 
         # Use spatial coords from cells.parquet if not provided separately
         if spatial_coords is None:
@@ -151,6 +178,78 @@ def main():
             )
 
         print(f"Saved attention figures to {attn_dir}")
+
+    # Generate clonality and ground-truth comparison figures
+    if cell_metadata is not None and len(cell_metadata) > 0:
+        extra_dir = args.output_dir / "cell_properties"
+        extra_dir.mkdir(parents=True, exist_ok=True)
+
+        coords = umap_coords if umap_coords is not None else (
+            viz.embeddings[:, :2] if viz.embeddings is not None else None
+        )
+
+        # Clonality plots
+        clonal_cols = ["clonal_entropy", "clonal_diversity", "clone_fraction", "n_clones"]
+        for col in clonal_cols:
+            if col in cell_metadata.columns:
+                values = cell_metadata[col].values
+                if not np.isnan(values).all() and coords is not None:
+                    fig = viz.plot_umap_colored(
+                        values, col.replace("_", " ").title(), "viridis",
+                        umap_coords=coords,
+                        save_path=extra_dir / f"{col}.png",
+                    )
+                    if fig:
+                        plt.close(fig)
+
+        # Score plots (EMT, senescence, cytotrace, etc.)
+        score_cols = ["emt_score", "senescence_score", "sasp_score", "cytotrace", "tmb"]
+        for col in score_cols:
+            if col in cell_metadata.columns:
+                values = cell_metadata[col].values
+                if not np.isnan(values).all() and coords is not None:
+                    fig = viz.plot_umap_colored(
+                        values, col.replace("_", " ").title(), "magma",
+                        umap_coords=coords,
+                        save_path=extra_dir / f"{col}.png",
+                    )
+                    if fig:
+                        plt.close(fig)
+
+        # Ground-truth pathway comparison (predicted vs decoupleR)
+        if viz.pathway_scores is not None:
+            gt_dir = args.output_dir / "pathway_comparison"
+            gt_dir.mkdir(parents=True, exist_ok=True)
+
+            for pathway in ["EGFR", "Hypoxia", "TGFb", "JAK-STAT", "NFkB", "TNFa"]:
+                gt_col = f"pathway_{pathway}"
+                if pathway in viz.pathway_scores.columns and gt_col in cell_metadata.columns:
+                    pred = viz.pathway_scores[pathway].values
+                    gt = cell_metadata[gt_col].values
+
+                    # Scatter plot: predicted vs ground truth
+                    valid = ~np.isnan(gt) & ~np.isnan(pred)
+                    if valid.sum() > 100:
+                        from scipy.stats import pearsonr, spearmanr
+                        r_pearson, _ = pearsonr(pred[valid], gt[valid])
+                        r_spearman, _ = spearmanr(pred[valid], gt[valid])
+
+                        fig, ax = plt.subplots(figsize=(6, 6), dpi=config.dpi)
+                        ax.scatter(gt[valid], pred[valid], s=1, alpha=0.3, rasterized=True)
+                        ax.set_xlabel(f"Ground Truth ({gt_col})")
+                        ax.set_ylabel(f"Predicted ({pathway})")
+                        ax.set_title(f"{pathway}: r={r_pearson:.3f}, rho={r_spearman:.3f}")
+
+                        # Add diagonal
+                        lims = [min(ax.get_xlim()[0], ax.get_ylim()[0]),
+                                max(ax.get_xlim()[1], ax.get_ylim()[1])]
+                        ax.plot(lims, lims, 'k--', alpha=0.5)
+
+                        plt.savefig(gt_dir / f"{pathway}_comparison.png", dpi=config.dpi, bbox_inches="tight")
+                        plt.close(fig)
+                        print(f"  {pathway}: Pearson={r_pearson:.3f}, Spearman={r_spearman:.3f}")
+
+        print(f"Saved cell property figures to {extra_dir}")
 
     # Summary statistics
     print("\n=== Summary Statistics ===")
