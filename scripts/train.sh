@@ -5,7 +5,7 @@
 # Each GPU runs: train -> inference -> figures, then next job
 # Resumable: re-run to continue from where it stopped
 #
-# Usage: bash scripts/train_all_v1.2.sh
+# Usage: bash scripts/train.sh
 
 # Don't use set -e - we handle errors ourselves to continue on failure
 
