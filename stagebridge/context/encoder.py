@@ -341,6 +341,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         empty_token_score: float = 3.0,
         distance_scale: float = 50.0,
         use_distance_modulation: bool = True,
+        ssl_noise_scale: float = 0.5,
     ):
         super().__init__()
         self.input_dim = input_dim
@@ -350,6 +351,7 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         self.value_l1_weight = value_l1_weight
         self.use_token_type_embeddings = use_token_type_embeddings
         self.use_empty_token = use_empty_token
+        self.ssl_noise_scale = ssl_noise_scale
 
         self.receiver_proj = nn.Linear(input_dim, hidden_dim)
         self.neighbor_proj = nn.Linear(input_dim, hidden_dim)
@@ -447,7 +449,6 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         all_attention_weights = []
         all_empty_attention = []
         all_value_l1 = []
-        all_neighbor_context = []  # Track pure neighbor info for SSL reconstruction
 
         for attn_layer, norm, ffn, ffn_norm in zip(
             self.attention_layers, self.receiver_norms, self.ffns, self.ffn_norms
@@ -458,7 +459,6 @@ class ReceiverCenteredNicheEncoder(nn.Module):
             all_attention_weights.append(attn_weights)
             all_empty_attention.append(empty_attn)
             all_value_l1.append(value_l1)
-            all_neighbor_context.append(attn_context)  # Pure neighbor-aggregated context
             h_receiver = norm(h_receiver + attn_context)
             h_receiver = ffn_norm(h_receiver + ffn(h_receiver))
 
@@ -481,14 +481,35 @@ class ReceiverCenteredNicheEncoder(nn.Module):
         if self.training and self.value_l1_weight > 0:
             value_l1_loss = self.value_l1_weight * torch.stack(all_value_l1).mean()
 
-        # SSL RECONSTRUCTION: Use ONLY neighbor-aggregated context, NOT h_receiver
-        # h_receiver contains the original receiver via residual connections (trivial to reconstruct)
-        # all_neighbor_context contains pure attention-weighted neighbor info (hard to reconstruct)
+        # SSL RECONSTRUCTION: predict receiver from neighbors ONLY
+        # Key insight: residual connections leak receiver info, so we use attention output directly
+        # The attention query guides WHICH neighbors to attend, but only neighbor VALUES contribute
         reconstruction = None
         if return_reconstruction and self.reconstruction_head is not None:
-            # Mean-pool neighbor context across layers for reconstruction
-            neighbor_only_context = torch.stack(all_neighbor_context, dim=0).mean(dim=0)
-            reconstruction = self.reconstruction_head(neighbor_only_context)
+            # Query: noisy receiver provides coarse identity (like cell type in AMICI)
+            # Detach so receiver can't be optimized to make reconstruction trivial
+            if self.training:
+                noise = self.ssl_noise_scale * torch.randn_like(receiver)
+                ssl_query = self.receiver_proj(receiver.detach() + noise)
+            else:
+                ssl_query = self.receiver_proj(receiver.detach())
+
+            if self.use_token_type_embeddings and self.token_type_embedding is not None:
+                receiver_type = torch.zeros(B, 1, dtype=torch.long, device=device)
+                ssl_query = ssl_query + self.token_type_embedding(receiver_type).squeeze(1)
+
+            # Accumulate attention outputs across layers - NO RESIDUALS
+            # This ensures reconstruction comes purely from neighbor information
+            ssl_neighbor_info = []
+            ssl_q = ssl_query
+            for attn_layer in self.attention_layers:
+                attn_out, _, _, _ = attn_layer(ssl_q, h_neighbors, distances, neighbor_mask)
+                ssl_neighbor_info.append(attn_out)
+                ssl_q = attn_out  # Use attention output as next query (no residual)
+
+            # Pool attention outputs from all layers
+            ssl_context = torch.stack(ssl_neighbor_info, dim=0).mean(dim=0)
+            reconstruction = self.reconstruction_head(ssl_context)
 
         return ReceiverNicheOutput(
             context=context,
