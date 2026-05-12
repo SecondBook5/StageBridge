@@ -1489,7 +1489,7 @@ if __name__ == "__main__":
         use_amici_attention=True,
         amici_num_heads=hpo.get("amici_num_heads", 4),
         amici_distance_scale=hpo.get("amici_distance_scale", 100.0),
-        amici_use_empty_token=False,  # Disable empty token - model was escaping to it
+        amici_use_empty_token=True,  # Empty token with score=0.0 (AMICI default)
         # Note: use_reconstruction_head=True is hardcoded in AMICI encoder (stagebridge.py:550)
     )
 

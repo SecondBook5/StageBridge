@@ -192,7 +192,7 @@ class ReceiverCenteredAttention(nn.Module):
         self.distance_coef_mlp = nn.Sequential(
             nn.Linear(dim, num_heads),
         )
-        self.distance_coef_offset = nn.Parameter(torch.zeros(num_heads))
+        self.distance_coef_offset = nn.Parameter(torch.full((num_heads,), -2.0))
 
         self.dropout = nn.Dropout(dropout)
 

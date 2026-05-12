@@ -158,7 +158,7 @@ class StageBridgeConfig:
     amici_max_neighbors: int = 100  # Max neighbors (sorted by distance)
     amici_distance_scale: float = 100.0  # Distance normalization (microns)
     amici_use_empty_token: bool = True  # Allow "no neighbor is informative"
-    amici_empty_token_score: float = 3.0  # Fixed score for empty token
+    amici_empty_token_score: float = -3.0  # Fixed score for empty token (negative = neighbors favored by default)
     amici_sparsity_weight: float = 0.01  # Entropy regularization
     amici_value_l1_weight: float = 0.01  # L1 on values for sparsity
     amici_use_distance_modulation: bool = True  # Distance-weighted attention (False for no_distance ablation)
