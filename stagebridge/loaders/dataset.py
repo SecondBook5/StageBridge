@@ -195,8 +195,10 @@ class StageBridgeDataset(Dataset):
         if not neighborhoods_path.exists():
             raise FileNotFoundError(f"neighborhoods.parquet not found: {neighborhoods_path}")
 
-        # Use pyarrow - fastparquet corrupts nested lists (neighbor_cells becomes None)
-        self.neighborhoods = pd.read_parquet(neighborhoods_path, engine='pyarrow')
+        # TODO: Use pyarrow once data is regenerated with flattened arrays
+        # self.neighborhoods = pd.read_parquet(neighborhoods_path, engine='pyarrow')
+        # WARNING: fastparquet returns None for nested lists (neighbor_cells)
+        self.neighborhoods = pd.read_parquet(neighborhoods_path, engine='fastparquet')
 
         # Detect format
         self.amici_format = "neighbor_cells" in self.neighborhoods.columns
