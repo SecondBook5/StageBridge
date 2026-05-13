@@ -250,6 +250,29 @@ class StageBridgeConfig:
                     config_dict["amici_num_heads"] = v.shape[0]
                     break
 
+        # Infer hidden_dim from amici_encoder or context_refiner weights
+        if "hidden_dim" not in config_dict:
+            for k, v in state_dict.items():
+                if k == "amici_encoder.receiver_proj.bias":
+                    config_dict["hidden_dim"] = v.shape[0]
+                    break
+                elif k == "context_refiner.pma.seed_vectors":
+                    config_dict["hidden_dim"] = v.shape[2]
+                    break
+
+        # Infer num_heads from attention layers
+        if "num_heads" not in config_dict:
+            for k, v in state_dict.items():
+                if k == "amici_encoder.attention_layers.0.q_proj.weight":
+                    # hidden_dim / head_dim = num_heads, but we need to check mha
+                    # Actually easier to check in_proj_weight of hierarchical_aggregator
+                    pass
+                elif "hierarchical_aggregator.isab_layers.0.mha_1.in_proj_weight" in k:
+                    # in_proj_weight is [3*hidden_dim, hidden_dim]
+                    hidden = v.shape[1]
+                    config_dict["hidden_dim"] = hidden
+                    break
+
         return cls(**config_dict)
 
 

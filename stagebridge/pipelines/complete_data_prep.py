@@ -993,18 +993,18 @@ def generate_neighborhoods_table(
     cells_df: pd.DataFrame,
     spatial: ad.AnnData,
     spatial_deconv_luca: dict,
-    k_neighbors: int = 20,
+    k_neighbors: int = 100,
+    use_amici_format: bool = True,
 ) -> pd.DataFrame:
     """
-    Generate neighborhoods.parquet with 9-token structure.
+    Generate neighborhoods.parquet for AMICI attention.
 
-    9 tokens:
-    0. Receiver cell
-    1-4. Ring 1-4 (spatial neighbors)
-    5. HLCA context
-    6. LuCA context
-    7. Pathway activity
-    8. Summary stats
+    AMICI format (default):
+    - neighbor_cells: List of k neighbor embeddings (z_fused), sorted by distance
+    - neighbor_distances: List of k distances in coordinate units
+
+    Legacy tokenized format (use_amici_format=False):
+    - 9 tokens with pooled ring embeddings
     """
     # Build spatial graph
     print("  Building spatial neighborhood graph...")
@@ -1021,7 +1021,7 @@ def generate_neighborhoods_table(
 
     records = []
     donors = spatial_cells["donor_id"].unique()
-    print(f"  Building per-donor k-NN for {len(donors)} donors...")
+    print(f"  Building per-donor k-NN for {len(donors)} donors (k={k_neighbors})...")
 
     for donor_id in tqdm(donors, desc="  Donors"):
         donor_cells = spatial_cells[spatial_cells["donor_id"] == donor_id].copy()
@@ -1053,6 +1053,66 @@ def generate_neighborhoods_table(
                     f"Neighbor donors: {neighbor_donors}. This indicates a bug in per-donor k-NN."
                 )
 
+            if use_amici_format:
+                # AMICI format: flat list of neighbor embeddings + distances
+                neighbor_cells = [
+                    donor_cells.iloc[ni]["z_fused"]
+                    for ni in neighbor_indices
+                ]
+                neighbor_cell_types = [
+                    donor_cells.iloc[ni]["cell_type"]
+                    for ni in neighbor_indices
+                ]
+
+                # Get additional features for the record
+                hlca_z = row.z_hlca if hasattr(row, 'z_hlca') else None
+                luca_z = row.z_luca if hasattr(row, 'z_luca') else None
+
+                # Pathway targets from cells_df
+                pathway_cols = [c for c in cells_df.columns if c.startswith('pathway_')]
+                pathway_targets = None
+                if pathway_cols:
+                    cell_row = cells_df[cells_df['cell_id'] == cell_id]
+                    if len(cell_row) > 0:
+                        pathway_targets = cell_row[pathway_cols].values[0].tolist()
+
+                # Stats features
+                stats_z = None
+                if hasattr(row, 'S_score') and hasattr(row, 'G2M_score'):
+                    stats_z = [
+                        row.S_score if not pd.isna(row.S_score) else 0.0,
+                        row.G2M_score if not pd.isna(row.G2M_score) else 0.0,
+                        getattr(row, 'caf_fraction', 0.0) or 0.0,
+                        getattr(row, 'immune_fraction', 0.0) or 0.0,
+                        getattr(row, 'diversity', 0.0) or 0.0,
+                    ]
+
+                # Evolution features
+                evolution_features = None
+                evolution_cols = [c for c in cells_df.columns if c in EVOLUTION_COLS or c.startswith('evolution_')]
+                if evolution_cols:
+                    cell_row = cells_df[cells_df['cell_id'] == cell_id]
+                    if len(cell_row) > 0:
+                        evolution_features = cell_row[evolution_cols].values[0].tolist()
+
+                records.append({
+                    "cell_id": cell_id,
+                    "donor_id": donor_id,
+                    "stage": stage,
+                    "receiver_z": row.z_fused,
+                    "hlca_z": hlca_z,
+                    "luca_z": luca_z,
+                    "neighbor_cells": neighbor_cells,
+                    "neighbor_distances": neighbor_distances.tolist(),
+                    "neighbor_cell_types": neighbor_cell_types,
+                    "proliferation_label": getattr(row, 'proliferation_label', 0.0),
+                    "pathway_targets": pathway_targets,
+                    "stats_z": stats_z,
+                    "evolution_features": evolution_features,
+                })
+                continue
+
+            # Legacy tokenized format below
             # Build 9-token structure
             tokens = []
 
