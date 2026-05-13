@@ -115,9 +115,9 @@ def main():
         print(f"Cell types: {pd.Series(cell_types).value_counts().head(10).to_dict()}")
 
         # Build full metadata dataframe for matched cells
-        cell_metadata = cells_df.set_index("cell_id").loc[
-            [cid for cid in pred_cell_ids if cid in cells_df["cell_id"].values]
-        ].reset_index()
+        # cells_df is already indexed by cell_id from the loop above
+        matched_ids = [cid for cid in pred_cell_ids if cid in cells_df.index]
+        cell_metadata = cells_df.loc[matched_ids].reset_index()
         print(f"Cell metadata columns: {cell_metadata.columns.tolist()}")
 
         # Use spatial coords from cells.parquet if not provided separately
