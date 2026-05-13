@@ -343,6 +343,7 @@ class StageBridgeDataset(Dataset):
             evolution_features = np.array(row["evolution_features"], dtype=np.float32)
 
         return {
+            "format": "amici",  # Signal to collate function
             "cell_id": cell_id,
             "donor_id": donor_id,
             "stage_idx": stage_idx,
