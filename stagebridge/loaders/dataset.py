@@ -191,14 +191,30 @@ class StageBridgeDataset(Dataset):
         self.max_neighbors = max_neighbors
         self.shuffle_rings = shuffle_rings
 
-        neighborhoods_path = self.data_dir / "neighborhoods.parquet"
-        if not neighborhoods_path.exists():
-            raise FileNotFoundError(f"neighborhoods.parquet not found: {neighborhoods_path}")
+        # Check for numpy format first (preferred - no parquet overflow)
+        neighbor_emb_path = self.data_dir / "neighbor_embeddings.npy"
+        neighbor_dist_path = self.data_dir / "neighbor_distances.npy"
+        meta_path = self.data_dir / "neighborhoods_meta.parquet"
 
-        # TODO: Use pyarrow once data is regenerated with flattened arrays
-        # self.neighborhoods = pd.read_parquet(neighborhoods_path, engine='pyarrow')
-        # WARNING: fastparquet returns None for nested lists (neighbor_cells)
-        self.neighborhoods = pd.read_parquet(neighborhoods_path, engine='fastparquet')
+        if neighbor_emb_path.exists() and meta_path.exists():
+            # Numpy format: large arrays in .npy, metadata in parquet
+            self.numpy_format = True
+            self.neighbor_embeddings = np.load(neighbor_emb_path)  # [N, K, D]
+            self.neighbor_distances_arr = np.load(neighbor_dist_path)  # [N, K]
+            self.neighborhoods = pd.read_parquet(meta_path)
+            print(f"Loaded numpy format: {self.neighbor_embeddings.shape}")
+        else:
+            # Legacy parquet format
+            self.numpy_format = False
+            self.neighbor_embeddings = None
+            self.neighbor_distances_arr = None
+
+            neighborhoods_path = self.data_dir / "neighborhoods.parquet"
+            if not neighborhoods_path.exists():
+                raise FileNotFoundError(f"neighborhoods.parquet not found: {neighborhoods_path}")
+
+            # WARNING: fastparquet returns None for nested lists (neighbor_cells)
+            self.neighborhoods = pd.read_parquet(neighborhoods_path, engine='fastparquet')
 
         # Detect format
         self.amici_format = "neighbor_cells" in self.neighborhoods.columns
@@ -206,7 +222,7 @@ class StageBridgeDataset(Dataset):
         self.ring_format = "ring_1_cells" in self.neighborhoods.columns
         self.tokenized_format = "tokens" in self.neighborhoods.columns
 
-        if not self.amici_format and not self.amici_flat_format and not self.ring_format:
+        if not self.numpy_format and not self.amici_format and not self.amici_flat_format and not self.ring_format:
             if self.tokenized_format:
                 raise ValueError(
                     "neighborhoods.parquet has tokenized format (pre-pooled z_pooled), "
@@ -279,7 +295,9 @@ class StageBridgeDataset(Dataset):
         stage = row["stage"]
         stage_idx = STAGE_TO_IDX.get(stage, 0)
 
-        if self.amici_flat_format:
+        if self.numpy_format:
+            return self._getitem_numpy_format(idx, row, cell_id, donor_id, stage_idx)
+        elif self.amici_flat_format:
             return self._getitem_amici_flat_format(row, cell_id, donor_id, stage_idx)
         elif self.amici_format:
             return self._getitem_amici_format(row, cell_id, donor_id, stage_idx)
@@ -287,6 +305,59 @@ class StageBridgeDataset(Dataset):
             return self._getitem_tokenized(row, cell_id, donor_id, stage_idx)
         else:
             return self._getitem_ring_format(row, cell_id, donor_id, stage_idx)
+
+    def _getitem_numpy_format(self, idx: int, row, cell_id, donor_id, stage_idx) -> dict:
+        """Handle numpy format (neighbor_embeddings.npy + neighborhoods_meta.parquet)."""
+        receiver = np.array(row["receiver_z"], dtype=np.float32)
+        hlca = np.array(row["hlca_z"], dtype=np.float32)
+        luca = np.array(row["luca_z"], dtype=np.float32)
+
+        # Get neighbors from numpy array
+        neighbors = self.neighbor_embeddings[idx].astype(np.float32)
+        distances = self.neighbor_distances_arr[idx].astype(np.float32)
+
+        # Mask based on actual neighbor count
+        n_actual = int(row.get("n_neighbors", self.max_neighbors))
+        neighbor_mask = np.zeros(self.max_neighbors, dtype=bool)
+        neighbor_mask[:n_actual] = True
+
+        # Optional features
+        pathway = None
+        if "pathway_z" in row and row["pathway_z"] is not None:
+            pathway = np.array(row["pathway_z"], dtype=np.float32)
+
+        stats = None
+        if "stats_z" in row and row["stats_z"] is not None:
+            stats = np.array(row["stats_z"], dtype=np.float32)
+
+        pathway_targets = None
+        if "pathway_targets" in row and row["pathway_targets"] is not None:
+            pathway_targets = np.array(row["pathway_targets"], dtype=np.float32)
+
+        proliferation_target = None
+        if "proliferation_label" in row:
+            proliferation_target = float(row["proliferation_label"])
+
+        evolution_features = None
+        if "evolution_features" in row and row["evolution_features"] is not None:
+            evolution_features = np.array(row["evolution_features"], dtype=np.float32)
+
+        return {
+            "cell_id": cell_id,
+            "donor_id": donor_id,
+            "stage_idx": stage_idx,
+            "receiver": receiver,
+            "hlca": hlca,
+            "luca": luca,
+            "neighbors": neighbors,
+            "distances": distances,
+            "neighbor_mask": neighbor_mask,
+            "pathway": pathway,
+            "stats": stats,
+            "pathway_targets": pathway_targets,
+            "proliferation_target": proliferation_target,
+            "evolution_features": evolution_features,
+        }
 
     def _getitem_amici_flat_format(self, row, cell_id, donor_id, stage_idx) -> dict:
         """Handle flattened AMICI format (neighbor_cells_flat + neighbor_distances).
