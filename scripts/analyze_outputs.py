@@ -221,6 +221,13 @@ def main():
             gt_dir = args.output_dir / "pathway_comparison"
             gt_dir.mkdir(parents=True, exist_ok=True)
 
+            # Debug: check what we have
+            print(f"\nDEBUG pathway comparison:")
+            print(f"  viz.pathway_scores columns: {viz.pathway_scores.columns.tolist()}")
+            print(f"  cell_metadata pathway cols: {[c for c in cell_metadata.columns if 'pathway' in c.lower()]}")
+            print(f"  viz.predictions cell_ids sample: {viz.predictions['cell_id'].values[:3]}")
+            print(f"  cell_metadata cell_ids sample: {cell_metadata['cell_id'].values[:3]}")
+
             for pathway in ["EGFR", "Hypoxia", "TGFb", "JAK-STAT", "NFkB", "TNFa"]:
                 gt_col = f"pathway_{pathway}"
                 if pathway in viz.pathway_scores.columns and gt_col in cell_metadata.columns:
@@ -237,6 +244,7 @@ def main():
                             gt.append(gt_lookup.loc[cid])
                     pred = np.array(pred)
                     gt = np.array(gt)
+                    print(f"  {pathway}: matched {len(pred)} cells, pred range [{pred.min():.2f}, {pred.max():.2f}], gt range [{gt.min():.2f}, {gt.max():.2f}]")
 
                     # Scatter plot: predicted vs ground truth
                     valid = ~np.isnan(gt) & ~np.isnan(pred)
