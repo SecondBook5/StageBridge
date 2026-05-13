@@ -224,8 +224,19 @@ def main():
             for pathway in ["EGFR", "Hypoxia", "TGFb", "JAK-STAT", "NFkB", "TNFa"]:
                 gt_col = f"pathway_{pathway}"
                 if pathway in viz.pathway_scores.columns and gt_col in cell_metadata.columns:
-                    pred = viz.pathway_scores[pathway].values
-                    gt = cell_metadata[gt_col].values
+                    # Align predictions with ground truth by cell_id
+                    # pathway_scores has same order as predictions
+                    pred_cell_ids = viz.predictions["cell_id"].values
+                    gt_lookup = cell_metadata.set_index("cell_id")[gt_col]
+
+                    pred = []
+                    gt = []
+                    for i, cid in enumerate(pred_cell_ids):
+                        if cid in gt_lookup.index:
+                            pred.append(viz.pathway_scores[pathway].iloc[i])
+                            gt.append(gt_lookup.loc[cid])
+                    pred = np.array(pred)
+                    gt = np.array(gt)
 
                     # Scatter plot: predicted vs ground truth
                     valid = ~np.isnan(gt) & ~np.isnan(pred)
