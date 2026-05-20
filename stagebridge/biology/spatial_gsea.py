@@ -434,6 +434,9 @@ def run_snrna_gsea_pipeline(
     cell_type_col: str = "cell_type",
     stage_col: str = "stage",
     gene_sets: str = "MSigDB_Hallmark_2020",
+    n_permutations: int = 100,
+    min_cells: int = 500,
+    skip_stage_celltype: bool = False,
 ) -> dict[str, Path]:
     """Run GSEA pipeline for snRNA-seq data (no spatial).
 
@@ -446,6 +449,9 @@ def run_snrna_gsea_pipeline(
         cell_type_col: Cell type column
         stage_col: Stage column
         gene_sets: Gene set library
+        n_permutations: Number of permutations for GSEA (lower = faster)
+        min_cells: Minimum cells required for a group
+        skip_stage_celltype: Skip the slow stage-celltype combination analysis
 
     Returns:
         Dict of output paths
@@ -472,8 +478,8 @@ def run_snrna_gsea_pipeline(
         ct_mask = adata.obs[cell_type_col] == ct
         n_cells = ct_mask.sum()
 
-        if n_cells < 100:
-            print(f"  Skipping {ct}: only {n_cells} cells")
+        if n_cells < min_cells:
+            print(f"  Skipping {ct}: only {n_cells} cells (need {min_cells})")
             continue
 
         print(f"  Processing {ct}: {n_cells} cells")
@@ -497,7 +503,7 @@ def run_snrna_gsea_pipeline(
                 gene_sets=gene_sets,
                 min_size=15,
                 max_size=500,
-                permutation_num=1000,
+                permutation_num=n_permutations,
                 threads=4,
                 seed=42,
                 verbose=False,
@@ -526,8 +532,8 @@ def run_snrna_gsea_pipeline(
         stage_mask = adata.obs[stage_col] == stage
         n_cells = stage_mask.sum()
 
-        if n_cells < 100:
-            print(f"  Skipping {stage}: only {n_cells} cells")
+        if n_cells < min_cells:
+            print(f"  Skipping {stage}: only {n_cells} cells (need {min_cells})")
             continue
 
         print(f"  Processing {stage}: {n_cells} cells")
@@ -551,7 +557,7 @@ def run_snrna_gsea_pipeline(
                 gene_sets=gene_sets,
                 min_size=15,
                 max_size=500,
-                permutation_num=1000,
+                permutation_num=n_permutations,
                 threads=4,
                 seed=42,
                 verbose=False,
@@ -571,61 +577,64 @@ def run_snrna_gsea_pipeline(
         outputs["gsea_stage"] = output_dir / "gsea_by_stage.parquet"
         print(f"  Saved stage GSEA: {len(stage_df)} results")
 
-    # GSEA per stage-celltype combination
-    print("\nRunning GSEA per stage-celltype...")
-    combo_results = []
+    # GSEA per stage-celltype combination (optional, very slow)
+    if skip_stage_celltype:
+        print("\nSkipping stage-celltype GSEA (--skip-stage-celltype flag)")
+    else:
+        print("\nRunning GSEA per stage-celltype...")
+        combo_results = []
 
-    for stage in stages:
-        stage_adata = adata[adata.obs[stage_col] == stage]
+        for stage in stages:
+            stage_adata = adata[adata.obs[stage_col] == stage]
 
-        for ct in cell_types:
-            ct_mask = stage_adata.obs[cell_type_col] == ct
-            n_cells = ct_mask.sum()
+            for ct in cell_types:
+                ct_mask = stage_adata.obs[cell_type_col] == ct
+                n_cells = ct_mask.sum()
 
-            if n_cells < 50:
-                continue
+                if n_cells < min_cells:
+                    continue
 
-            print(f"  Processing {stage}/{ct}: {n_cells} cells")
+                print(f"  Processing {stage}/{ct}: {n_cells} cells")
 
-            stage_adata.obs["_target"] = ct_mask.map({True: "target", False: "rest"})
+                stage_adata.obs["_target"] = ct_mask.map({True: "target", False: "rest"})
 
-            try:
-                sc.tl.rank_genes_groups(
-                    stage_adata,
-                    groupby="_target",
-                    groups=["target"],
-                    reference="rest",
-                    method="wilcoxon",
-                )
+                try:
+                    sc.tl.rank_genes_groups(
+                        stage_adata,
+                        groupby="_target",
+                        groups=["target"],
+                        reference="rest",
+                        method="wilcoxon",
+                    )
 
-                de_df = sc.get.rank_genes_groups_df(stage_adata, group="target")
-                ranked = de_df.set_index("names")["scores"].sort_values(ascending=False)
+                    de_df = sc.get.rank_genes_groups_df(stage_adata, group="target")
+                    ranked = de_df.set_index("names")["scores"].sort_values(ascending=False)
 
-                gsea_res = gp.prerank(
-                    rnk=ranked,
-                    gene_sets=gene_sets,
-                    min_size=15,
-                    max_size=500,
-                    permutation_num=500,  # fewer permutations for speed
-                    threads=4,
-                    seed=42,
-                    verbose=False,
-                )
+                    gsea_res = gp.prerank(
+                        rnk=ranked,
+                        gene_sets=gene_sets,
+                        min_size=15,
+                        max_size=500,
+                        permutation_num=n_permutations // 2,  # fewer permutations for speed
+                        threads=4,
+                        seed=42,
+                        verbose=False,
+                    )
 
-                res_df = gsea_res.res2d.copy()
-                res_df["stage"] = stage
-                res_df["cell_type"] = ct
-                res_df["n_cells"] = n_cells
-                combo_results.append(res_df)
+                    res_df = gsea_res.res2d.copy()
+                    res_df["stage"] = stage
+                    res_df["cell_type"] = ct
+                    res_df["n_cells"] = n_cells
+                    combo_results.append(res_df)
 
-            except Exception as e:
-                print(f"  Failed for {stage}/{ct}: {e}")
+                except Exception as e:
+                    print(f"  Failed for {stage}/{ct}: {e}")
 
-    if combo_results:
-        combo_df = pd.concat(combo_results, ignore_index=True)
-        combo_df.to_parquet(output_dir / "gsea_by_stage_celltype.parquet")
-        outputs["gsea_stage_celltype"] = output_dir / "gsea_by_stage_celltype.parquet"
-        print(f"  Saved stage-celltype GSEA: {len(combo_df)} results")
+        if combo_results:
+            combo_df = pd.concat(combo_results, ignore_index=True)
+            combo_df.to_parquet(output_dir / "gsea_by_stage_celltype.parquet")
+            outputs["gsea_stage_celltype"] = output_dir / "gsea_by_stage_celltype.parquet"
+            print(f"  Saved stage-celltype GSEA: {len(combo_df)} results")
 
     print("\nsnRNA GSEA complete!")
     return outputs
@@ -643,6 +652,12 @@ if __name__ == "__main__":
                         help="Neighborhood radius in microns (spatial mode)")
     parser.add_argument("--gene-sets", default="MSigDB_Hallmark_2020",
                         help="Gene set library for GSEA")
+    parser.add_argument("--n-permutations", type=int, default=100,
+                        help="Number of permutations (lower = faster, default 100)")
+    parser.add_argument("--min-cells", type=int, default=500,
+                        help="Minimum cells per group (default 500)")
+    parser.add_argument("--skip-stage-celltype", action="store_true",
+                        help="Skip slow stage-celltype combination analysis")
     args = parser.parse_args()
 
     if args.mode == "spatial":
@@ -661,4 +676,7 @@ if __name__ == "__main__":
             cell_type_col=args.cell_type_col,
             stage_col=args.stage_col,
             gene_sets=args.gene_sets,
+            n_permutations=args.n_permutations,
+            min_cells=args.min_cells,
+            skip_stage_celltype=args.skip_stage_celltype,
         )
