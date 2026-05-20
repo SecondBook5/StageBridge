@@ -428,6 +428,70 @@ def run_spatial_gsea_pipeline(
     return outputs
 
 
+def _run_gsea_for_group(
+    adata_subset_X,
+    adata_var_names,
+    group_obs,
+    group_name: str,
+    group_col: str,
+    gene_sets: str,
+    n_permutations: int,
+    min_cells: int,
+) -> pd.DataFrame | None:
+    """Run GSEA for a single group (cell type or stage). Helper for parallel execution."""
+    import gseapy as gp
+    import scanpy as sc
+    import anndata as ad
+    import warnings
+
+    warnings.filterwarnings("ignore")
+
+    # Reconstruct minimal AnnData for this computation
+    adata = ad.AnnData(X=adata_subset_X)
+    adata.var_names = adata_var_names
+    adata.obs = group_obs.copy()
+
+    group_mask = adata.obs[group_col] == group_name
+    n_cells = group_mask.sum()
+
+    if n_cells < min_cells:
+        return None
+
+    adata.obs["_target"] = group_mask.map({True: "target", False: "rest"})
+
+    try:
+        sc.tl.rank_genes_groups(
+            adata,
+            groupby="_target",
+            groups=["target"],
+            reference="rest",
+            method="wilcoxon",
+        )
+
+        de_df = sc.get.rank_genes_groups_df(adata, group="target")
+        ranked = de_df.set_index("names")["scores"].sort_values(ascending=False)
+
+        gsea_res = gp.prerank(
+            rnk=ranked,
+            gene_sets=gene_sets,
+            min_size=15,
+            max_size=500,
+            permutation_num=n_permutations,
+            threads=1,  # Single thread per job since we parallelize at group level
+            seed=42,
+            verbose=False,
+        )
+
+        res_df = gsea_res.res2d.copy()
+        res_df["group"] = group_name
+        res_df["n_cells"] = n_cells
+        return res_df
+
+    except Exception as e:
+        print(f"  Failed for {group_name}: {e}")
+        return None
+
+
 def run_snrna_gsea_pipeline(
     h5ad_path: str | Path,
     output_dir: str | Path,
@@ -437,6 +501,7 @@ def run_snrna_gsea_pipeline(
     n_permutations: int = 100,
     min_cells: int = 500,
     skip_stage_celltype: bool = False,
+    n_jobs: int = 1,
 ) -> dict[str, Path]:
     """Run GSEA pipeline for snRNA-seq data (no spatial).
 
@@ -452,6 +517,7 @@ def run_snrna_gsea_pipeline(
         n_permutations: Number of permutations for GSEA (lower = faster)
         min_cells: Minimum cells required for a group
         skip_stage_celltype: Skip the slow stage-celltype combination analysis
+        n_jobs: Number of parallel jobs (default 1 = sequential)
 
     Returns:
         Dict of output paths
@@ -467,55 +533,99 @@ def run_snrna_gsea_pipeline(
     adata = sc.read_h5ad(h5ad_path)
     print(f"  {adata.n_obs} cells x {adata.n_vars} genes")
 
+    # Check if data is log-transformed (fixes scanpy warning)
+    if hasattr(adata.X, "toarray"):
+        max_val = adata.X[:1000].toarray().max()  # Sample for speed
+    else:
+        max_val = adata.X[:1000].max()
+
+    if max_val > 20:
+        print(f"  Data appears to be raw counts (max={max_val:.1f}), log-transforming...")
+        if adata.raw is None:
+            adata.raw = adata.copy()
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        print("  Log-transformation complete")
+    else:
+        print(f"  Data appears already log-transformed (max={max_val:.2f})")
+
     outputs = {}
 
     # GSEA per cell type (comparing each to all others)
-    print("\nRunning GSEA per cell type...")
+    print(f"\nRunning GSEA per cell type (n_jobs={n_jobs})...")
     cell_types = adata.obs[cell_type_col].unique()
 
-    celltype_results = []
-    for ct in cell_types:
-        ct_mask = adata.obs[cell_type_col] == ct
-        n_cells = ct_mask.sum()
+    # Filter to cell types with enough cells
+    valid_cell_types = [ct for ct in cell_types
+                        if (adata.obs[cell_type_col] == ct).sum() >= min_cells]
+    print(f"  {len(valid_cell_types)} cell types with >= {min_cells} cells")
 
-        if n_cells < min_cells:
-            print(f"  Skipping {ct}: only {n_cells} cells (need {min_cells})")
-            continue
+    if n_jobs > 1:
+        from joblib import Parallel, delayed
 
-        print(f"  Processing {ct}: {n_cells} cells")
+        # Extract data for parallel processing
+        X_data = adata.X
+        var_names = adata.var_names
+        obs_data = adata.obs[[cell_type_col]].copy()
+        obs_data[cell_type_col] = obs_data[cell_type_col].astype(str)
 
-        adata.obs["_target"] = ct_mask.map({True: "target", False: "rest"})
-
-        try:
-            sc.tl.rank_genes_groups(
-                adata,
-                groupby="_target",
-                groups=["target"],
-                reference="rest",
-                method="wilcoxon",
+        print(f"  Running {len(valid_cell_types)} cell types in parallel...")
+        celltype_results = Parallel(n_jobs=n_jobs, verbose=10)(
+            delayed(_run_gsea_for_group)(
+                X_data, var_names, obs_data, ct, cell_type_col,
+                gene_sets, n_permutations, min_cells
             )
+            for ct in valid_cell_types
+        )
+        celltype_results = [r for r in celltype_results if r is not None]
+        # Rename 'group' column to 'cell_type'
+        for df in celltype_results:
+            df.rename(columns={"group": "cell_type"}, inplace=True)
+    else:
+        # Original sequential code
+        celltype_results = []
+        for ct in cell_types:
+            ct_mask = adata.obs[cell_type_col] == ct
+            n_cells = ct_mask.sum()
 
-            de_df = sc.get.rank_genes_groups_df(adata, group="target")
-            ranked = de_df.set_index("names")["scores"].sort_values(ascending=False)
+            if n_cells < min_cells:
+                print(f"  Skipping {ct}: only {n_cells} cells (need {min_cells})")
+                continue
 
-            gsea_res = gp.prerank(
-                rnk=ranked,
-                gene_sets=gene_sets,
-                min_size=15,
-                max_size=500,
-                permutation_num=n_permutations,
-                threads=4,
-                seed=42,
-                verbose=False,
-            )
+            print(f"  Processing {ct}: {n_cells} cells")
 
-            res_df = gsea_res.res2d.copy()
-            res_df["cell_type"] = ct
-            res_df["n_cells"] = n_cells
-            celltype_results.append(res_df)
+            adata.obs["_target"] = ct_mask.map({True: "target", False: "rest"})
 
-        except Exception as e:
-            print(f"  Failed for {ct}: {e}")
+            try:
+                sc.tl.rank_genes_groups(
+                    adata,
+                    groupby="_target",
+                    groups=["target"],
+                    reference="rest",
+                    method="wilcoxon",
+                )
+
+                de_df = sc.get.rank_genes_groups_df(adata, group="target")
+                ranked = de_df.set_index("names")["scores"].sort_values(ascending=False)
+
+                gsea_res = gp.prerank(
+                    rnk=ranked,
+                    gene_sets=gene_sets,
+                    min_size=15,
+                    max_size=500,
+                    permutation_num=n_permutations,
+                    threads=4,
+                    seed=42,
+                    verbose=False,
+                )
+
+                res_df = gsea_res.res2d.copy()
+                res_df["cell_type"] = ct
+                res_df["n_cells"] = n_cells
+                celltype_results.append(res_df)
+
+            except Exception as e:
+                print(f"  Failed for {ct}: {e}")
 
     if celltype_results:
         ct_df = pd.concat(celltype_results, ignore_index=True)
@@ -658,6 +768,8 @@ if __name__ == "__main__":
                         help="Minimum cells per group (default 500)")
     parser.add_argument("--skip-stage-celltype", action="store_true",
                         help="Skip slow stage-celltype combination analysis")
+    parser.add_argument("--n-jobs", type=int, default=1,
+                        help="Number of parallel jobs (default 1 = sequential)")
     args = parser.parse_args()
 
     if args.mode == "spatial":
@@ -679,4 +791,5 @@ if __name__ == "__main__":
             n_permutations=args.n_permutations,
             min_cells=args.min_cells,
             skip_stage_celltype=args.skip_stage_celltype,
+            n_jobs=args.n_jobs,
         )
