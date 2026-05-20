@@ -109,6 +109,7 @@ def run_wgcna(
     adata: "ad.AnnData",
     soft_power: int | None = None,
     min_module_size: int = 30,
+    deep_split: int = 2,
     merge_cut_height: float = 0.25,
     n_top_genes: int = 5000,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
@@ -118,7 +119,8 @@ def run_wgcna(
         adata: AnnData (metacells recommended)
         soft_power: Soft-thresholding power (None = auto-detect)
         min_module_size: Minimum genes per module
-        merge_cut_height: Height for merging similar modules
+        deep_split: Controls sensitivity of module detection (0-4, higher = more modules)
+        merge_cut_height: Height for merging similar modules (0-1)
         n_top_genes: Number of highly variable genes to use
 
     Returns:
@@ -175,17 +177,29 @@ def run_wgcna(
     # Hierarchical clustering
     Z = linkage(tom_dist_condensed, method="average")
 
-    # Cut tree to get modules
-    clusters = fcluster(Z, t=merge_cut_height, criterion="distance")
+    # Dynamic tree cutting - use maxclust to get reasonable number of modules
+    # Estimate number of clusters based on deep_split parameter
+    # deep_split 0-4 maps to roughly 5-50 target modules
+    n_genes = len(gene_names)
+    target_modules = max(5, min(50, n_genes // (200 - deep_split * 30)))
+    print(f"  Target modules: ~{target_modules} (deep_split={deep_split})")
+
+    # Cut tree using maxclust criterion for initial clustering
+    clusters = fcluster(Z, t=target_modules, criterion="maxclust")
 
     # Filter small modules
     module_counts = pd.Series(clusters).value_counts()
     valid_modules = module_counts[module_counts >= min_module_size].index
+    print(f"  Initial clusters: {len(module_counts)}, valid (>={min_module_size} genes): {len(valid_modules)}")
+
+    # Merge similar modules based on eigengene correlation
+    # First assign initial module labels
+    initial_labels = {c: f"M{i}" for i, c in enumerate(sorted(valid_modules))}
 
     # Assign module colors/names
     module_genes = pd.DataFrame({
         "gene": gene_names,
-        "module": [f"M{c}" if c in valid_modules else "grey" for c in clusters],
+        "module": [initial_labels.get(c, "grey") for c in clusters],
     })
 
     n_modules = len(valid_modules)
