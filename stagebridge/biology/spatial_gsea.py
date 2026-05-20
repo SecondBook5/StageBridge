@@ -442,12 +442,17 @@ def _run_gsea_for_group(
     import gseapy as gp
     import scanpy as sc
     import anndata as ad
+    import numpy as np
     import warnings
 
     warnings.filterwarnings("ignore")
 
+    # Force writable copy - fixes WRITEBACKIFCOPY error from joblib serialization
+    X_copy = np.array(adata_subset_X, copy=True)
+    X_copy.flags.writeable = True
+
     # Reconstruct minimal AnnData for this computation
-    adata = ad.AnnData(X=adata_subset_X)
+    adata = ad.AnnData(X=X_copy)
     adata.var_names = adata_var_names
     adata.obs = group_obs.copy()
 
@@ -566,11 +571,13 @@ def run_snrna_gsea_pipeline(
         from joblib import Parallel, delayed
         from scipy import sparse
 
-        # Extract data for parallel processing - make writable copy
+        # Extract data for parallel processing - force writable dense copy
+        # This avoids WRITEBACKIFCOPY errors from memory-mapped/read-only arrays
         if sparse.issparse(adata.X):
-            X_data = adata.X.copy()  # Copy sparse matrix
+            X_data = np.array(adata.X.toarray(), copy=True)
         else:
-            X_data = np.array(adata.X, copy=True)  # Copy dense array
+            X_data = np.array(adata.X, copy=True)
+        X_data.flags.writeable = True
         var_names = list(adata.var_names)
         obs_data = adata.obs[[cell_type_col]].copy()
         obs_data[cell_type_col] = obs_data[cell_type_col].astype(str)
