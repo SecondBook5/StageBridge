@@ -533,21 +533,23 @@ def run_snrna_gsea_pipeline(
     adata = sc.read_h5ad(h5ad_path)
     print(f"  {adata.n_obs} cells x {adata.n_vars} genes")
 
-    # Check if data is log-transformed (fixes scanpy warning)
+    # Check if data needs log-transformation (operates on in-memory copy, not original file)
     if hasattr(adata.X, "toarray"):
-        max_val = adata.X[:1000].toarray().max()  # Sample for speed
+        max_val = adata.X[:1000].toarray().max()
     else:
         max_val = adata.X[:1000].max()
 
     if max_val > 20:
-        print(f"  Data appears to be raw counts (max={max_val:.1f}), log-transforming...")
-        if adata.raw is None:
-            adata.raw = adata.copy()
+        print(f"  Data is raw counts (max={max_val:.1f}), log-transforming in-memory copy...")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
-        print("  Log-transformation complete")
+        print("  Log-transformation complete (original file unchanged)")
     else:
-        print(f"  Data appears already log-transformed (max={max_val:.2f})")
+        print(f"  Data already log-transformed (max={max_val:.2f})")
+
+    # Suppress scanpy warning
+    import warnings
+    warnings.filterwarnings("ignore", message=".*raw count data.*")
 
     outputs = {}
 
@@ -562,10 +564,14 @@ def run_snrna_gsea_pipeline(
 
     if n_jobs > 1:
         from joblib import Parallel, delayed
+        from scipy import sparse
 
-        # Extract data for parallel processing
-        X_data = adata.X
-        var_names = adata.var_names
+        # Extract data for parallel processing - make writable copy
+        if sparse.issparse(adata.X):
+            X_data = adata.X.copy()  # Copy sparse matrix
+        else:
+            X_data = np.array(adata.X, copy=True)  # Copy dense array
+        var_names = list(adata.var_names)
         obs_data = adata.obs[[cell_type_col]].copy()
         obs_data[cell_type_col] = obs_data[cell_type_col].astype(str)
 
