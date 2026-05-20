@@ -567,7 +567,8 @@ def run_snrna_gsea_pipeline(
                         if (adata.obs[cell_type_col] == ct).sum() >= min_cells]
     print(f"  {len(valid_cell_types)} cell types with >= {min_cells} cells")
 
-    if n_jobs > 1:
+    if n_jobs > 1 and len(valid_cell_types) > 20:
+        # Only use parallel for many groups - memory overhead too high for few groups
         from joblib import Parallel, delayed
         from scipy import sparse
 
@@ -595,6 +596,8 @@ def run_snrna_gsea_pipeline(
         for df in celltype_results:
             df.rename(columns={"group": "cell_type"}, inplace=True)
     else:
+        if n_jobs > 1:
+            print(f"  Note: Running sequentially (only {len(valid_cell_types)} groups, parallel overhead not worth it)")
         # Original sequential code
         celltype_results = []
         for ct in cell_types:

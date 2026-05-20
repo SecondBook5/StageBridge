@@ -209,31 +209,145 @@ def _clean_cell_type_name(name: str) -> str:
 
 def select_n_archetypes(
     proportions: pd.DataFrame,
-    k_range: Sequence[int] = (4, 6, 8, 10, 12),
+    k_range: Sequence[int] = (4, 6, 8, 10, 12, 15, 20),
     random_state: int = 42,
-) -> dict[int, float]:
-    """Evaluate different numbers of archetypes via reconstruction error.
+    sample_size: int | None = 50000,
+) -> dict:
+    """Evaluate different numbers of archetypes via multiple metrics.
+
+    Uses reconstruction error, silhouette score, and identifies elbow point.
 
     Args:
         proportions: DataFrame with cell type proportions
         k_range: Numbers of archetypes to try
         random_state: Random seed
+        sample_size: Subsample for silhouette (None = all, but slow for >100k spots)
 
     Returns:
-        Dict of k -> reconstruction_error
+        Dict with 'errors', 'silhouettes', 'optimal_k', 'elbow_k'
     """
+    from sklearn.metrics import silhouette_score
+
     meta_cols = {'stage', 'sample', 'sample_id', 'spot_id', 'cell_id', 'patient', 'donor'}
     cell_type_cols = [c for c in proportions.columns if c.lower() not in meta_cols]
     X = proportions[cell_type_cols].values
 
+    # Normalize if needed
+    row_sums = X.sum(axis=1)
+    if not np.allclose(row_sums, 1.0, atol=0.01):
+        X = X / row_sums[:, np.newaxis]
+
+    # Subsample for silhouette (expensive)
+    if sample_size and len(X) > sample_size:
+        np.random.seed(random_state)
+        idx = np.random.choice(len(X), sample_size, replace=False)
+        X_sil = X[idx]
+    else:
+        X_sil = X
+
     errors = {}
+    silhouettes = {}
+
+    print(f"Evaluating k in {list(k_range)}...")
     for k in k_range:
         nmf = NMF(n_components=k, init='nndsvda', max_iter=200, random_state=random_state)
-        nmf.fit(X)
+        W = nmf.fit_transform(X)
         errors[k] = nmf.reconstruction_err_
-        print(f"k={k}: error={nmf.reconstruction_err_:.2f}")
 
-    return errors
+        # Silhouette on dominant assignments (subsample)
+        if sample_size and len(X) > sample_size:
+            W_sil = nmf.transform(X_sil)
+        else:
+            W_sil = W
+        labels = W_sil.argmax(axis=1)
+
+        # Need at least 2 clusters with >1 sample
+        unique_labels, counts = np.unique(labels, return_counts=True)
+        if len(unique_labels) >= 2 and all(counts > 1):
+            sil = silhouette_score(X_sil, labels)
+            silhouettes[k] = sil
+        else:
+            silhouettes[k] = -1  # Invalid
+
+        print(f"  k={k}: error={errors[k]:.2f}, silhouette={silhouettes[k]:.3f}")
+
+    # Find elbow using second derivative
+    k_list = sorted(errors.keys())
+    err_vals = [errors[k] for k in k_list]
+    if len(k_list) >= 3:
+        # Compute second derivative
+        d1 = np.diff(err_vals)
+        d2 = np.diff(d1)
+        # Elbow = max second derivative (steepest decrease in slope)
+        elbow_idx = np.argmax(d2) + 1  # +1 because diff reduces length
+        elbow_k = k_list[elbow_idx] if elbow_idx < len(k_list) else k_list[-1]
+    else:
+        elbow_k = k_list[len(k_list) // 2]
+
+    # Optimal = best silhouette (excluding -1)
+    valid_sil = {k: v for k, v in silhouettes.items() if v > -1}
+    if valid_sil:
+        optimal_k = max(valid_sil, key=valid_sil.get)
+    else:
+        optimal_k = elbow_k
+
+    print(f"\nElbow point: k={elbow_k}")
+    print(f"Best silhouette: k={optimal_k} (score={silhouettes.get(optimal_k, -1):.3f})")
+
+    return {
+        'errors': errors,
+        'silhouettes': silhouettes,
+        'elbow_k': elbow_k,
+        'optimal_k': optimal_k,
+    }
+
+
+def plot_k_selection(
+    results: dict,
+    output_path: str | Path,
+) -> None:
+    """Plot k selection metrics.
+
+    Args:
+        results: Output from select_n_archetypes
+        output_path: Path to save figure
+    """
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    k_vals = sorted(results['errors'].keys())
+    errors = [results['errors'][k] for k in k_vals]
+    silhouettes = [results['silhouettes'][k] for k in k_vals]
+
+    # Panel A: Reconstruction error (elbow)
+    ax = axes[0]
+    ax.plot(k_vals, errors, 'o-', linewidth=2, markersize=8, color='#1f77b4')
+    ax.axvline(results['elbow_k'], color='red', linestyle='--', label=f"Elbow: k={results['elbow_k']}")
+    ax.set_xlabel('Number of Archetypes (k)', fontsize=11)
+    ax.set_ylabel('Reconstruction Error', fontsize=11)
+    ax.set_title('A. Elbow Method', fontsize=12, fontweight='bold')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Panel B: Silhouette score
+    ax = axes[1]
+    valid_k = [k for k in k_vals if results['silhouettes'][k] > -1]
+    valid_sil = [results['silhouettes'][k] for k in valid_k]
+    ax.plot(valid_k, valid_sil, 'o-', linewidth=2, markersize=8, color='#2ca02c')
+    ax.axvline(results['optimal_k'], color='red', linestyle='--', label=f"Best: k={results['optimal_k']}")
+    ax.set_xlabel('Number of Archetypes (k)', fontsize=11)
+    ax.set_ylabel('Silhouette Score', fontsize=11)
+    ax.set_title('B. Silhouette Score', fontsize=12, fontweight='bold')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    plt.suptitle('Optimal Number of Niche Archetypes', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(f"{output_path}.png", dpi=150, bbox_inches='tight')
+    plt.savefig(f"{output_path}.pdf", bbox_inches='tight')
+    plt.close()
+    print(f"Saved {output_path}.png and .pdf")
 
 
 def plot_niche_discovery(
@@ -349,16 +463,21 @@ def plot_niche_discovery(
 def run_niche_discovery(
     proportions_path: str | Path,
     output_dir: str | Path,
-    n_archetypes: int = 8,
+    n_archetypes: int | None = None,
     reference: str = "luca",
+    k_range: Sequence[int] = (4, 6, 8, 10, 12, 15, 20),
 ) -> NicheDiscoveryResult:
-    """Run niche discovery pipeline.
+    """Run niche discovery pipeline with automatic k-selection.
+
+    Always runs k-selection first to determine optimal number of archetypes,
+    unless n_archetypes is explicitly provided.
 
     Args:
         proportions_path: Path to cell_type_proportions.parquet
         output_dir: Output directory
-        n_archetypes: Number of archetypes
+        n_archetypes: Number of archetypes (None = auto-select via silhouette)
         reference: Reference atlas name (for labeling)
+        k_range: Range of k values to test for selection
 
     Returns:
         NicheDiscoveryResult
@@ -375,7 +494,30 @@ def run_niche_discovery(
     if 'stage' not in df.columns and 'sample' in df.columns:
         df['stage'] = df['sample'].str.extract(r'_([A-Za-z]+)$')[0]
 
-    print(f"Running NMF with k={n_archetypes}...")
+    # Always run k-selection to find optimal k (and generate diagnostic plot)
+    print("\n=== K-Selection Analysis ===")
+    k_results = select_n_archetypes(df, k_range=k_range)
+    plot_k_selection(k_results, output_dir / f'{reference}_k_selection')
+
+    # Save k-selection results
+    k_df = pd.DataFrame({
+        'k': list(k_results['errors'].keys()),
+        'reconstruction_error': list(k_results['errors'].values()),
+        'silhouette_score': list(k_results['silhouettes'].values()),
+    })
+    k_df.to_csv(output_dir / f'{reference}_k_selection.csv', index=False)
+    print(f"  Saved {reference}_k_selection.csv")
+
+    # Use provided k or auto-selected optimal k
+    if n_archetypes is None:
+        n_archetypes = k_results['optimal_k']
+        print(f"\n=== Using auto-selected k={n_archetypes} (best silhouette) ===")
+    else:
+        print(f"\n=== Using user-specified k={n_archetypes} ===")
+        if n_archetypes != k_results['optimal_k']:
+            print(f"  Note: optimal k would be {k_results['optimal_k']} (silhouette) or {k_results['elbow_k']} (elbow)")
+
+    print(f"\nRunning NMF with k={n_archetypes}...")
     result = discover_niches(df, n_archetypes=n_archetypes)
     print(result.summarize())
 
@@ -409,8 +551,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Discover niche archetypes via NMF")
     parser.add_argument("--proportions", required=True, help="Path to cell_type_proportions.parquet")
     parser.add_argument("--output", required=True, help="Output directory")
-    parser.add_argument("--k", type=int, default=8, help="Number of archetypes")
+    parser.add_argument("--k", type=int, default=None, help="Number of archetypes (None = auto-select via silhouette)")
     parser.add_argument("--reference", default="luca", help="Reference name (luca/hlca)")
+    parser.add_argument("--k-range", type=str, default="4,6,8,10,12,15,20",
+                       help="Comma-separated k values to test for selection")
     args = parser.parse_args()
 
-    run_niche_discovery(args.proportions, args.output, args.k, args.reference)
+    k_range = tuple(int(x) for x in args.k_range.split(','))
+
+    # run_niche_discovery now always does k-selection first
+    run_niche_discovery(
+        args.proportions,
+        args.output,
+        n_archetypes=args.k,  # None = auto-select
+        reference=args.reference,
+        k_range=k_range,
+    )
