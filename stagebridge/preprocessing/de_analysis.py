@@ -124,15 +124,15 @@ def run_pseudobulk_deseq2(
 ) -> pd.DataFrame:
     """Run pseudobulk DESeq2 for one stage vs rest.
 
-    Aggregates cells by sample (donor), then runs DESeq2 on pseudobulk counts.
-    This is the gold standard for single-cell DE as it properly models
-    biological replicates and avoids inflated p-values.
+    Aggregates cells by sample-condition combination (donor + target/rest),
+    then runs DESeq2 on pseudobulk counts. This properly handles donors
+    that have cells in multiple stages.
 
     Args:
         adata: AnnData with raw counts in .X and 'stage' column
         stage: Stage to compare vs rest
         sample_col: Column for sample/donor grouping
-        min_cells_per_sample: Minimum cells to include a sample
+        min_cells_per_sample: Minimum cells to include a pseudobulk sample
 
     Returns:
         DataFrame with DESeq2 results (log2FoldChange, pvalue, padj)
@@ -143,56 +143,74 @@ def run_pseudobulk_deseq2(
     except ImportError:
         raise ImportError("Install pydeseq2: pip install pydeseq2")
 
-    # Create pseudobulk by aggregating counts per sample
+    # Create condition label
     adata.obs["_condition"] = (adata.obs["stage"] == stage).map(
         {True: "target", False: "rest"}
     )
 
-    # Get samples with enough cells
-    sample_counts = adata.obs.groupby([sample_col, "_condition"]).size()
-    valid_samples = sample_counts[sample_counts >= min_cells_per_sample].index.get_level_values(0).unique()
-
-    adata_valid = adata[adata.obs[sample_col].isin(valid_samples)].copy()
-
-    # Aggregate to pseudobulk
+    # Create pseudobulk per donor-condition combination
+    # This handles donors with cells in both target and rest
     pseudobulk_data = []
     sample_meta = []
 
-    for sample in valid_samples:
-        sample_mask = adata_valid.obs[sample_col] == sample
-        sample_adata = adata_valid[sample_mask]
+    for (donor, condition), group_df in adata.obs.groupby([sample_col, "_condition"]):
+        n_cells = len(group_df)
+        if n_cells < min_cells_per_sample:
+            continue
+
+        # Get cells for this donor-condition
+        cell_idx = group_df.index
+        subset = adata[cell_idx]
 
         # Sum counts across cells
-        if hasattr(sample_adata.X, "toarray"):
-            counts = np.array(sample_adata.X.toarray().sum(axis=0)).flatten()
+        if hasattr(subset.X, "toarray"):
+            counts = np.array(subset.X.toarray().sum(axis=0)).flatten()
         else:
-            counts = np.array(sample_adata.X.sum(axis=0)).flatten()
+            counts = np.array(subset.X.sum(axis=0)).flatten()
 
+        # Create unique sample ID for this donor-condition pair
+        sample_id = f"{donor}_{condition}"
         pseudobulk_data.append(counts)
-        condition = sample_adata.obs["_condition"].iloc[0]
-        sample_meta.append({"sample": sample, "condition": condition})
+        sample_meta.append({
+            "sample": sample_id,
+            "donor": donor,
+            "condition": condition,
+            "n_cells": n_cells,
+        })
+
+    if len(pseudobulk_data) == 0:
+        raise ValueError(f"No valid pseudobulk samples with >= {min_cells_per_sample} cells")
 
     # Create count matrix and metadata
     count_matrix = pd.DataFrame(
         np.array(pseudobulk_data),
         index=[m["sample"] for m in sample_meta],
-        columns=adata_valid.var_names,
+        columns=adata.var_names,
     ).astype(int)
 
     metadata = pd.DataFrame(sample_meta).set_index("sample")
+
+    # Check we have both conditions
+    condition_counts = metadata["condition"].value_counts().to_dict()
+    print(f"  Pseudobulk: {len(count_matrix)} samples, {count_matrix.shape[1]} genes")
+    print(f"  Conditions: {condition_counts}")
+
+    if "target" not in condition_counts or "rest" not in condition_counts:
+        raise ValueError(f"Need both target and rest conditions, got: {condition_counts}")
+
+    if condition_counts["target"] < 2 or condition_counts["rest"] < 2:
+        raise ValueError(f"Need at least 2 samples per condition, got: {condition_counts}")
 
     # Filter low-count genes
     gene_sums = count_matrix.sum(axis=0)
     keep_genes = gene_sums >= 10
     count_matrix = count_matrix.loc[:, keep_genes]
-
-    print(f"  Pseudobulk: {len(count_matrix)} samples, {count_matrix.shape[1]} genes")
-    print(f"  Conditions: {metadata['condition'].value_counts().to_dict()}")
+    print(f"  After filtering: {count_matrix.shape[1]} genes")
 
     # Run DESeq2
     dds = DeseqDataSet(
         counts=count_matrix,
-        metadata=metadata,
+        metadata=metadata[["condition"]],  # Only pass condition column
         design_factors="condition",
         refit_cooks=True,
     )
