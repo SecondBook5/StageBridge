@@ -1,15 +1,29 @@
 """
 DestVI spatial mapping backend wrapper using scvi-tools.
 
-DestVI: Multi-resolution probabilistic VAE-based spatial deconvolution.
-Supports intra-cell-type variation via gamma latent space and cell-type-specific
+DestVI is a multi-resolution probabilistic VAE-based spatial deconvolution
+model. It estimates spot-level cell-type proportions and supports analysis of
+intra-cell-type variation through the gamma latent space and cell-type-specific
 gene expression imputation.
 
-Reference: https://docs.scvi-tools.org/en/stable/tutorials/notebooks/spatial/DestVI_tutorial.html
+Reference:
+https://docs.scvi-tools.org/en/stable/tutorials/notebooks/spatial/DestVI_tutorial.html
 
-Known issues (fixed):
-- scvi-tools >= 1.0 had 'prior' KeyError due to internal API changes
-- Fix: Always use vamp_prior_p=0 which bypasses the problematic code path
+Known issue addressed:
+- DestVI.from_rna_model may raise KeyError: 'prior' when the CondSCVI model was
+  trained or loaded without an explicitly stored prior argument.
+
+Implemented fix:
+- Initialize CondSCVI with prior="mog" before passing the trained single-cell
+  model into DestVI.from_rna_model.
+- Do not reuse older cached CondSCVI/DestVI models that were trained before this
+  argument was added. Force a rebuild or delete the stale cache if the error
+  persists.
+
+Compatibility note:
+- If an old scvi-tools version or saved model still fails during VampPrior
+  construction, vamp_prior_p=None may be used as a temporary workaround, but the
+  preferred fix is to retrain CondSCVI with prior="mog".
 """
 
 from pathlib import Path
