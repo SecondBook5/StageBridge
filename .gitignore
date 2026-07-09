@@ -196,3 +196,35 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 data/results/
+
+# =============================================================================
+# CCRT — generated data & artifacts must never enter git
+# Primary outputs live under $STAGEBRIDGE_DATA/ and $STAGEBRIDGE_RESULTS/,
+# never under stagebridge/, tests/, or the in-repo data/ tree.
+# =============================================================================
+data/interim/
+outputs/
+results/
+runs/
+wandb/
+mlruns/
+
+# Single-cell / spatial data formats
+*.h5ad
+*.h5
+*.h5seurat
+*.rds
+*.loom
+*.zarr/
+*.parquet
+*.feather
+
+# Model weights & serialized artifacts
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.joblib
+
+# Vendored reference repositories (read-only, never tracked here)
+reference_repos/
