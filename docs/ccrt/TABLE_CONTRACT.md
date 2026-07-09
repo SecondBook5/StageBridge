@@ -71,9 +71,13 @@ generated data and MUST land under an allowed output root
   contract-validated invariant.
 - **Grammar IDs are references, not free text.** Columns holding a
   `receiver_state`, `sender_context_type`, `signal_program`,
-  `regulatory_mediator`, `transition_edge`, or `system_id` value must contain a
-  token that resolves against the corresponding registry in `system_spec.yaml`
-  / the grammar layer. Unregistered tokens are a validation failure.
+  `regulatory_mediator`, `transition_edge`, or `biological_system_id` value must
+  contain a token that resolves against the corresponding registry in
+  `system_spec.yaml` / the grammar layer. Unregistered tokens are a validation
+  failure.
+- **Canonical system-id column.** The biological-system identifier column is
+  named `biological_system_id` (the Milestone-1 canonical name enforced by
+  `stagebridge/ccrt/contracts`), never abbreviated to `system_id`.
 - **Distance is continuous.** The `distance` column is a continuous scalar. It
   is NEVER discretized into rings, radial bins, or neighborhood bins. The
   tokens `ring_id`, `radial_bin`, `radius_bin`, `neighborhood_bin`, and
@@ -96,7 +100,7 @@ behavior (drift, growth, regulatory state) CCRT estimates.
 |---|---|---|---|
 | `receiver_id` | `string` | yes | Unique receiver identifier (primary key). |
 | `sample_id` | `string` | yes | FK into `samples.parquet`. |
-| `system_id` | `string` | yes | Biological system identifier; resolves against `system_spec.yaml` `biological_system_id`. |
+| `biological_system_id` | `string` | yes | Biological system identifier; resolves against `system_spec.yaml` `biological_system_id`. |
 | `receiver_state` | `string` (categorical) | yes | Receiver state grammar ID; must be in the system's `ReceiverStateOntology`. |
 | `spatial_x` | `float32` | conditional | Spatial X coordinate in the sample's coordinate frame (required for spatial systems). |
 | `spatial_y` | `float32` | conditional | Spatial Y coordinate. |
@@ -131,7 +135,7 @@ pre-attention averaging and no binning.
 | `receiver_id` | `string` | yes | FK into `receivers.parquet`; the receiver this context element belongs to. |
 | `sender_id` | `string` | yes | Identifier of the sender-context element (cell, spot, niche summary, or deconvolution-derived context unit). |
 | `sample_id` | `string` | yes | FK into `samples.parquet`; must match the receiver's `sample_id`. |
-| `system_id` | `string` | yes | Biological system identifier (as in `receivers.parquet`). |
+| `biological_system_id` | `string` | yes | Biological system identifier (as in `receivers.parquet`). |
 | `sender_context_type` | `string` (categorical) | yes | Sender-context type grammar ID; must be in the system's `SenderContextOntology`. |
 | `distance` | `float32` | yes | Continuous receiver→sender distance in the sample coordinate frame. Never binned. |
 | `uncertainty` | `float32` | yes | Per-element uncertainty (e.g. deconvolution/assignment confidence), used for downweighting. Convention (higher = more/less certain) fixed during implementation. |
@@ -164,7 +168,7 @@ from silently becoming the transport geometry.
 |---|---|---|---|
 | `receiver_id` | `string` | yes | FK into `receivers.parquet` (or `sender_id` for sender semantic features, if a `role` column is used). |
 | `sample_id` | `string` | yes | FK into `samples.parquet`. |
-| `system_id` | `string` | yes | Biological system identifier. |
+| `biological_system_id` | `string` | yes | Biological system identifier. |
 | `feature_space_id` | `string` (categorical) | yes | Which registered semantic space this row belongs to (e.g. a `z_sem` space vs. a `z_rec` space); must be registered via `SemanticFeatureRegistry`. |
 | `feat__0 … feat__k` | `float32` | yes | Feature dimensions of the named semantic space. Dimensionality k is fixed by the registry entry, not hard-coded here. |
 
@@ -189,7 +193,7 @@ is an explicit, registered quantity rather than an incidental latent.
 |---|---|---|---|
 | `receiver_id` | `string` | yes | FK into `receivers.parquet`. |
 | `sample_id` | `string` | yes | FK into `samples.parquet`. |
-| `system_id` | `string` | yes | Biological system identifier. |
+| `biological_system_id` | `string` | yes | Biological system identifier. |
 | `regulatory_mediator` | `string` (categorical) | conditional | Registered regulatory mediator grammar ID (when features are mediator-typed); must be in `RegulatoryMediatorRegistry`. |
 | `reg__0 … reg__m` | `float32` | yes | Regulatory feature dimensions. Dimensionality m fixed by the registry entry. |
 
@@ -211,7 +215,7 @@ state relationships.
 | column | dtype | required | description |
 |---|---|---|---|
 | `edge_id` | `string` | yes | Unique transition-edge identifier (primary key); the `transition_edge` grammar ID. |
-| `system_id` | `string` | yes | Biological system identifier. |
+| `biological_system_id` | `string` | yes | Biological system identifier. |
 | `source_state` | `string` (categorical) | yes | Source receiver state grammar ID (in `ReceiverStateOntology`). |
 | `target_state` | `string` (categorical) | yes | Target receiver state grammar ID (in `ReceiverStateOntology`). |
 | `edge_label` | `string` | optional | Human-readable label (e.g. `normal_lung->aah`); cosmetic only, not a model input. |
@@ -234,7 +238,7 @@ patient/donor grouping that split validation depends on.
 | column | dtype | required | description |
 |---|---|---|---|
 | `sample_id` | `string` | yes | Unique sample identifier (primary key). |
-| `system_id` | `string` | yes | Biological system identifier. |
+| `biological_system_id` | `string` | yes | Biological system identifier. |
 | `patient_id` | `string` | conditional | Patient identifier; required when patient-aware splitting is used. |
 | `donor_id` | `string` | conditional | Donor identifier; used when the natural grouping unit is a donor rather than a patient. |
 | `assay` | `string` | optional | Assay/platform descriptor (e.g. spatial transcriptomics platform). |
@@ -265,7 +269,7 @@ Proposed skeleton:
 
 ```json
 {
-  "system_id": "<biological_system_id>",
+  "biological_system_id": "<biological_system_id>",
   "split_granularity": "patient",
   "grouping_key": "patient_id",
   "created_by": "<adapter name / version>",
@@ -318,7 +322,7 @@ Proposed skeleton (mirrors `BiologicalSystemSpec`; illustrative LUAD values
 shown, PanIN/viral systems fill the same slots with their own vocabularies):
 
 ```yaml
-biological_system_id: luad          # the system_id used across all tables
+biological_system_id: luad          # the biological_system_id used across all tables
 spec_version: "0.1"                 # (versioning scheme to be finalized during implementation)
 
 receiver_state_ontology:            # ReceiverStateOntology
@@ -417,7 +421,7 @@ context_residual_effect
 Mapping (informative):
 
 ```text
-biological_system_id   -> system_id (all tables) / system_spec.yaml
+biological_system_id   -> biological_system_id (all tables) / system_spec.yaml
 receiver_state         -> receivers.receiver_state
 transition_edge        -> stage_edges.edge_id / transition_graph
 sender_context_type    -> sender_context.sender_context_type

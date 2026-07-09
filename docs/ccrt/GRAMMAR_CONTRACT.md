@@ -147,7 +147,7 @@ conform to the same field structure below. Adapters author/consume the spec (see
 Declared fields:
 
 ```
-system_id                    Unique identifier for the biological system S.
+biological_system_id         Unique identifier for the biological system S.
 receiver_states              The ordered set of receiver semantic states for S.
 transition_edges             Directed edges between receiver states along which behavior is estimated.
 sender_context_ontology      The typed sender-context categories present in S.
@@ -161,7 +161,7 @@ hypothesis                   A one-sentence biological hypothesis stated in gram
 YAML skeleton (field names normative; values are system-specific and illustrative):
 
 ```yaml
-system_id: <string>
+biological_system_id: <string>
 
 receiver_states:
   - <receiver_state_id>
@@ -234,7 +234,7 @@ different vocabularies.
 ### 7.1 LUAD
 
 ```yaml
-system_id: luad
+biological_system_id: luad
 
 receiver_states:
   - normal_alveolar
@@ -275,7 +275,7 @@ hypothesis: >
 ### 7.2 PanIN
 
 ```yaml
-system_id: panin
+biological_system_id: panin
 
 receiver_states:
   - normal_duct
@@ -315,7 +315,7 @@ hypothesis: >
 ### 7.3 Future viral system
 
 ```yaml
-system_id: viral   # future system
+biological_system_id: viral   # future system
 
 receiver_states:
   - uninfected
