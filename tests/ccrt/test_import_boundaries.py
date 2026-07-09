@@ -3,11 +3,11 @@
 These tests statically parse the Python sources under ``stagebridge/ccrt`` (no
 imports executed, so the heavy legacy package is never loaded) and assert:
 
-1. ``contracts``, ``grammar``, and ``data`` never import forbidden downstream
-   CCRT packages (adapters/operators/sender_context/transport/training/
-   plotting/deconvolution).
-2. Those three packages only depend cross-package on the allowed set
-   (contracts/grammar/data) plus the standard library.
+1. ``contracts``, ``grammar``, ``io``, and ``data`` never import forbidden
+   downstream CCRT packages (adapters/operators/sender_context/transport/
+   training/plotting/deconvolution/cli/evaluation).
+2. Those packages only depend cross-package on the allowed core set
+   (contracts/grammar/io/data) plus the standard library.
 3. Forbidden mechanism terms (world_token/ring_id/radial_bin/radius_bin/
    neighborhood_bin) appear as identifiers only in ``contracts/naming.py``.
 """
@@ -28,8 +28,8 @@ CCRT_ROOT = REPO_ROOT / "stagebridge" / "ccrt"
 
 CCRT_PKG_PREFIX = "stagebridge.ccrt"
 
-# Packages implemented in this milestone (the system-agnostic core slice we own).
-IMPLEMENTED_PACKAGES = ("contracts", "grammar", "data")
+# Packages implemented so far (the system-agnostic core slice we own).
+IMPLEMENTED_PACKAGES = ("contracts", "grammar", "io", "data")
 
 # Downstream / disease packages that the implemented packages must NEVER import.
 FORBIDDEN_TARGETS = (
@@ -40,6 +40,8 @@ FORBIDDEN_TARGETS = (
     "training",
     "plotting",
     "deconvolution",
+    "evaluation",
+    "cli",
 )
 
 # Cross-package CCRT imports that ARE allowed from the implemented packages.
