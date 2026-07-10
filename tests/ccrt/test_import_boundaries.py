@@ -43,11 +43,11 @@ IMPLEMENTED_PACKAGES = (
     "transport",
     "training",
     "synthetic",
+    "adapters",
 )
 
 # Downstream / disease packages that NO implemented package may import.
 FORBIDDEN_TARGETS = (
-    "adapters",
     "plotting",
     "deconvolution",
     "evaluation",
@@ -95,6 +95,15 @@ ALLOWED_INTRA_CCRT = {
         "representations",
         "transport",
         "training",
+    },
+    # adapters (Milestone 8) translate a verified source into CCRT tables/grammar
+    # ids; they may know biology but MUST NOT import model or training layers.
+    "adapters": {
+        "contracts",
+        "grammar",
+        "io",
+        "data",
+        "representations",
     },
 }
 
@@ -368,3 +377,48 @@ def test_nothing_imports_synthetic():
                     f"via '{target}'"
                 )
     assert not violations, "upstream import of synthetic:\n" + "\n".join(violations)
+
+
+# Model/training layers the adapter must never import (Milestone 8).
+ADAPTER_FORBIDDEN_PACKAGES = (
+    "sender_context",
+    "operators",
+    "transport",
+    "training",
+    "synthetic",
+    "deconvolution",
+    "evaluation",
+    "plotting",
+    "cli",
+)
+
+
+def test_adapters_do_not_import_model_or_training_layers():
+    """The adapter implementation must stay independent of model/training."""
+    adapters_dir = CCRT_ROOT / "adapters"
+    violations: list[str] = []
+    for path in _iter_source_files(adapters_dir):
+        for target in _imported_modules(path):
+            sub = _ccrt_subpackage_of(target)
+            if sub in ADAPTER_FORBIDDEN_PACKAGES:
+                violations.append(
+                    f"{path.relative_to(REPO_ROOT)} imports forbidden layer '{sub}' "
+                    f"via '{target}'"
+                )
+    assert not violations, "adapter imported a model/training layer:\n" + "\n".join(violations)
+
+
+def test_nothing_upstream_imports_adapters():
+    """No non-adapter implemented package may import adapters."""
+    violations: list[str] = []
+    for path in _implemented_source_files():
+        importer = _ccrt_subpackage_of(_module_name_for(path))
+        if importer == "adapters":
+            continue
+        for target in _imported_modules(path):
+            if _ccrt_subpackage_of(target) == "adapters":
+                violations.append(
+                    f"{path.relative_to(REPO_ROOT)} ({importer}) imports adapters "
+                    f"via '{target}'"
+                )
+    assert not violations, "upstream import of adapters:\n" + "\n".join(violations)
