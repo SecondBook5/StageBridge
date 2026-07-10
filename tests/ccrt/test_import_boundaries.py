@@ -42,6 +42,7 @@ IMPLEMENTED_PACKAGES = (
     "representations",
     "transport",
     "training",
+    "synthetic",
 )
 
 # Downstream / disease packages that NO implemented package may import.
@@ -51,7 +52,6 @@ FORBIDDEN_TARGETS = (
     "deconvolution",
     "evaluation",
     "cli",
-    "synthetic",
 )
 
 # Optional external OT dependencies that must never be imported at module top
@@ -84,7 +84,36 @@ ALLOWED_INTRA_CCRT = {
         "representations",
         "transport",
     },
+    # synthetic (Milestone 7) composes the whole core to teach + benchmark; it
+    # sits above training and is imported by nothing.
+    "synthetic": {
+        "contracts",
+        "grammar",
+        "data",
+        "sender_context",
+        "operators",
+        "representations",
+        "transport",
+        "training",
+    },
 }
+
+# Teacher-independence: these synthetic modules must NOT import student model
+# packages (the teacher is coded from explicit math, not from the CCRT model).
+TEACHER_INDEPENDENT_FILES = (
+    "synthetic/mechanisms.py",
+    "synthetic/ground_truth.py",
+)
+STUDENT_ONLY_PACKAGES = ("sender_context", "operators", "transport", "training")
+PROHIBITED_STUDENT_CLASS_NAMES = (
+    "ContextResidualTransportOperator",
+    "TypedSenderContextAttention",
+    "RegulatoryBottleneck",
+    "DriftHead",
+    "GrowthHead",
+    "SemanticTransportLoss",
+    "CCRTTrainer",
+)
 
 FORBIDDEN_MECHANISM_TERMS = (
     "world_token",
@@ -209,12 +238,17 @@ def test_cross_package_imports_obey_per_package_rules():
     )
 
 
-def test_nothing_except_training_imports_training():
-    """The training layer sits at the top: no other package may import it."""
+def test_only_synthetic_imports_training():
+    """Only the top layers (training itself, synthetic) may import training.
+
+    training composes the model core; synthetic composes training to benchmark.
+    No other package may reach into training.
+    """
+    allowed_importers = {"training", "synthetic"}
     violations: list[str] = []
     for path in _implemented_source_files():
         importer = _ccrt_subpackage_of(_module_name_for(path))
-        if importer == "training":
+        if importer in allowed_importers:
             continue
         for target in _imported_modules(path):
             if _ccrt_subpackage_of(target) == "training":
@@ -222,7 +256,7 @@ def test_nothing_except_training_imports_training():
                     f"{path.relative_to(REPO_ROOT)} ({importer}) imports training "
                     f"via '{target}'"
                 )
-    assert not violations, "upstream import of training:\n" + "\n".join(violations)
+    assert not violations, "disallowed import of training:\n" + "\n".join(violations)
 
 
 def test_forbidden_terms_only_in_naming_module():
@@ -286,3 +320,51 @@ def test_transport_does_not_top_level_import_optional_ot():
         "optional OT dependency imported at module top level:\n"
         + "\n".join(offenders)
     )
+
+
+def test_teacher_modules_do_not_import_student_packages():
+    """The synthetic teacher must be independent from the CCRT student model.
+
+    mechanisms.py and ground_truth.py must not import sender_context / operators
+    / transport / training (anywhere, top-level or nested).
+    """
+    offenders: list[str] = []
+    for rel in TEACHER_INDEPENDENT_FILES:
+        path = CCRT_ROOT / rel
+        if not path.is_file():
+            continue
+        for target in _imported_modules(path):
+            sub = _ccrt_subpackage_of(target)
+            if sub in STUDENT_ONLY_PACKAGES:
+                offenders.append(f"{rel} imports student package '{sub}' via '{target}'")
+    assert not offenders, "teacher independence violated:\n" + "\n".join(offenders)
+
+
+def test_teacher_ground_truth_has_no_student_class_names():
+    """ground_truth.py / mechanisms.py must not reference student class names."""
+    offenders: list[str] = []
+    for rel in TEACHER_INDEPENDENT_FILES:
+        path = CCRT_ROOT / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for cls in PROHIBITED_STUDENT_CLASS_NAMES:
+            if cls in text:
+                offenders.append(f"{rel} references student class '{cls}'")
+    assert not offenders, "student class name in teacher source:\n" + "\n".join(offenders)
+
+
+def test_nothing_imports_synthetic():
+    """No non-synthetic package may import the synthetic benchmark package."""
+    violations: list[str] = []
+    for path in _implemented_source_files():
+        importer = _ccrt_subpackage_of(_module_name_for(path))
+        if importer == "synthetic":
+            continue
+        for target in _imported_modules(path):
+            if _ccrt_subpackage_of(target) == "synthetic":
+                violations.append(
+                    f"{path.relative_to(REPO_ROOT)} ({importer}) imports synthetic "
+                    f"via '{target}'"
+                )
+    assert not violations, "upstream import of synthetic:\n" + "\n".join(violations)
