@@ -208,3 +208,48 @@ def test_forbidden_field_in_item_fails():
             receiver_feature_key="receiver_features",
             sender_feature_key="sender_features",
         )
+
+
+# -- Milestone 6 contract repair: sender_context_type_ids survive collation --
+
+def test_sender_context_type_ids_preserved_and_padded():
+    ds = make_dataset()
+    batch = collate_default(ds)
+    # r1 has 2 senders (ctx_0, ctx_1); r2 has 1 sender (ctx_0), pad -> None
+    assert batch.sender_context_type_ids == [["ctx_0", "ctx_1"], ["ctx_0", None]]
+    batch.validate()
+
+
+def test_sender_context_type_ids_absent_when_column_missing():
+    # The standardized sender_context table *requires* sender_context_type_id, so
+    # the "column missing" branch is exercised at the collate boundary with
+    # hand-built items (no type-id key on the sender rows).
+    item0 = {
+        "receiver": {
+            "receiver_id": "r1",
+            "biological_system_id": "sys_a",
+            "transition_edge_id": "edge_1",
+            "receiver_features": [1.0, 2.0, 3.0],
+        },
+        "sender_context": (
+            {"sender_features": [0.1, 0.2], "distance_to_receiver": 1.0},
+        ),
+    }
+    item1 = {
+        "receiver": {
+            "receiver_id": "r2",
+            "biological_system_id": "sys_a",
+            "transition_edge_id": "edge_1",
+            "receiver_features": [4.0, 5.0, 6.0],
+        },
+        "sender_context": (
+            {"sender_features": [0.5, 0.6], "distance_to_receiver": 2.0},
+        ),
+    }
+    batch = collate_ccrt_records(
+        [item0, item1],
+        receiver_feature_key="receiver_features",
+        sender_feature_key="sender_features",
+    )
+    assert batch.sender_context_type_ids is None
+    batch.validate()

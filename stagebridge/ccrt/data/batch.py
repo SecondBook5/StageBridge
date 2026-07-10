@@ -65,6 +65,14 @@ class CCRTBatch:
     semantic_features: Any | None = None
     regulatory_features: Any | None = None
 
+    # Per-token sender-context grammar ids, shape [B, K], aligned with
+    # ``sender_mask``. Real sender positions carry a grammar-id string; padded
+    # (masked) positions carry ``None`` (an explicit non-biological sentinel).
+    # These are string ids, not a numeric tensor: the training layer maps them
+    # to integer indices via the CCRT index registry. Optional so pre-Milestone-6
+    # batches remain valid.
+    sender_context_type_ids: Sequence[Sequence[Any]] | None = None
+
     model_inputs: Mapping[str, Any] = field(default_factory=dict)
     targets: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -134,6 +142,30 @@ class CCRTBatch:
             require_same_prefix(
                 "regulatory_features", reg_shape, "receiver_features", recv_shape, 1
             )
+
+        # -- sender-context type ids (string ids / None, not a numeric tensor) --
+        if self.sender_context_type_ids is not None:
+            b = sender_shape[0]
+            k = sender_shape[1]
+            rows = self.sender_context_type_ids
+            if isinstance(rows, (str, bytes)) or not isinstance(rows, Sequence):
+                raise CCRTValidationError(
+                    "sender_context_type_ids must be a sequence of B rows"
+                )
+            if len(rows) != b:
+                raise CCRTValidationError(
+                    f"sender_context_type_ids has {len(rows)} rows, expected B={b}"
+                )
+            for i, row in enumerate(rows):
+                if isinstance(row, (str, bytes)) or not isinstance(row, Sequence):
+                    raise CCRTValidationError(
+                        f"sender_context_type_ids[{i}] must be a sequence of K entries"
+                    )
+                if len(row) != k:
+                    raise CCRTValidationError(
+                        f"sender_context_type_ids[{i}] has {len(row)} entries, "
+                        f"expected K={k}"
+                    )
 
         # -- forbidden-field hygiene --
         # model_inputs: no mechanism fields, no leakage fields.

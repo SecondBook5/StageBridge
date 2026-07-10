@@ -108,6 +108,7 @@ def collate_ccrt_records(
     sender_feature_key: str,
     semantic_feature_key: str | None = None,
     regulatory_feature_key: str | None = None,
+    sender_context_type_key: str = "sender_context_type_id",
     require_transition_edge: bool = True,
 ) -> CCRTBatch:
     """Collate dataset items into a padded, validated ``CCRTBatch``."""
@@ -228,11 +229,20 @@ def collate_ccrt_records(
     if real_sender_count == 0:
         include_uncertainty = False
 
+    # Include sender-context type ids only if EVERY real sender row carries one.
+    include_type_ids = real_sender_count > 0
+    for rows in per_item_senders:
+        for srow in rows:
+            if sender_context_type_key not in srow:
+                include_type_ids = False
+
     # ---- build padded sender tensors ----
     sender_features: list[list[list[float]]] = []
     sender_mask: list[list[int]] = []
     distance_to_receiver: list[list[float]] = []
     uncertainty: list[list[float]] | None = [] if include_uncertainty else None
+    # Per-token grammar-id strings (real) / None (padding); [B, K].
+    sender_context_type_ids: list[list[Any]] | None = [] if include_type_ids else None
 
     zero_vec = [0.0] * sender_dim
     for idx, rows in enumerate(per_item_senders):
@@ -240,6 +250,7 @@ def collate_ccrt_records(
         mask_row: list[int] = []
         dist_row: list[float] = []
         unc_row: list[float] = []
+        type_row: list[Any] = []
         for srow in rows:
             feat_row.append(
                 coerce_numeric_vector(
@@ -265,19 +276,31 @@ def collate_ccrt_records(
                         srow["uncertainty"], f"collate: item {idx} uncertainty"
                     )
                 )
-        # pad to k
+            if include_type_ids:
+                type_value = srow[sender_context_type_key]
+                if not isinstance(type_value, str) or not type_value.strip():
+                    raise CCRTValidationError(
+                        f"collate: item {idx} sender row has invalid "
+                        f"'{sender_context_type_key}': {type_value!r}"
+                    )
+                type_row.append(type_value)
+        # pad to k (masked padding: None sentinel for type ids)
         while len(feat_row) < k:
             feat_row.append(list(zero_vec))
             mask_row.append(0)
             dist_row.append(0.0)
             if include_uncertainty:
                 unc_row.append(0.0)
+            if include_type_ids:
+                type_row.append(None)
 
         sender_features.append(feat_row)
         sender_mask.append(mask_row)
         distance_to_receiver.append(dist_row)
         if uncertainty is not None:
             uncertainty.append(unc_row)
+        if sender_context_type_ids is not None:
+            sender_context_type_ids.append(type_row)
 
     # ---- optional receiver-level feature matrices ----
     semantic_features: list[list[float]] | None = None
@@ -329,6 +352,7 @@ def collate_ccrt_records(
         uncertainty=uncertainty,
         semantic_features=semantic_features,
         regulatory_features=regulatory_features,
+        sender_context_type_ids=sender_context_type_ids,
     )
     batch.validate()
     return batch

@@ -11,6 +11,7 @@ from stagebridge.ccrt.contracts import (
     CCRTForbiddenFieldError,
     CCRTLeakageError,
     CCRTShapeError,
+    CCRTValidationError,
 )
 from stagebridge.ccrt.data import CCRTBatch
 
@@ -136,3 +137,34 @@ def test_scalar_conditioning_ids_allowed():
         biological_system_id="system_a", transition_edge_id="edge_1"
     )
     batch.validate()
+
+
+# -- Milestone 6 contract repair: sender_context_type_ids [B, K] --
+
+def test_sender_context_type_ids_valid():
+    # B=2, K=4: grammar-id strings for real senders, None for padding.
+    ids = [
+        ["ctx_0", "ctx_1", "ctx_0", None],
+        ["ctx_1", None, None, None],
+    ]
+    batch = make_valid_batch(sender_context_type_ids=ids)
+    batch.validate()
+
+
+def test_sender_context_type_ids_absent_ok():
+    batch = make_valid_batch(sender_context_type_ids=None)
+    batch.validate()
+
+
+def test_sender_context_type_ids_wrong_b_fails():
+    ids = [["ctx_0", "ctx_1", "ctx_0", None]]  # only 1 row, B=2
+    batch = make_valid_batch(sender_context_type_ids=ids)
+    with pytest.raises(CCRTValidationError):
+        batch.validate()
+
+
+def test_sender_context_type_ids_wrong_k_fails():
+    ids = [["ctx_0", "ctx_1"], ["ctx_0", "ctx_1"]]  # K=2, expected K=4
+    batch = make_valid_batch(sender_context_type_ids=ids)
+    with pytest.raises(CCRTValidationError):
+        batch.validate()

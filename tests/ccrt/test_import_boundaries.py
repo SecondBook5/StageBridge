@@ -41,24 +41,50 @@ IMPLEMENTED_PACKAGES = (
     "operators",
     "representations",
     "transport",
+    "training",
 )
 
-# Downstream / disease packages that the implemented packages must NEVER import.
+# Downstream / disease packages that NO implemented package may import.
 FORBIDDEN_TARGETS = (
     "adapters",
-    "training",
     "plotting",
     "deconvolution",
     "evaluation",
     "cli",
+    "synthetic",
 )
 
 # Optional external OT dependencies that must never be imported at module top
 # level anywhere in transport source (they are lazy-imported inside operations).
 OPTIONAL_OT_MODULES = ("geomloss", "ot")
 
-# Cross-package CCRT imports that ARE allowed from the implemented packages.
-ALLOWED_CCRT_SUBPACKAGES = set(IMPLEMENTED_PACKAGES)
+# Per-package allowed intra-CCRT dependency set. A package may only import the
+# CCRT subpackages listed for it (plus stdlib/torch, which are not ccrt
+# subpackages). This encodes the one-way dependency law:
+#   * data may know contracts + grammar (for the index registry), nothing else;
+#   * training sits at the top and may compose the whole core;
+#   * nothing (outside training) may import training.
+ALLOWED_INTRA_CCRT = {
+    "contracts": set(),
+    "grammar": {"contracts"},
+    "io": {"contracts"},
+    # data validates records through io (Milestone 2) and qualifies grammar ids
+    # (Milestone 6); both are acyclic downstream-of-data-free dependencies.
+    "data": {"contracts", "grammar", "io"},
+    "representations": {"contracts"},
+    "sender_context": {"contracts"},
+    "operators": {"contracts", "grammar", "representations", "sender_context"},
+    "transport": {"contracts", "representations"},
+    "training": {
+        "contracts",
+        "grammar",
+        "data",
+        "sender_context",
+        "operators",
+        "representations",
+        "transport",
+    },
+}
 
 FORBIDDEN_MECHANISM_TERMS = (
     "world_token",
@@ -161,22 +187,42 @@ def test_no_forbidden_downstream_imports():
     assert not violations, "forbidden import(s) found:\n" + "\n".join(violations)
 
 
-def test_cross_package_imports_are_in_allowed_set():
-    """Any intra-CCRT import from the implemented packages must be allowed."""
+def test_cross_package_imports_obey_per_package_rules():
+    """Each package may import only its allowed intra-CCRT subpackages."""
     violations: list[str] = []
     for path in _implemented_source_files():
+        importer = _ccrt_subpackage_of(_module_name_for(path))
+        if importer is None:
+            continue
+        allowed = ALLOWED_INTRA_CCRT.get(importer, set())
         for target in _imported_modules(path):
             sub = _ccrt_subpackage_of(target)
-            if sub is None:
-                continue  # not an intra-ccrt import (stdlib or the ccrt root)
-            if sub not in ALLOWED_CCRT_SUBPACKAGES:
+            if sub is None or sub == importer:
+                continue  # stdlib/torch/ccrt-root, or intra-package self-import
+            if sub not in allowed:
                 violations.append(
-                    f"{path.relative_to(REPO_ROOT)} imports disallowed "
-                    f"ccrt subpackage '{sub}' via '{target}'"
+                    f"{path.relative_to(REPO_ROOT)} ({importer}) imports "
+                    f"disallowed ccrt subpackage '{sub}' via '{target}'"
                 )
     assert not violations, "disallowed cross-package import(s):\n" + "\n".join(
         violations
     )
+
+
+def test_nothing_except_training_imports_training():
+    """The training layer sits at the top: no other package may import it."""
+    violations: list[str] = []
+    for path in _implemented_source_files():
+        importer = _ccrt_subpackage_of(_module_name_for(path))
+        if importer == "training":
+            continue
+        for target in _imported_modules(path):
+            if _ccrt_subpackage_of(target) == "training":
+                violations.append(
+                    f"{path.relative_to(REPO_ROOT)} ({importer}) imports training "
+                    f"via '{target}'"
+                )
+    assert not violations, "upstream import of training:\n" + "\n".join(violations)
 
 
 def test_forbidden_terms_only_in_naming_module():

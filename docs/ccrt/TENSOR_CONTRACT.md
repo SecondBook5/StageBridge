@@ -381,10 +381,18 @@ Receiver tensors
   regulatory_features   float   [B, D_REG]               (optional; r)
 
 Typed sender-context tensors
-  sender_features       float   [B, K, D_S]              (required)
-  sender_mask           bool    [B, K]                   (required; slot 0 reserved: empty sender token)
-  distance_to_receiver  float   [B, K]                   (required)
-  uncertainty           float   [B, K]                   (optional)
+  sender_features       float      [B, K, D_S]           (required)
+  sender_mask           bool       [B, K]                (required; slot 0 reserved: empty sender token)
+  distance_to_receiver  float      [B, K]                (required)
+  uncertainty           float      [B, K]                (optional)
+  sender_context_type_ids  grammar-id/None  [B, K]       (optional; real senders carry a
+                                                          grammar-id string, masked/padded
+                                                          positions carry None. String ids,
+                                                          NOT a numeric tensor: the training
+                                                          layer maps them to integer indices
+                                                          via the CCRT index registry. The
+                                                          reserved empty-sender index is NEVER
+                                                          used for padding.)
 
 Grammar conditioning
   biological_system_id  grammar-id  [B] or scalar        (required)
