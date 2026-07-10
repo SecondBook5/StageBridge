@@ -3,13 +3,16 @@
 These tests statically parse the Python sources under ``stagebridge/ccrt`` (no
 imports executed, so the heavy legacy package is never loaded) and assert:
 
-1. ``contracts``, ``grammar``, ``io``, ``data``, ``sender_context``, and
-   ``operators`` never import forbidden downstream CCRT packages (adapters/
-   transport/training/plotting/deconvolution/cli/evaluation).
-2. Those packages only depend cross-package on the allowed core set
-   (contracts/grammar/io/data/sender_context/operators) plus the standard library.
+1. ``contracts``, ``grammar``, ``io``, ``data``, ``sender_context``,
+   ``operators``, ``representations``, and ``transport`` never import forbidden
+   downstream CCRT packages (adapters/training/plotting/deconvolution/cli/
+   evaluation).
+2. Those packages only depend cross-package on the allowed core set plus the
+   standard library.
 3. Forbidden mechanism terms (world_token/ring_id/radial_bin/radius_bin/
    neighborhood_bin) appear as identifiers only in ``contracts/naming.py``.
+4. Optional OT dependencies (geomloss/ot) are never imported at module top level
+   in transport source — only lazily inside adapter operations.
 """
 
 from __future__ import annotations
@@ -36,18 +39,23 @@ IMPLEMENTED_PACKAGES = (
     "data",
     "sender_context",
     "operators",
+    "representations",
+    "transport",
 )
 
 # Downstream / disease packages that the implemented packages must NEVER import.
 FORBIDDEN_TARGETS = (
     "adapters",
-    "transport",
     "training",
     "plotting",
     "deconvolution",
     "evaluation",
     "cli",
 )
+
+# Optional external OT dependencies that must never be imported at module top
+# level anywhere in transport source (they are lazy-imported inside operations).
+OPTIONAL_OT_MODULES = ("geomloss", "ot")
 
 # Cross-package CCRT imports that ARE allowed from the implemented packages.
 ALLOWED_CCRT_SUBPACKAGES = set(IMPLEMENTED_PACKAGES)
@@ -194,3 +202,41 @@ def test_each_implemented_package_is_importable_in_isolation(pkg):
     init = CCRT_ROOT / pkg / "__init__.py"
     assert init.is_file(), f"missing {init}"
     ast.parse(init.read_text(encoding="utf-8"), filename=str(init))
+
+
+def _top_level_import_names(path: Path) -> list[str]:
+    """Return module names imported at the *top level* of a file (module scope).
+
+    Imports nested inside function/class bodies are excluded, so lazy imports do
+    not count.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: list[str] = []
+    for node in tree.body:  # only module-level statements
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                names.append(node.module)
+    return names
+
+
+def test_transport_does_not_top_level_import_optional_ot():
+    """Optional OT backends must be lazy — never module-top-level imports.
+
+    This is environment-independent: it inspects the source, not sys.modules
+    (which the legacy stagebridge package may pollute).
+    """
+    transport_dir = CCRT_ROOT / "transport"
+    offenders: list[str] = []
+    for path in _iter_source_files(transport_dir):
+        for name in _top_level_import_names(path):
+            root = name.split(".", 1)[0]
+            if root in OPTIONAL_OT_MODULES:
+                offenders.append(
+                    f"{path.relative_to(REPO_ROOT)} top-level imports '{name}'"
+                )
+    assert not offenders, (
+        "optional OT dependency imported at module top level:\n"
+        + "\n".join(offenders)
+    )
